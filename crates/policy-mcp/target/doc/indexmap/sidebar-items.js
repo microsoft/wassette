@@ -1,1 +1,0 @@
-window.SIDEBAR_ITEMS = {"enum":["GetDisjointMutError"],"macro":["indexmap","indexmap_with_default","indexset","indexset_with_default"],"mod":["map","set"],"struct":["TryReserveError"],"trait":["Equivalent"]};

@@ -1955,11 +1955,11 @@ dependencies = [
 [[package]]
 name = "policy-mcp"
 version = "0.1.0"
+source = "git+https://github.com/semcp/policy-mcp?branch=main#76ee6a66c24b743a6cc2b7372f5a61d36b2ec140"
 dependencies = [
  "anyhow",
  "serde",
  "serde_yaml",
- "tempfile",
 ]
 
 [[package]]

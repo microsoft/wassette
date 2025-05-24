@@ -1,9 +1,0 @@
-(function() {
-    var implementors = Object.fromEntries([["anyhow",[["impl <a class=\"trait\" href=\"https://doc.rust-lang.org/1.86.0/core/ops/drop/trait.Drop.html\" title=\"trait core::ops::drop::Drop\">Drop</a> for <a class=\"struct\" href=\"anyhow/struct.Error.html\" title=\"struct anyhow::Error\">Error</a>"]]],["indexmap",[["impl&lt;I, K, V, S&gt; <a class=\"trait\" href=\"https://doc.rust-lang.org/1.86.0/core/ops/drop/trait.Drop.html\" title=\"trait core::ops::drop::Drop\">Drop</a> for <a class=\"struct\" href=\"indexmap/map/struct.Splice.html\" title=\"struct indexmap::map::Splice\">Splice</a>&lt;'_, I, K, V, S&gt;<div class=\"where\">where\n    I: <a class=\"trait\" href=\"https://doc.rust-lang.org/1.86.0/core/iter/traits/iterator/trait.Iterator.html\" title=\"trait core::iter::traits::iterator::Iterator\">Iterator</a>&lt;Item = <a class=\"primitive\" href=\"https://doc.rust-lang.org/1.86.0/std/primitive.tuple.html\">(K, V)</a>&gt;,\n    K: <a class=\"trait\" href=\"https://doc.rust-lang.org/1.86.0/core/hash/trait.Hash.html\" title=\"trait core::hash::Hash\">Hash</a> + <a class=\"trait\" href=\"https://doc.rust-lang.org/1.86.0/core/cmp/trait.Eq.html\" title=\"trait core::cmp::Eq\">Eq</a>,\n    S: <a class=\"trait\" href=\"https://doc.rust-lang.org/1.86.0/core/hash/trait.BuildHasher.html\" title=\"trait core::hash::BuildHasher\">BuildHasher</a>,</div>"]]],["syn",[["impl&lt;'a&gt; <a class=\"trait\" href=\"https://doc.rust-lang.org/1.86.0/core/ops/drop/trait.Drop.html\" title=\"trait core::ops::drop::Drop\">Drop</a> for <a class=\"struct\" href=\"syn/parse/struct.ParseBuffer.html\" title=\"struct syn::parse::ParseBuffer\">ParseBuffer</a>&lt;'a&gt;"]]]]);
-    if (window.register_implementors) {
-        window.register_implementors(implementors);
-    } else {
-        window.pending_implementors = implementors;
-    }
-})()
-//{"start":57,"fragment_lengths":[258,1068,301]}

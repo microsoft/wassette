@@ -1,2 +1,0 @@
-window.ALL_CRATES = ["anyhow","equivalent","hashbrown","indexmap","itoa","policy_mcp","proc_macro2","quote","ryu","serde","serde_derive","serde_yaml","syn","unicode_ident","unsafe_libyaml"];
-//{"start":21,"fragment_lengths":[8,13,12,11,7,13,14,8,6,8,15,13,6,16,17]}
