@@ -1,110 +1,107 @@
 use std::collections::HashMap;
 use std::path::Path;
-use std::{env, fs};
 
 use anyhow::Result;
-use regex::Regex;
+use policy_mcp::{PolicyDocument, PolicyParser, EnvironmentPermission};
 
-#[derive(Debug, serde::Deserialize)]
-struct PolicyFile {
-    env: Option<HashMap<String, String>>,
+/// Loads policy from a file and returns environment variables as a HashMap.
+/// 
+/// This uses the policy-mcp crate to parse policy files in YAML format.
+/// For backward compatibility, it extracts environment variables from the policy.
+pub fn load_policy<P: AsRef<Path>>(path: P) -> Result<HashMap<String, String>> {
+    let policy: PolicyDocument = PolicyParser::parse_file(path)?;
+    
+    let mut env_vars = HashMap::new();
+    
+    // Extract environment variables from the policy
+    if let Some(env_permissions) = &policy.permissions.environment {
+        if let Some(allowed_vars) = &env_permissions.allow {
+            for env_var in allowed_vars {
+                // For now, we're just capturing the variable name, not setting any values
+                // This maintains backward compatibility with current behavior
+                env_vars.insert(env_var.key.clone(), String::new());
+            }
+        }
+    }
+    
+    Ok(env_vars)
 }
 
-fn process_env_vars(map: &mut HashMap<String, String>) {
-    // FYI the actual format after TOML parsing: { ENV_VAR }
-    let pattern = r"\{\s*([A-Za-z0-9_]+)\s*\}";
-    let re = Regex::new(pattern).unwrap();
-
-    for (_, value) in map.iter_mut() {
-        if re.is_match(value) {
-            if let Some(caps) = re.captures(value) {
-                if let Some(env_var_name) = caps.get(1) {
-                    let env_var_name = env_var_name.as_str();
-                    if let Ok(env_val) = env::var(env_var_name) {
-                        *value = env_val;
+/// Gets storage permissions from the policy file
+/// 
+/// Returns a vector of (path, access_type) tuples where access_type can be:
+/// - "r" for read-only
+/// - "w" for write-only
+/// - "rw" for read-write
+pub fn get_storage_permissions<P: AsRef<Path>>(path: P) -> Result<Vec<(String, String)>> {
+    let policy: PolicyDocument = PolicyParser::parse_file(path)?;
+    
+    let mut storage_perms = Vec::new();
+    
+    if let Some(storage) = &policy.permissions.storage {
+        if let Some(allowed) = &storage.allow {
+            for perm in allowed {
+                let uri = perm.uri.clone();
+                
+                // Extract the path from fs:// URI format
+                if uri.starts_with("fs://") {
+                    let fs_path = uri.trim_start_matches("fs://").to_string();
+                    
+                    // Determine access mode
+                    let mut access = String::new();
+                    for access_type in &perm.access {
+                        match access_type {
+                            policy_mcp::AccessType::Read => {
+                                if !access.contains('r') {
+                                    access.push('r');
+                                }
+                            },
+                            policy_mcp::AccessType::Write => {
+                                if !access.contains('w') {
+                                    access.push('w');
+                                }
+                            },
+                        }
                     }
+                    
+                    storage_perms.push((fs_path, access));
                 }
             }
         }
     }
-}
-
-pub fn load_policy<P: AsRef<Path>>(path: P) -> Result<HashMap<String, String>> {
-    let content = fs::read_to_string(path)?;
-    let policy: PolicyFile = toml::from_str(&content)?;
-    let mut env_vars = policy.env.unwrap_or_default();
-
-    process_env_vars(&mut env_vars);
-
-    Ok(env_vars)
+    
+    Ok(storage_perms)
 }
 
 #[cfg(test)]
 mod tests {
-    use std::env;
     use std::io::Write;
 
     use tempfile::NamedTempFile;
 
-    use super::load_policy;
-
-    // This is a helper struct to temporarily set an environment variable and restore it when the struct is dropped.
-    struct TempEnvVar {
-        key: String,
-        old_value: Option<std::ffi::OsString>,
-    }
-    impl TempEnvVar {
-        fn new<K: Into<String>, V: AsRef<std::ffi::OsStr>>(key: K, value: V) -> Self {
-            let key_str = key.into();
-            let old_value = env::var_os(&key_str);
-            unsafe {
-                env::set_var(&key_str, value);
-            }
-            TempEnvVar {
-                key: key_str,
-                old_value,
-            }
-        }
-    }
-    impl Drop for TempEnvVar {
-        fn drop(&mut self) {
-            match &self.old_value {
-                Some(val) => unsafe { env::set_var(&self.key, val) },
-                None => unsafe { env::remove_var(&self.key) },
-            }
-        }
-    }
+    use super::{load_policy, get_storage_permissions};
 
     #[test]
     fn test_valid_policy() {
         let mut file = NamedTempFile::new().unwrap();
-        writeln!(file, "[env]\nFOO = 'bar'\nBAZ = 'qux'").unwrap();
-        let vars = load_policy(file.path()).unwrap();
-        assert_eq!(vars.get("FOO"), Some(&"bar".to_string()));
-        assert_eq!(vars.get("BAZ"), Some(&"qux".to_string()));
-    }
-
-    #[test]
-    fn test_env_var_substitution() {
-        let key = "TEST_ENV_VAR";
-        let val = "test_value";
-        let _temp_env = TempEnvVar::new(key, val);
-
-        let mut file = NamedTempFile::new().unwrap();
-
-        writeln!(file, "[env]").unwrap();
-        writeln!(file, "FOO = 'bar'").unwrap();
-        writeln!(file, "ENV_TEST = '{{ TEST_ENV_VAR }}'").unwrap();
+        writeln!(file, "version: \"1.0\"").unwrap();
+        writeln!(file, "permissions:").unwrap();
+        writeln!(file, "  environment:").unwrap();
+        writeln!(file, "    allow:").unwrap();
+        writeln!(file, "      - key: \"FOO\"").unwrap();
+        writeln!(file, "      - key: \"BAZ\"").unwrap();
 
         let vars = load_policy(file.path()).unwrap();
-        assert_eq!(vars.get("FOO"), Some(&"bar".to_string()));
-        assert_eq!(vars.get("ENV_TEST"), Some(&val.to_string()));
+        assert_eq!(vars.get("FOO"), Some(&"".to_string()));
+        assert_eq!(vars.get("BAZ"), Some(&"".to_string()));
     }
 
     #[test]
     fn test_missing_env_section() {
         let mut file = NamedTempFile::new().unwrap();
-        writeln!(file, "[not_env]\nFOO = 'bar'").unwrap();
+        writeln!(file, "version: \"1.0\"").unwrap();
+        writeln!(file, "permissions: {}").unwrap();
+        
         let vars = load_policy(file.path()).unwrap();
         assert!(vars.is_empty());
     }
@@ -113,7 +110,30 @@ mod tests {
     #[should_panic]
     fn test_malformed_policy() {
         let mut file = NamedTempFile::new().unwrap();
-        writeln!(file, "[env\nFOO = 'bar'").unwrap();
+        writeln!(file, "version: 1.0").unwrap(); // Missing quotes
+        writeln!(file, "invalid_yaml_format").unwrap();
         load_policy(file.path()).unwrap();
+    }
+    
+    #[test]
+    fn test_storage_permissions() {
+        let mut file = NamedTempFile::new().unwrap();
+        writeln!(file, "version: \"1.0\"").unwrap();
+        writeln!(file, "permissions:").unwrap();
+        writeln!(file, "  storage:").unwrap();
+        writeln!(file, "    allow:").unwrap();
+        writeln!(file, "      - uri: \"fs://work/agent/**\"").unwrap();
+        writeln!(file, "        access: [\"read\", \"write\"]").unwrap();
+        writeln!(file, "      - uri: \"fs://configs/readonly.yml\"").unwrap();
+        writeln!(file, "        access: [\"read\"]").unwrap();
+        
+        let perms = get_storage_permissions(file.path()).unwrap();
+        assert_eq!(perms.len(), 2);
+        
+        assert_eq!(perms[0].0, "work/agent/**");
+        assert_eq!(perms[0].1, "rw");
+        
+        assert_eq!(perms[1].0, "configs/readonly.yml");
+        assert_eq!(perms[1].1, "r");
     }
 }

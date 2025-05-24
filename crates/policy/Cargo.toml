@@ -5,9 +5,8 @@ edition = "2024"
 
 [dependencies]
 anyhow = { workspace = true }
-toml = "0.8"
+policy-mcp = { workspace = true }
 serde = { version = "1.0", features = ["derive"] }
-regex = "1.10.2"
 
 [dev-dependencies]
 tempfile = "3.8"

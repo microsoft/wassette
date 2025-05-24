@@ -16,6 +16,7 @@ lifecycle-proto = { path = "crates/lifecycle-proto" }
 mcp-sdk = "0.0.3"
 mcp-server = { path = "crates/mcp-server" }
 policy = { path = "crates/policy" }
+policy-mcp = "0.1.0"
 prost = "0.13"
 rmcp = "0.1.5"
 serde = "1.0"
