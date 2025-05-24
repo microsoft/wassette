@@ -1,0 +1,9 @@
+version: "1.0"
+description: "Permission policy for mcp-wasmtime weather demo"
+permissions:
+  network:
+    allow:
+      - host: "api.openweathermap.org"
+  environment:
+    allow:
+      - key: "OPENWEATHER_API_KEY"

@@ -133,20 +133,40 @@ impl LifecycleManagerServiceImpl {
             WasiConfig::from(&h.wasi_config_vars)
         })?;
 
-        let wasi_config_vars = if let Some(policy_path) = &self.policy_file {
+        let (wasi_config_vars, storage_permissions) = if let Some(policy_path) = &self.policy_file {
+            // Load environment variables from policy
             let env_vars = policy::load_policy(policy_path)?;
-
-            WasiConfigVariables::from_iter(env_vars)
+            
+            // Get storage permissions from policy
+            let storage_perms = policy::get_storage_permissions(policy_path)?;
+            
+            (WasiConfigVariables::from_iter(env_vars), storage_perms)
         } else {
-            WasiConfigVariables::new()
+            (WasiConfigVariables::new(), Vec::new())
         };
 
-        let state = WasiStateBuilder::new()
+        // Create the WASI state builder
+        let mut state_builder = WasiStateBuilder::new()
             .allow_tcp(true)
             .allow_udp(true)
             .allow_ip_name_lookup(true)
-            .config_vars(wasi_config_vars)
-            .build();
+            .config_vars(wasi_config_vars);
+        
+        // Add storage permissions from policy
+        for (path, access_mode) in storage_permissions {
+            let path = PathBuf::from(path);
+            
+            // Configure directory/file access based on permissions
+            if access_mode.contains('r') && access_mode.contains('w') {
+                state_builder.ctx_builder.preopened_dir(path)?;
+            } else if access_mode.contains('r') {
+                // Read-only access
+                state_builder.ctx_builder.preopened_dir_with_read_only(path)?;
+            }
+            // Note: We don't have write-only option in the current API
+        }
+
+        let state = state_builder.build();
         let mut store = Store::new(self.manager.engine.as_ref(), state);
 
         let instance = linker.instantiate_async(&mut store, component).await?;

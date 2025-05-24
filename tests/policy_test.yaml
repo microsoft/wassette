@@ -1,0 +1,12 @@
+version: "1.0"
+description: "Test policy for storage access"
+permissions:
+  storage:
+    allow:
+      - uri: "fs://tmp/**"
+        access: ["read", "write"]
+      - uri: "fs://home/runner/work/readonly.txt"
+        access: ["read"]
+  environment:
+    allow:
+      - key: "TEST_ENV_VAR"
