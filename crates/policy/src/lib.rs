@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::path::Path;
 
 use anyhow::Result;
-use policy_mcp::{PolicyDocument, PolicyParser, EnvironmentPermission};
+use policy_mcp::{PolicyDocument, PolicyParser};
 
 /// Loads policy from a file and returns environment variables as a HashMap.
 /// 
@@ -100,7 +100,7 @@ mod tests {
     fn test_missing_env_section() {
         let mut file = NamedTempFile::new().unwrap();
         writeln!(file, "version: \"1.0\"").unwrap();
-        writeln!(file, "permissions: {}").unwrap();
+        writeln!(file, "permissions: {{}}").unwrap();
         
         let vars = load_policy(file.path()).unwrap();
         assert!(vars.is_empty());

@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["AccessType","CapabilityAction","NetworkPermission"],"struct":["DockerCapabilities","DockerRuntime","DockerSecurity","EnvironmentPermission","EnvironmentPermissions","HyperlightRuntime","IpcPermission","NetworkCidrPermission","NetworkHostPermission","PermissionList","Permissions","ResourceLimits","Runtime","StoragePermission"]};

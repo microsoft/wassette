@@ -1,0 +1,16 @@
+[package]
+name = "policy-mcp"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+serde = { version = "1.0", features = ["derive"] }
+serde_yaml = "0.9"
+anyhow = "1.0"
+
+[dev-dependencies]
+tempfile = "3.8"
+
+[[example]]
+name = "parse_policy"
+path = "examples/parse_policy.rs"
