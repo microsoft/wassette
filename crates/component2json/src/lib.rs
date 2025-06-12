@@ -71,8 +71,7 @@ fn type_to_json_schema(t: &Type) -> Value {
         }
 
         Type::Tuple(tup) => {
-            // Tuples uses discriminator pattern: {"__tuple": [item1, item2, ...]}
-            // This matches serialization format and enables unambiguous pattern recognition
+            // Tuples discriminator pattern: {"__tuple": [item1, item2, ...]}
             let items: Vec<Value> = tup.types().map(|ty| type_to_json_schema(&ty)).collect();
             json!({
                 "type": "object",
@@ -90,6 +89,7 @@ fn type_to_json_schema(t: &Type) -> Value {
         }
 
         Type::Variant(variant_handle) => {
+            // Variants discriminator pattern: {"__variant": "tag"} or {"__variant": "tag", "val": ...}
             let mut cases_schema = Vec::new();
             for case in variant_handle.cases() {
                 let case_name = case.name;
@@ -97,18 +97,20 @@ fn type_to_json_schema(t: &Type) -> Value {
                     cases_schema.push(json!({
                         "type": "object",
                         "properties": {
-                            "tag": { "const": case_name },
+                            "__variant": { "const": case_name },
                             "val": type_to_json_schema(payload_ty)
                         },
-                        "required": ["tag", "val"]
+                        "required": ["__variant", "val"],
+                        "additionalProperties": false
                     }));
                 } else {
                     cases_schema.push(json!({
                         "type": "object",
                         "properties": {
-                            "tag": { "const": case_name },
+                            "__variant": { "const": case_name }
                         },
-                        "required": ["tag"]
+                        "required": ["__variant"],
+                        "additionalProperties": false
                     }));
                 }
             }
@@ -116,8 +118,7 @@ fn type_to_json_schema(t: &Type) -> Value {
         }
 
         Type::Enum(enum_handle) => {
-            // Enums now use discriminator pattern: {"__enum": "value"}
-            // This matches serialization format and enables unambiguous pattern recognition
+            // Enums discriminator pattern: {"__enum": "value"}
             let names: Vec<&str> = enum_handle.names().collect();
             let enum_schemas: Vec<Value> = names
                 .iter()
@@ -136,8 +137,7 @@ fn type_to_json_schema(t: &Type) -> Value {
         }
 
         Type::Option(opt_handle) => {
-            // Options now use discriminator pattern: {"__option": "None"} or {"__option": "Some", "val": ...}
-            // This matches serialization format and enables unambiguous pattern recognition
+            // Options discriminator pattern: {"__option": "None"} or {"__option": "Some", "val": ...}
             let inner_schema = type_to_json_schema(&opt_handle.ty());
             json!({
                 "oneOf": [
@@ -163,6 +163,7 @@ fn type_to_json_schema(t: &Type) -> Value {
         }
 
         Type::Result(res_handle) => {
+            // Results discriminator pattern: {"__result": "Ok", "val": ...} or {"__result": "Err", "val": ...}
             let ok_schema = res_handle
                 .ok()
                 .map(|ok_ty| type_to_json_schema(&ok_ty))
@@ -176,26 +177,29 @@ fn type_to_json_schema(t: &Type) -> Value {
             json!({
                 "oneOf": [
                     {
-                      "type": "object",
-                      "properties": {
-                        "ok": ok_schema
-                      },
-                      "required": ["ok"]
+                        "type": "object",
+                        "properties": {
+                            "__result": { "const": "Ok" },
+                            "val": ok_schema
+                        },
+                        "required": ["__result", "val"],
+                        "additionalProperties": false
                     },
                     {
-                      "type": "object",
-                      "properties": {
-                        "err": err_schema
-                      },
-                      "required": ["err"]
+                        "type": "object",
+                        "properties": {
+                            "__result": { "const": "Err" },
+                            "val": err_schema
+                        },
+                        "required": ["__result", "val"],
+                        "additionalProperties": false
                     }
                 ]
             })
         }
 
         Type::Flags(flags_handle) => {
-            // Flags uses discriminator pattern: {"flags": {"read": true, "write": false}}
-            // This matches serialization format and enables unambiguous pattern recognition
+            // Flags discriminator pattern: {"flags": {"read": true, "write": false}}
             let mut flag_props = serde_json::Map::new();
             for name in flags_handle.names() {
                 flag_props.insert(name.to_string(), json!({"type": "boolean"}));
@@ -215,8 +219,7 @@ fn type_to_json_schema(t: &Type) -> Value {
         }
 
         Type::Own(r) => {
-            // Resources now use discriminator pattern: {"__resource": "description"}
-            // This matches serialization format and enables unambiguous pattern recognition
+            // Resources discriminator pattern: {"__resource": "description"}
             json!({
                 "type": "object",
                 "properties": {
@@ -230,8 +233,7 @@ fn type_to_json_schema(t: &Type) -> Value {
             })
         }
         Type::Borrow(r) => {
-            // Resources now use discriminator pattern: {"__resource": "description"}
-            // This matches serialization format and enables unambiguous pattern recognition
+            // Resources discriminator pattern: {"__resource": "description"}
             json!({
                 "type": "object",
                 "properties": {
@@ -341,51 +343,50 @@ fn gather_exported_functions(
 }
 
 fn object_to_val(obj: &Map<String, Value>) -> Result<Val, ValError> {
-    // first we check for `Result` pattern
-    // {"ok": value} or {"err": value}
-    // there is exactly one key either "ok" or "err"
-    if obj.len() == 1 {
-        if let Some(ok_val) = obj.get("ok") {
-            let inner_val = if ok_val.is_null() {
-                None
-            } else {
-                Some(Box::new(json_to_val(ok_val)?))
-            };
-            return Ok(Val::Result(Ok(inner_val)));
-        }
-        if let Some(err_val) = obj.get("err") {
-            let inner_val = if err_val.is_null() {
-                None
-            } else {
-                Some(Box::new(json_to_val(err_val)?))
-            };
-            return Ok(Val::Result(Err(inner_val)));
-        }
-    }
+    // Check for Result
+    if obj.contains_key("__result") {
+        if let Some(Value::String(result_type)) = obj.get("__result") {
+            if obj.len() == 2 {
+                if let Some(val) = obj.get("val") {
+                    let inner_val = if val.is_null() {
+                        None
+                    } else {
+                        Some(Box::new(json_to_val(val)?))
+                    };
 
-    // secondly, we check for `Variant` pattern
-    // Variant must have a "tag" key and optionally a "val" key
-    if obj.contains_key("tag") {
-        if let Some(Value::String(tag)) = obj.get("tag") {
-            match obj.len() {
-                1 => {
-                    // {"tag": "empty-case"}
-                    return Ok(Val::Variant(tag.clone(), None));
-                }
-                2 => {
-                    if let Some(val) = obj.get("val") {
-                        // {"tag": "with-payload", "val": 42}
-                        return Ok(Val::Variant(tag.clone(), Some(Box::new(json_to_val(val)?))));
+                    match result_type.as_str() {
+                        "Ok" => return Ok(Val::Result(Ok(inner_val))),
+                        "Err" => return Ok(Val::Result(Err(inner_val))),
+                        _ => {}
                     }
-                }
-                _ => {
-                    // if it has "tag" and one other key that's not "val", fall through to Record
                 }
             }
         }
     }
 
-    // thirdly, we check for `Option` by it's discriminator
+    // Check for Variant
+    if obj.contains_key("__variant") {
+        if let Some(Value::String(variant_tag)) = obj.get("__variant") {
+            match obj.len() {
+                1 => {
+                    // {"__variant": "empty-case"}
+                    return Ok(Val::Variant(variant_tag.clone(), None));
+                }
+                2 => {
+                    if let Some(val) = obj.get("val") {
+                        // {"__variant": "with-payload", "val": 42}
+                        return Ok(Val::Variant(
+                            variant_tag.clone(),
+                            Some(Box::new(json_to_val(val)?)),
+                        ));
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+
+    // Check for Option
     if obj.contains_key("__option") {
         if let Some(Value::String(option_type)) = obj.get("__option") {
             match option_type.as_str() {
@@ -407,7 +408,7 @@ fn object_to_val(obj: &Map<String, Value>) -> Result<Val, ValError> {
     }
 
     if obj.len() == 1 {
-        // fourthly, we check for `Tuple` pattern by its discriminator
+        // Check for Tuple
         if let Some(Value::Array(tuple_arr)) = obj.get("__tuple") {
             let mut items = Vec::new();
             for item in tuple_arr {
@@ -416,17 +417,17 @@ fn object_to_val(obj: &Map<String, Value>) -> Result<Val, ValError> {
             return Ok(Val::Tuple(items));
         }
 
-        // fifthly, we check for `Enum` pattern by its discriminator
+        // Check for Enum
         if let Some(Value::String(enum_value)) = obj.get("__enum") {
             return Ok(Val::Enum(enum_value.clone()));
         }
 
-        // Then we check for `Resource` pattern by its discriminator
+        // Check for Resource
         if let Some(Value::String(_resource_desc)) = obj.get("__resource") {
             return Err(ValError::ResourceError);
         }
 
-        // lastly, we check for `Flags` pattern by its discriminator
+        // Check for Flags
         if let Some(Value::Object(flags_obj)) = obj.get("__flags") {
             let mut flags = Vec::new();
             for (k, v) in flags_obj {
@@ -439,7 +440,7 @@ fn object_to_val(obj: &Map<String, Value>) -> Result<Val, ValError> {
         }
     }
 
-    // if we reach here, we assume it's a Record
+    // If we reach here, we assume it's a Record
     let mut fields = Vec::new();
     for (k, v) in obj {
         fields.push((k.clone(), json_to_val(v)?));
@@ -564,12 +565,17 @@ fn val_to_json(val: &Val) -> Value {
         }
 
         Val::Variant(tag, payload) => {
-            let mut obj = Map::new();
-            obj.insert("tag".to_string(), Value::String(tag.clone()));
+            // Use discriminator pattern for variants
             if let Some(val_box) = payload {
-                obj.insert("val".to_string(), val_to_json(val_box));
+                json!({
+                    "__variant": tag.clone(),
+                    "val": val_to_json(val_box)
+                })
+            } else {
+                json!({
+                    "__variant": tag.clone()
+                })
             }
-            Value::Object(obj)
         }
         Val::Enum(s) => {
             json!({
@@ -590,26 +596,22 @@ fn val_to_json(val: &Val) -> Value {
         }
 
         Val::Result(Ok(opt_box)) => {
-            let mut obj = Map::new();
-            obj.insert(
-                "ok".to_string(),
-                match opt_box {
+            json!({
+                "__result": "Ok",
+                "val": match opt_box {
                     Some(v) => val_to_json(v),
                     None => Value::Null,
-                },
-            );
-            Value::Object(obj)
+                }
+            })
         }
         Val::Result(Err(opt_box)) => {
-            let mut obj = Map::new();
-            obj.insert(
-                "err".to_string(),
-                match opt_box {
+            json!({
+                "__result": "Err",
+                "val": match opt_box {
                     Some(v) => val_to_json(v),
                     None => Value::Null,
-                },
-            );
-            Value::Object(obj)
+                }
+            })
         }
 
         Val::Flags(flags) => {
@@ -823,7 +825,7 @@ mod tests {
 
     #[test]
     fn test_discriminator_pattern_conflicts_resolved() {
-        // Test that Options and Variants no longer conflict
+        // Test that all complex types now use unambiguous discriminator patterns
 
         // Option patterns
         let option_none = json!({"__option": "None"});
@@ -838,9 +840,9 @@ mod tests {
             Val::Option(Some(_))
         ));
 
-        // Variant patterns (should still work)
-        let variant_empty = json!({"tag": "empty"});
-        let variant_with_val = json!({"tag": "data", "val": 42});
+        // New Variant discriminator patterns
+        let variant_empty = json!({"__variant": "empty"});
+        let variant_with_val = json!({"__variant": "data", "val": 42});
 
         assert!(matches!(
             json_to_val(&variant_empty).unwrap(),
@@ -851,16 +853,74 @@ mod tests {
             Val::Variant(_, Some(_))
         ));
 
-        // Even variants that happen to use "None" or "Some" as tag names should work
-        let variant_none_tag = json!({"tag": "None"});
-        let variant_some_tag = json!({"tag": "Some", "val": "test"});
+        // New Result discriminator patterns
+        let result_ok = json!({"__result": "Ok", "val": 42});
+        let result_err = json!({"__result": "Err", "val": "error message"});
 
-        assert!(
-            matches!(json_to_val(&variant_none_tag).unwrap(), Val::Variant(tag, None) if tag == "None")
-        );
-        assert!(
-            matches!(json_to_val(&variant_some_tag).unwrap(), Val::Variant(tag, Some(_)) if tag == "Some")
-        );
+        assert!(matches!(
+            json_to_val(&result_ok).unwrap(),
+            Val::Result(Ok(Some(_)))
+        ));
+        assert!(matches!(
+            json_to_val(&result_err).unwrap(),
+            Val::Result(Err(Some(_)))
+        ));
+
+        // Test that Records can now safely use previously conflicting field names
+        let record_with_tag = json!({"tag": "record-field", "other": "value"});
+        let record_with_ok = json!({"ok": "not-a-result", "status": "good"});
+        let record_with_err = json!({"err": "not-a-result", "details": "info"});
+
+        assert!(matches!(
+            json_to_val(&record_with_tag).unwrap(),
+            Val::Record(_)
+        ));
+        assert!(matches!(
+            json_to_val(&record_with_ok).unwrap(),
+            Val::Record(_)
+        ));
+        assert!(matches!(
+            json_to_val(&record_with_err).unwrap(),
+            Val::Record(_)
+        ));
+    }
+
+    #[test]
+    fn test_discriminator_round_trip() {
+        // Test that all discriminator patterns round-trip correctly
+
+        // Variant round trip
+        let variant_empty = Val::Variant("empty".to_string(), None);
+        let variant_json = val_to_json(&variant_empty);
+        assert_eq!(variant_json, json!({"__variant": "empty"}));
+        let parsed_variant = json_to_val(&variant_json).unwrap();
+        assert_eq!(parsed_variant, variant_empty);
+
+        let variant_with_payload = Val::Variant("data".to_string(), Some(Box::new(Val::S64(42))));
+        let variant_json = val_to_json(&variant_with_payload);
+        assert_eq!(variant_json, json!({"__variant": "data", "val": 42}));
+        let parsed_variant = json_to_val(&variant_json).unwrap();
+        assert_eq!(parsed_variant, variant_with_payload);
+
+        // Result round trip
+        let result_ok = Val::Result(Ok(Some(Box::new(Val::String("success".to_string())))));
+        let result_json = val_to_json(&result_ok);
+        assert_eq!(result_json, json!({"__result": "Ok", "val": "success"}));
+        let parsed_result = json_to_val(&result_json).unwrap();
+        assert_eq!(parsed_result, result_ok);
+
+        let result_err = Val::Result(Err(Some(Box::new(Val::String("error".to_string())))));
+        let result_json = val_to_json(&result_err);
+        assert_eq!(result_json, json!({"__result": "Err", "val": "error"}));
+        let parsed_result = json_to_val(&result_json).unwrap();
+        assert_eq!(parsed_result, result_err);
+
+        // Result with null values
+        let result_ok_null = Val::Result(Ok(None));
+        let result_json = val_to_json(&result_ok_null);
+        assert_eq!(result_json, json!({"__result": "Ok", "val": null}));
+        let parsed_result = json_to_val(&result_json).unwrap();
+        assert_eq!(parsed_result, result_ok_null);
     }
 
     #[test]
@@ -902,5 +962,302 @@ mod tests {
 
         println!("Note: Character and numeric type information is lost during JSON roundtrip");
         println!("This may be acceptable for most use cases where semantic meaning is preserved");
+    }
+
+    #[test]
+    fn test_component_exports_schema() {
+        let mut config = wasmtime::Config::new();
+        config.wasm_component_model(true);
+        let engine = Engine::new(&config).unwrap();
+
+        // A complex component with nested components, various types and functions
+        let wat = r#"(component
+            (core module (;0;)
+                (type (;0;) (func (param i32 i32 i32 i32) (result i32)))
+                (type (;1;) (func))
+                (type (;2;) (func (param i32 i32 i32 i64) (result i32)))
+                (type (;3;) (func (param i32)))
+                (type (;4;) (func (result i32)))
+                (type (;5;) (func (param i32 i32) (result i32)))
+                (type (;6;) (func (param i32 i64 i32) (result i32)))
+                (memory (;0;) 1)
+                (export "memory" (memory 0))
+                (export "cabi_realloc" (func 0))
+                (export "a" (func 1))
+                (export "b" (func 2))
+                (export "cabi_post_b" (func 3))
+                (export "c" (func 4))
+                (export "foo#a" (func 5))
+                (export "foo#b" (func 6))
+                (export "cabi_post_foo#b" (func 7))
+                (export "foo#c" (func 8))
+                (export "cabi_post_foo#c" (func 9))
+                (export "bar#a" (func 10))
+                (func (;0;) (type 0) (param i32 i32 i32 i32) (result i32)
+                unreachable
+                )
+                (func (;1;) (type 1)
+                unreachable
+                )
+                (func (;2;) (type 2) (param i32 i32 i32 i64) (result i32)
+                unreachable
+                )
+                (func (;3;) (type 3) (param i32)
+                unreachable
+                )
+                (func (;4;) (type 4) (result i32)
+                unreachable
+                )
+                (func (;5;) (type 1)
+                unreachable
+                )
+                (func (;6;) (type 5) (param i32 i32) (result i32)
+                unreachable
+                )
+                (func (;7;) (type 3) (param i32)
+                unreachable
+                )
+                (func (;8;) (type 6) (param i32 i64 i32) (result i32)
+                unreachable
+                )
+                (func (;9;) (type 3) (param i32)
+                unreachable
+                )
+                (func (;10;) (type 3) (param i32)
+                unreachable
+                )
+                (@producers
+                (processed-by "wit-component" "$CARGO_PKG_VERSION")
+                (processed-by "my-fake-bindgen" "123.45")
+                )
+            )
+            (core instance (;0;) (instantiate 0))
+            (alias core export 0 "memory" (core memory (;0;)))
+            (type (;0;) (func))
+            (alias core export 0 "a" (core func (;0;)))
+            (alias core export 0 "cabi_realloc" (core func (;1;)))
+            (func (;0;) (type 0) (canon lift (core func 0)))
+            (export (;1;) "a" (func 0))
+            (type (;1;) (func (param "a" s8) (param "b" s16) (param "c" s32) (param "d" s64) (result string)))
+            (alias core export 0 "b" (core func (;2;)))
+            (alias core export 0 "cabi_post_b" (core func (;3;)))
+            (func (;2;) (type 1) (canon lift (core func 2) (memory 0) string-encoding=utf8 (post-return 3)))
+            (export (;3;) "b" (func 2))
+            (type (;2;) (tuple s8 s16 s32 s64))
+            (type (;3;) (func (result 2)))
+            (alias core export 0 "c" (core func (;4;)))
+            (func (;4;) (type 3) (canon lift (core func 4) (memory 0)))
+            (export (;5;) "c" (func 4))
+            (type (;4;) (flags "a" "b" "c"))
+            (type (;5;) (func (param "x" 4)))
+            (alias core export 0 "bar#a" (core func (;5;)))
+            (func (;6;) (type 5) (canon lift (core func 5)))
+            (component (;0;)
+                (type (;0;) (flags "a" "b" "c"))
+                (import "import-type-x" (type (;1;) (eq 0)))
+                (type (;2;) (func (param "x" 1)))
+                (import "import-func-a" (func (;0;) (type 2)))
+                (type (;3;) (flags "a" "b" "c"))
+                (export (;4;) "x" (type 3))
+                (type (;5;) (func (param "x" 4)))
+                (export (;1;) "a" (func 0) (func (type 5)))
+            )
+            (instance (;0;) (instantiate 0
+                (with "import-func-a" (func 6))
+                (with "import-type-x" (type 4))
+                )
+            )
+            (export (;1;) "bar" (instance 0))
+            (type (;6;) (func))
+            (alias core export 0 "foo#a" (core func (;6;)))
+            (func (;7;) (type 6) (canon lift (core func 6)))
+            (type (;7;) (variant (case "a") (case "b" string) (case "c" s64)))
+            (type (;8;) (func (param "x" string) (result 7)))
+            (alias core export 0 "foo#b" (core func (;7;)))
+            (alias core export 0 "cabi_post_foo#b" (core func (;8;)))
+            (func (;8;) (type 8) (canon lift (core func 7) (memory 0) (realloc 1) string-encoding=utf8 (post-return 8)))
+            (type (;9;) (func (param "x" 7) (result string)))
+            (alias core export 0 "foo#c" (core func (;9;)))
+            (alias core export 0 "cabi_post_foo#c" (core func (;10;)))
+            (func (;9;) (type 9) (canon lift (core func 9) (memory 0) (realloc 1) string-encoding=utf8 (post-return 10)))
+            (component (;1;)
+                (type (;0;) (func))
+                (import "import-func-a" (func (;0;) (type 0)))
+                (type (;1;) (variant (case "a") (case "b" string) (case "c" s64)))
+                (import "import-type-x" (type (;2;) (eq 1)))
+                (type (;3;) (func (param "x" string) (result 2)))
+                (import "import-func-b" (func (;1;) (type 3)))
+                (type (;4;) (func (param "x" 2) (result string)))
+                (import "import-func-c" (func (;2;) (type 4)))
+                (type (;5;) (variant (case "a") (case "b" string) (case "c" s64)))
+                (export (;6;) "x" (type 5))
+                (type (;7;) (func))
+                (export (;3;) "a" (func 0) (func (type 7)))
+                (type (;8;) (func (param "x" string) (result 6)))
+                (export (;4;) "b" (func 1) (func (type 8)))
+                (type (;9;) (func (param "x" 6) (result string)))
+                (export (;5;) "c" (func 2) (func (type 9)))
+            )
+            (instance (;2;) (instantiate 1
+                (with "import-func-a" (func 7))
+                (with "import-func-b" (func 8))
+                (with "import-func-c" (func 9))
+                (with "import-type-x" (type 7))
+                )
+            )
+            (export (;3;) "foo" (instance 2))
+            (@producers
+                (processed-by "wit-component" "$CARGO_PKG_VERSION")
+            )
+            )"#;
+        let component = Component::new(&engine, wat).unwrap();
+        let schema = component_exports_to_json_schema(&component, &engine, true);
+
+        let tools = schema.get("tools").unwrap().as_array().unwrap();
+        assert_eq!(tools.len(), 7);
+
+        fn find_tool<'a>(tools: &'a [Value], name: &str) -> Option<&'a Value> {
+            tools
+                .iter()
+                .find(|t| t.get("name").and_then(|n| n.as_str()) == Some(name))
+        }
+        // Test root-level functions
+        let root_a = find_tool(tools, "a").unwrap();
+        assert!(root_a
+            .get("inputSchema")
+            .unwrap()
+            .get("properties")
+            .unwrap()
+            .is_object());
+        assert!(root_a.get("outputSchema").is_none());
+
+        let root_b = find_tool(tools, "b").unwrap();
+        let input_schema = root_b.get("inputSchema").unwrap();
+        let properties = input_schema.get("properties").unwrap().as_object().unwrap();
+        assert_eq!(properties.len(), 4);
+        assert!(properties.contains_key("a"));
+        assert!(properties.contains_key("b"));
+        assert!(properties.contains_key("c"));
+        assert!(properties.contains_key("d"));
+        let output_schema = root_b.get("outputSchema").unwrap();
+        assert_eq!(output_schema.get("type").unwrap(), "string");
+
+        let root_c = find_tool(tools, "c").unwrap();
+        let output_schema = root_c.get("outputSchema").unwrap();
+        // Updated to check object-based tuple schema with __tuple discriminator
+        assert_eq!(output_schema.get("type").unwrap(), "object");
+        let props = output_schema
+            .get("properties")
+            .unwrap()
+            .as_object()
+            .unwrap();
+        let tuple_schema = props.get("__tuple").unwrap();
+        assert_eq!(tuple_schema.get("type").unwrap(), "array");
+        assert_eq!(tuple_schema.get("minItems").unwrap(), 4);
+        assert_eq!(tuple_schema.get("maxItems").unwrap(), 4);
+        let prefix_items = tuple_schema.get("prefixItems").unwrap().as_array().unwrap();
+        assert_eq!(prefix_items.len(), 4);
+        for item in prefix_items {
+            assert_eq!(item.get("type").unwrap(), "number");
+        }
+
+        // Test foo namespace functions
+        let foo_a = find_tool(tools, "foo.a").unwrap();
+        assert!(foo_a
+            .get("inputSchema")
+            .unwrap()
+            .get("properties")
+            .unwrap()
+            .is_object());
+        assert!(foo_a.get("outputSchema").is_none());
+
+        let foo_b = find_tool(tools, "foo.b").unwrap();
+        {
+            let input_props = foo_b
+                .get("inputSchema")
+                .unwrap()
+                .get("properties")
+                .unwrap()
+                .as_object()
+                .unwrap();
+            assert_eq!(input_props.len(), 1);
+            assert!(input_props.contains_key("x")); // string
+
+            let output_schema = foo_b.get("outputSchema").unwrap();
+            let cases = output_schema.get("oneOf").unwrap().as_array().unwrap();
+            assert_eq!(cases.len(), 3);
+
+            let case_a = &cases[0];
+            assert_eq!(
+                case_a
+                    .get("properties")
+                    .unwrap()
+                    .get("__variant")
+                    .unwrap()
+                    .get("const")
+                    .unwrap(),
+                "a"
+            );
+
+            let case_b = &cases[1];
+            assert_eq!(
+                case_b
+                    .get("properties")
+                    .unwrap()
+                    .get("__variant")
+                    .unwrap()
+                    .get("const")
+                    .unwrap(),
+                "b"
+            );
+            assert_eq!(
+                case_b
+                    .get("properties")
+                    .unwrap()
+                    .get("val")
+                    .unwrap()
+                    .get("type")
+                    .unwrap(),
+                "string"
+            );
+
+            let case_c = &cases[2];
+            assert_eq!(
+                case_c
+                    .get("properties")
+                    .unwrap()
+                    .get("__variant")
+                    .unwrap()
+                    .get("const")
+                    .unwrap(),
+                "c"
+            );
+            assert_eq!(
+                case_c
+                    .get("properties")
+                    .unwrap()
+                    .get("val")
+                    .unwrap()
+                    .get("type")
+                    .unwrap(),
+                "number"
+            );
+        }
+
+        let foo_c = find_tool(tools, "foo.c").unwrap();
+        {
+            let input_props = foo_c
+                .get("inputSchema")
+                .unwrap()
+                .get("properties")
+                .unwrap()
+                .as_object()
+                .unwrap();
+            assert_eq!(input_props.len(), 1);
+            assert!(input_props.contains_key("x")); // variant type
+
+            let output_schema = foo_c.get("outputSchema").unwrap();
+            assert_eq!(output_schema.get("type").unwrap(), "string");
+        }
     }
 }

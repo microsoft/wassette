@@ -102,8 +102,6 @@ let json_result = vals_to_json(&wit_vals);
 }
 ```
 
-The discriminator pattern `{"__tuple": [...]}` ensures tuples are never confused with regular lists.
-
 ##### Variants
 
 `Variant<T1, T2, ...>` is a tagged union that can hold one of several different types
@@ -114,19 +112,36 @@ The discriminator pattern `{"__tuple": [...]}` ensures tuples are never confused
         {
             "type": "object",
             "properties": {
-                "tag": { "const": "<case-with-payload>" },
+                "__variant": { "const": "<case-with-payload>" },
                 "val": <schema-of-payload-type>
             },
-            "required": ["tag", "val"]
+            "required": ["__variant", "val"],
+            "additionalProperties": false
         },
         {
             "type": "object",
             "properties": {
-                "tag": { "const": "<case-without-payload>" }
+                "__variant": { "const": "<case-without-payload>" }
             },
-            "required": ["tag"]
+            "required": ["__variant"],
+            "additionalProperties": false
         }
     ]
+}
+```
+
+**Serialization Format:**
+
+```json
+// For variant case without payload
+{
+    "__variant": "case-name"
+}
+
+// For variant case with payload
+{
+    "__variant": "case-name",
+    "val": <payload-value>
 }
 ```
 
@@ -163,8 +178,6 @@ The discriminator pattern `{"__tuple": [...]}` ensures tuples are never confused
     "__enum": "enum-value"
 }
 ```
-
-The discriminator pattern `{"__enum": "..."}` ensures enums are never confused with regular strings.
 
 ##### Options
 
@@ -208,11 +221,9 @@ The discriminator pattern `{"__enum": "..."}` ensures enums are never confused w
 }
 ```
 
-The discriminator pattern `{"__option": "..."}` ensures options are never confused with other types and resolves ambiguities that existed with the previous null-based approach.
-
 ##### Results
 
-`Result<T, E>`: a type that can be either `ok(T)` or `err(E)`.
+`Result<T, E>`: a type that can be either `Ok(T)` or `Err(E)`.
 
 ```json
 {
@@ -220,26 +231,48 @@ The discriminator pattern `{"__option": "..."}` ensures options are never confus
         {
             "type": "object",
             "properties": {
-                "ok": <schema-of-ok-type>
+                "__result": { "const": "Ok" },
+                "val": <schema-of-ok-type>
             },
-            "required": ["ok"]
+            "required": ["__result", "val"],
+            "additionalProperties": false
         },
         {
             "type": "object",
             "properties": {
-                "err": <schema-of-err-type>
+                "__result": { "const": "Err" },
+                "val": <schema-of-err-type>
             },
-            "required": ["err"]
+            "required": ["__result", "val"],
+            "additionalProperties": false
         }
     ]
 }
 ```
+
+**Serialization Format:**
+
+```json
+// For Ok result
+{
+    "__result": "Ok",
+    "val": <ok-value>
+}
+
+// For Err result
+{
+    "__result": "Err",
+    "val": <error-value>
+}
+```
+
 
 ##### Flags
 
 `Flags<T1, T2, ...>` represents a set of enabled flags.
 
 **Schema Format:**
+
 ```json
 {
     "type": "object",
@@ -260,6 +293,7 @@ The discriminator pattern `{"__option": "..."}` ensures options are never confus
 ```
 
 **Serialization Format:**
+
 ```json
 {
     "__flags": {
