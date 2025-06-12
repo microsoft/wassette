@@ -2,13 +2,6 @@
 
 A Rust library for converting WebAssembly Components to JSON Schema and handling WebAssembly Interface Type (WIT) value conversions.
 
-## Overview
-
-`component2json` provides three main functionalities:
-1. Converting WebAssembly component exports to JSON Schema
-2. Converting JSON values to WIT values
-3. Converting WIT values to JSON values
-
 ## Usage
 
 ```rust
@@ -56,6 +49,9 @@ let json_result = vals_to_json(&wit_vals);
 #### Composite Types
 
 ##### Lists
+
+`list<T>` is variable-length list where all elements are of type `T`.
+
 ```json
 {
     "type": "array",
@@ -64,34 +60,61 @@ let json_result = vals_to_json(&wit_vals);
 ```
 
 ##### Records
+
+`Record` is a structure with named fields.
+
 ```json
 {
     "type": "object",
     "properties": {
-        "<field-name>": <schema-of-field-type>
+        "<field-name>": <schema-of-field-type>,
+        ...
     },
     "required": ["<field-names>"]
 }
 ```
 
 ##### Tuples
+
+`Tuple<T1, T2, ...>` is a fixed-length structure where each element is of potentially a different type.
+
 ```json
 {
-    "type": "array",
-    "prefixItems": [<schema-of-each-type>],
-    "minItems": <length>,
-    "maxItems": <length>
+    "type": "object",
+    "properties": {
+        "__tuple": {
+            "type": "array",
+            "prefixItems": [<schema-of-each-type>, ...],
+            "minItems": <length>,
+            "maxItems": <length>
+        }
+    },
+    "required": ["__tuple"],
+    "additionalProperties": false
 }
 ```
 
+**Serialization Format:**
+
+```json
+{
+    "__tuple": [value1, value2, value3]
+}
+```
+
+The discriminator pattern `{"__tuple": [...]}` ensures tuples are never confused with regular lists.
+
 ##### Variants
+
+`Variant<T1, T2, ...>` is a tagged union that can hold one of several different types
+
 ```json
 {
     "oneOf": [
         {
             "type": "object",
             "properties": {
-                "tag": { "const": "<case-name>" },
+                "tag": { "const": "<case-with-payload>" },
                 "val": <schema-of-payload-type>
             },
             "required": ["tag", "val"]
@@ -99,7 +122,7 @@ let json_result = vals_to_json(&wit_vals);
         {
             "type": "object",
             "properties": {
-                "tag": { "const": "<case-name>" }
+                "tag": { "const": "<case-without-payload>" }
             },
             "required": ["tag"]
         }
@@ -108,24 +131,89 @@ let json_result = vals_to_json(&wit_vals);
 ```
 
 ##### Enums
-```json
-{
-    "type": "string",
-    "enum": ["<enum-values>"]
-}
-```
 
-##### Options
+`Enum<T1, T2, ...>`: a type that can be one of several named string values.
+
 ```json
 {
-    "anyOf": [
-        { "type": "null" },
-        <schema-of-inner-type>
+    "oneOf": [
+        {
+            "type": "object",
+            "properties": {
+                "__enum": { "const": "<enum-value-1>" }
+            },
+            "required": ["__enum"],
+            "additionalProperties": false
+        },
+        {
+            "type": "object", 
+            "properties": {
+                "__enum": { "const": "<enum-value-2>" }
+            },
+            "required": ["__enum"],
+            "additionalProperties": false
+        }
     ]
 }
 ```
 
+**Serialization Format:**
+```json
+{
+    "__enum": "enum-value"
+}
+```
+
+The discriminator pattern `{"__enum": "..."}` ensures enums are never confused with regular strings.
+
+##### Options
+
+`Option<T>`: a type that can be either `None` or `Some(T)`.
+
+```json
+{
+    "oneOf": [
+        {
+            "type": "object",
+            "properties": {
+                "__option": { "const": "None" }
+            },
+            "required": ["__option"],
+            "additionalProperties": false
+        },
+        {
+            "type": "object", 
+            "properties": {
+                "__option": { "const": "Some" },
+                "val": <schema-of-inner-type>
+            },
+            "required": ["__option", "val"],
+            "additionalProperties": false
+        }
+    ]
+}
+```
+
+**Serialization Format:**
+```json
+// For None
+{
+    "__option": "None"
+}
+
+// For Some(value)
+{
+    "__option": "Some",
+    "val": <inner-value>
+}
+```
+
+The discriminator pattern `{"__option": "..."}` ensures options are never confused with other types and resolves ambiguities that existed with the previous null-based approach.
+
 ##### Results
+
+`Result<T, E>`: a type that can be either `ok(T)` or `err(E)`.
+
 ```json
 {
     "oneOf": [
@@ -148,85 +236,41 @@ let json_result = vals_to_json(&wit_vals);
 ```
 
 ##### Flags
+
+`Flags<T1, T2, ...>` represents a set of enabled flags.
+
+**Schema Format:**
 ```json
 {
-    "type": "array",
-    "items": { "type": "string" }
+    "type": "object",
+    "properties": {
+        "__flags": {
+            "type": "object",
+            "properties": {
+                "<flag-name-1>": { "type": "boolean" },
+                "<flag-name-2>": { "type": "boolean" },
+                ...
+            },
+            "additionalProperties": false
+        }
+    },
+    "required": ["__flags"],
+    "additionalProperties": false
 }
 ```
+
+**Serialization Format:**
+```json
+{
+    "__flags": {
+        "flag1": true,
+        "flag3": true
+    }
+}
+```
+
+The discriminator pattern `{"__flags": {...}}` ensures flags are never confused with regular records containing boolean fields.
 
 ##### Resources
-```json
-{
-    "type": "string",
-    "description": "<own'd|borrow'd> resource: <resource-name>"
-}
-```
 
-## Error Handling
-
-The library provides a `ValError` enum for handling conversion errors:
-
-- `NumberError`: When a JSON number cannot be interpreted as either an integer or float
-- `InvalidChar`: When a character field is invalid (empty or multi-character string)
-- `ShapeError`: When an object has an unexpected shape for a particular type
-- `UnknownShape`: When a JSON object doesn't match any known variant shape
-- `ResourceError`: When a resource cannot be interpreted from JSON
-
-## Examples
-
-### Converting Component Exports to JSON Schema
-
-```rust
-let mut config = wasmtime::Config::new();
-config.wasm_component_model(true);
-let engine = Engine::new(&config)?;
-
-// Load a component with filesystem operations
-let component = Component::from_file(&engine, "filesystem.wasm")?;
-let schema = component_exports_to_json_schema(&component, &engine, true);
-
-// The schema will contain a "tools" array with function descriptions
-// Each function will have:
-// - name: fully qualified function name
-// - description: auto-generated description
-// - inputSchema: JSON schema for function parameters
-// - outputSchema: JSON schema for function return value (if output=true)
-```
-
-### Converting Between JSON and WIT Values
-
-```rust
-// JSON to WIT conversion examples
-let json_null = serde_json::json!(null);
-assert!(matches!(json_to_val(&json_null)?, Val::Option(None)));
-
-let json_bool = serde_json::json!(true);
-assert!(matches!(json_to_val(&json_bool)?, Val::Bool(true)));
-
-let json_number = serde_json::json!(42);
-assert!(matches!(json_to_val(&json_number)?, Val::S64(42)));
-
-let json_string = serde_json::json!("hello");
-assert!(matches!(json_to_val(&json_string)?, Val::String(s) if s == "hello"));
-
-let json_array = serde_json::json!([1, 2, 3]);
-if let Val::List(list) = json_to_val(&json_array)? {
-    assert_eq!(list.len(), 3);
-}
-
-let json_object = serde_json::json!({"key": "value"});
-if let Val::Record(fields) = json_to_val(&json_object)? {
-    assert_eq!(fields[0].0, "key");
-}
-
-// WIT to JSON conversion examples
-let wit_bool = Val::Bool(false);
-assert_eq!(val_to_json(&wit_bool), serde_json::json!(false));
-
-let wit_string = Val::String("test".to_string());
-assert_eq!(val_to_json(&wit_string), serde_json::json!("test"));
-
-let wit_list = Val::List(vec![Val::S64(1), Val::S64(2)]);
-assert_eq!(val_to_json(&wit_list), serde_json::json!([1, 2]));
-```
+> Note: Resources cannot be created from JSON in practice.
