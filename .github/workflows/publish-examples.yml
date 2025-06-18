@@ -1,0 +1,172 @@
+name: Publish Examples as OCI Artifacts
+
+on:
+  push:
+    branches: [ "main" ]
+    tags: [ "v*" ]
+  workflow_dispatch:
+
+env:
+  REGISTRY: ghcr.io
+  CARGO_TERM_COLOR: always
+
+jobs:
+  publish-examples:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Setup Just
+      uses: extractions/setup-just@v3
+
+    - name: Install protobuf
+      run: ./scripts/install-protobuf.sh
+      shell: bash
+
+    - name: Setup Rust toolchain
+      uses: actions-rust-lang/setup-rust-toolchain@v1
+      with:
+        targets: wasm32-wasip2
+
+    - name: Install wkg
+      run: cargo install wkg
+
+    - name: Build examples
+      run: just build-examples release
+
+    - name: Log in to Container Registry
+      uses: docker/login-action@v3
+      with:
+        registry: ${{ env.REGISTRY }}
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Install cosign
+      uses: sigstore/cosign-installer@v3.8.2
+
+    - name: Determine tag
+      id: meta
+      run: |
+        if [[ $GITHUB_REF == refs/tags/* ]]; then
+          VERSION=${GITHUB_REF#refs/tags/}
+          echo "tag=$VERSION" >> $GITHUB_OUTPUT
+          echo "latest=true" >> $GITHUB_OUTPUT
+        else
+          echo "tag=main" >> $GITHUB_OUTPUT
+          echo "latest=false" >> $GITHUB_OUTPUT
+        fi
+
+    - name: Publish and sign examples
+      env:
+        TAG: ${{ steps.meta.outputs.tag }}
+        IS_LATEST: ${{ steps.meta.outputs.latest }}
+      run: |
+        set -e  # Exit on any error
+        
+        REPO_OWNER_LOWER=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
+        
+        # List of examples to publish
+        declare -a examples=(
+          "fetch-rs"
+          "filesystem" 
+          "get-weather"
+          "time-server-js"
+        )
+        
+        echo "Publishing to registry: ${{ env.REGISTRY }}"
+        echo "Repository owner: ${REPO_OWNER_LOWER}"
+        echo "Tag: ${TAG}"
+        echo "Is latest: ${IS_LATEST}"
+        
+        for example in "${examples[@]}"; do
+          echo "=== Publishing $example ==="
+          
+          # Verify the wasm file exists
+          if [[ ! -f "bin/${example}.wasm" ]]; then
+            echo "Error: bin/${example}.wasm not found"
+            continue
+          fi
+          
+          # Construct the image reference
+          IMAGE_REF="${{ env.REGISTRY }}/${REPO_OWNER_LOWER}/${example}:${TAG}"
+          echo "Image reference: ${IMAGE_REF}"
+          
+          # Push the WASM component and capture output
+          echo "Pushing ${example}.wasm to ${IMAGE_REF}..."
+          if PUSH_OUTPUT=$(wkg oci push "bin/${example}.wasm" "${IMAGE_REF}" --format json 2>&1); then
+            echo "Push successful"
+            DIGEST=$(echo "${PUSH_OUTPUT}" | jq -r '.digest // empty' 2>/dev/null || echo "")
+          else
+            echo "Push failed, output: ${PUSH_OUTPUT}"
+            # Try without --format json in case it's not supported
+            echo "Retrying without --format json..."
+            wkg oci push "bin/${example}.wasm" "${IMAGE_REF}"
+            DIGEST=""
+          fi
+          
+          # If we couldn't get digest from push, try to get it from info
+          if [[ -z "$DIGEST" ]]; then
+            echo "Getting digest from registry info..."
+            if INFO_OUTPUT=$(wkg oci info "${IMAGE_REF}" --format json 2>&1); then
+              DIGEST=$(echo "${INFO_OUTPUT}" | jq -r '.digest // empty' 2>/dev/null || echo "")
+            else
+              echo "Could not get info, trying without --format json..."
+              wkg oci info "${IMAGE_REF}" || true
+            fi
+          fi
+          
+          # Sign the image if we have a digest
+          if [[ -n "$DIGEST" ]]; then
+            echo "Signing ${IMAGE_REF}@${DIGEST}"
+            cosign sign --yes "${IMAGE_REF}@${DIGEST}"
+          else
+            echo "Warning: Could not determine digest for ${IMAGE_REF}, skipping signing"
+          fi
+          
+          # If this is a release, also tag as latest
+          if [[ "$IS_LATEST" == "true" ]]; then
+            echo "--- Publishing latest tag for $example ---"
+            LATEST_REF="${{ env.REGISTRY }}/${REPO_OWNER_LOWER}/${example}:latest"
+            echo "Latest image reference: ${LATEST_REF}"
+            
+            if LATEST_PUSH_OUTPUT=$(wkg oci push "bin/${example}.wasm" "${LATEST_REF}" --format json 2>&1); then
+              echo "Latest push successful"
+              LATEST_DIGEST=$(echo "${LATEST_PUSH_OUTPUT}" | jq -r '.digest // empty' 2>/dev/null || echo "")
+            else
+              echo "Latest push failed, output: ${LATEST_PUSH_OUTPUT}"
+              # Try without --format json in case it's not supported
+              echo "Retrying latest without --format json..."
+              wkg oci push "bin/${example}.wasm" "${LATEST_REF}"
+              LATEST_DIGEST=""
+            fi
+            
+            # If we couldn't get digest from push, try to get it from info
+            if [[ -z "$LATEST_DIGEST" ]]; then
+              echo "Getting latest digest from registry info..."
+              if LATEST_INFO_OUTPUT=$(wkg oci info "${LATEST_REF}" --format json 2>&1); then
+                LATEST_DIGEST=$(echo "${LATEST_INFO_OUTPUT}" | jq -r '.digest // empty' 2>/dev/null || echo "")
+              else
+                echo "Could not get latest info, trying without --format json..."
+                wkg oci info "${LATEST_REF}" || true
+              fi
+            fi
+            
+            # Sign the latest image if we have a digest
+            if [[ -n "$LATEST_DIGEST" ]]; then
+              echo "Signing ${LATEST_REF}@${LATEST_DIGEST}"
+              cosign sign --yes "${LATEST_REF}@${LATEST_DIGEST}"
+            else
+              echo "Warning: Could not determine digest for ${LATEST_REF}, skipping signing"
+            fi
+          fi
+          
+          echo "Completed processing $example"
+        done
+        
+        echo "=== All examples processed ==="
