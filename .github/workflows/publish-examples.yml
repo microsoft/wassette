@@ -1,3 +1,17 @@
+# This workflow publishes all WebAssembly example components as OCI artifacts to ghcr.io
+# 
+# Triggers:
+# - Push to main branch: publishes with "main" tag
+# - Release tags (v*): publishes with version tag and "latest" tag  
+# - Manual dispatch: can be triggered manually from GitHub Actions UI
+#
+# Published artifacts:
+# - ghcr.io/semcp/fetch-rs
+# - ghcr.io/semcp/filesystem  
+# - ghcr.io/semcp/get-weather
+# - ghcr.io/semcp/time-server-js
+#
+# All artifacts are signed with cosign using keyless signing
 name: Publish Examples as OCI Artifacts
 
 on:
@@ -68,35 +82,35 @@ jobs:
         IS_LATEST: ${{ steps.meta.outputs.latest }}
       run: |
         set -e  # Exit on any error
-        
+
         REPO_OWNER_LOWER=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
-        
+
         # List of examples to publish
         declare -a examples=(
           "fetch-rs"
-          "filesystem" 
+          "filesystem"
           "get-weather"
           "time-server-js"
         )
-        
+
         echo "Publishing to registry: ${{ env.REGISTRY }}"
         echo "Repository owner: ${REPO_OWNER_LOWER}"
         echo "Tag: ${TAG}"
         echo "Is latest: ${IS_LATEST}"
-        
+
         for example in "${examples[@]}"; do
           echo "=== Publishing $example ==="
-          
+
           # Verify the wasm file exists
           if [[ ! -f "bin/${example}.wasm" ]]; then
             echo "Error: bin/${example}.wasm not found"
             continue
           fi
-          
+
           # Construct the image reference
           IMAGE_REF="${{ env.REGISTRY }}/${REPO_OWNER_LOWER}/${example}:${TAG}"
           echo "Image reference: ${IMAGE_REF}"
-          
+
           # Push the WASM component and capture output
           echo "Pushing ${example}.wasm to ${IMAGE_REF}..."
           if PUSH_OUTPUT=$(wkg oci push "bin/${example}.wasm" "${IMAGE_REF}" --format json 2>&1); then
@@ -109,7 +123,7 @@ jobs:
             wkg oci push "bin/${example}.wasm" "${IMAGE_REF}"
             DIGEST=""
           fi
-          
+
           # If we couldn't get digest from push, try to get it from info
           if [[ -z "$DIGEST" ]]; then
             echo "Getting digest from registry info..."
@@ -120,7 +134,7 @@ jobs:
               wkg oci info "${IMAGE_REF}" || true
             fi
           fi
-          
+
           # Sign the image if we have a digest
           if [[ -n "$DIGEST" ]]; then
             echo "Signing ${IMAGE_REF}@${DIGEST}"
@@ -128,13 +142,13 @@ jobs:
           else
             echo "Warning: Could not determine digest for ${IMAGE_REF}, skipping signing"
           fi
-          
+
           # If this is a release, also tag as latest
           if [[ "$IS_LATEST" == "true" ]]; then
             echo "--- Publishing latest tag for $example ---"
             LATEST_REF="${{ env.REGISTRY }}/${REPO_OWNER_LOWER}/${example}:latest"
             echo "Latest image reference: ${LATEST_REF}"
-            
+
             if LATEST_PUSH_OUTPUT=$(wkg oci push "bin/${example}.wasm" "${LATEST_REF}" --format json 2>&1); then
               echo "Latest push successful"
               LATEST_DIGEST=$(echo "${LATEST_PUSH_OUTPUT}" | jq -r '.digest // empty' 2>/dev/null || echo "")
@@ -145,7 +159,7 @@ jobs:
               wkg oci push "bin/${example}.wasm" "${LATEST_REF}"
               LATEST_DIGEST=""
             fi
-            
+
             # If we couldn't get digest from push, try to get it from info
             if [[ -z "$LATEST_DIGEST" ]]; then
               echo "Getting latest digest from registry info..."
@@ -156,7 +170,7 @@ jobs:
                 wkg oci info "${LATEST_REF}" || true
               fi
             fi
-            
+
             # Sign the latest image if we have a digest
             if [[ -n "$LATEST_DIGEST" ]]; then
               echo "Signing ${LATEST_REF}@${LATEST_DIGEST}"
@@ -165,8 +179,8 @@ jobs:
               echo "Warning: Could not determine digest for ${LATEST_REF}, skipping signing"
             fi
           fi
-          
+
           echo "Completed processing $example"
         done
-        
+
         echo "=== All examples processed ==="
