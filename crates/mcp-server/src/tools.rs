@@ -9,7 +9,8 @@ use tracing::{debug, error, info, instrument};
 use weld::LifecycleManager;
 
 use crate::components::{
-    get_component_tools, handle_component_call, handle_load_component, handle_unload_component,
+    get_component_tools, handle_component_call, handle_list_components, handle_load_component,
+    handle_unload_component,
 };
 
 /// Handles a request to list available tools.
@@ -41,6 +42,7 @@ pub async fn handle_tools_call(
     let result = match req.name.as_ref() {
         "load-component" => handle_load_component(&req, lifecycle_manager, server_peer).await,
         "unload-component" => handle_unload_component(&req, lifecycle_manager, server_peer).await,
+        "list-components" => handle_list_components(lifecycle_manager).await,
         _ => handle_component_call(&req, lifecycle_manager).await,
     };
 
@@ -69,7 +71,7 @@ fn get_builtin_tools() -> Vec<Tool> {
         Tool {
             name: Cow::Borrowed("load-component"),
             description: Cow::Borrowed(
-                "Dynamically loads a new WebAssembly component. Arguments: path (string)",
+                "Dynamically loads a new tool or component from either the filesystem or OCI registries.",
             ),
             input_schema: Arc::new(
                 serde_json::from_value(json!({
@@ -85,7 +87,7 @@ fn get_builtin_tools() -> Vec<Tool> {
         Tool {
             name: Cow::Borrowed("unload-component"),
             description: Cow::Borrowed(
-                "Dynamically unloads a WebAssembly component. Argument: id (string)",
+                "Unloads a tool or component.",
             ),
             input_schema: Arc::new(
                 serde_json::from_value(json!({
@@ -94,6 +96,20 @@ fn get_builtin_tools() -> Vec<Tool> {
                         "id": {"type": "string"}
                     },
                     "required": ["id"]
+                }))
+                .unwrap_or_default(),
+            ),
+        },
+        Tool {
+            name: Cow::Borrowed("list-components"),
+            description: Cow::Borrowed(
+                "Lists all currently loaded components or tools.",
+            ),
+            input_schema: Arc::new(
+                serde_json::from_value(json!({
+                    "type": "object",
+                    "properties": {},
+                    "required": []
                 }))
                 .unwrap_or_default(),
             ),
@@ -108,8 +124,9 @@ mod tests {
     #[test]
     fn test_get_builtin_tools() {
         let tools = get_builtin_tools();
-        assert_eq!(tools.len(), 2);
+        assert_eq!(tools.len(), 3);
         assert!(tools.iter().any(|t| t.name == "load-component"));
         assert!(tools.iter().any(|t| t.name == "unload-component"));
+        assert!(tools.iter().any(|t| t.name == "list-components"));
     }
 }
