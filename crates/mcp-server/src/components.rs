@@ -169,6 +169,52 @@ pub(crate) async fn handle_component_call(
     }
 }
 
+#[instrument(skip(lifecycle_manager))]
+pub(crate) async fn handle_list_components(
+    lifecycle_manager: &LifecycleManager,
+) -> Result<CallToolResult> {
+    info!("Listing loaded components");
+
+    let component_ids = lifecycle_manager.list_components().await;
+
+    let mut components_info = Vec::new();
+
+    for id in component_ids {
+        debug!("Getting component details for {}", id);
+        if let Some(schema) = lifecycle_manager.get_component_schema(&id).await {
+            let tools_count = schema
+                .get("tools")
+                .and_then(|v| v.as_array())
+                .map(|arr| arr.len())
+                .unwrap_or(0);
+
+            components_info.push(json!({
+                "id": id,
+                "tools_count": tools_count,
+                "schema": schema
+            }));
+        } else {
+            components_info.push(json!({
+                "id": id,
+                "tools_count": 0,
+                "schema": null
+            }));
+        }
+    }
+
+    let result_text = serde_json::to_string(&json!({
+        "components": components_info,
+        "total": components_info.len()
+    }))?;
+
+    let contents = vec![Content::text(result_text)];
+
+    Ok(CallToolResult {
+        content: contents,
+        is_error: None,
+    })
+}
+
 fn extract_args_from_request(req: &CallToolRequestParam) -> Result<serde_json::Map<String, Value>> {
     let params_value = serde_json::to_value(&req.arguments)?;
 

@@ -2,6 +2,7 @@ use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::time::Instant;
 
 use anyhow::{bail, Context, Ok, Result};
 use component2json::{
@@ -197,7 +198,7 @@ impl LifecycleManager {
     }
 
     /// Creates a lifecycle manager from configuration parameters with custom clients
-    #[instrument(skip_all, fields(plugin_dir = %plugin_dir.as_ref().display()))]
+    #[instrument(skip_all)]
     pub async fn new_with_clients(
         plugin_dir: impl AsRef<Path>,
         policy_file: Option<impl AsRef<Path>>,
@@ -234,7 +235,7 @@ impl LifecycleManager {
     }
 
     /// Creates a lifecycle manager with custom clients and WASI state template
-    #[instrument(skip_all, fields(plugin_dir = %plugin_dir.as_ref().display()))]
+    #[instrument(skip_all)]
     async fn new_with_policy(
         engine: Arc<Engine>,
         plugin_dir: impl AsRef<Path>,
@@ -588,6 +589,7 @@ async fn load_component_from_entry(
     engine: Arc<Engine>,
     entry: DirEntry,
 ) -> Result<Option<(Component, String)>> {
+    let start_time = Instant::now();
     let is_file = entry
         .metadata()
         .await
@@ -610,6 +612,11 @@ async fn load_component_from_entry(
         .and_then(|s| s.to_str())
         .map(String::from)
         .context("wasm file didn't have a valid file name")?;
+    info!(
+        "Loaded component. (component_id: {}), took: {:?}",
+        name,
+        start_time.elapsed()
+    );
     Ok(Some((component, name)))
 }
 
