@@ -143,13 +143,8 @@ pub(crate) async fn handle_component_call(
             anyhow::anyhow!("Failed to find component for tool '{}': {}", method_name, e)
         })?;
 
-    let component = lifecycle_manager
-        .get_component(&component_id)
-        .await
-        .ok_or_else(|| anyhow::anyhow!("Component with ID {} not found", component_id))?;
-
     let result = lifecycle_manager
-        .execute_component_call(&component, &method_name, &serde_json::to_string(&args)?)
+        .execute_component_call(&component_id, &method_name, &serde_json::to_string(&args)?)
         .await;
 
     match result {
@@ -215,7 +210,9 @@ pub(crate) async fn handle_list_components(
     })
 }
 
-fn extract_args_from_request(req: &CallToolRequestParam) -> Result<serde_json::Map<String, Value>> {
+pub(crate) fn extract_args_from_request(
+    req: &CallToolRequestParam,
+) -> Result<serde_json::Map<String, Value>> {
     let params_value = serde_json::to_value(&req.arguments)?;
 
     match params_value {

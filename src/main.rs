@@ -34,9 +34,6 @@ enum Commands {
         #[arg(long, default_value_t = get_component_dir().into_os_string().into_string().unwrap())]
         plugin_dir: String,
 
-        #[arg(long)]
-        policy_file: Option<String>,
-
         /// Enable stdio transport
         #[arg(long)]
         stdio: bool,
@@ -197,14 +194,12 @@ async fn main() -> Result<()> {
     match &cli.command {
         Commands::Serve {
             plugin_dir,
-            policy_file,
             stdio,
             http,
         } => {
             let components_dir = PathBuf::from(plugin_dir);
 
-            let lifecycle_manager =
-                LifecycleManager::new(&components_dir, policy_file.as_deref()).await?;
+            let lifecycle_manager = LifecycleManager::new(&components_dir).await?;
 
             let server = McpServer::new(lifecycle_manager);
 
