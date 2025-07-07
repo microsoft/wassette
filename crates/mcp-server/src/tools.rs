@@ -125,4 +125,107 @@ mod tests {
         // happens in handle_tools_list based on the builtin_tools_enabled flag
         assert_eq!(tools.len(), 2);
     }
+
+    #[tokio::test]
+    async fn test_handle_tools_list_with_builtin_tools_disabled() {
+        use tempfile::TempDir;
+        use weld::LifecycleManager;
+        
+        // Create a temporary directory for testing
+        let temp_dir = TempDir::new().unwrap();
+        let lifecycle_manager = LifecycleManager::new(temp_dir.path(), None::<String>).await.unwrap();
+        
+        // Test with builtin tools disabled
+        let result = handle_tools_list(&lifecycle_manager, false).await.unwrap();
+        let tools_result: rmcp::model::ListToolsResult = serde_json::from_value(result).unwrap();
+        
+        // Should not contain builtin tools
+        assert!(!tools_result.tools.iter().any(|t| t.name == "load-component"));
+        assert!(!tools_result.tools.iter().any(|t| t.name == "unload-component"));
+    }
+
+    #[tokio::test]
+    async fn test_handle_tools_call_with_builtin_tools_disabled() {
+        use tempfile::TempDir;
+        use weld::LifecycleManager;
+        use rmcp::model::CallToolRequestParam;
+        use serde_json::{Map, Value};
+        
+        // Create a temporary directory for testing
+        let temp_dir = TempDir::new().unwrap();
+        let lifecycle_manager = LifecycleManager::new(temp_dir.path(), None::<String>).await.unwrap();
+        
+        // Create arguments map properly
+        let mut arguments = Map::new();
+        arguments.insert("path".to_string(), Value::String("/some/test/path".to_string()));
+        
+        // Create a request for load-component tool
+        let req = CallToolRequestParam {
+            name: "load-component".into(),
+            arguments: Some(arguments)
+        };
+        
+        // Test with builtin tools disabled - should fail to handle the built-in tool
+        let result = handle_tools_call(req, &lifecycle_manager, None, false).await;
+        
+        // The call should succeed but return an error because the tool is not found
+        // (since builtin tools are disabled, it will try to find it as a component tool)
+        assert!(result.is_ok());
+        let result_value = result.unwrap();
+        let call_result: CallToolResult = serde_json::from_value(result_value).unwrap();
+        
+        // Should have is_error set to true since the tool wasn't found
+        assert_eq!(call_result.is_error, Some(true));
+    }
+
+    #[tokio::test]
+    async fn test_handle_tools_call_with_builtin_tools_enabled() {
+        use tempfile::TempDir;
+        use weld::LifecycleManager;
+        use rmcp::model::CallToolRequestParam;
+        use serde_json::{Map, Value};
+        
+        // Create a temporary directory for testing
+        let temp_dir = TempDir::new().unwrap();
+        let lifecycle_manager = LifecycleManager::new(temp_dir.path(), None::<String>).await.unwrap();
+        
+        // Create arguments map properly
+        let mut arguments = Map::new();
+        arguments.insert("path".to_string(), Value::String("/some/invalid/path".to_string()));
+        
+        // Create a request for load-component tool
+        let req = CallToolRequestParam {
+            name: "load-component".into(),
+            arguments: Some(arguments)
+        };
+        
+        // Test with builtin tools enabled - should try to handle the built-in tool
+        let result = handle_tools_call(req, &lifecycle_manager, None, true).await;
+        
+        // The call should succeed but return an error because the path is invalid
+        assert!(result.is_ok());
+        let result_value = result.unwrap();
+        let call_result: CallToolResult = serde_json::from_value(result_value).unwrap();
+        
+        // Should have is_error set to true since the path is invalid
+        assert_eq!(call_result.is_error, Some(true));
+    }
+
+    #[tokio::test]
+    async fn test_handle_tools_list_with_builtin_tools_enabled() {
+        use tempfile::TempDir;
+        use weld::LifecycleManager;
+        
+        // Create a temporary directory for testing
+        let temp_dir = TempDir::new().unwrap();
+        let lifecycle_manager = LifecycleManager::new(temp_dir.path(), None::<String>).await.unwrap();
+        
+        // Test with builtin tools enabled
+        let result = handle_tools_list(&lifecycle_manager, true).await.unwrap();
+        let tools_result: rmcp::model::ListToolsResult = serde_json::from_value(result).unwrap();
+        
+        // Should contain builtin tools
+        assert!(tools_result.tools.iter().any(|t| t.name == "load-component"));
+        assert!(tools_result.tools.iter().any(|t| t.name == "unload-component"));
+    }
 }
