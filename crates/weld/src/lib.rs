@@ -394,7 +394,7 @@ impl Loadable for PolicyResource {
             .trim_end_matches(&format!(".{}", Self::FILE_EXTENSION))
             .trim_end_matches(".yml");
 
-        let temp_file_name = format!("policy-{}", filename);
+        let temp_file_name = format!("policy-{filename}");
         let (downloaded_resource, mut temp_file) =
             DownloadedResource::new_temp_file(&temp_file_name, Self::FILE_EXTENSION).await?;
 
@@ -522,7 +522,7 @@ impl LifecycleManager {
             components.insert(name.clone(), Arc::new(component));
 
             // Check for co-located policy file and restore policy association
-            let policy_path = plugin_dir.as_ref().join(format!("{}.policy.yaml", name));
+            let policy_path = plugin_dir.as_ref().join(format!("{name}.policy.yaml"));
             if policy_path.exists() {
                 match tokio::fs::read_to_string(&policy_path).await {
                     Ok(policy_content) => match PolicyParser::parse_str(&policy_content) {
@@ -698,12 +698,11 @@ impl LifecycleManager {
     }
 
     fn component_path(&self, component_id: &str) -> PathBuf {
-        self.plugin_dir.join(format!("{}.wasm", component_id))
+        self.plugin_dir.join(format!("{component_id}.wasm"))
     }
 
     fn get_component_policy_path(&self, component_id: &str) -> PathBuf {
-        self.plugin_dir
-            .join(format!("{}.policy.yaml", component_id))
+        self.plugin_dir.join(format!("{component_id}.policy.yaml"))
     }
 
     fn create_default_policy_template() -> Arc<WasiStateTemplate> {
@@ -746,7 +745,7 @@ impl LifecycleManager {
         });
         let metadata_path = self
             .plugin_dir
-            .join(format!("{}.policy.meta.json", component_id));
+            .join(format!("{component_id}.policy.meta.json"));
         tokio::fs::write(&metadata_path, serde_json::to_string_pretty(&metadata)?).await?;
 
         let wasi_template =
@@ -777,7 +776,7 @@ impl LifecycleManager {
 
         let metadata_path = self
             .plugin_dir
-            .join(format!("{}.policy.meta.json", component_id));
+            .join(format!("{component_id}.policy.meta.json"));
         if metadata_path.exists() {
             tokio::fs::remove_file(&metadata_path).await?;
         }
@@ -794,7 +793,7 @@ impl LifecycleManager {
 
         let metadata_path = self
             .plugin_dir
-            .join(format!("{}.policy.meta.json", component_id));
+            .join(format!("{component_id}.policy.meta.json"));
         let source_uri =
             if let Ok(metadata_content) = tokio::fs::read_to_string(&metadata_path).await {
                 if let Ok(metadata) = serde_json::from_str::<serde_json::Value>(&metadata_content) {
@@ -816,7 +815,7 @@ impl LifecycleManager {
             .unwrap_or_else(|_| std::time::SystemTime::now());
 
         Some(PolicyInfo {
-            policy_id: format!("{}-policy", component_id),
+            policy_id: format!("{component_id}-policy"),
             source_uri,
             local_path: policy_path,
             component_id: component_id.to_string(),
