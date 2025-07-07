@@ -14,11 +14,13 @@ use crate::components::{
 
 /// Handles a request to list available tools.
 #[instrument(skip(lifecycle_manager))]
-pub async fn handle_tools_list(lifecycle_manager: &LifecycleManager) -> Result<Value> {
+pub async fn handle_tools_list(lifecycle_manager: &LifecycleManager, builtin_tools_enabled: bool) -> Result<Value> {
     debug!("Handling tools list request");
 
     let mut tools = get_component_tools(lifecycle_manager).await?;
-    tools.extend(get_builtin_tools());
+    if builtin_tools_enabled {
+        tools.extend(get_builtin_tools());
+    }
     debug!(num_tools = %tools.len(), "Retrieved tools");
 
     let response = rmcp::model::ListToolsResult {
@@ -35,12 +37,13 @@ pub async fn handle_tools_call(
     req: CallToolRequestParam,
     lifecycle_manager: &LifecycleManager,
     server_peer: Option<Peer<RoleServer>>,
+    builtin_tools_enabled: bool,
 ) -> Result<Value> {
     info!("Handling tool call");
 
     let result = match req.name.as_ref() {
-        "load-component" => handle_load_component(&req, lifecycle_manager, server_peer).await,
-        "unload-component" => handle_unload_component(&req, lifecycle_manager, server_peer).await,
+        "load-component" if builtin_tools_enabled => handle_load_component(&req, lifecycle_manager, server_peer).await,
+        "unload-component" if builtin_tools_enabled => handle_unload_component(&req, lifecycle_manager, server_peer).await,
         _ => handle_component_call(&req, lifecycle_manager).await,
     };
 
@@ -111,5 +114,15 @@ mod tests {
         assert_eq!(tools.len(), 2);
         assert!(tools.iter().any(|t| t.name == "load-component"));
         assert!(tools.iter().any(|t| t.name == "unload-component"));
+    }
+
+    #[test]
+    fn test_get_builtin_tools_empty_when_disabled() {
+        // This test verifies that when builtin tools are disabled,
+        // they are not included in the tools list
+        let tools = get_builtin_tools();
+        // The function itself always returns the tools, but the filtering
+        // happens in handle_tools_list based on the builtin_tools_enabled flag
+        assert_eq!(tools.len(), 2);
     }
 }

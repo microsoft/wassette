@@ -44,6 +44,10 @@ enum Commands {
         /// Enable HTTP transport
         #[arg(long)]
         http: bool,
+
+        /// Disable built-in tools (load-component and unload-component)
+        #[arg(long)]
+        disable_builtin_tools: bool,
     },
 }
 
@@ -77,13 +81,15 @@ fn get_component_dir() -> PathBuf {
 pub struct McpServer {
     lifecycle_manager: LifecycleManager,
     peer: Option<rmcp::service::Peer<RoleServer>>,
+    builtin_tools_enabled: bool,
 }
 
 impl McpServer {
-    pub fn new(lifecycle_manager: LifecycleManager) -> Self {
+    pub fn new(lifecycle_manager: LifecycleManager, builtin_tools_enabled: bool) -> Self {
         Self {
             lifecycle_manager,
             peer: None,
+            builtin_tools_enabled,
         }
     }
 }
@@ -110,7 +116,7 @@ impl ServerHandler for McpServer {
         let peer_clone = self.peer.clone();
 
         Box::pin(async move {
-            let result = handle_tools_call(params, &self.lifecycle_manager, peer_clone).await;
+            let result = handle_tools_call(params, &self.lifecycle_manager, peer_clone, self.builtin_tools_enabled).await;
             match result {
                 Ok(value) => serde_json::from_value(value).map_err(|e| {
                     ErrorData::parse_error(format!("Failed to parse result: {}", e), None)
@@ -126,7 +132,7 @@ impl ServerHandler for McpServer {
         _ctx: RequestContext<RoleServer>,
     ) -> Pin<Box<dyn Future<Output = Result<ListToolsResult, ErrorData>> + Send + 'a>> {
         Box::pin(async move {
-            let result = handle_tools_list(&self.lifecycle_manager).await;
+            let result = handle_tools_list(&self.lifecycle_manager, self.builtin_tools_enabled).await;
             match result {
                 Ok(value) => serde_json::from_value(value).map_err(|e| {
                     ErrorData::parse_error(format!("Failed to parse result: {}", e), None)
@@ -200,13 +206,14 @@ async fn main() -> Result<()> {
             policy_file,
             stdio,
             http,
+            disable_builtin_tools,
         } => {
             let components_dir = PathBuf::from(plugin_dir);
 
             let lifecycle_manager =
                 LifecycleManager::new(&components_dir, policy_file.as_deref()).await?;
 
-            let server = McpServer::new(lifecycle_manager);
+            let server = McpServer::new(lifecycle_manager, !disable_builtin_tools);
 
             match (*stdio, *http) {
                 (false, false) => {
