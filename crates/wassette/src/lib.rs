@@ -14,7 +14,7 @@ use serde_json::Value;
 use tokio::fs::DirEntry;
 use tokio::io::AsyncWriteExt;
 use tokio::sync::RwLock;
-use tracing::{debug, error, info, instrument, warn};
+use tracing::{debug, info, instrument, warn};
 use wasmtime::component::{Component, Linker};
 use wasmtime::{Engine, Store};
 use wasmtime_wasi::p2::WasiCtxBuilder;
@@ -23,6 +23,8 @@ use wasmtime_wasi_http::{WasiHttpCtx, WasiHttpView};
 
 mod wasistate;
 pub use wasistate::{create_wasi_state_template_from_policy, WasiStateTemplate};
+
+const DOWNLOADS_DIR: &str = "downloads";
 
 struct WasiState {
     ctx: wasmtime_wasi::p2::WasiCtx,
@@ -83,8 +85,6 @@ impl WasiStateTemplate {
         })
     }
 }
-
-const DOWNLOADS_DIR: &str = "downloads";
 
 #[derive(Debug, Clone)]
 struct ToolInfo {
@@ -182,26 +182,256 @@ pub struct PolicyInfo {
     pub created_at: std::time::SystemTime,
 }
 
-enum DownloadedPolicy {
+/// Represents a downloaded resource, either from a local file or a temporary one.
+enum DownloadedResource {
     Local(PathBuf),
     Temp((tempfile::TempDir, PathBuf)),
 }
 
-impl AsRef<Path> for DownloadedPolicy {
+impl AsRef<Path> for DownloadedResource {
     fn as_ref(&self) -> &Path {
         match self {
-            DownloadedPolicy::Local(path) => path.as_path(),
-            DownloadedPolicy::Temp((_, path)) => path.as_path(),
+            DownloadedResource::Local(path) => path.as_path(),
+            DownloadedResource::Temp((_, path)) => path.as_path(),
         }
     }
 }
 
-impl DownloadedPolicy {
-    async fn new_temp_file(name: impl AsRef<str>) -> Result<(Self, tokio::fs::File)> {
+impl DownloadedResource {
+    /// Returns a new `DownloadedComponent` with an already opened file handle for writing the
+    /// download.
+    ///
+    /// The `name` parameter must be unique across all plugins as it is used to identify the
+    /// component.
+    async fn new_temp_file(
+        name: impl AsRef<str>,
+        extension: &str,
+    ) -> Result<(Self, tokio::fs::File)> {
         let tempdir = tokio::task::spawn_blocking(tempfile::tempdir).await??;
-        let file_path = tempdir.path().join(format!("{}.yaml", name.as_ref()));
+        let file_path = tempdir
+            .path()
+            .join(format!("{}.{}", name.as_ref(), extension));
         let temp_file = tokio::fs::File::create(&file_path).await?;
-        Ok((DownloadedPolicy::Temp((tempdir, file_path)), temp_file))
+        Ok((DownloadedResource::Temp((tempdir, file_path)), temp_file))
+    }
+
+    fn id(&self) -> Result<String> {
+        // NOTE(thomastaylor312): Unfortunately the rust tooling (and I think some of the others),
+        // doesn't preserve the package ID from the wit world defined for the component. It just
+        // ends up as "root-component". So for now we rely on the file name to give us a unique ID
+        // for the component.
+        // let decoded = wit_parser::decoding::decode(&wasm_bytes)
+        //     .map_err(|e| anyhow::anyhow!("Failed to decode component from path: {}. Error: {}. Please ensure the file is a valid WebAssembly component.", file.as_ref().display(), e))?;
+
+        // let pkg_id = decoded.package();
+        // // SAFETY: The package ID is guaranteed to be valid because we just decoded it
+        // let pkg = decoded.resolve().packages.get(pkg_id).unwrap();
+        // // Format the package name without the colon so it is valid on all systems. We are using the
+        // // package name as a unique key on the filesystem as well
+        // let id = format!("{}-{}", pkg.name.namespace, pkg.name.name);
+
+        // Load the component to see if it is valid
+        let maybe_id = match self {
+            DownloadedResource::Local(path) => path.file_stem().and_then(|s| s.to_str()),
+            DownloadedResource::Temp((_, path)) => path.file_stem().and_then(|s| s.to_str()),
+        };
+
+        maybe_id
+            .map(|s| s.to_string())
+            .ok_or_else(|| anyhow::anyhow!("Failed to extract resource ID from path"))
+    }
+
+    async fn copy_to(self, dest: impl AsRef<Path>) -> Result<()> {
+        let meta = tokio::fs::metadata(&dest).await?;
+        if !meta.is_dir() {
+            bail!(
+                "Destination path must be a directory: {}",
+                dest.as_ref().display()
+            );
+        }
+        match self {
+            DownloadedResource::Local(path) => {
+                let dest = dest.as_ref().join(
+                    path.file_name()
+                        .context("Path to copy is missing filename")?,
+                );
+                tokio::fs::copy(path, dest).await?;
+            }
+            DownloadedResource::Temp((tempdir, file)) => {
+                let dest = dest.as_ref().join(
+                    file.file_name()
+                        .context("Path to copy is missing filename")?,
+                );
+                tokio::fs::rename(file, dest).await?;
+                tokio::task::spawn_blocking(move || tempdir.close())
+                    .await?
+                    .context("Failed to clean up temporary download file")?;
+            }
+        }
+        Ok(())
+    }
+}
+
+/// A trait for resources that can be loaded from a URI.
+trait Loadable: Sized {
+    const FILE_EXTENSION: &'static str;
+    const RESOURCE_TYPE: &'static str;
+
+    async fn from_local_file(path: &Path) -> Result<DownloadedResource>;
+    async fn from_oci_reference(
+        reference: &str,
+        oci_client: &oci_wasm::WasmClient,
+    ) -> Result<DownloadedResource>;
+    async fn from_url(url: &str, http_client: &reqwest::Client) -> Result<DownloadedResource>;
+}
+
+/// Loadable implementation for WebAssembly components
+pub struct ComponentResource;
+
+impl Loadable for ComponentResource {
+    const FILE_EXTENSION: &'static str = "wasm";
+    const RESOURCE_TYPE: &'static str = "component";
+
+    async fn from_local_file(path: &Path) -> Result<DownloadedResource> {
+        if !path.is_absolute() {
+            bail!("Component path must be fully qualified. Please provide an absolute path to the WebAssembly component file.");
+        }
+
+        if !tokio::fs::try_exists(path).await? {
+            bail!("Component path does not exist: {}. Please provide a valid path to a WebAssembly component file.", path.display());
+        }
+
+        if path.extension().unwrap_or_default() != Self::FILE_EXTENSION {
+            bail!(
+                "Invalid file extension for component: {}. Component file must have .{} extension.",
+                path.display(),
+                Self::FILE_EXTENSION
+            );
+        }
+
+        Ok(DownloadedResource::Local(path.to_path_buf()))
+    }
+
+    async fn from_oci_reference(
+        reference: &str,
+        oci_client: &oci_wasm::WasmClient,
+    ) -> Result<DownloadedResource> {
+        let reference: oci_client::Reference =
+            reference.parse().context("Failed to parse OCI reference")?;
+        let data = oci_client
+            .pull(&reference, &oci_client::secrets::RegistryAuth::Anonymous)
+            .await?;
+        let (downloaded_resource, mut file) = DownloadedResource::new_temp_file(
+            reference.repository().replace('/', "_"),
+            Self::FILE_EXTENSION,
+        )
+        .await?;
+        file.write_all(&data.layers[0].data).await?;
+        Ok(downloaded_resource)
+    }
+
+    async fn from_url(url: &str, http_client: &reqwest::Client) -> Result<DownloadedResource> {
+        let resp = http_client.get(url).send().await?;
+        let status = resp.status();
+        if !status.is_success() {
+            let body = resp.text().await.unwrap_or_default();
+            bail!(
+                "Failed to download component from URL: {}. Status code: {}\nBody: {}",
+                url,
+                status,
+                body
+            );
+        }
+        let name = resp
+            .url()
+            .path_segments()
+            .and_then(|mut segments| segments.next_back())
+            .context("Failed to discover name from URL")?
+            .trim_end_matches(&format!(".{}", Self::FILE_EXTENSION));
+        let (downloaded_resource, mut file) =
+            DownloadedResource::new_temp_file(name, Self::FILE_EXTENSION).await?;
+        let stream = resp.bytes_stream();
+        let mut reader = tokio_util::io::StreamReader::new(stream.map_err(std::io::Error::other));
+        tokio::io::copy(&mut reader, &mut file)
+            .await
+            .context("Failed to write downloaded component to temp file")?;
+        Ok(downloaded_resource)
+    }
+}
+
+/// Loadable implementation for policies
+pub struct PolicyResource;
+
+impl Loadable for PolicyResource {
+    const FILE_EXTENSION: &'static str = "yaml";
+    const RESOURCE_TYPE: &'static str = "policy";
+
+    async fn from_local_file(path: &Path) -> Result<DownloadedResource> {
+        if !path.is_absolute() {
+            bail!("Policy file path must be fully qualified");
+        }
+
+        if !path.exists() {
+            bail!("Policy file does not exist: {}", path.display());
+        }
+
+        Ok(DownloadedResource::Local(path.to_path_buf()))
+    }
+
+    async fn from_oci_reference(
+        _reference: &str,
+        _oci_client: &oci_wasm::WasmClient,
+    ) -> Result<DownloadedResource> {
+        bail!("OCI policy pulling not implemented yet. Use file:// or https:// URIs for now.");
+    }
+
+    async fn from_url(url: &str, http_client: &reqwest::Client) -> Result<DownloadedResource> {
+        let url_obj = reqwest::Url::parse(url)?;
+        let filename = url_obj
+            .path_segments()
+            .and_then(|mut segments| segments.next_back())
+            .unwrap_or("policy")
+            .trim_end_matches(&format!(".{}", Self::FILE_EXTENSION))
+            .trim_end_matches(".yml");
+
+        let temp_file_name = format!("policy-{}", filename);
+        let (downloaded_resource, mut temp_file) =
+            DownloadedResource::new_temp_file(&temp_file_name, Self::FILE_EXTENSION).await?;
+
+        let response = http_client.get(url).send().await?;
+        if !response.status().is_success() {
+            bail!(
+                "Failed to download policy from {}: {}",
+                url,
+                response.status()
+            );
+        }
+
+        let policy_bytes = response.bytes().await?;
+        tokio::io::copy(&mut policy_bytes.as_ref(), &mut temp_file).await?;
+
+        Ok(downloaded_resource)
+    }
+}
+
+/// Generic resource loading function
+async fn load_resource<T: Loadable>(
+    uri: &str,
+    oci_client: &oci_wasm::WasmClient,
+    http_client: &reqwest::Client,
+) -> Result<DownloadedResource> {
+    let uri = uri.trim();
+    let error_message = format!(
+        "Invalid {} reference. Should be of the form scheme://reference",
+        T::RESOURCE_TYPE
+    );
+    let (scheme, reference) = uri.split_once("://").context(error_message)?;
+
+    match scheme {
+        "file" => T::from_local_file(Path::new(reference)).await,
+        "oci" => T::from_oci_reference(reference, oci_client).await,
+        "https" => T::from_url(uri, http_client).await,
+        _ => bail!("Unsupported {} scheme: {}", T::RESOURCE_TYPE, scheme),
     }
 }
 
@@ -349,42 +579,17 @@ impl LifecycleManager {
     /// Returns the new ID and whether or not this component was replaced.
     #[instrument(skip(self))]
     pub async fn load_component(&self, uri: &str) -> Result<(String, LoadResult)> {
-        debug!("Loading component from path");
-        let uri = uri.trim();
-        let (scheme, reference) = uri
-            .split_once("://")
-            .context("Invalid component reference. Should be of the form scheme://reference")?;
+        debug!("Loading component from URI: {}", uri);
 
-        let file = match scheme {
-            "file" => self.load_file(reference).await?,
-            "oci" => self.load_oci(reference).await?,
-            "https" => self.load_url(uri).await?,
-            _ => bail!("Unsupported component scheme: {}", scheme),
-        };
+        let downloaded_resource =
+            load_resource::<ComponentResource>(uri, &self.oci_client, &self.http_client).await?;
 
-        // Read the file so we can use the bytes first to parse the wit and then to load and compile
-        // the component
-        let wasm_bytes = tokio::fs::read(file.as_ref())
+        let wasm_bytes = tokio::fs::read(downloaded_resource.as_ref())
             .await
             .context("Failed to read component file")?;
 
-        // NOTE(thomastaylor312): Unfortunately the rust tooling (and I think some of the others),
-        // doesn't preserve the package ID from the wit world defined for the component. It just
-        // ends up as "root-component". So for now we rely on the file name to give us a unique ID
-        // for the component.
-        // let decoded = wit_parser::decoding::decode(&wasm_bytes)
-        //     .map_err(|e| anyhow::anyhow!("Failed to decode component from path: {}. Error: {}. Please ensure the file is a valid WebAssembly component.", file.as_ref().display(), e))?;
-
-        // let pkg_id = decoded.package();
-        // // SAFETY: The package ID is guaranteed to be valid because we just decoded it
-        // let pkg = decoded.resolve().packages.get(pkg_id).unwrap();
-        // // Format the package name without the colon so it is valid on all systems. We are using the
-        // // package name as a unique key on the filesystem as well
-        // let id = format!("{}-{}", pkg.name.namespace, pkg.name.name);
-
-        // Load the component to see if it is valid
-        let component = Component::new(&self.engine, wasm_bytes).map_err(|e| anyhow::anyhow!("Failed to compile component from path: {}. Error: {}. Please ensure the file is a valid WebAssembly component.", file.as_ref().display(), e))?;
-        let id = file.id()?;
+        let component = Component::new(&self.engine, wasm_bytes).map_err(|e| anyhow::anyhow!("Failed to compile component from path: {}. Error: {}. Please ensure the file is a valid WebAssembly component.", downloaded_resource.as_ref().display(), e))?;
+        let id = downloaded_resource.id()?;
         let schema = component_exports_to_json_schema(&component, &self.engine, true);
 
         {
@@ -393,9 +598,7 @@ impl LifecycleManager {
             registry_write.register_component(&id, &schema)?;
         }
 
-        // Now that we've gotten here, we know everything is valid, so copy the component to the directory
-        if let Err(e) = file.copy_to(&self.plugin_dir).await {
-            // Unregister the component if copy failed
+        if let Err(e) = downloaded_resource.copy_to(&self.plugin_dir).await {
             let mut registry_write = self.registry.write().await;
             registry_write.unregister_component(&id);
             bail!(
@@ -415,70 +618,6 @@ impl LifecycleManager {
 
         info!("Successfully loaded component");
         Ok((id, res))
-    }
-
-    async fn load_file(&self, path: impl AsRef<Path>) -> Result<DownloadedComponent> {
-        // Validate that the path is fully qualified
-        if !path.as_ref().is_absolute() {
-            error!("Component path must be fully qualified");
-            bail!("Component path must be fully qualified. Please provide an absolute path to the WebAssembly component file.");
-        }
-
-        // Validate path exists
-        if !tokio::fs::try_exists(path.as_ref()).await? {
-            error!("Component path does not exist: {}", path.as_ref().display());
-            bail!("Component path does not exist: {}. Please provide a valid path to a WebAssembly component file.", path.as_ref().display());
-        }
-
-        // Validate file extension
-        if path.as_ref().extension().unwrap_or_default() != "wasm" {
-            error!("Invalid file extension for component");
-            bail!("Invalid file extension for component: {}. Component file must have .wasm extension.", path.as_ref().display());
-        }
-
-        Ok(DownloadedComponent::Local(path.as_ref().to_path_buf()))
-    }
-
-    async fn load_oci(&self, reference: &str) -> Result<DownloadedComponent> {
-        let reference: oci_client::Reference =
-            reference.parse().context("Failed to parse OCI reference")?;
-        let data = self
-            .oci_client
-            .pull(&reference, &oci_client::secrets::RegistryAuth::Anonymous)
-            .await?;
-        let (downloaded_component, mut file) =
-            DownloadedComponent::new_temp_file(reference.repository().replace('/', "_")).await?;
-        // Per the wasm OCI spec, the component data is in the first layer, which is also validated
-        // by the library
-        file.write_all(&data.layers[0].data).await?;
-        Ok(downloaded_component)
-    }
-
-    async fn load_url(&self, url: &str) -> Result<DownloadedComponent> {
-        let resp = self.http_client.get(url).send().await?;
-        let status = resp.status();
-        if !status.is_success() {
-            let body = resp.text().await.unwrap_or_default();
-            bail!(
-                "Failed to download component from URL: {}. Status code: {}\nBody: {}",
-                url,
-                status,
-                body
-            );
-        }
-        let name = resp
-            .url()
-            .path_segments()
-            .and_then(|mut segments| segments.next_back())
-            .context("Failed to discover name from URL")?
-            .trim_end_matches(".wasm");
-        let (downloaded_component, mut file) = DownloadedComponent::new_temp_file(name).await?;
-        let stream = resp.bytes_stream();
-        let mut reader = tokio_util::io::StreamReader::new(stream.map_err(std::io::Error::other));
-        tokio::io::copy(&mut reader, &mut file)
-            .await
-            .context("Failed to write downloaded component to temp file")?;
-        Ok(downloaded_component)
     }
 
     /// Unloads the component with the specified id. This does not remove the installed component,
@@ -578,7 +717,7 @@ impl LifecycleManager {
             .component_policies
             .get(component_id)
             .cloned()
-            .unwrap_or_else(|| Self::create_default_policy_template());
+            .unwrap_or_else(Self::create_default_policy_template);
 
         policy_template.build()
     }
@@ -590,7 +729,9 @@ impl LifecycleManager {
             return Err(anyhow!("Component not found: {}", component_id));
         }
 
-        let downloaded_policy = self.download_policy(policy_uri).await?;
+        let downloaded_policy =
+            load_resource::<PolicyResource>(policy_uri, &self.oci_client, &self.http_client)
+                .await?;
 
         let policy_content = tokio::fs::read_to_string(downloaded_policy.as_ref()).await?;
         let policy = PolicyParser::parse_str(&policy_content)?;
@@ -681,71 +822,6 @@ impl LifecycleManager {
             component_id: component_id.to_string(),
             created_at,
         })
-    }
-
-    async fn download_policy(&self, uri: &str) -> Result<DownloadedPolicy> {
-        let uri = uri.trim();
-        let (scheme, reference) = uri
-            .split_once("://")
-            .context("Invalid policy URI. Should be of the form scheme://reference")?;
-
-        match scheme {
-            "file" => self.load_policy_from_file(reference).await,
-            "oci" => self.load_policy_from_oci(reference).await,
-            "https" => self.load_policy_from_url(uri).await,
-            _ => bail!("Unsupported policy scheme: {}", scheme),
-        }
-    }
-
-    async fn load_policy_from_file(&self, path: &str) -> Result<DownloadedPolicy> {
-        let path = Path::new(path);
-        if !path.is_absolute() {
-            bail!("Policy file path must be fully qualified");
-        }
-
-        if !path.exists() {
-            bail!("Policy file does not exist: {}", path.display());
-        }
-
-        Ok(DownloadedPolicy::Local(path.to_path_buf()))
-    }
-
-    async fn load_policy_from_oci(&self, reference: &str) -> Result<DownloadedPolicy> {
-        let temp_file_name = format!("policy-{}", reference.replace('/', "-").replace(':', "-"));
-        let (_downloaded_policy, _temp_file) =
-            DownloadedPolicy::new_temp_file(&temp_file_name).await?;
-
-        // For now, OCI policy pulling is not implemented - we'll use a simple approach
-        // In a full implementation, this would use the OCI client to pull policy artifacts
-        bail!("OCI policy pulling not implemented yet. Use file:// or https:// URIs for now.");
-    }
-
-    async fn load_policy_from_url(&self, url: &str) -> Result<DownloadedPolicy> {
-        let url_obj = reqwest::Url::parse(url)?;
-        let filename = url_obj
-            .path_segments()
-            .and_then(|segments| segments.last())
-            .unwrap_or("policy")
-            .trim_end_matches(".yaml")
-            .trim_end_matches(".yml");
-
-        let temp_file_name = format!("policy-{}", filename);
-        let (downloaded_policy, mut temp_file) =
-            DownloadedPolicy::new_temp_file(&temp_file_name).await?;
-
-        let response = self.http_client.get(url).send().await?;
-        if !response.status().is_success() {
-            bail!(
-                "Failed to download policy from {}: {}",
-                url,
-                response.status()
-            );
-        }
-
-        let policy_bytes = response.bytes().await?;
-        tokio::io::copy(&mut policy_bytes.as_ref(), &mut temp_file).await?;
-
-        Ok(downloaded_policy)
     }
 
     /// Executes a function call on a WebAssembly component
@@ -857,85 +933,6 @@ async fn load_component_from_entry(
         .context("wasm file didn't have a valid file name")?;
     info!(component_id = %name, elapsed = ?start_time.elapsed(), "component loaded");
     Ok(Some((component, name)))
-}
-
-// Helper struct for tracking a component that has been downloaded. Allows for cleanup in the event
-// of a failure. This works because we don't want to remove a local file, so that will just drop.
-// But a temp file will be removed when the temp dir is dropped.
-enum DownloadedComponent {
-    Local(PathBuf),
-    Temp((tempfile::TempDir, PathBuf)),
-}
-
-impl AsRef<Path> for DownloadedComponent {
-    fn as_ref(&self) -> &Path {
-        match self {
-            DownloadedComponent::Local(path) => path.as_path(),
-            DownloadedComponent::Temp((_, path)) => path.as_path(),
-        }
-    }
-}
-
-impl DownloadedComponent {
-    /// Returns a new `DownloadedComponent` with an already opened file handle for writing the
-    /// download.
-    ///
-    /// The `name` parameter must be unique across all plugins as it is used to identify the
-    /// component. It should be provided without the `.wasm` extension, as it will be added
-    /// automatically.
-    async fn new_temp_file(name: impl AsRef<str>) -> Result<(Self, tokio::fs::File)> {
-        let tempdir = tokio::task::spawn_blocking(tempfile::tempdir).await??;
-        let file_path = tempdir.path().join(format!("{}.wasm", name.as_ref()));
-        let temp_file = tokio::fs::File::create(&file_path).await?;
-        Ok((DownloadedComponent::Temp((tempdir, file_path)), temp_file))
-    }
-
-    /// Returns the ID of the component based on the file name.
-    fn id(&self) -> Result<String> {
-        let maybe_id = match self {
-            DownloadedComponent::Local(path) => path.file_stem().and_then(|s| s.to_str()),
-            DownloadedComponent::Temp((_, path)) => path.file_stem().and_then(|s| s.to_str()),
-        };
-
-        maybe_id
-            .map(|s| s.to_string())
-            .ok_or_else(|| anyhow::anyhow!("Failed to extract component ID from path"))
-    }
-
-    /// Copies the downloaded component to the given destination directory, consuming the
-    /// `DownloadedComponent` and returning the component ID.
-    ///
-    /// If the given path is not a directory or does not exist, it will return an error.
-    async fn copy_to(self, dest: impl AsRef<Path>) -> Result<()> {
-        // Ensure the destination is a directory and exists
-        let meta = tokio::fs::metadata(&dest).await?;
-        if !meta.is_dir() {
-            bail!(
-                "Destination path must be a directory: {}",
-                dest.as_ref().display()
-            );
-        }
-        match self {
-            DownloadedComponent::Local(path) => {
-                let dest = dest.as_ref().join(
-                    path.file_name()
-                        .context("Path to copy is missing filename")?,
-                );
-                tokio::fs::copy(path, dest).await?;
-            }
-            DownloadedComponent::Temp((tempdir, file)) => {
-                let dest = dest.as_ref().join(
-                    file.file_name()
-                        .context("Path to copy is missing filename")?,
-                );
-                tokio::fs::rename(file, dest).await?;
-                tokio::task::spawn_blocking(move || tempdir.close())
-                    .await?
-                    .context("Failed to clean up temporary download file")?;
-            }
-        }
-        Ok(())
-    }
 }
 
 #[cfg(test)]
