@@ -1,3 +1,6 @@
+mod sse_server_wrapper;
+use sse_server_wrapper::KeepAliveServer;
+
 use std::env;
 use std::future::Future;
 use std::path::PathBuf;
@@ -235,7 +238,12 @@ async fn main() -> Result<()> {
                     );
                     let ct = SseServer::serve(BIND_ADDRESS.parse().unwrap())
                         .await?
-                        .with_service(move || server.clone());
+                        .with_service(move || {
+                            let server_clone = server.clone();
+                            
+                            // Create a wrapper that adds keep-alive functionality
+                            KeepAliveServer::new(server_clone)
+                        });
 
                     tokio::signal::ctrl_c().await?;
                     ct.cancel();
