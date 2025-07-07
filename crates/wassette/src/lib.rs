@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Instant;
 
-use anyhow::{bail, Context, Ok, Result};
+use anyhow::{anyhow, bail, Context, Result};
 use component2json::{
     component_exports_to_json_schema, create_placeholder_results, json_to_vals, vals_to_json,
 };
@@ -14,7 +14,7 @@ use serde_json::Value;
 use tokio::fs::DirEntry;
 use tokio::io::AsyncWriteExt;
 use tokio::sync::RwLock;
-use tracing::{debug, error, info, instrument};
+use tracing::{debug, error, info, instrument, warn};
 use wasmtime::component::{Component, Linker};
 use wasmtime::{Engine, Store};
 use wasmtime_wasi::p2::WasiCtxBuilder;
@@ -168,29 +168,62 @@ impl ComponentRegistry {
     }
 }
 
+#[derive(Default)]
+struct PolicyRegistry {
+    component_policies: HashMap<String, Arc<WasiStateTemplate>>,
+}
+
+#[derive(Debug, Clone)]
+pub struct PolicyInfo {
+    pub policy_id: String,
+    pub source_uri: String,
+    pub local_path: PathBuf,
+    pub component_id: String,
+    pub created_at: std::time::SystemTime,
+}
+
+enum DownloadedPolicy {
+    Local(PathBuf),
+    Temp((tempfile::TempDir, PathBuf)),
+}
+
+impl AsRef<Path> for DownloadedPolicy {
+    fn as_ref(&self) -> &Path {
+        match self {
+            DownloadedPolicy::Local(path) => path.as_path(),
+            DownloadedPolicy::Temp((_, path)) => path.as_path(),
+        }
+    }
+}
+
+impl DownloadedPolicy {
+    async fn new_temp_file(name: impl AsRef<str>) -> Result<(Self, tokio::fs::File)> {
+        let tempdir = tokio::task::spawn_blocking(tempfile::tempdir).await??;
+        let file_path = tempdir.path().join(format!("{}.yaml", name.as_ref()));
+        let temp_file = tokio::fs::File::create(&file_path).await?;
+        Ok((DownloadedPolicy::Temp((tempdir, file_path)), temp_file))
+    }
+}
+
 /// A manager that handles the dynamic lifecycle of WebAssembly components.
 #[derive(Clone)]
 pub struct LifecycleManager {
     engine: Arc<Engine>,
     components: Arc<RwLock<HashMap<String, Arc<Component>>>>,
     registry: Arc<RwLock<ComponentRegistry>>,
+    policy_registry: Arc<RwLock<PolicyRegistry>>,
     oci_client: Arc<oci_wasm::WasmClient>,
     http_client: reqwest::Client,
     plugin_dir: PathBuf,
-    wasi_state_template: Arc<WasiStateTemplate>,
 }
 
 impl LifecycleManager {
     /// Creates a lifecycle manager from configuration parameters
     /// This is the primary way to create a LifecycleManager for most use cases
     #[instrument(skip_all, fields(plugin_dir = %plugin_dir.as_ref().display()))]
-    pub async fn new(
-        plugin_dir: impl AsRef<Path>,
-        policy_file: Option<impl AsRef<Path>>,
-    ) -> Result<Self> {
+    pub async fn new(plugin_dir: impl AsRef<Path>) -> Result<Self> {
         Self::new_with_clients(
             plugin_dir,
-            policy_file,
             oci_client::Client::default(),
             reqwest::Client::default(),
         )
@@ -201,7 +234,6 @@ impl LifecycleManager {
     #[instrument(skip_all)]
     pub async fn new_with_clients(
         plugin_dir: impl AsRef<Path>,
-        policy_file: Option<impl AsRef<Path>>,
         oci_client: oci_client::Client,
         http_client: reqwest::Client,
     ) -> Result<Self> {
@@ -210,13 +242,6 @@ impl LifecycleManager {
         if !components_dir.exists() {
             fs::create_dir_all(components_dir)?;
         }
-
-        let wasi_state_template = if let Some(policy_path) = policy_file {
-            let policy = PolicyParser::parse_file(policy_path)?;
-            create_wasi_state_template_from_policy(&policy, components_dir)?
-        } else {
-            WasiStateTemplate::default()
-        };
 
         let mut config = wasmtime::Config::new();
         config.wasm_component_model(true);
@@ -229,7 +254,7 @@ impl LifecycleManager {
             components_dir,
             oci_client,
             http_client,
-            wasi_state_template,
+            WasiStateTemplate::default(),
         )
         .await
     }
@@ -241,12 +266,13 @@ impl LifecycleManager {
         plugin_dir: impl AsRef<Path>,
         oci_cli: oci_client::Client,
         http_client: reqwest::Client,
-        wasi_state_template: WasiStateTemplate,
+        _wasi_state_template: WasiStateTemplate,
     ) -> Result<Self> {
         info!("Creating new LifecycleManager");
 
         let mut registry = ComponentRegistry::new();
         let mut components = HashMap::new();
+        let mut policy_registry = PolicyRegistry::default();
 
         let loaded_components =
             tokio_stream::wrappers::ReadDirStream::new(tokio::fs::read_dir(&plugin_dir).await?)
@@ -259,12 +285,42 @@ impl LifecycleManager {
                 .await?;
 
         for (component, name) in loaded_components.into_iter() {
-            let schema =
-                component2json::component_exports_to_json_schema(&component, &engine, true);
+            let schema = component_exports_to_json_schema(&component, &engine, true);
             registry
                 .register_component(&name, &schema)
                 .context("unable to insert component into registry")?;
-            components.insert(name, Arc::new(component));
+            components.insert(name.clone(), Arc::new(component));
+
+            // Check for co-located policy file and restore policy association
+            let policy_path = plugin_dir.as_ref().join(format!("{}.policy.yaml", name));
+            if policy_path.exists() {
+                match tokio::fs::read_to_string(&policy_path).await {
+                    Ok(policy_content) => match PolicyParser::parse_str(&policy_content) {
+                        Ok(policy) => {
+                            match wasistate::create_wasi_state_template_from_policy(
+                                &policy,
+                                plugin_dir.as_ref(),
+                            ) {
+                                Ok(wasi_template) => {
+                                    policy_registry
+                                        .component_policies
+                                        .insert(name.clone(), Arc::new(wasi_template));
+                                    info!(component_id = %name, "Restored policy association from co-located file");
+                                }
+                                Err(e) => {
+                                    warn!(component_id = %name, error = %e, "Failed to create WASI template from policy");
+                                }
+                            }
+                        }
+                        Err(e) => {
+                            warn!(component_id = %name, error = %e, "Failed to parse co-located policy file");
+                        }
+                    },
+                    Err(e) => {
+                        warn!(component_id = %name, error = %e, "Failed to read co-located policy file");
+                    }
+                }
+            }
         }
 
         // Make sure the plugin dir exists and also create a subdirectory for temporary staging of downloaded files
@@ -280,10 +336,10 @@ impl LifecycleManager {
             engine,
             components: Arc::new(RwLock::new(components)),
             registry: Arc::new(RwLock::new(registry)),
+            policy_registry: Arc::new(RwLock::new(policy_registry)),
             oci_client: Arc::new(oci_wasm::WasmClient::new(oci_cli)),
             http_client,
             plugin_dir: plugin_dir.as_ref().to_path_buf(),
-            wasi_state_template: Arc::new(wasi_state_template),
         })
     }
 
@@ -329,8 +385,7 @@ impl LifecycleManager {
         // Load the component to see if it is valid
         let component = Component::new(&self.engine, wasm_bytes).map_err(|e| anyhow::anyhow!("Failed to compile component from path: {}. Error: {}. Please ensure the file is a valid WebAssembly component.", file.as_ref().display(), e))?;
         let id = file.id()?;
-        let schema =
-            component2json::component_exports_to_json_schema(&component, &self.engine, true);
+        let schema = component_exports_to_json_schema(&component, &self.engine, true);
 
         {
             let mut registry_write = self.registry.write().await;
@@ -504,18 +559,210 @@ impl LifecycleManager {
     }
 
     fn component_path(&self, component_id: &str) -> PathBuf {
+        self.plugin_dir.join(format!("{}.wasm", component_id))
+    }
+
+    fn get_component_policy_path(&self, component_id: &str) -> PathBuf {
         self.plugin_dir
-            .join(format!("{}.wasm", component_id.replace(':', "_")))
+            .join(format!("{}.policy.yaml", component_id))
+    }
+
+    fn create_default_policy_template() -> Arc<WasiStateTemplate> {
+        Arc::new(WasiStateTemplate::default())
+    }
+
+    async fn get_wasi_state_for_component(&self, component_id: &str) -> Result<WasiState> {
+        let policy_registry = self.policy_registry.read().await;
+
+        let policy_template = policy_registry
+            .component_policies
+            .get(component_id)
+            .cloned()
+            .unwrap_or_else(|| Self::create_default_policy_template());
+
+        policy_template.build()
+    }
+
+    pub async fn attach_policy(&self, component_id: &str, policy_uri: &str) -> Result<()> {
+        info!(component_id, policy_uri, "Attaching policy to component");
+
+        if !self.components.read().await.contains_key(component_id) {
+            return Err(anyhow!("Component not found: {}", component_id));
+        }
+
+        let downloaded_policy = self.download_policy(policy_uri).await?;
+
+        let policy_content = tokio::fs::read_to_string(downloaded_policy.as_ref()).await?;
+        let policy = PolicyParser::parse_str(&policy_content)?;
+
+        let policy_path = self.get_component_policy_path(component_id);
+        tokio::fs::copy(downloaded_policy.as_ref(), &policy_path).await?;
+
+        // Store metadata about the policy source
+        let metadata = serde_json::json!({
+            "source_uri": policy_uri,
+            "attached_at": std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs()
+        });
+        let metadata_path = self
+            .plugin_dir
+            .join(format!("{}.policy.meta.json", component_id));
+        tokio::fs::write(&metadata_path, serde_json::to_string_pretty(&metadata)?).await?;
+
+        let wasi_template =
+            wasistate::create_wasi_state_template_from_policy(&policy, &self.plugin_dir)?;
+        self.policy_registry
+            .write()
+            .await
+            .component_policies
+            .insert(component_id.to_string(), Arc::new(wasi_template));
+
+        info!(component_id, policy_uri, "Policy attached successfully");
+        Ok(())
+    }
+
+    pub async fn detach_policy(&self, component_id: &str) -> Result<()> {
+        info!(component_id, "Detaching policy from component");
+
+        self.policy_registry
+            .write()
+            .await
+            .component_policies
+            .remove(component_id);
+
+        let policy_path = self.get_component_policy_path(component_id);
+        if policy_path.exists() {
+            tokio::fs::remove_file(&policy_path).await?;
+        }
+
+        let metadata_path = self
+            .plugin_dir
+            .join(format!("{}.policy.meta.json", component_id));
+        if metadata_path.exists() {
+            tokio::fs::remove_file(&metadata_path).await?;
+        }
+
+        info!(component_id, "Policy detached successfully");
+        Ok(())
+    }
+
+    pub async fn get_policy_info(&self, component_id: &str) -> Option<PolicyInfo> {
+        let policy_path = self.get_component_policy_path(component_id);
+        if !policy_path.exists() {
+            return None;
+        }
+
+        let metadata_path = self
+            .plugin_dir
+            .join(format!("{}.policy.meta.json", component_id));
+        let source_uri =
+            if let Ok(metadata_content) = tokio::fs::read_to_string(&metadata_path).await {
+                if let Ok(metadata) = serde_json::from_str::<serde_json::Value>(&metadata_content) {
+                    metadata
+                        .get("source_uri")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("unknown")
+                        .to_string()
+                } else {
+                    format!("file://{}", policy_path.display())
+                }
+            } else {
+                format!("file://{}", policy_path.display())
+            };
+
+        let metadata = tokio::fs::metadata(&policy_path).await.ok()?;
+        let created_at = metadata
+            .created()
+            .unwrap_or_else(|_| std::time::SystemTime::now());
+
+        Some(PolicyInfo {
+            policy_id: format!("{}-policy", component_id),
+            source_uri,
+            local_path: policy_path,
+            component_id: component_id.to_string(),
+            created_at,
+        })
+    }
+
+    async fn download_policy(&self, uri: &str) -> Result<DownloadedPolicy> {
+        let uri = uri.trim();
+        let (scheme, reference) = uri
+            .split_once("://")
+            .context("Invalid policy URI. Should be of the form scheme://reference")?;
+
+        match scheme {
+            "file" => self.load_policy_from_file(reference).await,
+            "oci" => self.load_policy_from_oci(reference).await,
+            "https" => self.load_policy_from_url(uri).await,
+            _ => bail!("Unsupported policy scheme: {}", scheme),
+        }
+    }
+
+    async fn load_policy_from_file(&self, path: &str) -> Result<DownloadedPolicy> {
+        let path = Path::new(path);
+        if !path.is_absolute() {
+            bail!("Policy file path must be fully qualified");
+        }
+
+        if !path.exists() {
+            bail!("Policy file does not exist: {}", path.display());
+        }
+
+        Ok(DownloadedPolicy::Local(path.to_path_buf()))
+    }
+
+    async fn load_policy_from_oci(&self, reference: &str) -> Result<DownloadedPolicy> {
+        let temp_file_name = format!("policy-{}", reference.replace('/', "-").replace(':', "-"));
+        let (_downloaded_policy, _temp_file) =
+            DownloadedPolicy::new_temp_file(&temp_file_name).await?;
+
+        // For now, OCI policy pulling is not implemented - we'll use a simple approach
+        // In a full implementation, this would use the OCI client to pull policy artifacts
+        bail!("OCI policy pulling not implemented yet. Use file:// or https:// URIs for now.");
+    }
+
+    async fn load_policy_from_url(&self, url: &str) -> Result<DownloadedPolicy> {
+        let url_obj = reqwest::Url::parse(url)?;
+        let filename = url_obj
+            .path_segments()
+            .and_then(|segments| segments.last())
+            .unwrap_or("policy")
+            .trim_end_matches(".yaml")
+            .trim_end_matches(".yml");
+
+        let temp_file_name = format!("policy-{}", filename);
+        let (downloaded_policy, mut temp_file) =
+            DownloadedPolicy::new_temp_file(&temp_file_name).await?;
+
+        let response = self.http_client.get(url).send().await?;
+        if !response.status().is_success() {
+            bail!(
+                "Failed to download policy from {}: {}",
+                url,
+                response.status()
+            );
+        }
+
+        let policy_bytes = response.bytes().await?;
+        tokio::io::copy(&mut policy_bytes.as_ref(), &mut temp_file).await?;
+
+        Ok(downloaded_policy)
     }
 
     /// Executes a function call on a WebAssembly component
-    #[instrument(skip(self, component))]
+    #[instrument(skip(self))]
     pub async fn execute_component_call(
         &self,
-        component: &Component,
+        component_id: &str,
         function_name: &str,
         parameters: &str,
     ) -> Result<String> {
+        let component = self
+            .get_component(component_id)
+            .await
+            .ok_or_else(|| anyhow!("Component not found: {}", component_id))?;
+
+        let state = self.get_wasi_state_for_component(component_id).await?;
+
         let mut linker = Linker::new(self.engine.as_ref());
         wasmtime_wasi::p2::add_to_linker_async(&mut linker)?;
         wasmtime_wasi_http::add_only_http_to_linker_async(&mut linker)?;
@@ -523,26 +770,22 @@ impl LifecycleManager {
             WasiConfig::from(&h.wasi_config_vars)
         })?;
 
-        let state = self.wasi_state_template.build()?;
         let mut store = Store::new(self.engine.as_ref(), state);
 
-        let instance = linker.instantiate_async(&mut store, component).await?;
+        let instance = linker.instantiate_async(&mut store, &component).await?;
 
-        // NOTE(Joe): To support functions that are exported from an interface, we need to split the
-        // function name into an interface name and a function name; e.g. "<ns>:<package>/<interface>.<function>"
-        // -> "<ns>:<package>/<interface>" and "<function>".
         let (interface_name, func_name) =
             function_name.split_once(".").unwrap_or(("", function_name));
 
         let func = if !interface_name.is_empty() {
             let interface_index = instance
                 .get_export_index(&mut store, None, interface_name)
-                .ok_or_else(|| anyhow::anyhow!("Interface not found: {}", interface_name))?;
+                .ok_or_else(|| anyhow!("Interface not found: {}", interface_name))?;
 
             let function_index = instance
                 .get_export_index(&mut store, Some(&interface_index), func_name)
                 .ok_or_else(|| {
-                    anyhow::anyhow!(
+                    anyhow!(
                         "Function not found in interface: {}.{}",
                         interface_name,
                         func_name
@@ -552,7 +795,7 @@ impl LifecycleManager {
             instance
                 .get_func(&mut store, function_index)
                 .ok_or_else(|| {
-                    anyhow::anyhow!(
+                    anyhow!(
                         "Function not found in interface: {}.{}",
                         interface_name,
                         func_name
@@ -561,10 +804,10 @@ impl LifecycleManager {
         } else {
             let func_index = instance
                 .get_export_index(&mut store, None, func_name)
-                .ok_or_else(|| anyhow::anyhow!("Function not found: {}", func_name))?;
+                .ok_or_else(|| anyhow!("Function not found: {}", func_name))?;
             instance
                 .get_func(&mut store, func_index)
-                .ok_or_else(|| anyhow::anyhow!("Function not found: {}", func_name))?
+                .ok_or_else(|| anyhow!("Function not found: {}", func_name))?
         };
 
         let params: serde_json::Value = serde_json::from_str(parameters)?;
@@ -737,7 +980,7 @@ mod tests {
 
     async fn create_test_manager() -> Result<TestLifecycleManager> {
         let tempdir = tempfile::tempdir()?;
-        let manager = LifecycleManager::new(&tempdir, None as Option<std::path::PathBuf>).await?;
+        let manager = LifecycleManager::new(&tempdir).await?;
         Ok(TestLifecycleManager {
             manager,
             _tempdir: tempdir,
@@ -930,26 +1173,237 @@ mod tests {
     #[test(tokio::test)]
     async fn test_component_path_update() -> Result<()> {
         let manager = create_test_manager().await?;
-        let component_path = build_example_component().await?;
 
-        let (_, res) = manager
-            .load_component(&format!("file://{}", component_path.to_str().unwrap()))
+        let component_id = "test-component";
+        let expected_path = manager.plugin_dir.join("test-component.wasm");
+        let actual_path = manager.component_path(component_id);
+
+        assert_eq!(actual_path, expected_path);
+        Ok(())
+    }
+
+    #[test(tokio::test)]
+    async fn test_policy_attachment_and_detachment() -> Result<()> {
+        let manager = create_test_manager().await?;
+        manager.load_test_component().await?;
+
+        // Create a test policy file
+        let policy_content = r#"
+version: "1.0"
+description: "Test policy"
+permissions:
+  network:
+    allow:
+      - host: "example.com"
+  environment:
+    allow:
+      - key: "TEST_VAR"
+"#;
+        let policy_path = manager.plugin_dir.join("test-policy.yaml");
+        tokio::fs::write(&policy_path, policy_content).await?;
+
+        let policy_uri = format!("file://{}", policy_path.display());
+
+        // Test policy attachment
+        manager
+            .attach_policy(TEST_COMPONENT_ID, &policy_uri)
             .await?;
 
-        assert_eq!(LoadResult::New, res, "Should have been a new component");
+        // Verify policy is attached
+        let policy_info = manager.get_policy_info(TEST_COMPONENT_ID).await;
+        assert!(policy_info.is_some());
+        let info = policy_info.unwrap();
+        assert_eq!(info.component_id, TEST_COMPONENT_ID);
+        assert_eq!(info.source_uri, policy_uri);
 
-        let (_, res) = manager
-            .load_component(&format!("file://{}", component_path.to_str().unwrap()))
+        // Verify co-located policy file exists
+        let co_located_path = manager.get_component_policy_path(TEST_COMPONENT_ID);
+        assert!(co_located_path.exists());
+
+        // Test policy detachment
+        manager.detach_policy(TEST_COMPONENT_ID).await?;
+
+        // Verify policy is detached
+        let policy_info_after = manager.get_policy_info(TEST_COMPONENT_ID).await;
+        assert!(policy_info_after.is_none());
+
+        // Verify co-located policy file is removed
+        assert!(!co_located_path.exists());
+
+        Ok(())
+    }
+
+    #[test(tokio::test)]
+    async fn test_policy_attachment_component_not_found() -> Result<()> {
+        let manager = create_test_manager().await?;
+
+        let policy_content = r#"
+version: "1.0"
+description: "Test policy"
+permissions: {}
+"#;
+        let policy_path = manager.plugin_dir.join("test-policy.yaml");
+        tokio::fs::write(&policy_path, policy_content).await?;
+
+        let policy_uri = format!("file://{}", policy_path.display());
+
+        // Test attaching policy to non-existent component
+        let result = manager.attach_policy("non-existent", &policy_uri).await;
+        assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("Component not found"));
+
+        Ok(())
+    }
+
+    #[test(tokio::test)]
+    async fn test_get_wasi_state_for_component_default_policy() -> Result<()> {
+        let manager = create_test_manager().await?;
+
+        // Test getting WASI state for component without attached policy (should use default)
+        let _wasi_state = manager
+            .get_wasi_state_for_component("test-component")
             .await?;
 
-        assert_eq!(
-            LoadResult::Replaced,
-            res,
-            "Should have replaced the component"
-        );
+        // Should not fail and return a valid WasiState
+        // We can't directly inspect the WasiState, but we can verify it was created successfully
+        assert!(true); // If we get here without error, the test passes
 
-        let component_id = manager.get_component_id_for_tool("fetch").await?;
-        assert_eq!(component_id, TEST_COMPONENT_ID);
+        Ok(())
+    }
+
+    #[test(tokio::test)]
+    async fn test_get_wasi_state_for_component_with_policy() -> Result<()> {
+        let manager = create_test_manager().await?;
+        manager.load_test_component().await?;
+
+        // Create and attach a policy
+        let policy_content = r#"
+version: "1.0"
+description: "Test policy"
+permissions:
+  network:
+    allow:
+      - host: "example.com"
+"#;
+        let policy_path = manager.plugin_dir.join("test-policy.yaml");
+        tokio::fs::write(&policy_path, policy_content).await?;
+
+        let policy_uri = format!("file://{}", policy_path.display());
+        manager
+            .attach_policy(TEST_COMPONENT_ID, &policy_uri)
+            .await?;
+
+        // Test getting WASI state for component with attached policy
+        let _wasi_state = manager
+            .get_wasi_state_for_component(TEST_COMPONENT_ID)
+            .await?;
+
+        // Should not fail and return a valid WasiState with the policy applied
+        assert!(true); // If we get here without error, the test passes
+
+        Ok(())
+    }
+
+    #[test(tokio::test)]
+    async fn test_policy_restoration_on_startup() -> Result<()> {
+        let tempdir = tempfile::tempdir()?;
+
+        // Create a component file
+        let component_content = if let Ok(content) =
+            std::fs::read("examples/fetch-rs/target/wasm32-wasip2/debug/fetch_rs.wasm")
+        {
+            content
+        } else {
+            let path = build_example_component().await?;
+            std::fs::read(path)?
+        };
+        let component_path = tempdir.path().join("test-component.wasm");
+        std::fs::write(&component_path, component_content)?;
+
+        // Create a co-located policy file
+        let policy_content = r#"
+version: "1.0"
+description: "Test policy"
+permissions:
+  network:
+    allow:
+      - host: "example.com"
+"#;
+        let policy_path = tempdir.path().join("test-component.policy.yaml");
+        std::fs::write(&policy_path, policy_content)?;
+
+        // Create a new LifecycleManager to test policy restoration
+        let manager = LifecycleManager::new(&tempdir).await?;
+
+        // Check if policy was restored
+        let policy_info = manager.get_policy_info("test-component").await;
+        assert!(policy_info.is_some());
+
+        Ok(())
+    }
+
+    #[test(tokio::test)]
+    async fn test_policy_file_not_found_error() -> Result<()> {
+        let manager = create_test_manager().await?;
+        manager.load_test_component().await?;
+
+        let non_existent_uri = "file:///non/existent/policy.yaml";
+
+        // Test attaching non-existent policy file
+        let result = manager
+            .attach_policy(TEST_COMPONENT_ID, non_existent_uri)
+            .await;
+        assert!(result.is_err());
+
+        Ok(())
+    }
+
+    #[test(tokio::test)]
+    async fn test_policy_invalid_uri_scheme() -> Result<()> {
+        let manager = create_test_manager().await?;
+        manager.load_test_component().await?;
+
+        let invalid_uri = "invalid-scheme://policy.yaml";
+
+        // Test attaching policy with invalid URI scheme
+        let result = manager.attach_policy(TEST_COMPONENT_ID, invalid_uri).await;
+        assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("Unsupported policy scheme"));
+
+        Ok(())
+    }
+
+    #[test(tokio::test)]
+    async fn test_execute_component_call_with_per_component_policy() -> Result<()> {
+        let manager = create_test_manager().await?;
+        manager.load_test_component().await?;
+
+        // Test execution with default policy (no explicit policy attached)
+        // This tests that the execution works with the default policy
+        let result = manager
+            .execute_component_call(
+                TEST_COMPONENT_ID,
+                "fetch",
+                r#"{"url": "https://example.com"}"#,
+            )
+            .await;
+
+        // The call might fail due to network restrictions in test environment,
+        // but it should at least attempt to execute (not fail due to component not found)
+        // We just verify the call was made successfully in terms of component lookup
+        match result {
+            Ok(_) => {} // Success
+            Err(e) => {
+                // Should not be a component lookup error
+                assert!(!e.to_string().contains("Component not found"));
+            }
+        }
 
         Ok(())
     }

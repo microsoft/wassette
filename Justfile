@@ -30,7 +30,7 @@ component2json path="examples/fetch-rs/target/wasm32-wasip2/release/fetch_rs.was
     cargo run --bin component2json -p component2json -- {{ path }}
 
 run RUST_LOG='info':
-    RUST_LOG={{RUST_LOG}} cargo run --bin wassette serve --http --policy-file policy.yaml
+    RUST_LOG={{RUST_LOG}} cargo run --bin wassette serve --http
 
 run-filesystem RUST_LOG='info':
     RUST_LOG={{RUST_LOG}} cargo run --bin wassette serve --http --plugin-dir ./examples/filesystem-rs --policy-file ./examples/filesystem-rs/policy.yaml
