@@ -45,6 +45,8 @@ wasmtime-wasi-config = "33"
 [dependencies]
 anyhow = { workspace = true }
 clap = { version = "4.5", features = ["derive"] }
+etcetera = { workspace = true }
+figment = { version = "0.10", features = ["env", "toml"] }
 wassette = { workspace = true }
 mcp-server = { workspace = true }
 oci-client = { workspace = true }
@@ -55,6 +57,7 @@ rmcp = { workspace = true, features = [
     "transport-io",
     "macros",
 ] }
+serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
 tokio = { workspace = true, features = ["full"] }
 tracing = { workspace = true }

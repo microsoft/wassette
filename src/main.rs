@@ -1,9 +1,8 @@
-use std::env;
 use std::future::Future;
 use std::path::PathBuf;
 use std::pin::Pin;
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 use mcp_server::{
     handle_prompts_list, handle_resources_list, handle_tools_call, handle_tools_list,
@@ -16,8 +15,11 @@ use rmcp::model::{
 use rmcp::service::{serve_server, RequestContext, RoleServer};
 use rmcp::transport::{stdio as stdio_transport, SseServer};
 use rmcp::ServerHandler;
+use serde::{Deserialize, Serialize};
 use tracing_subscriber::layer::SubscriberExt as _;
 use tracing_subscriber::util::SubscriberInitExt as _;
+
+mod config;
 
 const BIND_ADDRESS: &str = "127.0.0.1:9001";
 
@@ -30,44 +32,25 @@ struct Cli {
 
 #[derive(Subcommand, Debug)]
 enum Commands {
-    Serve {
-        #[arg(long, default_value_t = get_component_dir().into_os_string().into_string().unwrap())]
-        plugin_dir: String,
-
-        /// Enable stdio transport
-        #[arg(long)]
-        stdio: bool,
-
-        /// Enable HTTP transport
-        #[arg(long)]
-        http: bool,
-    },
+    Serve(Serve),
 }
 
-/// Get the default component directory path based on the OS
-fn get_component_dir() -> PathBuf {
-    if cfg!(target_os = "windows") {
-        let local_app_data = env::var("LOCALAPPDATA")
-            .unwrap_or_else(|_| env::var("USERPROFILE").unwrap_or_else(|_| "C:\\".to_string()));
-        PathBuf::from(local_app_data)
-            .join("wassette")
-            .join("components")
-    } else if cfg!(target_os = "macos") {
-        let home = env::var("HOME").unwrap_or_else(|_| "/".to_string());
-        PathBuf::from(home)
-            .join("Library")
-            .join("Application Support")
-            .join("wassette")
-            .join("components")
-    } else {
-        let xdg_data_home = env::var("XDG_DATA_HOME").unwrap_or_else(|_| {
-            let home = env::var("HOME").unwrap_or_else(|_| "/".to_string());
-            format!("{home}/.local/share")
-        });
-        PathBuf::from(xdg_data_home)
-            .join("wassette")
-            .join("components")
-    }
+#[derive(Parser, Debug, Clone, Serialize, Deserialize)]
+struct Serve {
+    /// Directory where plugins are stored. Defaults to $XDG_DATA_HOME/wasette/components
+    #[arg(long)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    plugin_dir: Option<PathBuf>,
+
+    /// Enable stdio transport
+    #[arg(long)]
+    #[serde(skip)]
+    stdio: bool,
+
+    /// Enable HTTP transport
+    #[arg(long)]
+    #[serde(skip)]
+    http: bool,
 }
 
 #[derive(Clone)]
@@ -195,18 +178,14 @@ async fn main() -> Result<()> {
     let cli = Cli::parse();
 
     match &cli.command {
-        Commands::Serve {
-            plugin_dir,
-            stdio,
-            http,
-        } => {
-            let components_dir = PathBuf::from(plugin_dir);
+        Commands::Serve(cfg) => {
+            let config = config::Config::new(cfg).context("Failed to load configuration")?;
 
-            let lifecycle_manager = LifecycleManager::new(&components_dir).await?;
+            let lifecycle_manager = LifecycleManager::new(&config.plugin_dir).await?;
 
             let server = McpServer::new(lifecycle_manager);
 
-            match (*stdio, *http) {
+            match (cfg.stdio, cfg.http) {
                 (false, false) => {
                     // Default case: use stdio transport
                     tracing::info!("Starting MCP server with stdio transport (default)");
