@@ -612,11 +612,7 @@ async fn load_component_from_entry(
         .and_then(|s| s.to_str())
         .map(String::from)
         .context("wasm file didn't have a valid file name")?;
-    info!(
-        "Loaded component. (component_id: {}), took: {:?}",
-        name,
-        start_time.elapsed()
-    );
+    info!(component_id = %name, elapsed = ?start_time.elapsed(), "component loaded");
     Ok(Some((component, name)))
 }
 

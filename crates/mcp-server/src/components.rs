@@ -2,6 +2,7 @@ use std::borrow::Cow;
 use std::sync::Arc;
 
 use anyhow::Result;
+use futures::stream::{self, StreamExt};
 use rmcp::model::{CallToolRequestParam, CallToolResult, Content, Tool};
 use rmcp::{Peer, RoleServer};
 use serde_json::{json, Value};
@@ -177,30 +178,31 @@ pub(crate) async fn handle_list_components(
 
     let component_ids = lifecycle_manager.list_components().await;
 
-    let mut components_info = Vec::new();
+    let components_info = stream::iter(component_ids)
+        .then(|id| async move {
+            debug!("Getting component details for {}", id);
+            if let Some(schema) = lifecycle_manager.get_component_schema(&id).await {
+                let tools_count = schema
+                    .get("tools")
+                    .and_then(|v| v.as_array())
+                    .map(|arr| arr.len())
+                    .unwrap_or(0);
 
-    for id in component_ids {
-        debug!("Getting component details for {}", id);
-        if let Some(schema) = lifecycle_manager.get_component_schema(&id).await {
-            let tools_count = schema
-                .get("tools")
-                .and_then(|v| v.as_array())
-                .map(|arr| arr.len())
-                .unwrap_or(0);
-
-            components_info.push(json!({
-                "id": id,
-                "tools_count": tools_count,
-                "schema": schema
-            }));
-        } else {
-            components_info.push(json!({
-                "id": id,
-                "tools_count": 0,
-                "schema": null
-            }));
-        }
-    }
+                json!({
+                    "id": id,
+                    "tools_count": tools_count,
+                    "schema": schema
+                })
+            } else {
+                json!({
+                    "id": id,
+                    "tools_count": 0,
+                    "schema": null
+                })
+            }
+        })
+        .collect::<Vec<_>>()
+        .await;
 
     let result_text = serde_json::to_string(&json!({
         "components": components_info,
@@ -273,7 +275,7 @@ mod tests {
 
         let schema_json = serde_json::to_value(&*tool.input_schema).unwrap();
         let expected = json!({
-            "type": "object",
+             "type": "object",
             "properties": {
                 "test": {"type": "string"}
             }
