@@ -13,3 +13,4 @@ tracing = { workspace = true, features = ["attributes"] }
 
 [dev-dependencies]
 tokio-test = { workspace = true }
+tempfile = { workspace = true }

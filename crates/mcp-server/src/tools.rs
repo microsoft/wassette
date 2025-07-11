@@ -14,12 +14,14 @@ use crate::components::{
 
 /// Handles a request to list available tools.
 #[instrument(skip(lifecycle_manager))]
-pub async fn handle_tools_list(lifecycle_manager: &LifecycleManager) -> Result<Value> {
+pub async fn handle_tools_list(lifecycle_manager: &LifecycleManager, builtin_tools_enabled: bool) -> Result<Value> {
     debug!("Handling tools list request");
 
     let mut tools = get_component_tools(lifecycle_manager).await?;
-    tools.extend(get_builtin_tools());
-    debug!(num_tools = %tools.len(), "Retrieved tools");
+    if builtin_tools_enabled {
+        tools.extend(get_builtin_tools());
+    }
+    debug!(num_tools = %tools.len(), builtin_tools_enabled = %builtin_tools_enabled, "Retrieved tools");
 
     let response = rmcp::model::ListToolsResult {
         tools,
@@ -35,13 +37,24 @@ pub async fn handle_tools_call(
     req: CallToolRequestParam,
     lifecycle_manager: &LifecycleManager,
     server_peer: Option<Peer<RoleServer>>,
+    builtin_tools_enabled: bool,
 ) -> Result<Value> {
     info!("Handling tool call");
 
-    let result = match req.name.as_ref() {
-        "load-component" => handle_load_component(&req, lifecycle_manager, server_peer).await,
-        "unload-component" => handle_unload_component(&req, lifecycle_manager, server_peer).await,
-        _ => handle_component_call(&req, lifecycle_manager).await,
+    let result = if builtin_tools_enabled {
+        match req.name.as_ref() {
+            "load-component" => handle_load_component(&req, lifecycle_manager, server_peer).await,
+            "unload-component" => handle_unload_component(&req, lifecycle_manager, server_peer).await,
+            _ => handle_component_call(&req, lifecycle_manager).await,
+        }
+    } else {
+        // When built-in tools are disabled, treat them as unknown tools
+        match req.name.as_ref() {
+            "load-component" | "unload-component" => {
+                Err(anyhow::anyhow!("Built-in tool '{}' is disabled", req.name))
+            }
+            _ => handle_component_call(&req, lifecycle_manager).await,
+        }
     };
 
     if let Err(ref e) = result {
@@ -111,5 +124,35 @@ mod tests {
         assert_eq!(tools.len(), 2);
         assert!(tools.iter().any(|t| t.name == "load-component"));
         assert!(tools.iter().any(|t| t.name == "unload-component"));
+    }
+
+    #[tokio::test]
+    async fn test_handle_tools_list_with_builtin_tools_enabled() {
+        use tempfile::TempDir;
+        
+        let tempdir = TempDir::new().unwrap();
+        let manager = LifecycleManager::new(&tempdir, None::<&str>).await.unwrap();
+        
+        let result = handle_tools_list(&manager, true).await.unwrap();
+        let tools_result: rmcp::model::ListToolsResult = serde_json::from_value(result).unwrap();
+        
+        let tool_names: Vec<&str> = tools_result.tools.iter().map(|t| t.name.as_ref()).collect();
+        assert!(tool_names.contains(&"load-component"));
+        assert!(tool_names.contains(&"unload-component"));
+    }
+
+    #[tokio::test]
+    async fn test_handle_tools_list_with_builtin_tools_disabled() {
+        use tempfile::TempDir;
+        
+        let tempdir = TempDir::new().unwrap();
+        let manager = LifecycleManager::new(&tempdir, None::<&str>).await.unwrap();
+        
+        let result = handle_tools_list(&manager, false).await.unwrap();
+        let tools_result: rmcp::model::ListToolsResult = serde_json::from_value(result).unwrap();
+        
+        let tool_names: Vec<&str> = tools_result.tools.iter().map(|t| t.name.as_ref()).collect();
+        assert!(!tool_names.contains(&"load-component"));
+        assert!(!tool_names.contains(&"unload-component"));
     }
 }
