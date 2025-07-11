@@ -702,3 +702,37 @@ async fn test_default_stdio_transport() -> Result<()> {
 
     Ok(())
 }
+
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+#[test(tokio::test)]
+async fn test_grant_permission_network_basic() -> Result<()> {
+    let (manager, _tempdir) = setup_lifecycle_manager().await?;
+    let component_path = build_example_component().await?;
+
+    let (component_id, _) = manager
+        .load_component(&format!("file://{}", component_path.to_str().unwrap()))
+        .await?;
+
+    // Test granting network permission
+    let result = manager
+        .grant_permission(
+            &component_id,
+            "network",
+            &serde_json::json!({"host": "api.example.com"}),
+        )
+        .await;
+
+    assert!(result.is_ok());
+
+    // Verify policy file was created and contains the permission
+    let policy_info = manager.get_policy_info(&component_id).await;
+    assert!(policy_info.is_some());
+    let policy_info = policy_info.unwrap();
+
+    // Verify policy contains the permission
+    let policy_content = tokio::fs::read_to_string(&policy_info.local_path).await?;
+    assert!(policy_content.contains("api.example.com"));
+    assert!(policy_content.contains("network"));
+
+    Ok(())
+}

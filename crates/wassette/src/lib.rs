@@ -8,8 +8,9 @@ use anyhow::{anyhow, bail, Context, Result};
 use component2json::{
     component_exports_to_json_schema, create_placeholder_results, json_to_vals, vals_to_json,
 };
-use futures::TryStreamExt;
+use futures::stream::TryStreamExt;
 use policy::PolicyParser;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tokio::fs::DirEntry;
 use tokio::io::AsyncWriteExt;
@@ -25,6 +26,35 @@ mod wasistate;
 pub use wasistate::{create_wasi_state_template_from_policy, WasiStateTemplate};
 
 const DOWNLOADS_DIR: &str = "downloads";
+
+/// Granular permission rule types
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "type")]
+pub enum PermissionRule {
+    Network {
+        host: String,
+    },
+    Storage {
+        uri: String,
+        access: Vec<AccessType>,
+    },
+}
+
+/// Access types for storage permissions
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum AccessType {
+    Read,
+    Write,
+}
+
+/// Permission grant request structure
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PermissionGrantRequest {
+    pub component_id: String,
+    pub permission_type: String,
+    pub details: serde_json::Value,
+}
 
 struct WasiState {
     ctx: wasmtime_wasi::p2::WasiCtx,
@@ -280,7 +310,7 @@ trait Loadable: Sized {
     async fn from_local_file(path: &Path) -> Result<DownloadedResource>;
     async fn from_oci_reference(
         reference: &str,
-        oci_client: &oci_wasm::WasmClient,
+        oci_client: &oci_wasm::WasmClient, // TODO: change to oci_client::Client
     ) -> Result<DownloadedResource>;
     async fn from_url(url: &str, http_client: &reqwest::Client) -> Result<DownloadedResource>;
 }
@@ -494,7 +524,7 @@ impl LifecycleManager {
     async fn new_with_policy(
         engine: Arc<Engine>,
         plugin_dir: impl AsRef<Path>,
-        oci_cli: oci_client::Client,
+        oci_client: oci_client::Client,
         http_client: reqwest::Client,
         _wasi_state_template: WasiStateTemplate,
     ) -> Result<Self> {
@@ -567,7 +597,7 @@ impl LifecycleManager {
             components: Arc::new(RwLock::new(components)),
             registry: Arc::new(RwLock::new(registry)),
             policy_registry: Arc::new(RwLock::new(policy_registry)),
-            oci_client: Arc::new(oci_wasm::WasmClient::new(oci_cli)),
+            oci_client: Arc::new(oci_wasm::WasmClient::new(oci_client)),
             http_client,
             plugin_dir: plugin_dir.as_ref().to_path_buf(),
         })
@@ -900,6 +930,270 @@ impl LifecycleManager {
         } else {
             Ok(serde_json::to_string(&result_json)?)
         }
+    }
+
+    // Granular permission system methods
+
+    /// Grant a specific permission rule to a component
+    #[instrument(skip(self))]
+    pub async fn grant_permission(
+        &self,
+        component_id: &str,
+        permission_type: &str,
+        details: &serde_json::Value,
+    ) -> Result<()> {
+        info!(
+            component_id,
+            permission_type, "Granting permission to component"
+        );
+
+        // 1. Validate component exists
+        if !self.components.read().await.contains_key(component_id) {
+            return Err(anyhow!("Component not found: {}", component_id));
+        }
+
+        // 2. Parse permission rule
+        let permission_rule = self.parse_permission_rule(permission_type, details)?;
+
+        // 3. Validate permission rule
+        self.validate_permission_rule(&permission_rule)?;
+
+        // 4. Load or create component policy
+        let mut policy = self.load_or_create_component_policy(component_id).await?;
+
+        // 5. Add permission rule to policy
+        self.add_permission_rule_to_policy(&mut policy, permission_rule)?;
+
+        // 6. Save updated policy
+        self.save_component_policy(component_id, &policy).await?;
+
+        // 7. Update runtime policy registry
+        self.update_policy_registry(component_id, &policy).await?;
+
+        info!(
+            component_id,
+            permission_type, "Permission granted successfully"
+        );
+        Ok(())
+    }
+
+    /// Parse a permission rule from the request details
+    fn parse_permission_rule(
+        &self,
+        permission_type: &str,
+        details: &serde_json::Value,
+    ) -> Result<PermissionRule> {
+        match permission_type {
+            "network" => {
+                let host = details
+                    .get("host")
+                    .and_then(|v| v.as_str())
+                    .ok_or_else(|| anyhow!("Missing 'host' field for network permission"))?;
+                Ok(PermissionRule::Network {
+                    host: host.to_string(),
+                })
+            }
+            "storage" => {
+                let uri = details
+                    .get("uri")
+                    .and_then(|v| v.as_str())
+                    .ok_or_else(|| anyhow!("Missing 'uri' field for storage permission"))?;
+                let access = details
+                    .get("access")
+                    .and_then(|v| v.as_array())
+                    .ok_or_else(|| anyhow!("Missing 'access' field for storage permission"))?;
+
+                let access_types: Result<Vec<AccessType>> = access
+                    .iter()
+                    .map(|v| v.as_str().ok_or_else(|| anyhow!("Invalid access type")))
+                    .map(|s| match s? {
+                        "read" => Ok(AccessType::Read),
+                        "write" => Ok(AccessType::Write),
+                        other => Err(anyhow!("Invalid access type: {}", other)),
+                    })
+                    .collect();
+
+                Ok(PermissionRule::Storage {
+                    uri: uri.to_string(),
+                    access: access_types?,
+                })
+            }
+            _ => Err(anyhow!("Unknown permission type: {}", permission_type)),
+        }
+    }
+
+    /// Load or create component policy
+    async fn load_or_create_component_policy(
+        &self,
+        component_id: &str,
+    ) -> Result<policy_mcp::PolicyDocument> {
+        let policy_path = self.get_component_policy_path(component_id);
+
+        if policy_path.exists() {
+            let policy_content = tokio::fs::read_to_string(&policy_path).await?;
+            Ok(PolicyParser::parse_str(&policy_content)?)
+        } else {
+            // Create minimal policy document
+            Ok(policy_mcp::PolicyDocument {
+                version: "1.0".to_string(),
+                description: Some(format!(
+                    "Auto-generated policy for component: {}",
+                    component_id
+                )),
+                permissions: Default::default(),
+            })
+        }
+    }
+
+    /// Add permission rule to policy
+    fn add_permission_rule_to_policy(
+        &self,
+        policy: &mut policy_mcp::PolicyDocument,
+        rule: PermissionRule,
+    ) -> Result<()> {
+        match rule {
+            PermissionRule::Network { host } => {
+                // For network permissions, we need to create a simple struct with host field
+                let network_perms = policy
+                    .permissions
+                    .network
+                    .get_or_insert_with(Default::default);
+                let allow_list = network_perms.allow.get_or_insert_with(Vec::new);
+
+                // Create a simple struct with the host field
+                let network_allow = serde_json::json!({ "host": host });
+                if let Ok(network_allow_struct) = serde_json::from_value(network_allow) {
+                    // Avoid duplicates by checking if host already exists
+                    if !allow_list.iter().any(|existing| {
+                        if let Ok(existing_json) = serde_json::to_value(existing) {
+                            existing_json.get("host").and_then(|h| h.as_str()) == Some(&host)
+                        } else {
+                            false
+                        }
+                    }) {
+                        allow_list.push(network_allow_struct);
+                    }
+                }
+            }
+            PermissionRule::Storage { uri, access } => {
+                // For storage permissions, we need to create a struct with uri and access fields
+                let storage_perms = policy
+                    .permissions
+                    .storage
+                    .get_or_insert_with(Default::default);
+                let allow_list = storage_perms.allow.get_or_insert_with(Vec::new);
+
+                // Convert access types to policy_mcp AccessType
+                let policy_access_types: Vec<policy_mcp::AccessType> = access
+                    .into_iter()
+                    .map(|a| match a {
+                        AccessType::Read => policy_mcp::AccessType::Read,
+                        AccessType::Write => policy_mcp::AccessType::Write,
+                    })
+                    .collect();
+
+                // Check for existing URI and merge access types
+                let mut found_existing = false;
+                for existing in allow_list.iter_mut() {
+                    if let Ok(existing_json) = serde_json::to_value(&*existing) {
+                        if existing_json.get("uri").and_then(|u| u.as_str()) == Some(&uri) {
+                            // Merge access types by converting back to struct
+                            if let Ok(mut existing_storage) =
+                                serde_json::from_value::<serde_json::Value>(existing_json)
+                            {
+                                if let Some(existing_access) = existing_storage.get_mut("access") {
+                                    if let Some(access_array) = existing_access.as_array_mut() {
+                                        // Add new access types if not already present
+                                        for new_access in &policy_access_types {
+                                            let access_str = match new_access {
+                                                policy_mcp::AccessType::Read => "read",
+                                                policy_mcp::AccessType::Write => "write",
+                                            };
+                                            if !access_array
+                                                .iter()
+                                                .any(|v| v.as_str() == Some(access_str))
+                                            {
+                                                access_array.push(serde_json::Value::String(
+                                                    access_str.to_string(),
+                                                ));
+                                            }
+                                        }
+                                    }
+                                }
+                                // Update the existing item
+                                *existing = serde_json::from_value(existing_storage)?;
+                                found_existing = true;
+                                break;
+                            }
+                        }
+                    }
+                }
+
+                if !found_existing {
+                    // Create a new storage allow entry
+                    let storage_allow = serde_json::json!({
+                        "uri": uri,
+                        "access": policy_access_types.iter().map(|a| match a {
+                            policy_mcp::AccessType::Read => "read",
+                            policy_mcp::AccessType::Write => "write",
+                        }).collect::<Vec<_>>()
+                    });
+                    if let Ok(storage_allow_struct) = serde_json::from_value(storage_allow) {
+                        allow_list.push(storage_allow_struct);
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// Save component policy to file
+    async fn save_component_policy(
+        &self,
+        component_id: &str,
+        policy: &policy_mcp::PolicyDocument,
+    ) -> Result<()> {
+        let policy_path = self.get_component_policy_path(component_id);
+        let policy_yaml = serde_yaml::to_string(policy)?;
+        tokio::fs::write(&policy_path, policy_yaml).await?;
+        Ok(())
+    }
+
+    /// Update policy registry with new policy
+    async fn update_policy_registry(
+        &self,
+        component_id: &str,
+        policy: &policy_mcp::PolicyDocument,
+    ) -> Result<()> {
+        let wasi_template =
+            wasistate::create_wasi_state_template_from_policy(policy, &self.plugin_dir)?;
+        self.policy_registry
+            .write()
+            .await
+            .component_policies
+            .insert(component_id.to_string(), Arc::new(wasi_template));
+        Ok(())
+    }
+
+    /// Validate permission rule
+    fn validate_permission_rule(&self, rule: &PermissionRule) -> Result<()> {
+        match rule {
+            PermissionRule::Network { host } => {
+                if host.is_empty() {
+                    return Err(anyhow!("Network host cannot be empty"));
+                }
+            }
+            PermissionRule::Storage { uri, access } => {
+                // TODO: the validation can verify if the uri is actually valid or not
+                if uri.is_empty() {
+                    return Err(anyhow!("Storage URI cannot be empty"));
+                }
+                if access.is_empty() {
+                    return Err(anyhow!("Storage access cannot be empty"));
+                }
+            }
+        }
+        Ok(())
     }
 }
 
@@ -1400,6 +1694,311 @@ permissions:
                 assert!(!e.to_string().contains("Component not found"));
             }
         }
+
+        Ok(())
+    }
+
+    // Granular permission system tests
+
+    #[test(tokio::test)]
+    async fn test_grant_permission_network() -> Result<()> {
+        let manager = create_test_manager().await?;
+        manager.load_test_component().await?;
+
+        // Grant network permission
+        let details = serde_json::json!({"host": "api.example.com"});
+        manager
+            .grant_permission(TEST_COMPONENT_ID, "network", &details)
+            .await?;
+
+        // Verify policy file was created and contains the permission
+        let policy_path = manager.get_component_policy_path(TEST_COMPONENT_ID);
+        assert!(policy_path.exists());
+
+        let policy_content = tokio::fs::read_to_string(&policy_path).await?;
+        assert!(policy_content.contains("api.example.com"));
+        assert!(policy_content.contains("network"));
+
+        Ok(())
+    }
+
+    #[test(tokio::test)]
+    async fn test_grant_permission_storage() -> Result<()> {
+        let manager = create_test_manager().await?;
+        manager.load_test_component().await?;
+
+        // Grant storage permission
+        let details = serde_json::json!({"uri": "fs:///tmp/test", "access": ["read", "write"]});
+        manager
+            .grant_permission(TEST_COMPONENT_ID, "storage", &details)
+            .await?;
+
+        // Verify policy file was created and contains the permission
+        let policy_path = manager.get_component_policy_path(TEST_COMPONENT_ID);
+        assert!(policy_path.exists());
+
+        let policy_content = tokio::fs::read_to_string(&policy_path).await?;
+        assert!(policy_content.contains("fs:///tmp/test"));
+        assert!(policy_content.contains("storage"));
+        assert!(policy_content.contains("read"));
+        assert!(policy_content.contains("write"));
+
+        Ok(())
+    }
+
+    #[test(tokio::test)]
+    async fn test_grant_permission_duplicate_prevention() -> Result<()> {
+        let manager = create_test_manager().await?;
+        manager.load_test_component().await?;
+
+        // Grant the same network permission twice
+        let details = serde_json::json!({"host": "api.example.com"});
+        manager
+            .grant_permission(TEST_COMPONENT_ID, "network", &details)
+            .await?;
+        manager
+            .grant_permission(TEST_COMPONENT_ID, "network", &details)
+            .await?;
+
+        // Verify policy file contains only one instance
+        let policy_path = manager.get_component_policy_path(TEST_COMPONENT_ID);
+        let policy_content = tokio::fs::read_to_string(&policy_path).await?;
+
+        // Count occurrences of the host
+        let occurrences = policy_content.matches("api.example.com").count();
+        assert_eq!(occurrences, 1);
+
+        Ok(())
+    }
+
+    #[test(tokio::test)]
+    async fn test_grant_permission_storage_access_merging() -> Result<()> {
+        let manager = create_test_manager().await?;
+        manager.load_test_component().await?;
+
+        // Grant read access first
+        let read_details = serde_json::json!({"uri": "fs:///tmp/test", "access": ["read"]});
+        manager
+            .grant_permission(TEST_COMPONENT_ID, "storage", &read_details)
+            .await?;
+
+        // Grant write access to the same URI
+        let write_details = serde_json::json!({"uri": "fs:///tmp/test", "access": ["write"]});
+        manager
+            .grant_permission(TEST_COMPONENT_ID, "storage", &write_details)
+            .await?;
+
+        // Verify policy file contains both access types for the same URI
+        let policy_path = manager.get_component_policy_path(TEST_COMPONENT_ID);
+        let policy_content = tokio::fs::read_to_string(&policy_path).await?;
+
+        // Should have both read and write access
+        assert!(policy_content.contains("read"));
+        assert!(policy_content.contains("write"));
+
+        // Should only have one URI entry
+        let uri_occurrences = policy_content.matches("fs:///tmp/test").count();
+        assert_eq!(uri_occurrences, 1);
+
+        Ok(())
+    }
+
+    #[test(tokio::test)]
+    async fn test_grant_permission_component_not_found() -> Result<()> {
+        let manager = create_test_manager().await?;
+
+        // Try to grant permission to non-existent component
+        let details = serde_json::json!({"host": "api.example.com"});
+        let result = manager
+            .grant_permission("non-existent", "network", &details)
+            .await;
+
+        assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("Component not found"));
+
+        Ok(())
+    }
+
+    #[test(tokio::test)]
+    async fn test_grant_permission_invalid_permission_type() -> Result<()> {
+        let manager = create_test_manager().await?;
+        manager.load_test_component().await?;
+
+        // Try to grant invalid permission type
+        let details = serde_json::json!({"host": "api.example.com"});
+        let result = manager
+            .grant_permission(TEST_COMPONENT_ID, "invalid", &details)
+            .await;
+
+        assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("Unknown permission type"));
+
+        Ok(())
+    }
+
+    #[test(tokio::test)]
+    async fn test_grant_permission_missing_required_fields() -> Result<()> {
+        let manager = create_test_manager().await?;
+        manager.load_test_component().await?;
+
+        // Try to grant network permission without host field
+        let details = serde_json::json!({});
+        let result = manager
+            .grant_permission(TEST_COMPONENT_ID, "network", &details)
+            .await;
+
+        assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("Missing 'host' field"));
+
+        Ok(())
+    }
+
+    #[test(tokio::test)]
+    async fn test_grant_permission_validation_empty_host() -> Result<()> {
+        let manager = create_test_manager().await?;
+        manager.load_test_component().await?;
+
+        // Try to grant network permission with empty host
+        let details = serde_json::json!({"host": ""});
+        let result = manager
+            .grant_permission(TEST_COMPONENT_ID, "network", &details)
+            .await;
+
+        assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("Network host cannot be empty"));
+
+        Ok(())
+    }
+
+    #[test(tokio::test)]
+    async fn test_grant_permission_multiple_permissions() -> Result<()> {
+        let manager = create_test_manager().await?;
+        manager.load_test_component().await?;
+
+        // Grant multiple different permissions
+        let network_details = serde_json::json!({"host": "api.example.com"});
+        manager
+            .grant_permission(TEST_COMPONENT_ID, "network", &network_details)
+            .await?;
+
+        let storage_details = serde_json::json!({"uri": "fs:///tmp/test", "access": ["read"]});
+        manager
+            .grant_permission(TEST_COMPONENT_ID, "storage", &storage_details)
+            .await?;
+
+        // Verify policy file contains all permissions
+        let policy_path = manager.get_component_policy_path(TEST_COMPONENT_ID);
+        let policy_content = tokio::fs::read_to_string(&policy_path).await?;
+
+        assert!(policy_content.contains("api.example.com"));
+        assert!(policy_content.contains("fs:///tmp/test"));
+        assert!(policy_content.contains("network"));
+        assert!(policy_content.contains("storage"));
+
+        Ok(())
+    }
+
+    #[test(tokio::test)]
+    async fn test_grant_permission_updates_policy_registry() -> Result<()> {
+        let manager = create_test_manager().await?;
+        manager.load_test_component().await?;
+
+        // Grant permission
+        let details = serde_json::json!({"host": "api.example.com"});
+        manager
+            .grant_permission(TEST_COMPONENT_ID, "network", &details)
+            .await?;
+
+        // Verify policy registry was updated by attempting to get WASI state
+        let _wasi_state = manager
+            .get_wasi_state_for_component(TEST_COMPONENT_ID)
+            .await?;
+
+        // If we get here without error, the policy registry was updated successfully
+        Ok(())
+    }
+
+    #[test(tokio::test)]
+    async fn test_grant_permission_to_existing_policy() -> Result<()> {
+        let manager = create_test_manager().await?;
+        manager.load_test_component().await?;
+
+        // First, attach a policy using the existing system
+        let policy_content = r#"
+version: "1.0"
+description: "Initial policy"
+permissions:
+  network:
+    allow:
+      - host: "initial.example.com"
+"#;
+        let policy_path = manager.plugin_dir.join("initial-policy.yaml");
+        tokio::fs::write(&policy_path, policy_content).await?;
+
+        let policy_uri = format!("file://{}", policy_path.display());
+        manager
+            .attach_policy(TEST_COMPONENT_ID, &policy_uri)
+            .await?;
+
+        // Now grant additional permission using granular system
+        let details = serde_json::json!({"host": "additional.example.com"});
+        manager
+            .grant_permission(TEST_COMPONENT_ID, "network", &details)
+            .await?;
+
+        // Verify both permissions exist in the policy file
+        let co_located_path = manager.get_component_policy_path(TEST_COMPONENT_ID);
+        let final_policy_content = tokio::fs::read_to_string(&co_located_path).await?;
+
+        assert!(final_policy_content.contains("initial.example.com"));
+        assert!(final_policy_content.contains("additional.example.com"));
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_permission_rule_serialization() -> Result<()> {
+        // Test serialization of PermissionRule
+        let network_rule = PermissionRule::Network {
+            host: "example.com".to_string(),
+        };
+        let serialized = serde_json::to_string(&network_rule)?;
+        assert!(serialized.contains("example.com"));
+
+        let storage_rule = PermissionRule::Storage {
+            uri: "fs:///tmp/test".to_string(),
+            access: vec![AccessType::Read, AccessType::Write],
+        };
+        let serialized = serde_json::to_string(&storage_rule)?;
+        assert!(serialized.contains("fs:///tmp/test"));
+        assert!(serialized.contains("read"));
+        assert!(serialized.contains("write"));
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_access_type_serialization() -> Result<()> {
+        // Test serialization of AccessType
+        let read_access = AccessType::Read;
+        let serialized = serde_json::to_string(&read_access)?;
+        assert_eq!(serialized, "\"read\"");
+
+        let write_access = AccessType::Write;
+        let serialized = serde_json::to_string(&write_access)?;
+        assert_eq!(serialized, "\"write\"");
 
         Ok(())
     }

@@ -95,6 +95,18 @@ impl ServerHandler for McpServer {
                 }),
                 ..Default::default()
             },
+            instructions: Some(
+                r#"This server runs tools in sandboxed WebAssembly environments with no default access to host resources.
+
+Key points:
+- Tools must be loaded before use: "Load component from oci://registry/tool:version" or "file:///path/to/tool.wasm"
+- When the server starts, it will load all tools present in the plugin directory.
+- You can list loaded tools with 'list-components' tool.
+- Each tool only accesses resources explicitly granted by a policy file (filesystem paths, network domains, etc.)
+- You MUST never modify the policy file directly, use tools to grant permissions instead.
+- Tools needs permission for that resource
+- If access is denied, suggest alternatives within allowed permissions or propose to grant permission"#.to_string(),
+            ),
             ..Default::default()
         }
     }
