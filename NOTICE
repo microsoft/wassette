@@ -1,6 +1,24 @@
+NOTICES
+
+This repository incorporates material as listed below or described in the code.
+
 This project includes code from the componentize-py project (https://github.com/bytecodealliance/componentize-py), licensed under the Apache License, Version 2.0.
 
 Copyright 2024-2025 Bytecode Alliance.
 
 You may obtain a copy of the license at:
 http://www.apache.org/licenses/LICENSE-2.0
+
+This project includes inspirations of plugin examples from the [tuananh/hyper-mcp](https://github.com/tuananh/hyper-mcp) project, under hyper-mcp/examples/plugins. No code was directly copied.
+
+hyper-mcp is licensed under the Apache License, Version 2.0.
+
+You may obtain a copy of the license at:
+http://www.apache.org/licenses/LICENSE-2.0
+
+This project includes inspirations of server examples in the [modelcontextprotocol/servers](https://github.com/modelcontextprotocol/servers) project. No code was directly copied.
+
+modelcontextprotocol/servers is licensed under the MIT License.
+
+You may obtain a copy of the license at:
+https://github.com/modelcontextprotocol/servers/blob/main/LICENSE
