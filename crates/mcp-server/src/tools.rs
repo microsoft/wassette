@@ -43,9 +43,13 @@ pub async fn handle_tools_call(
         "load-component" => handle_load_component(&req, lifecycle_manager, server_peer).await,
         "unload-component" => handle_unload_component(&req, lifecycle_manager, server_peer).await,
         "list-components" => handle_list_components(lifecycle_manager).await,
-        "attach-policy" => handle_attach_policy(&req, lifecycle_manager).await,
-        "detach-policy" => handle_detach_policy(&req, lifecycle_manager).await,
         "get-policy" => handle_get_policy(&req, lifecycle_manager).await,
+        "grant-storage-permission" => {
+            handle_grant_storage_permission(&req, lifecycle_manager).await
+        }
+        "grant-network-permission" => {
+            handle_grant_network_permission(&req, lifecycle_manager).await
+        }
         _ => handle_component_call(&req, lifecycle_manager).await,
     };
 
@@ -118,48 +122,6 @@ fn get_builtin_tools() -> Vec<Tool> {
             ),
         },
         Tool {
-            name: Cow::Borrowed("attach-policy"),
-            description: Cow::Borrowed(
-                "Attaches a capability policy to a specific component / plugin, or updates an existing policy",
-            ),
-            input_schema: Arc::new(
-                serde_json::from_value(json!({
-                    "type": "object",
-                    "properties": {
-                        "component_id": {
-                            "type": "string",
-                            "description": "ID of the component to attach policy to"
-                        },
-                        "policy_uri": {
-                            "type": "string", 
-                            "description": "URI of the policy file (file://, oci://, or https://)"
-                        }
-                    },
-                    "required": ["component_id", "policy_uri"]
-                }))
-                .unwrap_or_default(),
-            ),
-        },
-        Tool {
-            name: Cow::Borrowed("detach-policy"),
-            description: Cow::Borrowed(
-                "Removes the capability policy from a component (reverts to the default policy)",
-            ),
-            input_schema: Arc::new(
-                serde_json::from_value(json!({
-                    "type": "object",
-                    "properties": {
-                        "component_id": {
-                            "type": "string",
-                            "description": "ID of the component to detach policy from"
-                        }
-                    },
-                    "required": ["component_id"]
-                }))
-                .unwrap_or_default(),
-            ),
-        },
-        Tool {
             name: Cow::Borrowed("get-policy"),
             description: Cow::Borrowed(
                 "Gets the policy information for a specific component",
@@ -178,101 +140,75 @@ fn get_builtin_tools() -> Vec<Tool> {
                 .unwrap_or_default(),
             ),
         },
+        Tool {
+            name: Cow::Borrowed("grant-storage-permission"),
+            description: Cow::Borrowed(
+                "Grants storage access permission to a component, allowing it to read from and/or write to specific storage locations."
+            ),
+            input_schema: Arc::new(
+                serde_json::from_value(json!({
+                    "type": "object",
+                    "properties": {
+                      "component_id": {
+                        "type": "string",
+                        "description": "ID of the component to grant storage permission to"
+                      },
+                      "details": {
+                        "type": "object",
+                        "properties": {
+                          "uri": { 
+                            "type": "string",
+                            "description": "URI of the storage resource to grant access to"
+                          },
+                          "access": {
+                            "type": "array",
+                            "items": {
+                              "type": "string",
+                              "enum": ["read", "write"]
+                            },
+                            "description": "Access type for the storage resource, this must be an array of strings with values 'read' or 'write'"
+                          }
+                        },
+                        "required": ["uri", "access"],
+                        "additionalProperties": false
+                      }
+                    },
+                    "required": ["component_id", "details"]
+                  }))
+                .unwrap_or_default(),
+            ),
+        },
+        Tool {
+            name: Cow::Borrowed("grant-network-permission"),
+            description: Cow::Borrowed(
+                "Grants network access permission to a component, allowing it to make network requests to specific hosts."
+            ),
+            input_schema: Arc::new(
+                serde_json::from_value(json!({
+                    "type": "object",
+                    "properties": {
+                      "component_id": {
+                        "type": "string",
+                        "description": "ID of the component to grant network permission to"
+                      },
+                      "details": {
+                        "type": "object",
+                        "properties": {
+                          "host": { 
+                            "type": "string",
+                            "description": "Host to grant network access to"
+                          }
+                        },
+                        "required": ["host"],
+                        "additionalProperties": false
+                      }
+                    },
+                    "required": ["component_id", "details"]
+                  }))
+                .unwrap_or_default(),
+            ),
+        },
     ]
-}
-
-#[instrument(skip(lifecycle_manager))]
-async fn handle_attach_policy(
-    req: &CallToolRequestParam,
-    lifecycle_manager: &LifecycleManager,
-) -> Result<CallToolResult> {
-    let args = extract_args_from_request(req)?;
-
-    let component_id = args
-        .get("component_id")
-        .and_then(|v| v.as_str())
-        .ok_or_else(|| anyhow::anyhow!("Missing required argument: 'component_id'"))?;
-
-    let policy_uri = args
-        .get("policy_uri")
-        .and_then(|v| v.as_str())
-        .ok_or_else(|| anyhow::anyhow!("Missing required argument: 'policy_uri'"))?;
-
-    info!(
-        "Attaching policy {} to component {}",
-        policy_uri, component_id
-    );
-
-    let result = lifecycle_manager
-        .attach_policy(component_id, policy_uri)
-        .await;
-
-    match result {
-        Ok(()) => {
-            let status_text = serde_json::to_string(&json!({
-                "status": "policy attached",
-                "component_id": component_id,
-                "policy_uri": policy_uri
-            }))?;
-
-            let contents = vec![Content::text(status_text)];
-
-            Ok(CallToolResult {
-                content: contents,
-                is_error: None,
-            })
-        }
-        Err(e) => {
-            error!("Failed to attach policy: {}", e);
-            Err(anyhow::anyhow!(
-                "Failed to attach policy {} to component {}: {}",
-                policy_uri,
-                component_id,
-                e
-            ))
-        }
-    }
-}
-
-#[instrument(skip(lifecycle_manager))]
-async fn handle_detach_policy(
-    req: &CallToolRequestParam,
-    lifecycle_manager: &LifecycleManager,
-) -> Result<CallToolResult> {
-    let args = extract_args_from_request(req)?;
-
-    let component_id = args
-        .get("component_id")
-        .and_then(|v| v.as_str())
-        .ok_or_else(|| anyhow::anyhow!("Missing required argument: 'component_id'"))?;
-
-    info!("Detaching policy from component {}", component_id);
-
-    let result = lifecycle_manager.detach_policy(component_id).await;
-
-    match result {
-        Ok(()) => {
-            let status_text = serde_json::to_string(&json!({
-                "status": "policy detached",
-                "component_id": component_id
-            }))?;
-
-            let contents = vec![Content::text(status_text)];
-
-            Ok(CallToolResult {
-                content: contents,
-                is_error: None,
-            })
-        }
-        Err(e) => {
-            error!("Failed to detach policy: {}", e);
-            Err(anyhow::anyhow!(
-                "Failed to detach policy from component {}: {}",
-                component_id,
-                e
-            ))
-        }
-    }
 }
 
 #[instrument(skip(lifecycle_manager))]
@@ -318,6 +254,104 @@ async fn handle_get_policy(
     })
 }
 
+#[instrument(skip(lifecycle_manager))]
+async fn handle_grant_storage_permission(
+    req: &CallToolRequestParam,
+    lifecycle_manager: &LifecycleManager,
+) -> Result<CallToolResult> {
+    let args = extract_args_from_request(req)?;
+
+    let component_id = args
+        .get("component_id")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| anyhow::anyhow!("Missing required argument: 'component_id'"))?;
+
+    let details = args
+        .get("details")
+        .ok_or_else(|| anyhow::anyhow!("Missing required argument: 'details'"))?;
+
+    info!("Granting storage permission to component {}", component_id);
+
+    let result = lifecycle_manager
+        .grant_permission(component_id, "storage", details)
+        .await;
+
+    match result {
+        Ok(()) => {
+            let status_text = serde_json::to_string(&json!({
+                "status": "permission granted",
+                "component_id": component_id,
+                "permission_type": "storage",
+                "details": details
+            }))?;
+
+            let contents = vec![Content::text(status_text)];
+
+            Ok(CallToolResult {
+                content: contents,
+                is_error: None,
+            })
+        }
+        Err(e) => {
+            error!("Failed to grant storage permission: {}", e);
+            Err(anyhow::anyhow!(
+                "Failed to grant storage permission to component {}: {}",
+                component_id,
+                e
+            ))
+        }
+    }
+}
+
+#[instrument(skip(lifecycle_manager))]
+async fn handle_grant_network_permission(
+    req: &CallToolRequestParam,
+    lifecycle_manager: &LifecycleManager,
+) -> Result<CallToolResult> {
+    let args = extract_args_from_request(req)?;
+
+    let component_id = args
+        .get("component_id")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| anyhow::anyhow!("Missing required argument: 'component_id'"))?;
+
+    let details = args
+        .get("details")
+        .ok_or_else(|| anyhow::anyhow!("Missing required argument: 'details'"))?;
+
+    info!("Granting network permission to component {}", component_id);
+
+    let result = lifecycle_manager
+        .grant_permission(component_id, "network", details)
+        .await;
+
+    match result {
+        Ok(()) => {
+            let status_text = serde_json::to_string(&json!({
+                "status": "permission granted",
+                "component_id": component_id,
+                "permission_type": "network",
+                "details": details
+            }))?;
+
+            let contents = vec![Content::text(status_text)];
+
+            Ok(CallToolResult {
+                content: contents,
+                is_error: None,
+            })
+        }
+        Err(e) => {
+            error!("Failed to grant network permission: {}", e);
+            Err(anyhow::anyhow!(
+                "Failed to grant network permission to component {}: {}",
+                component_id,
+                e
+            ))
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -329,8 +363,144 @@ mod tests {
         assert!(tools.iter().any(|t| t.name == "load-component"));
         assert!(tools.iter().any(|t| t.name == "unload-component"));
         assert!(tools.iter().any(|t| t.name == "list-components"));
-        assert!(tools.iter().any(|t| t.name == "attach-policy"));
-        assert!(tools.iter().any(|t| t.name == "detach-policy"));
         assert!(tools.iter().any(|t| t.name == "get-policy"));
+        assert!(tools.iter().any(|t| t.name == "grant-storage-permission"));
+        assert!(tools.iter().any(|t| t.name == "grant-network-permission"));
+    }
+
+    #[tokio::test]
+    async fn test_grant_network_permission_integration() -> Result<()> {
+        // Create a test lifecycle manager
+        let tempdir = tempfile::tempdir()?;
+        let lifecycle_manager = weld::LifecycleManager::new(&tempdir).await?;
+
+        // Test the grant_network_permission tool call
+        let mut args = serde_json::Map::new();
+        args.insert("component_id".to_string(), json!("test-component"));
+        args.insert("details".to_string(), json!({"host": "api.example.com"}));
+
+        let req = CallToolRequestParam {
+            name: "grant-network-permission".into(),
+            arguments: Some(args),
+        };
+
+        // This should fail because the component doesn't exist, but it tests the flow
+        let result = handle_grant_network_permission(&req, &lifecycle_manager).await;
+
+        // The result should be an error because the component doesn't exist
+        assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("Component not found"));
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_grant_storage_permission_integration() -> Result<()> {
+        // Create a test lifecycle manager
+        let tempdir = tempfile::tempdir()?;
+        let lifecycle_manager = weld::LifecycleManager::new(&tempdir).await?;
+
+        // Test the grant_storage_permission tool call
+        let mut args = serde_json::Map::new();
+        args.insert("component_id".to_string(), json!("test-component"));
+        args.insert(
+            "details".to_string(),
+            json!({"uri": "file:///tmp/test", "access": ["read", "write"]}),
+        );
+
+        let req = CallToolRequestParam {
+            name: "grant-storage-permission".into(),
+            arguments: Some(args),
+        };
+
+        // This should fail because the component doesn't exist, but it tests the flow
+        let result = handle_grant_storage_permission(&req, &lifecycle_manager).await;
+
+        // The result should be an error because the component doesn't exist
+        assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("Component not found"));
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_grant_permission_missing_arguments() -> Result<()> {
+        let tempdir = tempfile::tempdir()?;
+        let lifecycle_manager = weld::LifecycleManager::new(&tempdir).await?;
+
+        // Test with missing component_id for network permission
+        let mut args = serde_json::Map::new();
+        args.insert("details".to_string(), json!({"host": "api.example.com"}));
+
+        let req = CallToolRequestParam {
+            name: "grant-network-permission".into(),
+            arguments: Some(args),
+        };
+
+        let result = handle_grant_network_permission(&req, &lifecycle_manager).await;
+        assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("Missing required argument: 'component_id'"));
+
+        // Test with missing details for network permission
+        let mut args = serde_json::Map::new();
+        args.insert("component_id".to_string(), json!("test-component"));
+
+        let req = CallToolRequestParam {
+            name: "grant-network-permission".into(),
+            arguments: Some(args),
+        };
+
+        let result = handle_grant_network_permission(&req, &lifecycle_manager).await;
+        assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("Missing required argument: 'details'"));
+
+        // Test with missing component_id for storage permission
+        let mut args = serde_json::Map::new();
+        args.insert(
+            "details".to_string(),
+            json!({"uri": "file:///tmp/test", "access": ["read"]}),
+        );
+
+        let req = CallToolRequestParam {
+            name: "grant-storage-permission".into(),
+            arguments: Some(args),
+        };
+
+        let result = handle_grant_storage_permission(&req, &lifecycle_manager).await;
+        assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("Missing required argument: 'component_id'"));
+
+        // Test with missing details for storage permission
+        let mut args = serde_json::Map::new();
+        args.insert("component_id".to_string(), json!("test-component"));
+
+        let req = CallToolRequestParam {
+            name: "grant-storage-permission".into(),
+            arguments: Some(args),
+        };
+
+        let result = handle_grant_storage_permission(&req, &lifecycle_manager).await;
+        assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("Missing required argument: 'details'"));
+
+        Ok(())
     }
 }
