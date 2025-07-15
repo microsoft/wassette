@@ -1,5 +1,5 @@
 # file system access policy for weld-mcp-server project
-# https://github.com/semcp/policy-mcp-rs
+# https://github.com/microsoft/policy-mcp-rs
 version: "1.0"
 description: "Permission policy for filesystem access in weld-mcp-server"
 permissions:
