@@ -179,7 +179,7 @@ pub(crate) async fn handle_list_components(
     let component_ids = lifecycle_manager.list_components().await;
 
     let components_info = stream::iter(component_ids)
-        .then(|id| async move {
+        .map(|id| async move {
             debug!("Getting component details for {}", id);
             if let Some(schema) = lifecycle_manager.get_component_schema(&id).await {
                 let tools_count = schema
@@ -201,6 +201,7 @@ pub(crate) async fn handle_list_components(
                 })
             }
         })
+        .buffer_unordered(50)
         .collect::<Vec<_>>()
         .await;
 
