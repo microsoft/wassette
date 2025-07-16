@@ -35,7 +35,7 @@ We wanted to build an entirely open source tool that enables developers to defin
 So what is this project aiming to be?
 
 1. One centralized open-source mcp-server, written in a memory safe, high performance language that embeds a WebAssembly runtime (e.g. [Wasmtime](https://github.com/bytecodealliance/wasmtime) or [hyperlight-wasm](https://github.com/hyperlight-dev/hyperlight-wasm)), acting as a minimal trusted computing base (TCB).
-2. `weld` will implement allow/deny lists for file paths, network endpoints, and system calls using capability-based policy like [policy-mcp-rs](https://github.com/semcp/policy-mcp-rs).
+2. `weld` will implement allow/deny lists for file paths, network endpoints, and system calls using capability-based policy like [policy-mcp-rs](https://github.com/microsoft/policy-mcp-rs).
 3. Untrusted tool code will be distributed as WebAssembly OCI artifacts in OCI registries, and be loaded into the trusted layer upon signature verification. Each tool will have a discrete set of capabilities. For example, tool A needs to read `./data`; not network; tool B needs read/write to `/assets` and outbound HTTP only to `api.company.com:443`.
 
 ### What about the developer experience?
@@ -49,7 +49,7 @@ If you are interested in learning more about what programming language supports 
 ### All Platforms (Shell Script)
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/semcp/weld-mcp-server/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/microsoft/weld-mcp-server/main/install.sh | bash
 ```
 
 This will detect your platform and install the latest `weld-mcp-server` binary to your `$PATH`.

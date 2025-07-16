@@ -13,7 +13,7 @@ BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
 # Configuration
-REPO="semcp/weld-mcp-server"
+REPO="microsoft/weld-mcp-server"
 BINARY_NAME="weld-mcp-server"
 INSTALL_DIR=""
 
