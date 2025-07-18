@@ -161,7 +161,7 @@ fn get_builtin_tools() -> Vec<Tool> {
                         "properties": {
                           "uri": { 
                             "type": "string",
-                            "description": "URI of the storage resource to grant access to"
+                            "description": "URI of the storage resource to grant access to. e.g. fs:///tmp/test"
                           },
                           "access": {
                             "type": "array",

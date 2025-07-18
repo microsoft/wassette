@@ -8,7 +8,7 @@ use anyhow::{anyhow, bail, Context, Result};
 use component2json::{
     component_exports_to_json_schema, create_placeholder_results, json_to_vals, vals_to_json,
 };
-use futures::stream::TryStreamExt;
+use futures::TryStreamExt;
 use policy_mcp::PolicyParser;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -310,7 +310,7 @@ trait Loadable: Sized {
     async fn from_local_file(path: &Path) -> Result<DownloadedResource>;
     async fn from_oci_reference(
         reference: &str,
-        oci_client: &oci_wasm::WasmClient, // TODO: change to oci_client::Client
+        oci_client: &oci_client::Client,
     ) -> Result<DownloadedResource>;
     async fn from_url(url: &str, http_client: &reqwest::Client) -> Result<DownloadedResource>;
 }
@@ -344,11 +344,11 @@ impl Loadable for ComponentResource {
 
     async fn from_oci_reference(
         reference: &str,
-        oci_client: &oci_wasm::WasmClient,
+        oci_client: &oci_client::Client,
     ) -> Result<DownloadedResource> {
         let reference: oci_client::Reference =
             reference.parse().context("Failed to parse OCI reference")?;
-        let data = oci_client
+        let data = oci_wasm::WasmClient::from(oci_client.clone())
             .pull(&reference, &oci_client::secrets::RegistryAuth::Anonymous)
             .await?;
         let (downloaded_resource, mut file) = DownloadedResource::new_temp_file(
@@ -410,9 +410,9 @@ impl Loadable for PolicyResource {
 
     async fn from_oci_reference(
         _reference: &str,
-        _oci_client: &oci_wasm::WasmClient,
+        _oci_client: &oci_client::Client,
     ) -> Result<DownloadedResource> {
-        bail!("OCI policy pulling not implemented yet. Use file:// or https:// URIs for now.");
+        bail!("OCI references are not supported for policy resources. Use 'file://' or 'https://' schemes instead.")
     }
 
     async fn from_url(url: &str, http_client: &reqwest::Client) -> Result<DownloadedResource> {
@@ -509,14 +509,7 @@ impl LifecycleManager {
         let engine = Arc::new(wasmtime::Engine::new(&config)?);
 
         // Create the lifecycle manager
-        Self::new_with_policy(
-            engine,
-            components_dir,
-            oci_client,
-            http_client,
-            WasiStateTemplate::default(),
-        )
-        .await
+        Self::new_with_policy(engine, components_dir, oci_client, http_client).await
     }
 
     /// Creates a lifecycle manager with custom clients and WASI state template
@@ -526,7 +519,6 @@ impl LifecycleManager {
         plugin_dir: impl AsRef<Path>,
         oci_client: oci_client::Client,
         http_client: reqwest::Client,
-        _wasi_state_template: WasiStateTemplate,
     ) -> Result<Self> {
         info!("Creating new LifecycleManager");
 
@@ -751,6 +743,11 @@ impl LifecycleManager {
         policy_template.build()
     }
 
+    /// Attaches a policy to a component. The policy can be a local file or a URL.
+    /// This function will download the policy from the given URI and store it
+    /// in the plugin directory specified by the `plugin_dir`, co-located with
+    /// the component. The component_id must be the ID of a component that is
+    /// already loaded.
     pub async fn attach_policy(&self, component_id: &str, policy_uri: &str) -> Result<()> {
         info!(component_id, policy_uri, "Attaching policy to component");
 
@@ -762,8 +759,7 @@ impl LifecycleManager {
             load_resource::<PolicyResource>(policy_uri, &self.oci_client, &self.http_client)
                 .await?;
 
-        let policy_content = tokio::fs::read_to_string(downloaded_policy.as_ref()).await?;
-        let policy = PolicyParser::parse_str(&policy_content)?;
+        let policy = PolicyParser::parse_file(downloaded_policy.as_ref())?;
 
         let policy_path = self.get_component_policy_path(component_id);
         tokio::fs::copy(downloaded_policy.as_ref(), &policy_path).await?;
@@ -790,6 +786,8 @@ impl LifecycleManager {
         Ok(())
     }
 
+    /// Detaches a policy from a component. This will remove the policy from the
+    /// component and remove the policy file from the plugin directory.
     pub async fn detach_policy(&self, component_id: &str) -> Result<()> {
         info!(component_id, "Detaching policy from component");
 
@@ -815,9 +813,14 @@ impl LifecycleManager {
         Ok(())
     }
 
+    /// Returns information about the policy attached to a component.
+    /// Returns `None` if no policy is attached to the component.
+    ///
+    /// The information contains the policy ID, source URI, local path, component ID,
+    /// and creation time.
     pub async fn get_policy_info(&self, component_id: &str) -> Option<PolicyInfo> {
         let policy_path = self.get_component_policy_path(component_id);
-        if !policy_path.exists() {
+        if !tokio::fs::try_exists(&policy_path).await.unwrap_or(false) {
             return None;
         }
 
@@ -946,28 +949,15 @@ impl LifecycleManager {
             component_id,
             permission_type, "Granting permission to component"
         );
-
-        // 1. Validate component exists
         if !self.components.read().await.contains_key(component_id) {
             return Err(anyhow!("Component not found: {}", component_id));
         }
 
-        // 2. Parse permission rule
         let permission_rule = self.parse_permission_rule(permission_type, details)?;
-
-        // 3. Validate permission rule
         self.validate_permission_rule(&permission_rule)?;
-
-        // 4. Load or create component policy
         let mut policy = self.load_or_create_component_policy(component_id).await?;
-
-        // 5. Add permission rule to policy
         self.add_permission_rule_to_policy(&mut policy, permission_rule)?;
-
-        // 6. Save updated policy
         self.save_component_policy(component_id, &policy).await?;
-
-        // 7. Update runtime policy registry
         self.update_policy_registry(component_id, &policy).await?;
 
         info!(
@@ -1037,8 +1027,7 @@ impl LifecycleManager {
             Ok(policy_mcp::PolicyDocument {
                 version: "1.0".to_string(),
                 description: Some(format!(
-                    "Auto-generated policy for component: {}",
-                    component_id
+                    "Auto-generated policy for component: {component_id}"
                 )),
                 permissions: Default::default(),
             })
