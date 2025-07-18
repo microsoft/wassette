@@ -7,7 +7,7 @@
 
 ## Overview
 
-The permission system provides fine-grained, per-component capability controls in the Weld MCP server. This document descirbes the architecture,implementation, and future development plans.
+The permission system provides fine-grained, per-component capability controls in the Weld MCP server. This document describes the architecture,implementation, and future development plans.
 
 ## Architecture Overview
 
@@ -112,14 +112,12 @@ Supported permission types:
 
 ## Built-in Tools
 
-1. `attach-policy`: Attach policy to component
-2. `detach-policy`: Remove policy from component  
-3. `get-policy`: Get policy information
-4. `grant-storage-permission`: Grant storage access
-5. `grant-network-permission`: Grant network access
-1. `load-component`: Load WebAssembly component
-2. `unload-component`: Unload component
-3. `list-components`: List loaded components
+1. `get-policy`: Get policy information
+2. `grant-storage-permission`: Grant storage access
+3. `grant-network-permission`: Grant network access
+4. `load-component`: Load WebAssembly component
+5. `unload-component`: Unload component
+6. `list-components`: List loaded components
 
 ## Permission Types and Structure
 
