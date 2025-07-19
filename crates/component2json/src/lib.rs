@@ -695,7 +695,7 @@ mod tests {
     #[test]
     fn test_vals_to_json_single() {
         let val = Val::Bool(true);
-        let json_val = vals_to_json(&[val.clone()]);
+        let json_val = vals_to_json(std::slice::from_ref(&val));
         assert_eq!(json_val, val_to_json(&val));
     }
 

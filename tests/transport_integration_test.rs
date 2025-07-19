@@ -1,5 +1,4 @@
 use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
-use std::path::PathBuf;
 use std::process::Stdio;
 use std::sync::Arc;
 use std::time::Duration;
@@ -21,6 +20,9 @@ use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::TcpListener;
 use tokio::time::sleep;
 use wassette::LifecycleManager;
+
+mod common;
+use common::build_fetch_component;
 
 const DOCKER_REGISTRY_PORT: u16 = 5000;
 
@@ -57,35 +59,6 @@ async fn setup_registry() -> anyhow::Result<ContainerAsync<DockerRegistry>> {
         .start()
         .await
         .context("Failed to start docker registry")
-}
-
-async fn build_example_component() -> Result<PathBuf> {
-    let top_level =
-        PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").context("CARGO_MANIFEST_DIR not set")?);
-
-    // NOTE: This assumes we are using linux path separators and hasn't been tested on windows.
-    let component_path =
-        top_level.join("examples/fetch-rs/target/wasm32-wasip2/release/fetch_rs.wasm");
-
-    let status = tokio::process::Command::new("cargo")
-        .current_dir(top_level.join("examples/fetch-rs"))
-        .args(["build", "--release", "--target", "wasm32-wasip2"])
-        .status()
-        .await
-        .context("Failed to execute cargo component build")?;
-
-    if !status.success() {
-        anyhow::bail!("Failed to compile fetch-rs component");
-    }
-
-    if !component_path.exists() {
-        anyhow::bail!(
-            "Component file not found after build: {}",
-            component_path.display()
-        );
-    }
-
-    Ok(component_path)
 }
 
 async fn cleanup_components(manager: &LifecycleManager) -> Result<()> {
@@ -134,7 +107,7 @@ async fn test_fetch_component_workflow() -> Result<()> {
         "Expected no components initially"
     );
 
-    let component_path = build_example_component().await?;
+    let component_path = build_fetch_component().await?;
 
     let (id, _) = manager
         .load_component(&format!("file://{}", component_path.to_str().unwrap()))
@@ -265,7 +238,7 @@ async fn test_load_component_from_https() -> Result<()> {
     let (manager, _tempdir) = setup_lifecycle_manager_with_client(http_client).await?;
 
     // Build the test component
-    let component_path = build_example_component().await?;
+    let component_path = build_fetch_component().await?;
 
     // Read the component bytes
     let wasm_bytes = tokio::fs::read(&component_path).await?;
@@ -299,7 +272,7 @@ async fn test_load_component_from_oci() -> Result<()> {
     let (manager, _tempdir) = setup_lifecycle_manager().await?;
 
     // Build the test component
-    let component_path = build_example_component().await?;
+    let component_path = build_fetch_component().await?;
 
     // Start OCI registry using testcontainers - skip if Docker is not available
     let container = match setup_registry().await {
@@ -310,7 +283,7 @@ async fn test_load_component_from_oci() -> Result<()> {
                 || error_msg.contains("docker client")
                 || error_msg.contains("Failed to start docker registry")
             {
-                println!("Skipping OCI test: Docker is not available - {}", error_msg);
+                println!("Skipping OCI test: Docker is not available - {error_msg}");
                 return Ok(());
             }
             return Err(e);
@@ -707,7 +680,7 @@ async fn test_default_stdio_transport() -> Result<()> {
 #[test(tokio::test)]
 async fn test_grant_permission_network_basic() -> Result<()> {
     let (manager, _tempdir) = setup_lifecycle_manager().await?;
-    let component_path = build_example_component().await?;
+    let component_path = build_fetch_component().await?;
 
     let (component_id, _) = manager
         .load_component(&format!("file://{}", component_path.to_str().unwrap()))

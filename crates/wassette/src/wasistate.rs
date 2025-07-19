@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::env;
 use std::path::{Path, PathBuf};
 
@@ -31,6 +31,7 @@ pub struct WasiStateTemplate {
     pub network_perms: NetworkPermissions,
     pub config_vars: HashMap<String, String>, // wamstime_wasi_config specific state
     pub preopened_dirs: Vec<PreopenedDir>,
+    pub allowed_hosts: HashSet<String>, // allowed network hosts for HTTP requests
 }
 
 impl Default for WasiStateTemplate {
@@ -42,6 +43,7 @@ impl Default for WasiStateTemplate {
             network_perms: NetworkPermissions::default(),
             config_vars: HashMap::new(),
             preopened_dirs: Vec::new(),
+            allowed_hosts: HashSet::new(),
         }
     }
 }
@@ -54,11 +56,13 @@ pub fn create_wasi_state_template_from_policy(
     let env_vars = extract_env_vars(policy)?;
     let network_perms = extract_network_perms(policy);
     let preopened_dirs = extract_storage_permissions(policy, plugin_dir)?;
+    let allowed_hosts = extract_allowed_hosts(policy);
 
     Ok(WasiStateTemplate {
         network_perms,
         config_vars: env_vars,
         preopened_dirs,
+        allowed_hosts,
         ..Default::default()
     })
 }
@@ -89,6 +93,26 @@ pub(crate) fn extract_network_perms(policy: &PolicyDocument) -> NetworkPermissio
     } else {
         NetworkPermissions::default()
     }
+}
+
+/// Extract allowed hosts from the policy document
+pub(crate) fn extract_allowed_hosts(policy: &PolicyDocument) -> HashSet<String> {
+    let mut allowed_hosts = HashSet::new();
+
+    if let Some(network_perms) = &policy.permissions.network {
+        if let Some(allow_list) = &network_perms.allow {
+            for allow_entry in allow_list {
+                // The policy uses serde_json::Value, so we need to extract the host field
+                if let Ok(json_value) = serde_json::to_value(allow_entry) {
+                    if let Some(host) = json_value.get("host").and_then(|h| h.as_str()) {
+                        allowed_hosts.insert(host.to_string());
+                    }
+                }
+            }
+        }
+    }
+
+    allowed_hosts
 }
 
 pub(crate) fn extract_storage_permissions(

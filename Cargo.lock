@@ -4758,8 +4758,12 @@ name = "wassette"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "bytes",
  "component2json",
  "futures",
+ "http",
+ "http-body-util",
+ "hyper",
  "oci-client",
  "oci-wasm",
  "policy",
@@ -4778,6 +4782,7 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "tracing-test",
+ "url",
  "wasmtime",
  "wasmtime-wasi",
  "wasmtime-wasi-config",
