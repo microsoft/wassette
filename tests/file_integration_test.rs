@@ -1,4 +1,3 @@
-use std::path::PathBuf;
 use std::process::Stdio;
 use std::sync::Arc;
 use std::time::Duration;
@@ -9,33 +8,8 @@ use test_log::test;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use wassette::LifecycleManager;
 
-async fn build_filesystem_component() -> Result<PathBuf> {
-    let top_level =
-        PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").context("CARGO_MANIFEST_DIR not set")?);
-
-    let component_path =
-        top_level.join("examples/filesystem-rs/target/wasm32-wasip2/release/filesystem.wasm");
-
-    let status = tokio::process::Command::new("cargo")
-        .current_dir(top_level.join("examples/filesystem-rs"))
-        .args(["build", "--release", "--target", "wasm32-wasip2"])
-        .status()
-        .await
-        .context("Failed to execute cargo component build")?;
-
-    if !status.success() {
-        anyhow::bail!("Failed to compile filesystem component");
-    }
-
-    if !component_path.exists() {
-        anyhow::bail!(
-            "Component file not found after build: {}",
-            component_path.display()
-        );
-    }
-
-    Ok(component_path)
-}
+mod common;
+use common::build_filesystem_component;
 
 async fn cleanup_components(manager: &LifecycleManager) -> Result<()> {
     let component_ids = manager.list_components().await;
@@ -232,9 +206,8 @@ async fn test_filesystem_component_integration() -> Result<()> {
     let project_dir = std::env::var("CARGO_MANIFEST_DIR").context("CARGO_MANIFEST_DIR not set")?;
 
     let execute_request = format!(
-        r#"{{"jsonrpc": "2.0", "method": "tools/call", "params": {{"name": "list-directory", "arguments": {{"path": "{}"}}}}, "id": 4}}
-"#,
-        project_dir
+        r#"{{"jsonrpc": "2.0", "method": "tools/call", "params": {{"name": "list-directory", "arguments": {{"path": "{project_dir}"}}}}, "id": 4}}
+"#
     );
 
     stdin.write_all(execute_request.as_bytes()).await?;
@@ -273,9 +246,8 @@ async fn test_filesystem_component_integration() -> Result<()> {
         .contains("Failed to read directory"));
 
     let grant_permission_request = format!(
-        r#"{{"jsonrpc": "2.0", "method": "tools/call", "params": {{"name": "grant-storage-permission", "arguments": {{"component_id": "filesystem", "details": {{"uri": "fs://{}", "access": ["read"]}}}}}}, "id": 5}}
-"#,
-        project_dir
+        r#"{{"jsonrpc": "2.0", "method": "tools/call", "params": {{"name": "grant-storage-permission", "arguments": {{"component_id": "filesystem", "details": {{"uri": "fs://{project_dir}", "access": ["read"]}}}}}}, "id": 5}}
+"#
     );
 
     stdin.write_all(grant_permission_request.as_bytes()).await?;
@@ -334,9 +306,8 @@ async fn test_filesystem_component_integration() -> Result<()> {
     assert!(policy_info["policy_info"]["policy_id"].is_string());
 
     let execute_with_permission_request = format!(
-        r#"{{"jsonrpc": "2.0", "method": "tools/call", "params": {{"name": "list-directory", "arguments": {{"path": "{}"}}}}, "id": 7}}
-"#,
-        project_dir
+        r#"{{"jsonrpc": "2.0", "method": "tools/call", "params": {{"name": "list-directory", "arguments": {{"path": "{project_dir}"}}}}, "id": 7}}
+"#
     );
 
     stdin
@@ -427,7 +398,7 @@ async fn test_filesystem_component_lifecycle_manager() -> Result<()> {
         .execute_component_call(
             &id,
             "list-directory",
-            &format!(r#"{{"path": "{}"}}"#, project_dir),
+            &format!(r#"{{"path": "{project_dir}"}}"#),
         )
         .await;
 
@@ -437,10 +408,7 @@ async fn test_filesystem_component_lifecycle_manager() -> Result<()> {
         Ok(response) => {
             // If it succeeds, it should be because the component has some default access
             // but it might still benefit from explicit permissions
-            println!(
-                "Component succeeded without explicit permissions: {}",
-                response
-            );
+            println!("Component succeeded without explicit permissions: {response}");
         }
         Err(error) => {
             // If it fails, verify it's the expected permission error
@@ -467,14 +435,14 @@ async fn test_filesystem_component_lifecycle_manager() -> Result<()> {
     let policy_info = policy_info.unwrap();
     let policy_content = tokio::fs::read_to_string(&policy_info.local_path).await?;
     assert!(policy_content.contains("storage"));
-    assert!(policy_content.contains(&format!("fs://{}", project_dir)));
+    assert!(policy_content.contains(&format!("fs://{project_dir}")));
     assert!(policy_content.contains("read"));
 
     let result_with_permission = manager
         .execute_component_call(
             &id,
             "list-directory",
-            &format!(r#"{{"path": "{}"}}"#, project_dir),
+            &format!(r#"{{"path": "{project_dir}"}}"#),
         )
         .await;
 
