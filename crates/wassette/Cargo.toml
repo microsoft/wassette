@@ -6,8 +6,12 @@ license.workspace = true
 
 [dependencies]
 anyhow = { workspace = true }
+bytes = "1"
 component2json = { path = "../component2json" }
 futures = { workspace = true }
+http = "1.0"
+http-body-util = "0.1"
+hyper = { version = "1.0", features = ["client"] }
 oci-client = { workspace = true }
 oci-wasm = { workspace = true }
 policy-mcp = { workspace = true }
@@ -20,6 +24,7 @@ tokio = { workspace = true, features = ["full", "test-util"] }
 tokio-stream = { workspace = true, features = ["fs"] }
 tokio-util = { workspace = true, features = ["io"] }
 tracing = { workspace = true, features = ["attributes"] }
+url = "2.5"
 wasmtime = { workspace = true }
 wasmtime-wasi = { workspace = true }
 wasmtime-wasi-http = { workspace = true }

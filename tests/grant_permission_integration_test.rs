@@ -1,4 +1,3 @@
-use std::path::PathBuf;
 use std::sync::Arc;
 
 use anyhow::{Context, Result};
@@ -6,34 +5,8 @@ use tempfile::TempDir;
 use test_log::test;
 use wassette::LifecycleManager;
 
-async fn build_example_component() -> Result<PathBuf> {
-    let top_level =
-        PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").context("CARGO_MANIFEST_DIR not set")?);
-
-    // NOTE: This assumes we are using linux path separators and hasn't been tested on windows.
-    let component_path =
-        top_level.join("examples/fetch-rs/target/wasm32-wasip2/release/fetch_rs.wasm");
-
-    let status = tokio::process::Command::new("cargo")
-        .current_dir(top_level.join("examples/fetch-rs"))
-        .args(["build", "--release", "--target", "wasm32-wasip2"])
-        .status()
-        .await
-        .context("Failed to execute cargo component build")?;
-
-    if !status.success() {
-        anyhow::bail!("Failed to compile fetch-rs component");
-    }
-
-    if !component_path.exists() {
-        anyhow::bail!(
-            "Component file not found after build: {}",
-            component_path.display()
-        );
-    }
-
-    Ok(component_path)
-}
+mod common;
+use common::build_fetch_component;
 
 async fn cleanup_components(manager: &LifecycleManager) -> Result<()> {
     let component_ids = manager.list_components().await;
@@ -61,7 +34,7 @@ async fn setup_lifecycle_manager() -> Result<(Arc<LifecycleManager>, TempDir)> {
 #[test(tokio::test)]
 async fn test_grant_permission_storage_basic() -> Result<()> {
     let (manager, _tempdir) = setup_lifecycle_manager().await?;
-    let component_path = build_example_component().await?;
+    let component_path = build_fetch_component().await?;
 
     let (component_id, _) = manager
         .load_component(&format!("file://{}", component_path.to_str().unwrap()))
@@ -97,7 +70,7 @@ async fn test_grant_permission_storage_basic() -> Result<()> {
 #[test(tokio::test)]
 async fn test_grant_permission_multiple_permissions() -> Result<()> {
     let (manager, _tempdir) = setup_lifecycle_manager().await?;
-    let component_path = build_example_component().await?;
+    let component_path = build_fetch_component().await?;
 
     let (component_id, _) = manager
         .load_component(&format!("file://{}", component_path.to_str().unwrap()))
@@ -141,7 +114,7 @@ async fn test_grant_permission_multiple_permissions() -> Result<()> {
 #[test(tokio::test)]
 async fn test_grant_permission_duplicate_prevention() -> Result<()> {
     let (manager, _tempdir) = setup_lifecycle_manager().await?;
-    let component_path = build_example_component().await?;
+    let component_path = build_fetch_component().await?;
 
     let (component_id, _) = manager
         .load_component(&format!("file://{}", component_path.to_str().unwrap()))
@@ -176,7 +149,7 @@ async fn test_grant_permission_duplicate_prevention() -> Result<()> {
 #[test(tokio::test)]
 async fn test_grant_permission_storage_access_merging() -> Result<()> {
     let (manager, _tempdir) = setup_lifecycle_manager().await?;
-    let component_path = build_example_component().await?;
+    let component_path = build_fetch_component().await?;
 
     let (component_id, _) = manager
         .load_component(&format!("file://{}", component_path.to_str().unwrap()))
@@ -245,7 +218,7 @@ async fn test_grant_permission_component_not_found() -> Result<()> {
 #[test(tokio::test)]
 async fn test_grant_permission_invalid_permission_type() -> Result<()> {
     let (manager, _tempdir) = setup_lifecycle_manager().await?;
-    let component_path = build_example_component().await?;
+    let component_path = build_fetch_component().await?;
 
     let (component_id, _) = manager
         .load_component(&format!("file://{}", component_path.to_str().unwrap()))
@@ -273,7 +246,7 @@ async fn test_grant_permission_invalid_permission_type() -> Result<()> {
 #[test(tokio::test)]
 async fn test_grant_permission_missing_required_fields() -> Result<()> {
     let (manager, _tempdir) = setup_lifecycle_manager().await?;
-    let component_path = build_example_component().await?;
+    let component_path = build_fetch_component().await?;
 
     let (component_id, _) = manager
         .load_component(&format!("file://{}", component_path.to_str().unwrap()))
@@ -312,7 +285,7 @@ async fn test_grant_permission_missing_required_fields() -> Result<()> {
 #[test(tokio::test)]
 async fn test_grant_permission_validation_errors() -> Result<()> {
     let (manager, _tempdir) = setup_lifecycle_manager().await?;
-    let component_path = build_example_component().await?;
+    let component_path = build_fetch_component().await?;
 
     let (component_id, _) = manager
         .load_component(&format!("file://{}", component_path.to_str().unwrap()))
@@ -351,7 +324,7 @@ async fn test_grant_permission_validation_errors() -> Result<()> {
 #[test(tokio::test)]
 async fn test_grant_permission_to_existing_policy() -> Result<()> {
     let (manager, _tempdir) = setup_lifecycle_manager().await?;
-    let component_path = build_example_component().await?;
+    let component_path = build_fetch_component().await?;
 
     let (component_id, _) = manager
         .load_component(&format!("file://{}", component_path.to_str().unwrap()))
@@ -399,7 +372,7 @@ permissions:
 #[test(tokio::test)]
 async fn test_grant_permission_policy_persistence() -> Result<()> {
     let (manager, _tempdir) = setup_lifecycle_manager().await?;
-    let component_path = build_example_component().await?;
+    let component_path = build_fetch_component().await?;
 
     let (component_id, _) = manager
         .load_component(&format!("file://{}", component_path.to_str().unwrap()))
@@ -439,7 +412,7 @@ async fn test_grant_permission_policy_persistence() -> Result<()> {
 #[test(tokio::test)]
 async fn test_grant_permission_policy_registry_update() -> Result<()> {
     let (manager, _tempdir) = setup_lifecycle_manager().await?;
-    let component_path = build_example_component().await?;
+    let component_path = build_fetch_component().await?;
 
     let (component_id, _) = manager
         .load_component(&format!("file://{}", component_path.to_str().unwrap()))
@@ -467,7 +440,7 @@ async fn test_grant_permission_policy_registry_update() -> Result<()> {
 #[test(tokio::test)]
 async fn test_grant_permission_multiple_hosts() -> Result<()> {
     let (manager, _tempdir) = setup_lifecycle_manager().await?;
-    let component_path = build_example_component().await?;
+    let component_path = build_fetch_component().await?;
 
     let (component_id, _) = manager
         .load_component(&format!("file://{}", component_path.to_str().unwrap()))
@@ -500,7 +473,7 @@ async fn test_grant_permission_multiple_hosts() -> Result<()> {
 #[test(tokio::test)]
 async fn test_grant_permission_complex_storage_permissions() -> Result<()> {
     let (manager, _tempdir) = setup_lifecycle_manager().await?;
-    let component_path = build_example_component().await?;
+    let component_path = build_fetch_component().await?;
 
     let (component_id, _) = manager
         .load_component(&format!("file://{}", component_path.to_str().unwrap()))
@@ -544,7 +517,7 @@ async fn test_grant_permission_complex_storage_permissions() -> Result<()> {
 #[test(tokio::test)]
 async fn test_grant_permission_invalid_storage_access_type() -> Result<()> {
     let (manager, _tempdir) = setup_lifecycle_manager().await?;
-    let component_path = build_example_component().await?;
+    let component_path = build_fetch_component().await?;
 
     let (component_id, _) = manager
         .load_component(&format!("file://{}", component_path.to_str().unwrap()))
@@ -572,7 +545,7 @@ async fn test_grant_permission_invalid_storage_access_type() -> Result<()> {
 #[test(tokio::test)]
 async fn test_grant_permission_component_execution_with_permissions() -> Result<()> {
     let (manager, _tempdir) = setup_lifecycle_manager().await?;
-    let component_path = build_example_component().await?;
+    let component_path = build_fetch_component().await?;
 
     let (component_id, _) = manager
         .load_component(&format!("file://{}", component_path.to_str().unwrap()))
@@ -606,7 +579,7 @@ async fn test_grant_permission_component_execution_with_permissions() -> Result<
 #[test(tokio::test)]
 async fn test_grant_permission_schema_validation() -> Result<()> {
     let (manager, _tempdir) = setup_lifecycle_manager().await?;
-    let component_path = build_example_component().await?;
+    let component_path = build_fetch_component().await?;
 
     let (component_id, _) = manager
         .load_component(&format!("file://{}", component_path.to_str().unwrap()))
@@ -630,7 +603,7 @@ async fn test_grant_permission_schema_validation() -> Result<()> {
 #[test(tokio::test)]
 async fn test_grant_permission_sequential_grants() -> Result<()> {
     let (manager, _tempdir) = setup_lifecycle_manager().await?;
-    let component_path = build_example_component().await?;
+    let component_path = build_fetch_component().await?;
 
     let (component_id, _) = manager
         .load_component(&format!("file://{}", component_path.to_str().unwrap()))

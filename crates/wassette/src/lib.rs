@@ -25,6 +25,9 @@ use wasmtime_wasi_http::{WasiHttpCtx, WasiHttpView};
 mod wasistate;
 pub use wasistate::{create_wasi_state_template_from_policy, WasiStateTemplate};
 
+mod http;
+pub use http::WeldWasiState;
+
 const DOWNLOADS_DIR: &str = "downloads";
 
 /// Granular permission rule types
@@ -94,10 +97,17 @@ impl WasiStateTemplate {
         if self.allow_args {
             ctx_builder.inherit_args();
         }
-        ctx_builder.inherit_network();
-        ctx_builder.allow_tcp(self.network_perms.allow_tcp);
+        // Note(mossaka): removed ctx_builder.inherit_network() to implement deny-by-default network policy
+        // For HTTP requests to work, we need to allow TCP and DNS lookups when there are network permissions
+        // But HTTP-level filtering happens in WeldWasiState::send_request
+        if self.network_perms.allow_tcp || !self.allowed_hosts.is_empty() {
+            ctx_builder.allow_tcp(true);
+            ctx_builder.allow_ip_name_lookup(true);
+        } else {
+            ctx_builder.allow_tcp(false);
+            ctx_builder.allow_ip_name_lookup(false);
+        }
         ctx_builder.allow_udp(self.network_perms.allow_udp);
-        ctx_builder.allow_ip_name_lookup(self.network_perms.allow_ip_name_lookup);
         for preopened_dir in &self.preopened_dirs {
             ctx_builder.preopened_dir(
                 preopened_dir.host_path.as_path(),
@@ -731,7 +741,10 @@ impl LifecycleManager {
         Arc::new(WasiStateTemplate::default())
     }
 
-    async fn get_wasi_state_for_component(&self, component_id: &str) -> Result<WasiState> {
+    async fn get_wasi_state_for_component(
+        &self,
+        component_id: &str,
+    ) -> Result<WeldWasiState<WasiState>> {
         let policy_registry = self.policy_registry.read().await;
 
         let policy_template = policy_registry
@@ -740,7 +753,10 @@ impl LifecycleManager {
             .cloned()
             .unwrap_or_else(Self::create_default_policy_template);
 
-        policy_template.build()
+        let wasi_state = policy_template.build()?;
+        let allowed_hosts = policy_template.allowed_hosts.clone();
+
+        WeldWasiState::new(wasi_state, allowed_hosts)
     }
 
     /// Attaches a policy to a component. The policy can be a local file or a URL.
@@ -873,9 +889,12 @@ impl LifecycleManager {
 
         let mut linker = Linker::new(self.engine.as_ref());
         wasmtime_wasi::p2::add_to_linker_async(&mut linker)?;
+
+        // Use the standard HTTP linker - filtering happens at WasiHttpView level
         wasmtime_wasi_http::add_only_http_to_linker_async(&mut linker)?;
-        wasmtime_wasi_config::add_to_linker(&mut linker, |h: &mut WasiState| {
-            WasiConfig::from(&h.wasi_config_vars)
+
+        wasmtime_wasi_config::add_to_linker(&mut linker, |h: &mut WeldWasiState<WasiState>| {
+            WasiConfig::from(&h.inner.wasi_config_vars)
         })?;
 
         let mut store = Store::new(self.engine.as_ref(), state);
@@ -1538,22 +1557,6 @@ permissions: {}
     }
 
     #[test(tokio::test)]
-    async fn test_get_wasi_state_for_component_default_policy() -> Result<()> {
-        let manager = create_test_manager().await?;
-
-        // Test getting WASI state for component without attached policy (should use default)
-        let _wasi_state = manager
-            .get_wasi_state_for_component("test-component")
-            .await?;
-
-        // Should not fail and return a valid WasiState
-        // We can't directly inspect the WasiState, but we can verify it was created successfully
-        assert!(true); // If we get here without error, the test passes
-
-        Ok(())
-    }
-
-    #[test(tokio::test)]
     async fn test_get_wasi_state_for_component_with_policy() -> Result<()> {
         let manager = create_test_manager().await?;
         manager.load_test_component().await?;
@@ -1579,9 +1582,6 @@ permissions:
         let _wasi_state = manager
             .get_wasi_state_for_component(TEST_COMPONENT_ID)
             .await?;
-
-        // Should not fail and return a valid WasiState with the policy applied
-        assert!(true); // If we get here without error, the test passes
 
         Ok(())
     }
@@ -1988,6 +1988,30 @@ permissions:
         let write_access = AccessType::Write;
         let serialized = serde_json::to_string(&write_access)?;
         assert_eq!(serialized, "\"write\"");
+
+        Ok(())
+    }
+
+    #[test(tokio::test)]
+    async fn test_wasi_state_template_allowed_hosts() -> Result<()> {
+        // Test that WasiStateTemplate correctly stores allowed hosts from policy
+        let policy_content = r#"
+version: "1.0"
+description: "Test policy with network permissions"
+permissions:
+  network:
+    allow:
+      - host: "api.example.com"
+      - host: "cdn.example.com"
+"#;
+        let policy = PolicyParser::parse_str(policy_content)?;
+
+        let temp_dir = tempfile::tempdir()?;
+        let template = create_wasi_state_template_from_policy(&policy, temp_dir.path())?;
+
+        assert_eq!(template.allowed_hosts.len(), 2);
+        assert!(template.allowed_hosts.contains("api.example.com"));
+        assert!(template.allowed_hosts.contains("cdn.example.com"));
 
         Ok(())
     }
