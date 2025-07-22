@@ -1,6 +1,6 @@
 # Get Weather Example
 
-This example demonstrates the use of the `weld-mcp-server` runtime to interact with a weather API as a WebAssembly (Wasm) component. It showcases how to define and enforce permissions for accessing network resources and environment variables using a policy file.
+This example demonstrates the use of the `wassette` runtime to interact with a weather API as a WebAssembly (Wasm) component. It showcases how to define and enforce permissions for accessing network resources and environment variables using a policy file.
 
 ## Tools
 
@@ -15,7 +15,7 @@ This example demonstrates the use of the `weld-mcp-server` runtime to interact w
      ```json
      "mcp": {
        "servers": {
-         "weld-mcp-server": {
+         "wassette": {
            "type": "sse",
            "url": "http://127.0.0.1:9001/sse"
          }
@@ -52,7 +52,7 @@ Example:
 
 ```yaml
 version: "1.0"
-description: "Permission policy for weld-mcp-server weather demo"
+description: "Permission policy for wassette weather demo"
 permissions:
   network:
     allow:

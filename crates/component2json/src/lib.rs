@@ -1396,7 +1396,7 @@ mod tests {
           (export (;15;) "l" (type (eq 14)))
         )
       )
-      (export (;0;) "weld-mcp-server:test/types@0.1.0" (instance (type 0)))
+      (export (;0;) "wassette:test/types@0.1.0" (instance (type 0)))
     )
   )
   (export (;1;) "types" (type 0))
@@ -1424,7 +1424,7 @@ mod tests {
               (export (;15;) "l" (type (eq 14)))
             )
           )
-          (import "weld-mcp-server:test/types@0.1.0" (instance (;0;) (type 0)))
+          (import "wassette:test/types@0.1.0" (instance (;0;) (type 0)))
           (type (;1;)
             (instance
               (type (;0;) (record (field "name" string) (field "value" u32)))
@@ -1445,10 +1445,10 @@ mod tests {
               (export (;15;) "l" (type (eq 14)))
             )
           )
-          (export (;1;) "weld-mcp-server:test/types@0.1.0" (instance (type 1)))
+          (export (;1;) "wassette:test/types@0.1.0" (instance (type 1)))
         )
       )
-      (export (;0;) "weld-mcp-server:test/tests@0.1.0" (component (type 0)))
+      (export (;0;) "wassette:test/tests@0.1.0" (component (type 0)))
     )
   )
   (export (;3;) "tests" (type 2))
@@ -1464,7 +1464,7 @@ mod tests {
         };
 
         let types_instance_export = types_component
-            .get_export(&engine, "weld-mcp-server:test/types@0.1.0")
+            .get_export(&engine, "wassette:test/types@0.1.0")
             .unwrap();
         let types_instance = match types_instance_export {
             wasmtime::component::types::ComponentItem::ComponentInstance(i) => i,

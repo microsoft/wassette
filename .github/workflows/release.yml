@@ -23,24 +23,24 @@ jobs:
         include:
           # Linux targets
           - target: x86_64-unknown-linux-gnu
-            name: weld-mcp-server-linux-amd64
+            name: wassette-linux-amd64
             runner: ubuntu-latest
           - target: aarch64-unknown-linux-gnu
-            name: weld-mcp-server-linux-arm
+            name: wassette-linux-arm
             runner: ubuntu-24.04-arm
           # macOS targets
           - target: x86_64-apple-darwin
-            name: weld-mcp-server-darwin-amd64
+            name: wassette-darwin-amd64
             runner: macos-13
           - target: aarch64-apple-darwin
-            name: weld-mcp-server-darwin-arm
+            name: wassette-darwin-arm
             runner: macos-latest
           # Windows targets
           - target: x86_64-pc-windows-msvc
-            name: weld-mcp-server-windows-amd64.exe
+            name: wassette-windows-amd64.exe
             runner: windows-latest
           - target: aarch64-pc-windows-msvc
-            name: weld-mcp-server-windows-arm64.exe
+            name: wassette-windows-arm64.exe
             runner: windows-11-arm
 
     steps:
@@ -65,14 +65,14 @@ jobs:
         if: "!contains(matrix.target, 'windows')"
         run: |
           cd target/${{ matrix.target }}/release
-          tar czvf ../../../${{ matrix.name }}.tar.gz weld-mcp-server
+          tar czvf ../../../${{ matrix.name }}.tar.gz wassette
           cd -
 
       - name: Prepare binary (Windows)
         if: contains(matrix.target, 'windows')
         run: |
           cd target/${{ matrix.target }}/release
-          7z a ../../../${{ matrix.name }}.zip weld-mcp-server.exe
+          7z a ../../../${{ matrix.name }}.zip wassette.exe
           cd -
         shell: bash
 
@@ -117,16 +117,16 @@ jobs:
             ## Downloads
 
             ### Linux
-            - [AMD64 (tar.gz)](https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/weld-mcp-server-linux-amd64.tar.gz)
-            - [ARM64 (tar.gz)](https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/weld-mcp-server-linux-arm64.tar.gz)
+            - [AMD64 (tar.gz)](https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/wassette-linux-amd64.tar.gz)
+            - [ARM64 (tar.gz)](https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/wassette-linux-arm64.tar.gz)
 
             ### macOS (Darwin)
-            - [AMD64/Intel (tar.gz)](https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/weld-mcp-server-darwin-amd64.tar.gz)
-            - [ARM64/Apple Silicon (tar.gz)](https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/weld-mcp-server-darwin-arm64.tar.gz)
+            - [AMD64/Intel (tar.gz)](https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/wassette-darwin-amd64.tar.gz)
+            - [ARM64/Apple Silicon (tar.gz)](https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/wassette-darwin-arm64.tar.gz)
 
             ### Windows
-            - [AMD64 (zip)](https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/weld-mcp-server-windows-amd64.exe.zip)
-            - [ARM64 (zip)](https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/weld-mcp-server-windows-arm64.exe.zip)
+            - [AMD64 (zip)](https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/wassette-windows-amd64.exe.zip)
+            - [ARM64 (zip)](https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/wassette-windows-arm64.exe.zip)
 
             ## Install
 
@@ -136,12 +136,12 @@ jobs:
             curl -fsSL https://raw.githubusercontent.com/${{ github.repository }}/main/install.sh | bash
             ```
 
-            This will detect your platform and install the latest `weld-mcp-server` binary to your `$PATH`.
+            This will detect your platform and install the latest `wassette` binary to your `$PATH`.
 
             ## Usage
             ```bash
             # Start the MCP server
-            weld-mcp-server serve --http --policy-file policy.yaml
+            wassette serve --http --policy-file policy.yaml
             ```
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

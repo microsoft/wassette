@@ -1,5 +1,5 @@
 [package]
-name = "weld-mcp-server"
+name = "wassette"
 version = "0.1.0"
 edition = "2021"
 license.workspace = true
@@ -60,7 +60,7 @@ tracing = { workspace = true }
 tracing-subscriber = { workspace = true, features = ["env-filter"] }
 
 [[bin]]
-name = "weld-mcp-server"
+name = "wassette"
 path = "src/main.rs"
 
 [dev-dependencies]

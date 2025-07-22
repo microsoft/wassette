@@ -412,7 +412,7 @@ async fn test_stdio_transport() -> Result<()> {
     // Get the path to the built binary
     let binary_path = std::env::current_dir()
         .context("Failed to get current directory")?
-        .join("target/debug/weld-mcp-server");
+        .join("target/debug/wassette");
 
     // Start the server with stdio transport (disable logs to avoid stdout pollution)
     let mut child = tokio::process::Command::new(&binary_path)
@@ -422,7 +422,7 @@ async fn test_stdio_transport() -> Result<()> {
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
-        .context("Failed to start weld-mcp-server with stdio transport")?;
+        .context("Failed to start wassette with stdio transport")?;
 
     let stdin = child.stdin.take().context("Failed to get stdin handle")?;
     let stdout = child.stdout.take().context("Failed to get stdout handle")?;
@@ -570,7 +570,7 @@ async fn test_http_transport() -> Result<()> {
     // Get the path to the built binary
     let binary_path = std::env::current_dir()
         .context("Failed to get current directory")?
-        .join("target/debug/weld-mcp-server");
+        .join("target/debug/wassette");
 
     // Start the server with HTTP transport
     let mut child = tokio::process::Command::new(&binary_path)
@@ -579,7 +579,7 @@ async fn test_http_transport() -> Result<()> {
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
-        .context("Failed to start weld-mcp-server with HTTP transport")?;
+        .context("Failed to start wassette with HTTP transport")?;
 
     // Give the server time to start
     tokio::time::sleep(Duration::from_millis(2000)).await;
@@ -609,7 +609,7 @@ async fn test_default_stdio_transport() -> Result<()> {
     // Get the path to the built binary
     let binary_path = std::env::current_dir()
         .context("Failed to get current directory")?
-        .join("target/debug/weld-mcp-server");
+        .join("target/debug/wassette");
 
     // Start the server without any transport flags (should default to stdio)
     let mut child = tokio::process::Command::new(&binary_path)
@@ -619,7 +619,7 @@ async fn test_default_stdio_transport() -> Result<()> {
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
-        .context("Failed to start weld-mcp-server with default transport")?;
+        .context("Failed to start wassette with default transport")?;
 
     let stdin = child.stdin.take().context("Failed to get stdin handle")?;
     let stdout = child.stdout.take().context("Failed to get stdout handle")?;

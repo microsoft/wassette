@@ -1,6 +1,6 @@
 # Fetch-rs Example
 
-This example demonstrates the use of the `weld-mcp-server` runtime to interact with HTTP APIs as a WebAssembly (Wasm) component using Rust. It showcases how to define and enforce permissions for accessing network resources using a policy file.
+This example demonstrates the use of the `wassette` runtime to interact with HTTP APIs as a WebAssembly (Wasm) component using Rust. It showcases how to define and enforce permissions for accessing network resources using a policy file.
 
 ## Tools
 
@@ -15,7 +15,7 @@ This example demonstrates the use of the `weld-mcp-server` runtime to interact w
      ```json
      "mcp": {
        "servers": {
-         "weld-mcp-server": {
+         "wassette": {
            "type": "sse",
            "url": "http://127.0.0.1:9001/sse"
          }
@@ -42,7 +42,7 @@ Example:
 
 ```yaml
 version: "1.0"
-description: "Permission policy for fetch-rs example in weld-mcp-server"
+description: "Permission policy for fetch-rs example in wassette"
 permissions:
   network:
     allow:

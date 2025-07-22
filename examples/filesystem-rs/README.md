@@ -1,6 +1,6 @@
 # Filesystem Example
 
-This example demonstrates the use of the `weld-mcp-server` runtime to interact with the filesystem as a WebAssembly (Wasm) component. It showcases how to define and enforce permissions for accessing files and directories using a policy file.
+This example demonstrates the use of the `wassette` runtime to interact with the filesystem as a WebAssembly (Wasm) component. It showcases how to define and enforce permissions for accessing files and directories using a policy file.
 
 ## Tools
 
@@ -18,7 +18,7 @@ This example demonstrates the use of the `weld-mcp-server` runtime to interact w
      ```json
      "mcp": {
        "servers": {
-         "weld-mcp-server": {
+         "wassette": {
            "type": "sse",
            "url": "http://127.0.0.1:9001/sse"
          }
@@ -47,11 +47,11 @@ Example:
 
 ```yaml
 version: "1.0"
-description: "Permission policy for filesystem access in weld-mcp-server"
+description: "Permission policy for filesystem access in wassette"
 permissions:
   storage:
     allow:
-      - uri: "fs:///Users/USERNAME/github/weld-mcp-server"
+      - uri: "fs:///Users/USERNAME/github/wassette"
         access: ["read"]
       - uri: "fs:///Users/USERNAME"
         access: ["read"]

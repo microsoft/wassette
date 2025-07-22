@@ -4485,6 +4485,40 @@ dependencies = [
 ]
 
 [[package]]
+name = "wassette"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "bytes",
+ "clap",
+ "futures-util",
+ "http-body-util",
+ "hyper",
+ "hyper-util",
+ "mcp-server",
+ "oci-client",
+ "oci-wasm",
+ "proptest",
+ "rand 0.9.2",
+ "rcgen",
+ "reqwest",
+ "rmcp",
+ "rustls 0.23.29",
+ "serde_json",
+ "temp-env",
+ "tempfile",
+ "test-log",
+ "testcontainers",
+ "tokio",
+ "tokio-rustls 0.26.2",
+ "tokio-test",
+ "tracing",
+ "tracing-subscriber",
+ "tracing-test",
+ "weld",
+]
+
+[[package]]
 name = "wast"
 version = "35.0.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4570,40 +4604,6 @@ dependencies = [
  "wasmtime-wasi",
  "wasmtime-wasi-config",
  "wasmtime-wasi-http",
-]
-
-[[package]]
-name = "weld-mcp-server"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "bytes",
- "clap",
- "futures-util",
- "http-body-util",
- "hyper",
- "hyper-util",
- "mcp-server",
- "oci-client",
- "oci-wasm",
- "proptest",
- "rand 0.9.2",
- "rcgen",
- "reqwest",
- "rmcp",
- "rustls 0.23.29",
- "serde_json",
- "temp-env",
- "tempfile",
- "test-log",
- "testcontainers",
- "tokio",
- "tokio-rustls 0.26.2",
- "tokio-test",
- "tracing",
- "tracing-subscriber",
- "tracing-test",
- "weld",
 ]
 
 [[package]]

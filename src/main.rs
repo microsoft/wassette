@@ -53,14 +53,14 @@ fn get_component_dir() -> PathBuf {
         let local_app_data = env::var("LOCALAPPDATA")
             .unwrap_or_else(|_| env::var("USERPROFILE").unwrap_or_else(|_| "C:\\".to_string()));
         PathBuf::from(local_app_data)
-            .join("weld-mcp-server")
+            .join("wassette")
             .join("components")
     } else if cfg!(target_os = "macos") {
         let home = env::var("HOME").unwrap_or_else(|_| "/".to_string());
         PathBuf::from(home)
             .join("Library")
             .join("Application Support")
-            .join("weld-mcp-server")
+            .join("wassette")
             .join("components")
     } else {
         let xdg_data_home = env::var("XDG_DATA_HOME").unwrap_or_else(|_| {
@@ -68,7 +68,7 @@ fn get_component_dir() -> PathBuf {
             format!("{home}/.local/share")
         });
         PathBuf::from(xdg_data_home)
-            .join("weld-mcp-server")
+            .join("wassette")
             .join("components")
     }
 }

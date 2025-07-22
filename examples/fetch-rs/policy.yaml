@@ -1,5 +1,5 @@
 version: "1.0"
-description: "Permission policy for weld-mcp-server weather demo"
+description: "Permission policy for wassette weather demo"
 permissions:
   network:
     allow:

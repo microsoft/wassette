@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
-# weld-mcp-server installer script
-# Downloads and installs the appropriate weld-mcp-server binary for your system
+# wassette installer script
+# Downloads and installs the appropriate wassette binary for your system
 
 set -euo pipefail
 
@@ -13,8 +13,8 @@ BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
 # Configuration
-REPO="microsoft/weld-mcp-server"
-BINARY_NAME="weld-mcp-server"
+REPO="microsoft/wassette"
+BINARY_NAME="wassette"
 INSTALL_DIR=""
 
 # Helper functions
@@ -102,7 +102,7 @@ download_and_install() {
     local version="$3"
     local install_dir="$4"
 
-    local archive_name="weld-mcp-server-${os}-${arch}"
+    local archive_name="wassette-${os}-${arch}"
     local extension="tar.gz"
 
     # Handle Windows naming convention
@@ -169,7 +169,7 @@ main() {
     # Handle command line arguments
     case "${1:-}" in
     -h | --help)
-        echo "weld-mcp-server installer"
+        echo "wassette installer"
         echo ""
         echo "Usage: $0 [options]"
         echo ""
@@ -178,7 +178,7 @@ main() {
         echo ""
         echo "This script will:"
         echo "  1. Detect your OS and architecture"
-        echo "  2. Download the latest weld-mcp-server binary"
+        echo "  2. Download the latest wassette binary"
         echo "  3. Install it to your PATH"
         echo ""
         echo "Environment variables:"
@@ -191,7 +191,7 @@ main() {
         ;;
     esac
 
-    log_info "Starting weld-mcp-server installation..."
+    log_info "Starting wassette installation..."
 
     local os=$(detect_os)
     local arch=$(detect_arch)

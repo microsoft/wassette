@@ -164,7 +164,7 @@ permissions:
     fn create_test_policy() -> PolicyDocument {
         let yaml_content = r#"
 version: "1.0"
-description: "Test policy for weld-mcp-server"
+description: "Test policy for wassette"
 permissions:
   network:
     allow:

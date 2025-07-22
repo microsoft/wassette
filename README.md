@@ -1,4 +1,4 @@
-# weld-mcp-server
+# wassette
 
 Weld is a secure and open source MCP server that runs on top of WebAssembly (Wasm). It is designed to securely execute untrusted tools by embedding a Wasm runtime and applying capability-based policies to control access to system resources. It uses the sandboxing and abstraction provided by the Wasm [Component Model](https://github.com/WebAssembly/component-model) to ensure tools can be executed safely and easily without compromising the host system.
 
@@ -49,10 +49,10 @@ If you are interested in learning more about what programming language supports 
 ### All Platforms (Shell Script)
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/microsoft/weld-mcp-server/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/microsoft/wassette/main/install.sh | bash
 ```
 
-This will detect your platform and install the latest `weld-mcp-server` binary to your `$PATH`.
+This will detect your platform and install the latest `wassette` binary to your `$PATH`.
 
 ## Integrate with MCP Clients
 
@@ -77,7 +77,7 @@ Add this to your VSCode or Cursor settings:
 
    ```bash
    # Run the following cmd in your terminal to start the Weld MCP server
-   weld-mcp-server serve --http --policy-file policy.yaml
+   wassette serve --http --policy-file policy.yaml
    ```
 
 2. **Dynamically load tools:**
