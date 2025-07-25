@@ -9,7 +9,10 @@ use component2json::{
     component_exports_to_json_schema, create_placeholder_results, json_to_vals, vals_to_json,
 };
 use futures::TryStreamExt;
-use policy::PolicyParser;
+use policy::{
+    AccessType, EnvironmentPermission, NetworkHostPermission, NetworkPermission, PolicyParser,
+    StoragePermission,
+};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tokio::fs::DirEntry;
@@ -32,26 +35,15 @@ const DOWNLOADS_DIR: &str = "downloads";
 
 /// Granular permission rule types
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(tag = "type")]
 pub enum PermissionRule {
-    Network {
-        host: String,
-    },
-    Storage {
-        uri: String,
-        access: Vec<AccessType>,
-    },
-    Environment {
-        key: String,
-    },
-}
-
-/// Access types for storage permissions
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "lowercase")]
-pub enum AccessType {
-    Read,
-    Write,
+    #[serde(rename = "network")]
+    Network(NetworkPermission),
+    #[serde(rename = "storage")]
+    Storage(StoragePermission),
+    #[serde(rename = "environment")]
+    Environment(EnvironmentPermission),
+    #[serde(rename = "custom")]
+    Custom(String, serde_json::Value),
 }
 
 /// Permission grant request structure
@@ -995,15 +987,15 @@ impl LifecycleManager {
         permission_type: &str,
         details: &serde_json::Value,
     ) -> Result<PermissionRule> {
-        match permission_type {
+        let permission_rule = match permission_type {
             "network" => {
                 let host = details
                     .get("host")
                     .and_then(|v| v.as_str())
                     .ok_or_else(|| anyhow!("Missing 'host' field for network permission"))?;
-                Ok(PermissionRule::Network {
+                PermissionRule::Network(NetworkPermission::Host(NetworkHostPermission {
                     host: host.to_string(),
-                })
+                }))
             }
             "storage" => {
                 let uri = details
@@ -1025,7 +1017,7 @@ impl LifecycleManager {
                     })
                     .collect();
 
-                Ok(PermissionRule::Storage {
+                PermissionRule::Storage(StoragePermission {
                     uri: uri.to_string(),
                     access: access_types?,
                 })
@@ -1035,12 +1027,17 @@ impl LifecycleManager {
                     .get("key")
                     .and_then(|v| v.as_str())
                     .ok_or_else(|| anyhow!("Missing 'key' field for environment permission"))?;
-                Ok(PermissionRule::Environment {
+                PermissionRule::Environment(EnvironmentPermission {
                     key: key.to_string(),
                 })
             }
-            _ => Err(anyhow!("Unknown permission type: {}", permission_type)),
-        }
+            other => {
+                // For custom permission types, store the type name and raw details
+                PermissionRule::Custom(other.to_string(), details.clone())
+            }
+        };
+
+        Ok(permission_rule)
     }
 
     /// Load or create component policy
@@ -1072,121 +1069,91 @@ impl LifecycleManager {
         rule: PermissionRule,
     ) -> Result<()> {
         match rule {
-            PermissionRule::Network { host } => {
-                // For network permissions, we need to create a simple struct with host field
-                let network_perms = policy
-                    .permissions
-                    .network
-                    .get_or_insert_with(Default::default);
-                let allow_list = network_perms.allow.get_or_insert_with(Vec::new);
-
-                // Create a simple struct with the host field
-                let network_allow = serde_json::json!({ "host": host });
-                if let Ok(network_allow_struct) = serde_json::from_value(network_allow) {
-                    // Avoid duplicates by checking if host already exists
-                    if !allow_list.iter().any(|existing| {
-                        if let Ok(existing_json) = serde_json::to_value(existing) {
-                            existing_json.get("host").and_then(|h| h.as_str()) == Some(&host)
-                        } else {
-                            false
-                        }
-                    }) {
-                        allow_list.push(network_allow_struct);
-                    }
-                }
+            PermissionRule::Network(network) => {
+                self.add_network_permission_to_policy(policy, network)
             }
-            PermissionRule::Storage { uri, access } => {
-                // For storage permissions, we need to create a struct with uri and access fields
-                let storage_perms = policy
-                    .permissions
-                    .storage
-                    .get_or_insert_with(Default::default);
-                let allow_list = storage_perms.allow.get_or_insert_with(Vec::new);
-
-                // Convert access types to policy_mcp AccessType
-                let policy_access_types: Vec<policy_mcp::AccessType> = access
-                    .into_iter()
-                    .map(|a| match a {
-                        AccessType::Read => policy_mcp::AccessType::Read,
-                        AccessType::Write => policy_mcp::AccessType::Write,
-                    })
-                    .collect();
-
-                // Check for existing URI and merge access types
-                let mut found_existing = false;
-                for existing in allow_list.iter_mut() {
-                    if let Ok(existing_json) = serde_json::to_value(&*existing) {
-                        if existing_json.get("uri").and_then(|u| u.as_str()) == Some(&uri) {
-                            // Merge access types by converting back to struct
-                            if let Ok(mut existing_storage) =
-                                serde_json::from_value::<serde_json::Value>(existing_json)
-                            {
-                                if let Some(existing_access) = existing_storage.get_mut("access") {
-                                    if let Some(access_array) = existing_access.as_array_mut() {
-                                        // Add new access types if not already present
-                                        for new_access in &policy_access_types {
-                                            let access_str = match new_access {
-                                                policy_mcp::AccessType::Read => "read",
-                                                policy_mcp::AccessType::Write => "write",
-                                            };
-                                            if !access_array
-                                                .iter()
-                                                .any(|v| v.as_str() == Some(access_str))
-                                            {
-                                                access_array.push(serde_json::Value::String(
-                                                    access_str.to_string(),
-                                                ));
-                                            }
-                                        }
-                                    }
-                                }
-                                // Update the existing item
-                                *existing = serde_json::from_value(existing_storage)?;
-                                found_existing = true;
-                                break;
-                            }
-                        }
-                    }
-                }
-
-                if !found_existing {
-                    // Create a new storage allow entry
-                    let storage_allow = serde_json::json!({
-                        "uri": uri,
-                        "access": policy_access_types.iter().map(|a| match a {
-                            policy_mcp::AccessType::Read => "read",
-                            policy_mcp::AccessType::Write => "write",
-                        }).collect::<Vec<_>>()
-                    });
-                    if let Ok(storage_allow_struct) = serde_json::from_value(storage_allow) {
-                        allow_list.push(storage_allow_struct);
-                    }
-                }
+            PermissionRule::Storage(storage) => {
+                self.add_storage_permission_to_policy(policy, storage)
             }
-            PermissionRule::Environment { key } => {
-                // For environment permissions, we need to create a struct with key field
-                let env_perms = policy
-                    .permissions
-                    .environment
-                    .get_or_insert_with(Default::default);
-                let allow_list = env_perms.allow.get_or_insert_with(Vec::new);
-
-                // Create a simple struct with the key field
-                let env_allow = serde_json::json!({ "key": key });
-                if let Ok(env_allow_struct) = serde_json::from_value(env_allow) {
-                    // Avoid duplicates by checking if key already exists
-                    if !allow_list.iter().any(|existing| {
-                        if let Ok(existing_json) = serde_json::to_value(existing) {
-                            existing_json.get("key").and_then(|k| k.as_str()) == Some(&key)
-                        } else {
-                            false
-                        }
-                    }) {
-                        allow_list.push(env_allow_struct);
-                    }
-                }
+            PermissionRule::Environment(env) => {
+                self.add_environment_permission_to_policy(policy, env)
+            }
+            PermissionRule::Custom(type_name, _details) => {
+                todo!("Custom permission type '{}' not yet implemented", type_name);
             }
         }
+    }
+
+    /// Add network permission to policy
+    fn add_network_permission_to_policy(
+        &self,
+        policy: &mut policy_mcp::PolicyDocument,
+        network: NetworkPermission,
+    ) -> Result<()> {
+        let allow_set = policy
+            .permissions
+            .network
+            .get_or_insert_with(Default::default)
+            .allow
+            .get_or_insert_with(Vec::new);
+
+        // Only add if not already present (prevent duplicates)
+        if !allow_set.contains(&network) {
+            allow_set.push(network);
+        }
+
+        Ok(())
+    }
+
+    /// Add storage permission to policy
+    fn add_storage_permission_to_policy(
+        &self,
+        policy: &mut policy_mcp::PolicyDocument,
+        storage: StoragePermission,
+    ) -> Result<()> {
+        let allow_set = policy
+            .permissions
+            .storage
+            .get_or_insert_with(Default::default)
+            .allow
+            .get_or_insert_with(Vec::new);
+
+        // Check if we already have a permission for this URI
+        if let Some(existing) = allow_set.iter_mut().find(|p| p.uri == storage.uri) {
+            // Merge access types, ensuring no duplicates
+            for access_type in storage.access {
+                if !existing.access.contains(&access_type) {
+                    existing.access.push(access_type);
+                }
+            }
+        } else {
+            // Add new storage permission (only if not already present)
+            if !allow_set.contains(&storage) {
+                allow_set.push(storage);
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Add environment permission to policy
+    fn add_environment_permission_to_policy(
+        &self,
+        policy: &mut policy_mcp::PolicyDocument,
+        env: EnvironmentPermission,
+    ) -> Result<()> {
+        let allow_set = policy
+            .permissions
+            .environment
+            .get_or_insert_with(Default::default)
+            .allow
+            .get_or_insert_with(Vec::new);
+
+        // Only add if not already present (prevent duplicates)
+        if !allow_set.contains(&env) {
+            allow_set.push(env);
+        }
+
         Ok(())
     }
 
@@ -1221,25 +1188,26 @@ impl LifecycleManager {
     /// Validate permission rule
     fn validate_permission_rule(&self, rule: &PermissionRule) -> Result<()> {
         match rule {
-            PermissionRule::Network { host } => {
+            PermissionRule::Network(NetworkPermission::Host(NetworkHostPermission { host })) => {
                 if host.is_empty() {
                     return Err(anyhow!("Network host cannot be empty"));
                 }
             }
-            PermissionRule::Storage { uri, access } => {
-                // TODO: the validation can verify if the uri is actually valid or not
-                if uri.is_empty() {
+            PermissionRule::Storage(storage) => {
+                // TODO: the validation should verify if the uri is actually valid or not
+                if storage.uri.is_empty() {
                     return Err(anyhow!("Storage URI cannot be empty"));
                 }
-                if access.is_empty() {
+                if storage.access.is_empty() {
                     return Err(anyhow!("Storage access cannot be empty"));
                 }
             }
-            PermissionRule::Environment { key } => {
-                if key.is_empty() {
+            PermissionRule::Environment(env) => {
+                if env.key.is_empty() {
                     return Err(anyhow!("Environment variable key cannot be empty"));
                 }
             }
+            _ => {}
         }
         Ok(())
     }
@@ -1780,22 +1748,129 @@ permissions:
         let manager = create_test_manager().await?;
         manager.load_test_component().await?;
 
-        // Grant the same network permission twice
-        let details = serde_json::json!({"host": "api.example.com"});
+        let network_details = serde_json::json!({"host": "api.example.com"});
         manager
-            .grant_permission(TEST_COMPONENT_ID, "network", &details)
+            .grant_permission(TEST_COMPONENT_ID, "network", &network_details)
             .await?;
         manager
-            .grant_permission(TEST_COMPONENT_ID, "network", &details)
+            .grant_permission(TEST_COMPONENT_ID, "network", &network_details)
             .await?;
 
-        // Verify policy file contains only one instance
+        let env_details = serde_json::json!({"key": "API_KEY"});
+        manager
+            .grant_permission(TEST_COMPONENT_ID, "environment", &env_details)
+            .await?;
+        manager
+            .grant_permission(TEST_COMPONENT_ID, "environment", &env_details)
+            .await?;
+
+        let storage_details = serde_json::json!({"uri": "fs:///tmp/test", "access": ["read"]});
+        manager
+            .grant_permission(TEST_COMPONENT_ID, "storage", &storage_details)
+            .await?;
+        manager
+            .grant_permission(TEST_COMPONENT_ID, "storage", &storage_details)
+            .await?;
+
+        let storage_write_details =
+            serde_json::json!({"uri": "fs:///tmp/test", "access": ["write"]});
+        manager
+            .grant_permission(TEST_COMPONENT_ID, "storage", &storage_write_details)
+            .await?;
+
+        let storage_different_uri =
+            serde_json::json!({"uri": "fs:///tmp/other", "access": ["read"]});
+        manager
+            .grant_permission(TEST_COMPONENT_ID, "storage", &storage_different_uri)
+            .await?;
+        manager
+            .grant_permission(TEST_COMPONENT_ID, "storage", &storage_different_uri)
+            .await?;
+
         let policy_path = manager.get_component_policy_path(TEST_COMPONENT_ID);
         let policy_content = tokio::fs::read_to_string(&policy_path).await?;
 
-        // Count occurrences of the host
-        let occurrences = policy_content.matches("api.example.com").count();
-        assert_eq!(occurrences, 1);
+        let network_occurrences = policy_content.matches("api.example.com").count();
+        assert_eq!(
+            network_occurrences, 1,
+            "Network host should appear only once"
+        );
+
+        let env_occurrences = policy_content.matches("API_KEY").count();
+        assert_eq!(
+            env_occurrences, 1,
+            "Environment key should appear only once"
+        );
+
+        let storage_test_occurrences = policy_content.matches("fs:///tmp/test").count();
+        assert_eq!(
+            storage_test_occurrences, 1,
+            "Storage URI fs:///tmp/test should appear only once"
+        );
+
+        let storage_other_occurrences = policy_content.matches("fs:///tmp/other").count();
+        assert_eq!(
+            storage_other_occurrences, 1,
+            "Storage URI fs:///tmp/other should appear only once"
+        );
+
+        assert!(
+            policy_content.contains("read"),
+            "Should contain read access"
+        );
+        assert!(
+            policy_content.contains("write"),
+            "Should contain write access"
+        );
+
+        let policy: policy_mcp::PolicyDocument = serde_yaml::from_str(&policy_content)?;
+
+        let network_perms = policy.permissions.network.as_ref().unwrap();
+        let network_allow = network_perms.allow.as_ref().unwrap();
+        assert_eq!(
+            network_allow.len(),
+            1,
+            "Should have exactly one network permission"
+        );
+
+        let env_perms = policy.permissions.environment.as_ref().unwrap();
+        let env_allow = env_perms.allow.as_ref().unwrap();
+        assert_eq!(
+            env_allow.len(),
+            1,
+            "Should have exactly one environment permission"
+        );
+
+        let storage_perms = policy.permissions.storage.as_ref().unwrap();
+        let storage_allow = storage_perms.allow.as_ref().unwrap();
+        assert_eq!(
+            storage_allow.len(),
+            2,
+            "Should have exactly two storage permissions"
+        );
+
+        let test_storage = storage_allow
+            .iter()
+            .find(|p| p.uri == "fs:///tmp/test")
+            .expect("Should have storage permission for fs:///tmp/test");
+        assert_eq!(
+            test_storage.access.len(),
+            2,
+            "Should have both read and write access"
+        );
+        assert!(test_storage.access.contains(&policy_mcp::AccessType::Read));
+        assert!(test_storage.access.contains(&policy_mcp::AccessType::Write));
+
+        let other_storage = storage_allow
+            .iter()
+            .find(|p| p.uri == "fs:///tmp/other")
+            .expect("Should have storage permission for fs:///tmp/other");
+        assert_eq!(
+            other_storage.access.len(),
+            1,
+            "Should have only read access"
+        );
+        assert!(other_storage.access.contains(&policy_mcp::AccessType::Read));
 
         Ok(())
     }
@@ -1847,26 +1922,6 @@ permissions:
             .unwrap_err()
             .to_string()
             .contains("Component not found"));
-
-        Ok(())
-    }
-
-    #[test(tokio::test)]
-    async fn test_grant_permission_invalid_permission_type() -> Result<()> {
-        let manager = create_test_manager().await?;
-        manager.load_test_component().await?;
-
-        // Try to grant invalid permission type
-        let details = serde_json::json!({"host": "api.example.com"});
-        let result = manager
-            .grant_permission(TEST_COMPONENT_ID, "invalid", &details)
-            .await;
-
-        assert!(result.is_err());
-        assert!(result
-            .unwrap_err()
-            .to_string()
-            .contains("Unknown permission type"));
 
         Ok(())
     }
@@ -2000,20 +2055,64 @@ permissions:
     #[test]
     fn test_permission_rule_serialization() -> Result<()> {
         // Test serialization of PermissionRule
-        let network_rule = PermissionRule::Network {
-            host: "example.com".to_string(),
-        };
+        let network_rule =
+            PermissionRule::Network(NetworkPermission::Host(NetworkHostPermission {
+                host: "example.com".to_string(),
+            }));
         let serialized = serde_json::to_string(&network_rule)?;
         assert!(serialized.contains("example.com"));
 
-        let storage_rule = PermissionRule::Storage {
+        let storage_rule = PermissionRule::Storage(StoragePermission {
             uri: "fs:///tmp/test".to_string(),
             access: vec![AccessType::Read, AccessType::Write],
-        };
+        });
         let serialized = serde_json::to_string(&storage_rule)?;
         assert!(serialized.contains("fs:///tmp/test"));
         assert!(serialized.contains("read"));
         assert!(serialized.contains("write"));
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_permission_type_enum() -> Result<()> {
+        // Test that PermissionRule properly wraps different permission types
+        let network_perm =
+            PermissionRule::Network(NetworkPermission::Host(NetworkHostPermission {
+                host: "example.com".to_string(),
+            }));
+        let storage_perm = PermissionRule::Storage(StoragePermission {
+            uri: "fs:///tmp".to_string(),
+            access: vec![AccessType::Read, AccessType::Write],
+        });
+        let env_perm = PermissionRule::Environment(EnvironmentPermission {
+            key: "API_KEY".to_string(),
+        });
+        let custom_perm = PermissionRule::Custom(
+            "custom-type".to_string(),
+            serde_json::json!({"custom": "data"}),
+        );
+
+        // Test serialization/deserialization
+        let network_rule = network_perm;
+        let serialized = serde_json::to_string(&network_rule)?;
+        let _deserialized: PermissionRule = serde_json::from_str(&serialized)?;
+
+        // Test that the variants can be created and used
+        assert!(matches!(storage_perm, PermissionRule::Storage(_)));
+        assert!(matches!(env_perm, PermissionRule::Environment(_)));
+        assert!(matches!(custom_perm, PermissionRule::Custom(_, _)));
+
+        // Test pattern matching works correctly
+        let rule = PermissionRule::Network(NetworkPermission::Host(NetworkHostPermission {
+            host: "test.com".to_string(),
+        }));
+        match rule {
+            PermissionRule::Network(NetworkPermission::Host(NetworkHostPermission { host })) => {
+                assert_eq!(host, "test.com");
+            }
+            _ => panic!("Expected network permission"),
+        }
 
         Ok(())
     }

@@ -216,34 +216,6 @@ async fn test_grant_permission_component_not_found() -> Result<()> {
 
 #[cfg(any(target_os = "linux", target_os = "macos"))]
 #[test(tokio::test)]
-async fn test_grant_permission_invalid_permission_type() -> Result<()> {
-    let (manager, _tempdir) = setup_lifecycle_manager().await?;
-    let component_path = build_fetch_component().await?;
-
-    let (component_id, _) = manager
-        .load_component(&format!("file://{}", component_path.to_str().unwrap()))
-        .await?;
-
-    // Try to grant invalid permission type
-    let result = manager
-        .grant_permission(
-            &component_id,
-            "invalid-permission",
-            &serde_json::json!({"host": "api.example.com"}),
-        )
-        .await;
-
-    assert!(result.is_err());
-    assert!(result
-        .unwrap_err()
-        .to_string()
-        .contains("Unknown permission type"));
-
-    Ok(())
-}
-
-#[cfg(any(target_os = "linux", target_os = "macos"))]
-#[test(tokio::test)]
 async fn test_grant_permission_missing_required_fields() -> Result<()> {
     let (manager, _tempdir) = setup_lifecycle_manager().await?;
     let component_path = build_fetch_component().await?;

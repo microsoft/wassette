@@ -127,6 +127,11 @@ async fn test_fetch_component_workflow() -> Result<()> {
         .iter()
         .any(|t| t["name"] == "fetch"));
 
+    let grant_result = manager
+        .grant_permission(&id, "network", &serde_json::json!({"host": "example.com"}))
+        .await;
+    assert!(grant_result.is_ok(), "Failed to grant network permission");
+
     let result = manager
         .execute_component_call(&id, "fetch", r#"{"url": "https://example.com/"}"#)
         .await?;
