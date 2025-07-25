@@ -7,7 +7,7 @@ use anyhow::{Context, Result};
 use tempfile::TempDir;
 use test_log::test;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
-use weld::LifecycleManager;
+use wassette::LifecycleManager;
 
 async fn build_filesystem_component() -> Result<PathBuf> {
     let top_level =
@@ -67,7 +67,7 @@ async fn test_filesystem_component_integration() -> Result<()> {
 
     let binary_path = std::env::current_dir()
         .context("Failed to get current directory")?
-        .join("target/debug/weld-mcp-server");
+        .join("target/debug/wassette");
 
     let mut child = tokio::process::Command::new(&binary_path)
         .args(["serve", "--stdio", &plugin_dir_arg])
@@ -76,7 +76,7 @@ async fn test_filesystem_component_integration() -> Result<()> {
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
-        .context("Failed to start weld-mcp-server with stdio transport")?;
+        .context("Failed to start wassette with stdio transport")?;
 
     let stdin = child.stdin.take().context("Failed to get stdin handle")?;
     let stdout = child.stdout.take().context("Failed to get stdout handle")?;

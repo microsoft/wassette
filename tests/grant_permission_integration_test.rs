@@ -4,7 +4,7 @@ use std::sync::Arc;
 use anyhow::{Context, Result};
 use tempfile::TempDir;
 use test_log::test;
-use weld::LifecycleManager;
+use wassette::LifecycleManager;
 
 async fn build_example_component() -> Result<PathBuf> {
     let top_level =
@@ -421,7 +421,7 @@ async fn test_grant_permission_policy_persistence() -> Result<()> {
     assert!(policy_info.is_some());
 
     // Create a new manager with the same directory to test persistence
-    let new_manager = weld::LifecycleManager::new(_tempdir.path()).await?;
+    let new_manager = wassette::LifecycleManager::new(_tempdir.path()).await?;
 
     // Load the same component
     let (new_component_id, _) = new_manager
