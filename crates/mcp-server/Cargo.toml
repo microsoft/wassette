@@ -8,7 +8,7 @@ license.workspace = true
 serde_json = { workspace = true }
 anyhow = { workspace = true }
 rmcp = { workspace = true }
-weld = { workspace = true }
+wassette = { workspace = true }
 tracing = { workspace = true, features = ["attributes"] }
 futures = { workspace = true }
 

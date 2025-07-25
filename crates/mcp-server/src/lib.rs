@@ -1,4 +1,4 @@
-pub use weld::LifecycleManager;
+pub use wassette::LifecycleManager;
 
 mod components;
 mod prompts;

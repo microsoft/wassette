@@ -6,7 +6,7 @@ use rmcp::model::{CallToolRequestParam, CallToolResult, Content, Tool};
 use rmcp::{Peer, RoleServer};
 use serde_json::{json, Value};
 use tracing::{debug, error, info, instrument};
-use weld::LifecycleManager;
+use wassette::LifecycleManager;
 
 use crate::components::{
     get_component_tools, handle_component_call, handle_list_components, handle_load_component,

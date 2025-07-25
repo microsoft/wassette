@@ -1,5 +1,5 @@
 [package]
-name = "wassette"
+name = "wassette-mcp-server"
 version = "0.1.0"
 edition = "2021"
 license.workspace = true
@@ -16,7 +16,7 @@ anyhow = "1.0"
 component2json = { path = "crates/component2json" }
 etcetera = "0.10"
 futures = "0.3"
-weld = { path = "crates/weld" }
+wassette = { path = "crates/wassette" }
 mcp-sdk = "0.0.3"
 mcp-server = { path = "crates/mcp-server" }
 oci-client = "0.15"
@@ -44,7 +44,7 @@ wasmtime-wasi-config = "33"
 [dependencies]
 anyhow = { workspace = true }
 clap = { version = "4.5", features = ["derive"] }
-weld = { workspace = true }
+wassette = { workspace = true }
 mcp-server = { workspace = true }
 oci-client = { workspace = true }
 reqwest = { workspace = true }

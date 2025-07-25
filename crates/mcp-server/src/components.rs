@@ -7,7 +7,7 @@ use rmcp::model::{CallToolRequestParam, CallToolResult, Content, Tool};
 use rmcp::{Peer, RoleServer};
 use serde_json::{json, Value};
 use tracing::{debug, error, info, instrument};
-use weld::LifecycleManager;
+use wassette::LifecycleManager;
 
 #[instrument(skip(lifecycle_manager))]
 pub(crate) async fn get_component_tools(lifecycle_manager: &LifecycleManager) -> Result<Vec<Tool>> {

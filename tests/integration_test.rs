@@ -20,7 +20,7 @@ use testcontainers::{ContainerAsync, Image};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::TcpListener;
 use tokio::time::sleep;
-use weld::LifecycleManager;
+use wassette::LifecycleManager;
 
 const DOCKER_REGISTRY_PORT: u16 = 5000;
 

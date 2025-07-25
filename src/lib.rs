@@ -1,1 +1,1 @@
-pub use {mcp_server, weld};
+pub use {mcp_server, wassette};
