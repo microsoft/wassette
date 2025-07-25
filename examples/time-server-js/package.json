@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "main": "time.js",
   "scripts": {
-    "build": "jco componentize ./time.js --wit ./wit -d all -o ./time.wasm"
+    "build": "jco componentize ./time.js --wit ./wit -d http -d random -d stdio -o ./time.wasm"
   },
   "license": "Apache-2.0",
   "dependencies": {
