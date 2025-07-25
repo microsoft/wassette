@@ -15,7 +15,7 @@ use policy::{
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use tokio::fs::DirEntry;
+use tokio::fs::{metadata, DirEntry};
 use tokio::io::AsyncWriteExt;
 use tokio::sync::RwLock;
 use tracing::{debug, info, instrument, warn};
@@ -406,11 +406,12 @@ impl Loadable for PolicyResource {
             bail!("Policy file path must be fully qualified");
         }
 
-        if !path.exists() {
-            bail!("Policy file does not exist: {}", path.display());
+        match metadata(path).await {
+            Ok(meta) if meta.is_file() => Ok(DownloadedResource::Local(path.to_path_buf())),
+            _ => {
+                bail!("Policy file does not exist: {}", path.display());
+            }
         }
-
-        Ok(DownloadedResource::Local(path.to_path_buf()))
     }
 
     async fn from_oci_reference(
