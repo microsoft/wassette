@@ -2,5 +2,5 @@ package mossaka:mcp@0.1.0;
 
 world weather-mcp {
     import wasi:config/store@0.2.0-draft;
-    export get-weather: func(city: string) -> string;
+    export get-weather: func(city: string) -> result<string, string>;
 }

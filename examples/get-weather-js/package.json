@@ -5,7 +5,7 @@
         "@bytecodealliance/jco": "^1.11.1"
     },
     "scripts": {
-        "build:component": "jco componentize -w ./wit weather.js -d stdio -d random -d clocks -o weather.wasm",
+        "build:component": "jco componentize -w ./wit weather.js -o weather.wasm",
         "transpile": "jco transpile weather.wasm -o out-dir",
         "debug": "node use-weather.js"
     },
