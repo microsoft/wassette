@@ -126,9 +126,9 @@ fn get_builtin_tools() -> Vec<Tool> {
         },
         Tool {
             name: Cow::Borrowed("get-policy"),
-            description: Cow::Borrowed(
+            description: Some(Cow::Borrowed(
                 "Gets the policy information for a specific component",
-            ),
+            )),
             input_schema: Arc::new(
                 serde_json::from_value(json!({
                     "type": "object",
@@ -142,12 +142,13 @@ fn get_builtin_tools() -> Vec<Tool> {
                 }))
                 .unwrap_or_default(),
             ),
+            annotations: None,
         },
         Tool {
             name: Cow::Borrowed("grant-storage-permission"),
-            description: Cow::Borrowed(
+            description: Some(Cow::Borrowed(
                 "Grants storage access permission to a component, allowing it to read from and/or write to specific storage locations."
-            ),
+            )),
             input_schema: Arc::new(
                 serde_json::from_value(json!({
                     "type": "object",
@@ -180,12 +181,13 @@ fn get_builtin_tools() -> Vec<Tool> {
                   }))
                 .unwrap_or_default(),
             ),
+            annotations: None,
         },
         Tool {
             name: Cow::Borrowed("grant-network-permission"),
-            description: Cow::Borrowed(
+            description: Some(Cow::Borrowed(
                 "Grants network access permission to a component, allowing it to make network requests to specific hosts."
-            ),
+            )),
             input_schema: Arc::new(
                 serde_json::from_value(json!({
                     "type": "object",
@@ -210,6 +212,7 @@ fn get_builtin_tools() -> Vec<Tool> {
                   }))
                 .unwrap_or_default(),
             ),
+            annotations: None,
         },
     ]
 }
