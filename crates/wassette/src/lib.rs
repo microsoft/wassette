@@ -41,6 +41,9 @@ pub enum PermissionRule {
         uri: String,
         access: Vec<AccessType>,
     },
+    Environment {
+        key: String,
+    },
 }
 
 /// Access types for storage permissions
@@ -1027,6 +1030,15 @@ impl LifecycleManager {
                     access: access_types?,
                 })
             }
+            "environment" => {
+                let key = details
+                    .get("key")
+                    .and_then(|v| v.as_str())
+                    .ok_or_else(|| anyhow!("Missing 'key' field for environment permission"))?;
+                Ok(PermissionRule::Environment {
+                    key: key.to_string(),
+                })
+            }
             _ => Err(anyhow!("Unknown permission type: {}", permission_type)),
         }
     }
@@ -1151,6 +1163,29 @@ impl LifecycleManager {
                     }
                 }
             }
+            PermissionRule::Environment { key } => {
+                // For environment permissions, we need to create a struct with key field
+                let env_perms = policy
+                    .permissions
+                    .environment
+                    .get_or_insert_with(Default::default);
+                let allow_list = env_perms.allow.get_or_insert_with(Vec::new);
+
+                // Create a simple struct with the key field
+                let env_allow = serde_json::json!({ "key": key });
+                if let Ok(env_allow_struct) = serde_json::from_value(env_allow) {
+                    // Avoid duplicates by checking if key already exists
+                    if !allow_list.iter().any(|existing| {
+                        if let Ok(existing_json) = serde_json::to_value(existing) {
+                            existing_json.get("key").and_then(|k| k.as_str()) == Some(&key)
+                        } else {
+                            false
+                        }
+                    }) {
+                        allow_list.push(env_allow_struct);
+                    }
+                }
+            }
         }
         Ok(())
     }
@@ -1198,6 +1233,11 @@ impl LifecycleManager {
                 }
                 if access.is_empty() {
                     return Err(anyhow!("Storage access cannot be empty"));
+                }
+            }
+            PermissionRule::Environment { key } => {
+                if key.is_empty() {
+                    return Err(anyhow!("Environment variable key cannot be empty"));
                 }
             }
         }
