@@ -635,3 +635,115 @@ async fn test_grant_permission_sequential_grants() -> Result<()> {
 
     Ok(())
 }
+
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+#[test(tokio::test)]
+async fn test_grant_permission_environment_variable_basic() -> Result<()> {
+    let (manager, _tempdir) = setup_lifecycle_manager().await?;
+    let component_path = build_fetch_component().await?;
+
+    let (component_id, _) = manager
+        .load_component(&format!("file://{}", component_path.to_str().unwrap()))
+        .await?;
+
+    // Test granting environment variable permission
+    let result = manager
+        .grant_permission(
+            &component_id,
+            "environment",
+            &serde_json::json!({"key": "API_KEY"}),
+        )
+        .await;
+
+    assert!(result.is_ok());
+
+    // Verify policy file was created and contains the permission
+    let policy_info = manager.get_policy_info(&component_id).await;
+    assert!(policy_info.is_some());
+    let policy_info = policy_info.unwrap();
+
+    // Verify policy contains the permission
+    let policy_content = tokio::fs::read_to_string(&policy_info.local_path).await?;
+    assert!(policy_content.contains("API_KEY"));
+    assert!(policy_content.contains("environment"));
+
+    Ok(())
+}
+
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+#[test(tokio::test)]
+async fn test_grant_permission_environment_variable_multiple() -> Result<()> {
+    let (manager, _tempdir) = setup_lifecycle_manager().await?;
+    let component_path = build_fetch_component().await?;
+
+    let (component_id, _) = manager
+        .load_component(&format!("file://{}", component_path.to_str().unwrap()))
+        .await?;
+
+    // Grant multiple environment variable permissions
+    let api_key_result = manager
+        .grant_permission(
+            &component_id,
+            "environment",
+            &serde_json::json!({"key": "API_KEY"}),
+        )
+        .await;
+
+    let config_url_result = manager
+        .grant_permission(
+            &component_id,
+            "environment",
+            &serde_json::json!({"key": "CONFIG_URL"}),
+        )
+        .await;
+
+    assert!(api_key_result.is_ok());
+    assert!(config_url_result.is_ok());
+
+    // Verify policy file contains all permissions
+    let policy_info = manager.get_policy_info(&component_id).await;
+    assert!(policy_info.is_some());
+    let policy_info = policy_info.unwrap();
+    let policy_content = tokio::fs::read_to_string(&policy_info.local_path).await?;
+
+    assert!(policy_content.contains("API_KEY"));
+    assert!(policy_content.contains("CONFIG_URL"));
+    assert!(policy_content.contains("environment"));
+
+    Ok(())
+}
+
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+#[test(tokio::test)]
+async fn test_grant_permission_environment_variable_duplicate_prevention() -> Result<()> {
+    let (manager, _tempdir) = setup_lifecycle_manager().await?;
+    let component_path = build_fetch_component().await?;
+
+    let (component_id, _) = manager
+        .load_component(&format!("file://{}", component_path.to_str().unwrap()))
+        .await?;
+
+    // Grant the same environment variable permission twice
+    let details = serde_json::json!({"key": "API_KEY"});
+    let first_result = manager
+        .grant_permission(&component_id, "environment", &details)
+        .await;
+    let second_result = manager
+        .grant_permission(&component_id, "environment", &details)
+        .await;
+
+    assert!(first_result.is_ok());
+    assert!(second_result.is_ok());
+
+    // Verify policy file contains only one instance
+    let policy_info = manager.get_policy_info(&component_id).await;
+    assert!(policy_info.is_some());
+    let policy_info = policy_info.unwrap();
+    let policy_content = tokio::fs::read_to_string(&policy_info.local_path).await?;
+
+    // Count occurrences of the environment key - should be exactly 1
+    let occurrences = policy_content.matches("API_KEY").count();
+    assert_eq!(occurrences, 1);
+
+    Ok(())
+}

@@ -50,6 +50,9 @@ pub async fn handle_tools_call(
         "grant-network-permission" => {
             handle_grant_network_permission(&req, lifecycle_manager).await
         }
+        "grant-environment-variable-permission" => {
+            handle_grant_environment_variable_permission(&req, lifecycle_manager).await
+        }
         _ => handle_component_call(&req, lifecycle_manager).await,
     };
 
@@ -214,6 +217,37 @@ fn get_builtin_tools() -> Vec<Tool> {
             ),
             annotations: None,
         },
+        Tool {
+            name: Cow::Borrowed("grant-environment-variable-permission"),
+            description: Some(Cow::Borrowed(
+                "Grants environment variable access permission to a component, allowing it to access specific environment variables."
+            )),
+            input_schema: Arc::new(
+                serde_json::from_value(json!({
+                    "type": "object",
+                    "properties": {
+                      "component_id": {
+                        "type": "string",
+                        "description": "ID of the component to grant environment variable permission to"
+                      },
+                      "details": {
+                        "type": "object",
+                        "properties": {
+                          "key": { 
+                            "type": "string",
+                            "description": "Environment variable key to grant access to"
+                          }
+                        },
+                        "required": ["key"],
+                        "additionalProperties": false
+                      }
+                    },
+                    "required": ["component_id", "details"]
+                  }))
+                .unwrap_or_default(),
+            ),
+            annotations: None,
+        },
     ]
 }
 
@@ -358,6 +392,58 @@ async fn handle_grant_network_permission(
     }
 }
 
+#[instrument(skip(lifecycle_manager))]
+async fn handle_grant_environment_variable_permission(
+    req: &CallToolRequestParam,
+    lifecycle_manager: &LifecycleManager,
+) -> Result<CallToolResult> {
+    let args = extract_args_from_request(req)?;
+
+    let component_id = args
+        .get("component_id")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| anyhow::anyhow!("Missing required argument: 'component_id'"))?;
+
+    let details = args
+        .get("details")
+        .ok_or_else(|| anyhow::anyhow!("Missing required argument: 'details'"))?;
+
+    info!(
+        "Granting environment variable permission to component {}",
+        component_id
+    );
+
+    let result = lifecycle_manager
+        .grant_permission(component_id, "environment", details)
+        .await;
+
+    match result {
+        Ok(()) => {
+            let status_text = serde_json::to_string(&json!({
+                "status": "permission granted",
+                "component_id": component_id,
+                "permission_type": "environment",
+                "details": details
+            }))?;
+
+            let contents = vec![Content::text(status_text)];
+
+            Ok(CallToolResult {
+                content: contents,
+                is_error: None,
+            })
+        }
+        Err(e) => {
+            error!("Failed to grant environment variable permission: {}", e);
+            Err(anyhow::anyhow!(
+                "Failed to grant environment variable permission to component {}: {}",
+                component_id,
+                e
+            ))
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -365,13 +451,16 @@ mod tests {
     #[test]
     fn test_get_builtin_tools() {
         let tools = get_builtin_tools();
-        assert_eq!(tools.len(), 6);
+        assert_eq!(tools.len(), 7);
         assert!(tools.iter().any(|t| t.name == "load-component"));
         assert!(tools.iter().any(|t| t.name == "unload-component"));
         assert!(tools.iter().any(|t| t.name == "list-components"));
         assert!(tools.iter().any(|t| t.name == "get-policy"));
         assert!(tools.iter().any(|t| t.name == "grant-storage-permission"));
         assert!(tools.iter().any(|t| t.name == "grant-network-permission"));
+        assert!(tools
+            .iter()
+            .any(|t| t.name == "grant-environment-variable-permission"));
     }
 
     #[tokio::test]
