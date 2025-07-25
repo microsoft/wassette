@@ -6,6 +6,8 @@ Please read the rest of the README for more background, but the TL;DR is this:
 
 `wassette` essentially acts as a _virtual MCP server_, with built-in observability, resource quotas, and handles infrastructure complexity automatically.
 
+> Note: The name "Wassette" is a play on the word "Wasm" and "Cassette" - a magnetic tape used to store audio,  and is pronounced "Wass-ette".
+
 ## 🚩 Purpose
 
 ### Problem Statement
