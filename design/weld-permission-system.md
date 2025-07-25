@@ -7,7 +7,7 @@
 
 ## Overview
 
-The permission system provides fine-grained, per-component capability controls in the Weld MCP server. This document describes the architecture,implementation, and future development plans.
+The permission system provides fine-grained, per-component capability controls in the Wassette MCP server. This document describes the architecture,implementation, and future development plans.
 
 ## Architecture Overview
 
@@ -15,7 +15,7 @@ The permission system provides fine-grained, per-component capability controls i
 
 ```mermaid
 graph TB
-    Client[MCP Client] --> Server[Weld MCP Server]
+    Client[MCP Client] --> Server[Wassette MCP Server]
     Server --> LM[LifecycleManager]
     LM --> PR[PolicyRegistry]
     LM --> CR[ComponentRegistry]

@@ -1,7 +1,7 @@
 ```mermaid
 sequenceDiagram
     participant Client as MCP Client
-    participant Server as Weld MCP Server
+    participant Server as Wassette MCP Server
     participant LM as LifecycleManager
     participant Engine as Wasmtime Engine
     participant Registry as Component Registry

@@ -378,7 +378,7 @@ mod tests {
     async fn test_grant_network_permission_integration() -> Result<()> {
         // Create a test lifecycle manager
         let tempdir = tempfile::tempdir()?;
-        let lifecycle_manager = weld::LifecycleManager::new(&tempdir).await?;
+        let lifecycle_manager = wassette::LifecycleManager::new(&tempdir).await?;
 
         // Test the grant_network_permission tool call
         let mut args = serde_json::Map::new();
@@ -407,7 +407,7 @@ mod tests {
     async fn test_grant_storage_permission_integration() -> Result<()> {
         // Create a test lifecycle manager
         let tempdir = tempfile::tempdir()?;
-        let lifecycle_manager = weld::LifecycleManager::new(&tempdir).await?;
+        let lifecycle_manager = wassette::LifecycleManager::new(&tempdir).await?;
 
         // Test the grant_storage_permission tool call
         let mut args = serde_json::Map::new();
@@ -438,7 +438,7 @@ mod tests {
     #[tokio::test]
     async fn test_grant_permission_missing_arguments() -> Result<()> {
         let tempdir = tempfile::tempdir()?;
-        let lifecycle_manager = weld::LifecycleManager::new(&tempdir).await?;
+        let lifecycle_manager = wassette::LifecycleManager::new(&tempdir).await?;
 
         // Test with missing component_id for network permission
         let mut args = serde_json::Map::new();
