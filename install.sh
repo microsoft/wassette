@@ -115,7 +115,7 @@ get_latest_release_info() {
 }
 
 download_and_extract() {
-    print_status "Downloading and extracting Copa binary..."
+    print_status "Downloading and extracting wassette binary..."
     
     # Create temporary directory
     local tmp_dir
