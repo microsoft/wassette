@@ -1,252 +1,316 @@
-#!/usr/bin/env bash
+#!/bin/bash
 
-# wassette installer script
-# Downloads and installs the appropriate wassette binary for your system
+# Binary Installer Script
+# This script installs a binary and adds it to PATH for immediate use in new sessions
 
-set -euo pipefail
+set -e  # Exit on any error
 
 # Colors for output
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
-BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
+# Function to print colored output
+print_status() {
+    echo -e "${GREEN}[INFO]${NC} $1"
+}
+
+print_warning() {
+    echo -e "${YELLOW}[WARN]${NC} $1"
+}
+
+print_error() {
+    echo -e "${RED}[ERROR]${NC} $1"
+}
+
 # Configuration
-REPO="microsoft/wassette"
-BINARY_NAME="wassette"
-INSTALL_DIR=""
+BINARY_NAME="wassette"  # Change this to your binary name
+GITHUB_REPO="microsoft/wassette"  # GitHub repository (owner/repo)
+BASE_URL="https://api.github.com/repos/${GITHUB_REPO}/releases/latest"  # Base download URL
+INSTALL_DIR="$HOME/.local/bin"  # Installation directory
 
-# Helper functions
-log_info() {
-    printf "${BLUE}ℹ️  %s${NC}\n" "$1"
-}
-
-log_success() {
-    printf "${GREEN}✅ %s${NC}\n" "$1"
-}
-
-log_warning() {
-    printf "${YELLOW}⚠️  %s${NC}\n" "$1"
-}
-
-log_error() {
-    printf "${RED}❌ %s${NC}\n" "$1"
-}
-
-# Check if a command exists
-command_exists() {
-    command -v "$1" >/dev/null 2>&1
-}
-
-# Detect operating system
-detect_os() {
+# OS and Architecture detection
+get_os() {
     local os
-    case "$(uname -s)" in
-    Linux*) os="linux" ;;
-    Darwin*) os="darwin" ;;
-    CYGWIN* | MINGW32* | MSYS* | MINGW*) os="windows" ;;
-    *)
-        log_error "Unsupported operating system: $(uname -s)"
-        exit 1
-        ;;
-    esac
-    echo "$os"
-}
-
-# Detect architecture
-detect_arch() {
-    local arch
-    case "$(uname -m)" in
-    x86_64 | amd64) arch="amd64" ;;
-    arm64 | aarch64) arch="arm64" ;;
-    *)
-        log_error "Unsupported architecture: $(uname -m)"
-        exit 1
-        ;;
-    esac
-    echo "$arch"
-}
-
-# Find the best installation directory
-find_install_dir() {
-    local install_dir="${BIN_DIR:-$HOME/.local/bin}"
-
-    # Create the directory if it doesn't exist
-    mkdir -p "$install_dir"
-
-    # Check if it's writable
-    if [ ! -w "$install_dir" ]; then
-        log_error "$install_dir is not a writable directory"
-        exit 1
-    fi
-
-    echo "$install_dir"
-}
-
-# Get the latest release version
-get_latest_version() {
-    local version
-    version=$(curl -s "https://api.github.com/repos/$REPO/releases/latest" | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')
-    if [ -z "$version" ]; then
-        log_error "Failed to get latest release version from GitHub API"
-        return 1
-    fi
-    echo "$version"
-}
-
-# Download and extract binary
-download_and_install() {
-    local os="$1"
-    local arch="$2"
-    local version="$3"
-    local install_dir="$4"
-
-    local archive_name="wassette-${os}-${arch}"
-    local extension="tar.gz"
-
-    # Handle Windows naming convention
-    if [ "$os" = "windows" ]; then
-        archive_name="${archive_name}.exe"
-        extension="zip"
-    fi
-
-    local download_url="https://github.com/$REPO/releases/download/$version/${archive_name}.${extension}"
-    local temp_dir=$(mktemp -d)
-    local archive_file="$temp_dir/${archive_name}.${extension}"
-
-    log_info "Downloading $BINARY_NAME $version for $os/$arch..."
-
-    if ! curl -L -o "$archive_file" "$download_url"; then
-        log_error "Failed to download $download_url"
-        exit 1
-    fi
-
-    if [ ! -f "$archive_file" ]; then
-        log_error "Failed to download $download_url"
-        exit 1
-    fi
-
-    log_info "Extracting archive..."
-
-    if [ "$extension" = "tar.gz" ]; then
-        tar -xzf "$archive_file" -C "$temp_dir"
-    else
-        # Handle zip files (Windows)
-        if command_exists unzip; then
-            unzip -q "$archive_file" -d "$temp_dir"
-        else
-            log_error "unzip command not found, cannot extract Windows binary"
+    os=$(uname -s)
+    case "$os" in
+        Linux*)     echo "linux" ;;
+        Darwin*)    echo "darwin" ;;
+        *)          
+            print_error "Unsupported OS: $os"
+            print_error "This installer supports Linux and macOS only"
             exit 1
-        fi
-    fi
-
-    local binary_path="$temp_dir/$BINARY_NAME"
-
-    # Handle Windows binary extension
-    if [ "$os" = "windows" ]; then
-        binary_path="${binary_path}.exe"
-    fi
-
-    if [ ! -f "$binary_path" ]; then
-        log_error "Binary not found in archive"
-        exit 1
-    fi
-
-    log_info "Installing to $install_dir..."
-    mkdir -p "$install_dir"
-    cp "$binary_path" "$install_dir/"
-    chmod +x "$install_dir/$BINARY_NAME"
-
-    # Clean up
-    rm -rf "$temp_dir"
-
-    log_success "$BINARY_NAME installed successfully!"
-}
-
-# Main installation process
-main() {
-    # Handle command line arguments
-    case "${1:-}" in
-    -h | --help)
-        echo "wassette installer"
-        echo ""
-        echo "Usage: $0 [options]"
-        echo ""
-        echo "Options:"
-        echo "  -h, --help    Show this help message"
-        echo ""
-        echo "This script will:"
-        echo "  1. Detect your OS and architecture"
-        echo "  2. Download the latest wassette binary"
-        echo "  3. Install it to your PATH"
-        echo ""
-        echo "Environment variables:"
-        echo "  BIN_DIR       Custom installation directory (default: \$HOME/.local/bin)"
-        echo ""
-        echo "Examples:"
-        echo "  curl -fsSL https://raw.githubusercontent.com/$REPO/main/install.sh | bash"
-        echo "  BIN_DIR=/usr/local/bin ./install.sh"
-        exit 0
-        ;;
+            ;;
     esac
-
-    log_info "Starting wassette installation..."
-
-    local os=$(detect_os)
-    local arch=$(detect_arch)
-    log_info "Detected platform: $os/$arch"
-
-    local version=$(get_latest_version)
-    if [ -z "$version" ]; then
-        log_error "Failed to get latest release version"
-        exit 1
-    fi
-    log_info "Latest version: $version"
-
-    INSTALL_DIR=$(find_install_dir)
-    log_info "Installation directory: $INSTALL_DIR"
-
-    download_and_install "$os" "$arch" "$version" "$INSTALL_DIR"
-
-    # Check if install directory is in PATH
-    if ! echo "$PATH" | grep -q "$INSTALL_DIR"; then
-        log_warning "Installation directory $INSTALL_DIR is not in your PATH"
-        log_info "Add this to your shell profile (.bashrc, .zshrc, etc.):"
-        echo "    export PATH=\"$INSTALL_DIR:\$PATH\""
-        log_info "Then restart your terminal or run: source ~/.bashrc (or your shell's config file)"
-    fi
-
-    # Verify installation
-    if [ -x "$INSTALL_DIR/$BINARY_NAME" ]; then
-        log_success "Installation complete!"
-
-        # Check if the correct binary is being found in PATH
-        local found_binary=$(command -v "$BINARY_NAME" 2>/dev/null || echo "")
-        if [ "$found_binary" = "$INSTALL_DIR/$BINARY_NAME" ]; then
-            log_success "$BINARY_NAME is ready to use!"
-            log_info "Try running: $BINARY_NAME --help"
-        elif [ -n "$found_binary" ]; then
-            log_warning "Different '$BINARY_NAME' command found at $found_binary"
-            log_info "Try running: $INSTALL_DIR/$BINARY_NAME --help"
-            log_info "Or run 'hash -r' and try again"
-            log_info "Or add $INSTALL_DIR to the beginning of your PATH"
-        else
-            log_warning "You may need to restart your terminal or update your PATH"
-            log_info "Try running: $INSTALL_DIR/$BINARY_NAME --help"
-        fi
-
-        echo ""
-        log_info "Next steps:"
-        log_info "1. Run '$BINARY_NAME --help' to see available commands"
-        log_info "2. Create a policy.yaml file for your tools"
-        log_info "3. Start the server with: $BINARY_NAME serve --http --policy-file policy.yaml"
-        log_info ""
-        log_info "For more information, visit: https://github.com/$REPO"
-    else
-        log_error "Installation verification failed"
-        exit 1
-    fi
 }
 
-main "$@"
+get_arch() {
+    local arch
+    arch=$(uname -m)
+    case "$arch" in
+        x86_64|amd64)   echo "amd64" ;;
+        aarch64|arm64)  echo "arm64" ;;
+        *)              
+            print_error "Unsupported architecture: $arch"
+            print_error "This installer supports amd64 and arm64 only"
+            exit 1
+            ;;
+    esac
+}
+
+# Detect current system
+OS=$(get_os)
+ARCH=$(get_arch)
+PLATFORM="${OS}_${ARCH}"
+
+print_status "Detected platform: $PLATFORM"
+
+get_latest_release_info() {
+    print_status "Fetching latest release information..."
+    
+    if ! command -v curl >/dev/null 2>&1; then
+        print_error "curl is required but not installed. Please install curl."
+        exit 1
+    fi
+    
+    local api_response
+    api_response=$(curl -s "$BASE_URL")
+    
+    if [[ -z "$api_response" ]]; then
+        print_error "Failed to fetch release information from GitHub API"
+        exit 1
+    fi
+    
+    # Extract tag name (version) - using sed instead of grep -P for macOS compatibility
+    local tag_name
+    tag_name=$(echo "$api_response" | sed -n 's/.*"tag_name": *"\([^"]*\)".*/\1/p' | head -1)
+    
+    if [[ -z "$tag_name" ]]; then
+        print_error "Could not extract version from GitHub API response"
+        exit 1
+    fi
+    
+    # Remove 'v' prefix if present for filename
+    local version="${tag_name#v}"
+    
+    print_status "Latest version: $tag_name"
+    
+    # Copa binary naming: copa_0.11.0_darwin_amd64.tar.gz (no 'v' prefix in filename)
+    BINARY_ARCHIVE="${BINARY_NAME}_${version}_${PLATFORM}.tar.gz"
+    
+    # Extract download URL for our platform - using sed instead of grep -P
+    DOWNLOAD_URL=$(echo "$api_response" | sed -n 's/.*"browser_download_url": *"\([^"]*'"$BINARY_ARCHIVE"'[^"]*\)".*/\1/p' | head -1)
+    
+    if [[ -z "$DOWNLOAD_URL" ]]; then
+        print_error "No binary found for platform: $PLATFORM"
+        print_error "Looking for: $BINARY_ARCHIVE"
+        print_status "Available assets:"
+        echo "$api_response" | sed -n 's/.*"name": *"\([^"]*\.[tar\.gz|zip].*\)".*/\1/p'
+        exit 1
+    fi
+
+    print_status "Download URL: $DOWNLOAD_URL"
+    echo "Download URL: $DOWNLOAD_URL"
+}
+
+download_and_extract() {
+    print_status "Downloading and extracting Copa binary..."
+    
+    # Create temporary directory
+    local tmp_dir
+    tmp_dir=$(mktemp -d)
+    print_status "Using temporary directory: $tmp_dir"
+    
+    # Download the binary archive
+    local archive_path="$tmp_dir/$BINARY_ARCHIVE"
+    print_status "Downloading $BINARY_ARCHIVE..."
+    
+    if ! curl -L -o "$archive_path" "$DOWNLOAD_URL"; then
+        print_error "Failed to download binary from: $DOWNLOAD_URL"
+        rm -rf "$tmp_dir"
+        exit 1
+    fi
+    
+    # Verify download
+    if [[ ! -f "$archive_path" ]]; then
+        print_error "Downloaded file not found: $archive_path"
+        rm -rf "$tmp_dir"
+        exit 1
+    fi
+    
+    print_status "Download completed. File size: $(ls -lh "$archive_path" | awk '{print $5}')"
+    
+    # Extract the archive
+    print_status "Extracting archive..."
+    
+    if ! tar -xzf "$archive_path" -C "$tmp_dir"; then
+        print_error "Failed to extract archive: $archive_path"
+        rm -rf "$tmp_dir"
+        exit 1
+    fi
+    
+    # Find the extracted binary
+    local binary_path="$tmp_dir/$BINARY_NAME"
+    if [[ ! -f "$binary_path" ]]; then
+        print_error "Binary not found after extraction: $binary_path"
+        print_status "Contents of temp directory:"
+        ls -la "$tmp_dir"
+        rm -rf "$tmp_dir"
+        exit 1
+    fi
+    
+    # Make binary executable
+    chmod +x "$binary_path"
+    
+    print_status "Binary extracted successfully to: $binary_path"
+    print_status "Binary version:"
+    "$binary_path" --version 2>/dev/null || echo "Version check failed, but binary exists"
+    
+    # Store the paths for later use
+    TEMP_DIR="$tmp_dir"
+    BINARY_PATH="$binary_path"
+    
+    print_status "Download and extraction completed successfully!"
+}
+
+# Handle local file or download
+if [[ -n "${LOCAL_BINARY:-}" ]] && [[ -f "$LOCAL_BINARY" ]]; then
+    # Use local binary if specified
+    print_status "Using local binary: $LOCAL_BINARY"
+    BINARY_SOURCE="$LOCAL_BINARY"
+elif [[ -f "./$BINARY_FILE" ]]; then
+    # Check for platform-specific binary in current directory
+    print_status "Found local platform-specific binary: ./$BINARY_FILE"
+    BINARY_SOURCE="./$BINARY_FILE"
+elif [[ -f "./$BINARY_NAME" ]]; then
+    # Check for generic binary name in current directory
+    print_status "Found local binary: ./$BINARY_NAME"
+    BINARY_SOURCE="./$BINARY_NAME"
+else
+    # Download binary
+    get_latest_release_info
+    download_and_extract
+    CLEANUP_TEMP=true
+fi
+
+# Create installation directory if it doesn't exist
+print_status "Creating installation directory: $INSTALL_DIR"
+mkdir -p "$INSTALL_DIR"
+
+# Install binary
+print_status "Installing $BINARY_NAME to $INSTALL_DIR"
+cp "$BINARY_PATH" "$INSTALL_DIR/$BINARY_NAME"
+
+# Clean up temporary file if we downloaded it
+if [[ "${CLEANUP_TEMP:-}" == "true" ]]; then
+    rm -rf "$TEMP_DIR"
+fi
+
+# Function to add PATH to a file if not already present
+add_path_to_file() {
+    local file="$1"
+    local path_line="export PATH=\"\$HOME/.local/bin:\$PATH\""
+    
+    if [[ -f "$file" ]]; then
+        if ! grep -q "\.local/bin" "$file"; then
+            print_status "Adding PATH to $file"
+            echo "" >> "$file"
+            echo "# Added by binary installer script" >> "$file"
+            echo "$path_line" >> "$file"
+            return 0
+        else
+            print_warning "PATH already configured in $file"
+            return 1
+        fi
+    fi
+    return 1
+}
+
+# Track if we modified any files
+modified_files=()
+
+# Add to shell configuration files
+# Check for bash
+if [[ -n "$BASH_VERSION" ]] || [[ "$SHELL" == */bash ]]; then
+    # Try .bashrc first (most common)
+    if add_path_to_file "$HOME/.bashrc"; then
+        modified_files+=("$HOME/.bashrc")
+    fi
+    
+    # Also try .bash_profile for login shells
+    if add_path_to_file "$HOME/.bash_profile"; then
+        modified_files+=("$HOME/.bash_profile")
+    fi
+fi
+
+# Check for zsh
+if [[ -n "$ZSH_VERSION" ]] || [[ "$SHELL" == */zsh ]]; then
+    if add_path_to_file "$HOME/.zshrc"; then
+        modified_files+=("$HOME/.zshrc")
+    fi
+fi
+
+# Add to .profile as fallback (POSIX compliant)
+if add_path_to_file "$HOME/.profile"; then
+    modified_files+=("$HOME/.profile")
+fi
+
+# Create a system-wide PATH file for immediate recognition
+print_status "Creating PATH configuration in /etc/environment (if writable)"
+if sudo -n true 2>/dev/null; then
+    # We have sudo access
+    if [[ -f /etc/environment ]]; then
+        if ! sudo grep -q "$HOME/.local/bin" /etc/environment 2>/dev/null; then
+            echo "PATH=\"$HOME/.local/bin:\$PATH\"" | sudo tee -a /etc/environment > /dev/null
+            print_status "Added PATH to /etc/environment"
+        fi
+    fi
+else
+    print_warning "No sudo access - skipping system-wide PATH configuration"
+fi
+
+# Update current session's PATH
+export PATH="$HOME/.local/bin:$PATH"
+
+# Verify installation
+if command -v "$BINARY_NAME" >/dev/null 2>&1; then
+    print_status "✓ Installation successful!"
+    print_status "✓ $BINARY_NAME is now available in PATH"
+    
+    # Show version or help if available
+    if "$BINARY_NAME" --version >/dev/null 2>&1; then
+        print_status "Version: $("$BINARY_NAME" --version)"
+    elif "$BINARY_NAME" --help >/dev/null 2>&1; then
+        print_status "Run '$BINARY_NAME --help' for usage information"
+    fi
+else
+    print_error "Installation failed - binary not found in PATH"
+    exit 1
+fi
+
+# Summary
+echo ""
+print_status "Installation Summary:"
+echo "  Binary: $BINARY_NAME"
+echo "  Platform: $PLATFORM"
+echo "  Location: $INSTALL_DIR/$BINARY_NAME"
+echo "  Available in current session: Yes"
+
+if [[ ${#modified_files[@]} -gt 0 ]]; then
+    echo "  Modified files:"
+    for file in "${modified_files[@]}"; do
+        echo "    - $file"
+    done
+    echo ""
+    print_status "The binary will be available in new bash sessions automatically."
+    print_status "No need to source any files - just open a new terminal!"
+else
+    echo ""
+    print_warning "No shell configuration files were modified."
+    print_warning "You may need to manually add '$INSTALL_DIR' to your PATH."
+fi
+
+echo ""
+print_status "You can now run '$BINARY_NAME' from any new terminal window."
+echo ""
