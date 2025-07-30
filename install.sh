@@ -267,7 +267,9 @@ if sudo -n true 2>/dev/null; then
     fi
 else
     print_warning "No sudo access - skipping system-wide PATH configuration"
-fi
+# Skip system-wide PATH configuration
+print_warning "Skipping system-wide PATH configuration in /etc/environment"
+print_warning "Consider manually adding '$HOME/.local/bin' to your PATH if needed"
 
 # Update current session's PATH
 export PATH="$HOME/.local/bin:$PATH"
