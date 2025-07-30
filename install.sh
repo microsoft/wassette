@@ -96,7 +96,7 @@ get_latest_release_info() {
     
     print_status "Latest version: $tag_name"
     
-    # Copa binary naming: copa_0.11.0_darwin_amd64.tar.gz (no 'v' prefix in filename)
+    # Wassette binary naming: wassette_0.11.0_darwin_amd64.tar.gz (no 'v' prefix in filename)
     BINARY_ARCHIVE="${BINARY_NAME}_${version}_${PLATFORM}.tar.gz"
     
     # Extract download URL for our platform - using sed instead of grep -P
