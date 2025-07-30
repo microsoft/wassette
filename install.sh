@@ -111,7 +111,6 @@ get_latest_release_info() {
     fi
 
     print_status "Download URL: $DOWNLOAD_URL"
-    echo "Download URL: $DOWNLOAD_URL"
 }
 
 download_and_extract() {
