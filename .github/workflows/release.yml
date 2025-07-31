@@ -24,26 +24,32 @@ jobs:
         include:
           # Linux targets
           - target: x86_64-unknown-linux-gnu
-            name: wassette-linux-amd64
+            name: wassette
+            arch: linux_amd64
             runner: ubuntu-latest
           # Temporarily disabled - aarch64 runners not available for private repos
           # - target: aarch64-unknown-linux-gnu
-          #   name: wassette-linux-arm64
+          #   name: wassette
+          #   arch: linux_arm64
           #   runner: ubuntu-24.04-arm
           # macOS targets
           - target: x86_64-apple-darwin
-            name: wassette-darwin-amd64
+            name: wassette
+            arch: darwin_amd64
             runner: macos-13
           - target: aarch64-apple-darwin
-            name: wassette-darwin-arm64
+            name: wassette
+            arch: darwin_arm64
             runner: macos-latest
           # Windows targets
           - target: x86_64-pc-windows-msvc
-            name: wassette-windows-amd64.exe
+            name: wassette
+            arch: windows_amd64
             runner: windows-latest
           # Temporarily disabled - aarch64 runners not available for private repos
           # - target: aarch64-pc-windows-msvc
-          #   name: wassette-windows-arm64.exe
+          #   name: wassette
+          #   arch: windows_arm64
           #   runner: windows-11-arm
 
     steps:
@@ -64,28 +70,34 @@ jobs:
       - name: Build release binary
         run: cargo build --release
 
+      - name: Extract version
+        id: version
+        run: |
+          VERSION=$(echo "${{ github.ref_name }}" | sed 's/^v//')
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+
       - name: Prepare binary (Unix)
         if: "!contains(matrix.target, 'windows')"
         run: |
           cd target/release
-          tar czvf ../../${{ matrix.name }}.tar.gz wassette
+          tar czvf ../../${{ matrix.name }}_${{ steps.version.outputs.version }}_${{ matrix.arch }}.tar.gz wassette
           cd -
 
       - name: Prepare binary (Windows)
         if: contains(matrix.target, 'windows')
         run: |
           cd target/release
-          7z a ../../${{ matrix.name }}.zip wassette.exe
+          7z a ../../${{ matrix.name }}_${{ steps.version.outputs.version }}_${{ matrix.arch }}.zip wassette.exe
           cd -
         shell: bash
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ matrix.name }}
+          name: ${{ matrix.name }}-${{ matrix.arch }}
           path: |
-            ${{ matrix.name }}.tar.gz
-            ${{ matrix.name }}.zip
+            ${{ matrix.name }}_*_${{ matrix.arch }}.tar.gz
+            ${{ matrix.name }}_*_${{ matrix.arch }}.zip
 
   release:
     name: Create Release
@@ -96,6 +108,12 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+
+      - name: Extract version
+        id: version
+        run: |
+          VERSION=$(echo "${{ github.ref_name }}" | sed 's/^v//')
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
 
       - name: Download all artifacts
         uses: actions/download-artifact@v4
@@ -120,16 +138,14 @@ jobs:
             ## Downloads
 
             ### Linux
-            - [AMD64 (tar.gz)](https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/wassette-linux-amd64.tar.gz)
-            - [ARM64 (tar.gz)](https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/wassette-linux-arm64.tar.gz)
+            - [AMD64 (tar.gz)](https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/wassette_${{ steps.version.outputs.version }}_linux_amd64.tar.gz)
 
             ### macOS (Darwin)
-            - [AMD64/Intel (tar.gz)](https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/wassette-darwin-amd64.tar.gz)
-            - [ARM64/Apple Silicon (tar.gz)](https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/wassette-darwin-arm64.tar.gz)
+            - [AMD64/Intel (tar.gz)](https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/wassette_${{ steps.version.outputs.version }}_darwin_amd64.tar.gz)
+            - [ARM64/Apple Silicon (tar.gz)](https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/wassette_${{ steps.version.outputs.version }}_darwin_arm64.tar.gz)
 
             ### Windows
-            - [AMD64 (zip)](https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/wassette-windows-amd64.exe.zip)
-            - [ARM64 (zip)](https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/wassette-windows-arm64.exe.zip)
+            - [AMD64 (zip)](https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/wassette_${{ steps.version.outputs.version }}_windows_amd64.zip)
 
             ## Install
 
