@@ -1,54 +1,23 @@
-# wassette
+<div align="center">
+  <h1 align="center">Wassette</h1>
+</div>
 
-Wassette is a secure and open source MCP server that runs on top of WebAssembly (Wasm). It is designed to securely execute untrusted tools by embedding a Wasm runtime and applying capability-based policies to control access to system resources. It uses the sandboxing and abstraction provided by the Wasm [Component Model](https://github.com/WebAssembly/component-model) to ensure tools can be executed safely and easily without compromising the host system.
+Instantly discover and run MCP tools using natural language—all within secure, isolated WebAssembly sandboxes. Wassette replaces risky native tool execution with a controlled, sandboxed environment, letting you define exactly what each tool can access—without the hassle of manually configuring every MCP tool.
 
-Please read the rest of the README for more background, but the TL;DR is this:
+- 🔧 **Dynamic Loading**: Load WebAssembly components on-demand from OCI registries, URLs, or local files - no restart required.
+- 🔒 **Secure Sandboxes**: Each tool runs in isolated WebAssembly environments with capability-based policies controlling file/network access.
+- 🎯 **Runtime Introspection**: Automatically discover tool capabilities and exported functions without manual configuration.
+- 🧩 **Composable Tools**: Mix and match components from different sources in real-time - build workflows dynamically.
+- 🚀 **Developer-Friendly**: Write functions that compile to WASM components, not entire servers - focus on logic, not infrastructure.
+- ⚡ **Hot-Swap Tools**: Load, unload, and replace components without downtime - perfect for experimentation and development.
 
-`wassette` essentially acts as a _virtual MCP server_, with built-in observability, resource quotas, and handles infrastructure complexity automatically.
+> 🦺 This project is in early development and actively evolving. Expect rapid iteration, breaking changes, and responsiveness to feedback. Please submit issues or reach out with questions!
 
-> Note: The name "Wassette" is a play on the word "Wasm" and "Cassette" - a magnetic tape used to store audio,  and is pronounced "Wass-ette".
+To learn more about the architecture and design philosophy, see the [Architecture Design Document](docs/architecture-design.md).
 
-## 🚩 Purpose
+## Quick Start
 
-### Problem Statement
-
-A popular use scenario for MCP today is to run the server as a standalone process on a machine that talks to clients over stdio or a socket. Running these servers natively poses security risks, such as "my mcp-client calls the tool to read a file, and for some reason the tool writes to a file on my machine", "the tool opens a socket to a remote machine and sends data to it", or "I downloaded this open source mcp-server, but it has a vulnerability that allows an attacker to execute arbitrary code on my machine". This is the same problem as running untrusted code on your machine, but mcp-clients make them much easier to install on your machine and run.
-
-### Who is the target audience?
-
-1. _Developers_ who want to focus on writing the business logic for MCP tools, instead of worrying about the infrastructure.
-
-2. _DevOps engineers_ who want the tools to be able to run everywhere and have a great observability story and tools are secured by design.
-
-3. _Users_ who want to run a trusted mcp-server on their machine that is proven to securely execute untrusted tools.
-
-4. _Platform providers_ who want to provide a serverless experience for their users.
-
-### What are the current solutions?
-
-1. Package and distribute the server as Docker images. This is perhaps the most common way to run MCP servers securely today, because it works with existing tooling and infrastructure and requires no changes to the server code. One could argue that containers are not a secure boundary, but they are a good starting point. The harder problem is how to apply security policies to the container like "how do I know what HTTP domain is this tool calling to?". [The Docker MCP Catalog](https://docs.docker.com/ai/mcp-catalog-and-toolkit/catalog/) runs each MCP server as a container - providing isolation and portability.
-2. Running binaries directly using `npx` or `uvx`. This is a simple way to run MCP servers (and often the default way MCP servers document how to use it), but it is not secure. It is easy to run a tool that has a vulnerability or malicious code that can read/write files on your machine, open sockets, or even execute arbitrary code.
-3. Centralized MCP server that runs WebAssembly-based tools locally (think tools like [mcp.run](https://mcp.run)). This has the advantage of running tools in tiny sandboxes which incur less memory overhead than containers. However, most of these tools still require custom ABIs and libraries and are not compatible with each other.
-
-### So why does this exist?
-
-We wanted to build an entirely open source tool that enables developers to define tools via the Component Model, which means they are easy to reuse and compose in addition to running with low memory requirements and in a secure sandbox. They also let anyone see exactly what features the tool is requesting and allows a server to fulfill those requests in a secure way. This is a significant improvement over the current state of MCP servers, which are either arbitrary code or require custom ABIs and libraries, and are not compatible with each other.
-
-So what is this project aiming to be?
-
-1. One centralized open-source mcp-server, written in a memory safe, high performance language that embeds a WebAssembly runtime (e.g. [Wasmtime](https://github.com/bytecodealliance/wasmtime) or [hyperlight-wasm](https://github.com/hyperlight-dev/hyperlight-wasm)), acting as a minimal trusted computing base (TCB).
-2. `wassette` will implement allow/deny lists for file paths, network endpoints, and system calls using capability-based policy like [policy-mcp-rs](https://github.com/microsoft/policy-mcp-rs).
-3. Untrusted tool code will be distributed as WebAssembly OCI artifacts in OCI registries, and be loaded into the trusted layer upon signature verification. Each tool will have a discrete set of capabilities. For example, tool A needs to read `./data`; not network; tool B needs read/write to `/assets` and outbound HTTP only to `api.company.com:443`.
-
-### What about the developer experience?
-
-Developers will write MCP tools as normal functions that can be compiled to WebAssembly Components, instead of developing servers. This is a significant paradigm shift and offers a completely different experience than writing MCP servers as it currently stands. We are fully aware that current MCP server code would need to be rewritten for retargeting to Wasm but the security benefits and flexibility of the Component Model are worth it.
-
-If you are interested in learning more about what programming language supports WebAssembly, you can check out [this page](https://developer.fermyon.com/wasm-languages/webassembly-language-support).
-
-## Install
-
-### All Platforms (Shell Script)
+### Install
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/microsoft/wassette/main/install.sh | bash
@@ -56,57 +25,41 @@ curl -fsSL https://raw.githubusercontent.com/microsoft/wassette/main/install.sh 
 
 This will detect your platform and install the latest `wassette` binary to your `$PATH`.
 
-## Integrate with MCP Clients
+## Setup Your Agent
 
-### [VSCode](https://code.visualstudio.com/docs/copilot/chat/mcp-servers) / [GitHub Copilot](https://docs.github.com/en/copilot/customizing-copilot/extending-copilot-chat-with-mcp) / [Cursor](https://docs.cursor.com/context/model-context-protocol)
+Wassette works with any MCP-compatible agent. The setup is always the same: **add `wassette serve --stdio` as an MCP server**.
 
-Add this to your VSCode or Cursor settings:
+**👉 [Complete setup guide for all agents (VSCode, Cursor, Gemini, etc.)](https://github.com/microsoft/wassette/blob/main/docs/mcp-clients.md)**
 
-```json
-"mcp": {
-  "servers": {
-    "wassette": {
-      "type": "sse",
-      "url": "http://127.0.0.1:9001/sse"
-    }
-  }
-}
+**Example for VSCode:**
+
+```bash
+code --add-mcp '{"name":"Wassette","command":"wassette","args":["serve","--stdio"]}'
 ```
 
-## Quick Start
+## Try It
 
-1. **Start the wassette server:**
+Enter the following prompts into your AI client's chat:
 
-   ```bash
-   # Run the following cmd in your terminal to start the Wassette MCP server
-   wassette serve --http --policy-file policy.yaml
-   ```
-
-2. **Dynamically load tools:**
-
-   **From OCI Registry:**
-   <!-- update to point to wassette pkgs -->
+1. **Load the time server component:**
 
    ```
-   # Enter the following prompt into your AI client
-   Load the filesystem tools from oci://ghcr.io/duffney/filesystem:latest
+   Please load the time component from oci://ghcr.io/yoshuawuyts/time:latest
    ```
 
-   **From Local File:**
+   When prompted, confirm loading. This downloads the time server from the OCI registry and makes it available to Wassette.
+
+2. **Query the current time:**
 
    ```
-   # Enter the following prompt into your AI client
-   Load component from file:///path/to/my-tools.wasm
+   What is the current time?
    ```
 
-3. **Use the newly loaded tools immediately:**
+   This will prompt your MCP agent (e.g., GitHub Copilot) to call Wassette, which uses the time server to return the current time.
 
+   ```output
+   The current time July 31, 2025 at 10:30 AM UTC
    ```
-   # Enter the following prompt into your AI client
-   Use the read-file tool to get the contents of the Justfile at the root of this repo
-   ```
-
-   The tools are now available in your AI client's tool list - no restart required! Wassette automatically detects what functions each component exports and makes them available as MCP tools.
 
 **Built-in Tools for Dynamic Loading:**
 
@@ -123,6 +76,7 @@ Add this to your VSCode or Cursor settings:
 | [get-weather-js](examples/get-weather-js/) | Weather API client for fetching weather data           |
 | [time-server-js](examples/time-server-js/) | Simple time server component                           |
 | [gomodule-go](examples/gomodule-go/)       | Go module information tool                             |
+| [eval-py](examples/eval-py/)               | Python code execution sandbox                          |
 
 See the `examples/` directory for more components you can build and load dynamically.
 
