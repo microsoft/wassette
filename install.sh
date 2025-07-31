@@ -1,7 +1,35 @@
 #!/bin/bash
 
-# Binary Installer Script
-# This script installs a binary and adds it to PATH for immediate use in new sessions
+#####################################################################
+# Wassette Binary Installer Script
+#####################################################################
+#
+# This script automatically downloads and installs the latest Wassette 
+# binary for your platform (Linux or macOS, ARM64 or AMD64).
+#
+# WHAT IT DOES:
+# - Detects your operating system and architecture
+# - Downloads the latest Wassette release from GitHub
+# - Extracts and installs the binary to ~/.local/bin
+# - Configures your shell PATH for immediate access
+# - Works with bash, zsh, and other POSIX-compliant shells
+#
+# USAGE:
+#   curl -fsSL https://raw.githubusercontent.com/microsoft/wassette/main/install.sh | bash
+#
+# REQUIREMENTS:
+# - curl (for downloading)
+# - tar (for extraction)
+# - bash or compatible shell
+#
+# SUPPORTED PLATFORMS:
+# - Linux (x86_64, ARM64)
+# - macOS (Intel, Apple Silicon)
+#
+# The binary will be installed to: ~/.local/bin/wassette
+# PATH will be updated in: ~/.bashrc, ~/.zshrc, ~/.profile
+#
+#####################################################################
 
 set -e  # Exit on any error
 
@@ -177,15 +205,7 @@ download_and_extract() {
 if [[ -n "${LOCAL_BINARY:-}" ]] && [[ -f "$LOCAL_BINARY" ]]; then
     # Use local binary if specified
     print_status "Using local binary: $LOCAL_BINARY"
-    BINARY_SOURCE="$LOCAL_BINARY"
-elif [[ -f "./$BINARY_FILE" ]]; then
-    # Check for platform-specific binary in current directory
-    print_status "Found local platform-specific binary: ./$BINARY_FILE"
-    BINARY_SOURCE="./$BINARY_FILE"
-elif [[ -f "./$BINARY_NAME" ]]; then
-    # Check for generic binary name in current directory
-    print_status "Found local binary: ./$BINARY_NAME"
-    BINARY_SOURCE="./$BINARY_NAME"
+    BINARY_PATH="$LOCAL_BINARY"
 else
     # Download binary
     get_latest_release_info
@@ -266,10 +286,10 @@ if sudo -n true 2>/dev/null; then
         fi
     fi
 else
-    print_warning "No sudo access - skipping system-wide PATH configuration"
-# Skip system-wide PATH configuration
-print_warning "Skipping system-wide PATH configuration in /etc/environment"
-print_warning "Consider manually adding '$HOME/.local/bin' to your PATH if needed"
+    # Skip system-wide PATH configuration
+    print_warning "Skipping system-wide PATH configuration in /etc/environment"
+    print_warning "Consider manually adding '$HOME/.local/bin' to your PATH if needed"
+fi
 
 # Update current session's PATH
 export PATH="$HOME/.local/bin:$PATH"
