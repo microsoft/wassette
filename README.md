@@ -29,9 +29,9 @@ This will detect your platform and install the latest `wassette` binary to your 
 
 Wassette works with any MCP-compatible agent. The setup is always the same: **add `wassette serve --stdio` as an MCP server**.
 
-**👉 [Complete setup guide for all agents (VSCode, Cursor, Gemini, etc.)](https://github.com/microsoft/wassette/blob/main/docs/mcp-clients.md)**
+**👉 [Complete setup guide for all agents (Visual Studio Code, Cursor, Claude Code, Gemini CLI, etc.)](https://github.com/microsoft/wassette/blob/main/docs/mcp-clients.md)**
 
-**Example for VSCode:**
+**Example for Visual Studio Code:**
 
 ```bash
 code --add-mcp '{"name":"Wassette","command":"wassette","args":["serve","--stdio"]}'
@@ -55,7 +55,7 @@ Enter the following prompts into your AI client's chat:
    What is the current time?
    ```
 
-   This will prompt your MCP agent (e.g., GitHub Copilot) to call Wassette, which uses the time server to return the current time.
+   This will prompt your MCP agent (e.g., GitHub Copilot in VS Code) to call Wassette, which uses the time component to return the current time.
 
    ```output
    The current time July 31, 2025 at 10:30 AM UTC

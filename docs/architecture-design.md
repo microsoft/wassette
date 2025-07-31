@@ -118,7 +118,7 @@ capabilities:
 
 Wassette introduces a fundamental change in how MCP tools are developed and deployed:
 
-**Traditional Approach**: Developers build complete MCP servers
+**Traditional Approach**: Developers build complete MCP servers  
 **Wassette Approach**: Developers write individual tools as WebAssembly components
 
 ### Benefits
