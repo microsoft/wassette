@@ -72,18 +72,27 @@ jobs:
 
       - name: Extract version (Unix)
         if: "!contains(matrix.target, 'windows')"
-        id: version
+        id: version-unix
         run: |
           VERSION=$(echo "${{ github.ref_name }}" | sed 's/^v//')
           echo "version=$VERSION" >> $GITHUB_OUTPUT
 
       - name: Extract version (Windows)
         if: contains(matrix.target, 'windows')
-        id: version
+        id: version-windows
         run: |
           $VERSION = "${{ github.ref_name }}" -replace '^v', ''
           echo "version=$VERSION" >> $env:GITHUB_OUTPUT
         shell: pwsh
+
+      - name: Set version output
+        id: version
+        run: |
+          if [[ "${{ matrix.target }}" == *"windows"* ]]; then
+            echo "version=${{ steps.version-windows.outputs.version }}" >> $GITHUB_OUTPUT
+          else
+            echo "version=${{ steps.version-unix.outputs.version }}" >> $GITHUB_OUTPUT
+          fi
 
       - name: Prepare binary (Unix)
         if: "!contains(matrix.target, 'windows')"
