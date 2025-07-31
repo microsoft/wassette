@@ -93,6 +93,7 @@ jobs:
           else
             echo "version=${{ steps.version-unix.outputs.version }}" >> $GITHUB_OUTPUT
           fi
+        shell: bash
 
       - name: Prepare binary (Unix)
         if: "!contains(matrix.target, 'windows')"
