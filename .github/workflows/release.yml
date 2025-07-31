@@ -70,11 +70,20 @@ jobs:
       - name: Build release binary
         run: cargo build --release
 
-      - name: Extract version
+      - name: Extract version (Unix)
+        if: "!contains(matrix.target, 'windows')"
         id: version
         run: |
           VERSION=$(echo "${{ github.ref_name }}" | sed 's/^v//')
           echo "version=$VERSION" >> $GITHUB_OUTPUT
+
+      - name: Extract version (Windows)
+        if: contains(matrix.target, 'windows')
+        id: version
+        run: |
+          $VERSION = "${{ github.ref_name }}" -replace '^v', ''
+          echo "version=$VERSION" >> $env:GITHUB_OUTPUT
+        shell: pwsh
 
       - name: Prepare binary (Unix)
         if: "!contains(matrix.target, 'windows')"
