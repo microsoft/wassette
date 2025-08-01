@@ -1056,7 +1056,7 @@ impl LifecycleManager {
     async fn load_or_create_component_policy(
         &self,
         component_id: &str,
-    ) -> Result<policy_mcp::PolicyDocument> {
+    ) -> Result<policy::PolicyDocument> {
         let policy_path = self.get_component_policy_path(component_id);
 
         if policy_path.exists() {
@@ -1064,7 +1064,7 @@ impl LifecycleManager {
             Ok(PolicyParser::parse_str(&policy_content)?)
         } else {
             // Create minimal policy document
-            Ok(policy_mcp::PolicyDocument {
+            Ok(policy::PolicyDocument {
                 version: "1.0".to_string(),
                 description: Some(format!(
                     "Auto-generated policy for component: {component_id}"
@@ -1077,7 +1077,7 @@ impl LifecycleManager {
     /// Add permission rule to policy
     fn add_permission_rule_to_policy(
         &self,
-        policy: &mut policy_mcp::PolicyDocument,
+        policy: &mut policy::PolicyDocument,
         rule: PermissionRule,
     ) -> Result<()> {
         match rule {
@@ -1099,7 +1099,7 @@ impl LifecycleManager {
     /// Add network permission to policy
     fn add_network_permission_to_policy(
         &self,
-        policy: &mut policy_mcp::PolicyDocument,
+        policy: &mut policy::PolicyDocument,
         network: NetworkPermission,
     ) -> Result<()> {
         let allow_set = policy
@@ -1120,7 +1120,7 @@ impl LifecycleManager {
     /// Add storage permission to policy
     fn add_storage_permission_to_policy(
         &self,
-        policy: &mut policy_mcp::PolicyDocument,
+        policy: &mut policy::PolicyDocument,
         storage: StoragePermission,
     ) -> Result<()> {
         let allow_set = policy
@@ -1151,7 +1151,7 @@ impl LifecycleManager {
     /// Add environment permission to policy
     fn add_environment_permission_to_policy(
         &self,
-        policy: &mut policy_mcp::PolicyDocument,
+        policy: &mut policy::PolicyDocument,
         env: EnvironmentPermission,
     ) -> Result<()> {
         let allow_set = policy
@@ -1173,7 +1173,7 @@ impl LifecycleManager {
     async fn save_component_policy(
         &self,
         component_id: &str,
-        policy: &policy_mcp::PolicyDocument,
+        policy: &policy::PolicyDocument,
     ) -> Result<()> {
         let policy_path = self.get_component_policy_path(component_id);
         let policy_yaml = serde_yaml::to_string(policy)?;
@@ -1185,7 +1185,7 @@ impl LifecycleManager {
     async fn update_policy_registry(
         &self,
         component_id: &str,
-        policy: &policy_mcp::PolicyDocument,
+        policy: &policy::PolicyDocument,
     ) -> Result<()> {
         let wasi_template =
             wasistate::create_wasi_state_template_from_policy(policy, &self.plugin_dir)?;
@@ -1835,7 +1835,7 @@ permissions:
             "Should contain write access"
         );
 
-        let policy: policy_mcp::PolicyDocument = serde_yaml::from_str(&policy_content)?;
+        let policy: policy::PolicyDocument = serde_yaml::from_str(&policy_content)?;
 
         let network_perms = policy.permissions.network.as_ref().unwrap();
         let network_allow = network_perms.allow.as_ref().unwrap();
@@ -1870,8 +1870,8 @@ permissions:
             2,
             "Should have both read and write access"
         );
-        assert!(test_storage.access.contains(&policy_mcp::AccessType::Read));
-        assert!(test_storage.access.contains(&policy_mcp::AccessType::Write));
+        assert!(test_storage.access.contains(&policy::AccessType::Read));
+        assert!(test_storage.access.contains(&policy::AccessType::Write));
 
         let other_storage = storage_allow
             .iter()
@@ -1882,7 +1882,7 @@ permissions:
             1,
             "Should have only read access"
         );
-        assert!(other_storage.access.contains(&policy_mcp::AccessType::Read));
+        assert!(other_storage.access.contains(&policy::AccessType::Read));
 
         Ok(())
     }

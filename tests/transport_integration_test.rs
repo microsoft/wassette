@@ -401,13 +401,9 @@ async fn test_stdio_transport() -> Result<()> {
         .context("Failed to get current directory")?
         .join("target/debug/wassette");
 
-    // Create a temporary directory for components to avoid loading existing components
-    let temp_dir = tempfile::tempdir().context("Failed to create temporary directory")?;
-    let temp_plugin_dir = temp_dir.path().to_str().unwrap();
-
     // Start the server with stdio transport (disable logs to avoid stdout pollution)
     let mut child = tokio::process::Command::new(&binary_path)
-        .args(["serve", "--stdio", "--plugin-dir", temp_plugin_dir])
+        .args(["serve", &plugin_dir_arg])
         .env("RUST_LOG", "off")
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
@@ -615,17 +611,9 @@ async fn test_default_stdio_transport() -> Result<()> {
         .context("Failed to get current directory")?
         .join("target/debug/wassette");
 
-    // Create a temporary directory for components to avoid loading existing components
-    let temp_dir = tempfile::tempdir().context("Failed to create temporary directory")?;
-    let temp_plugin_dir = temp_dir.path().to_str().unwrap();
-
     // Start the server without any transport flags (should default to stdio)
     let mut child = tokio::process::Command::new(&binary_path)
-<<<<<<< HEAD
-        .args(["serve", "--plugin-dir", temp_plugin_dir])
-=======
         .args(["serve", &plugin_dir_arg])
->>>>>>> 2f058c9 (feat(mcp-server): dynamic policy management)
         .env("RUST_LOG", "off")
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
