@@ -1,0 +1,42 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/semcp/policy-mcp/main/schema/v1.json
+
+version: "1.0"
+description: "Permission policy for docker container"
+permissions:
+  storage:
+    allow:
+    - uri: "fs://work/agent/**"
+      access: ["read", "write"]
+    - uri: "fs://work/agent/config.yaml"
+      access: ["read"]
+      
+  network:
+    allow:
+      - host: "api.openai.com"
+      - host: "*.internal.myorg.com"
+      - cidr: "10.0.0.0/8"
+
+  environment:
+    allow:
+      - key: "PATH"
+      - key: "HOME"
+
+  runtime:
+    docker:
+      security:
+        privileged: false
+        no_new_privileges: true
+        capabilities:
+          drop: ["ALL"]
+          add: ["NET_BIND_SERVICE"]
+    hyperlight: 
+      # future
+      
+      
+  # resources:
+  # cpu (percentage), memory (mb), io (iops)
+  
+  # ipc:
+  #   allow:
+  #   - uri: "pipe://myservice"
+  

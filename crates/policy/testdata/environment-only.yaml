@@ -1,0 +1,15 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/semcp/policy-mcp/main/schema/v1.json
+
+version: "1.0"
+description: "Environment-only policy for basic shell access"
+permissions:
+  environment:
+    allow:
+    - key: "PATH"
+    - key: "HOME"
+    - key: "USER"
+    - key: "SHELL"
+    - key: "TERM"
+    - key: "LANG"
+    - key: "NODE_ENV"
+    - key: "PYTHON_PATH" 

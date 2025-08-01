@@ -1,0 +1,18 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/semcp/policy-mcp/main/schema/v1.json
+
+version: "1.1"
+description: "Storage-only policy for file system access"
+permissions:
+  storage:
+    allow:
+    - uri: "fs://tmp/**"
+      access: ["read", "write"]
+    - uri: "fs://var/log/*.log"
+      access: ["read"]
+    - uri: "fs://home/user/documents/*"
+      access: ["read", "write"]
+    deny:
+    - uri: "fs://etc/**"
+      access: ["read", "write"]
+    - uri: "fs://root/**"
+      access: ["read", "write"] 

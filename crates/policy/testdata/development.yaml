@@ -1,0 +1,52 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/semcp/policy-mcp/main/schema/v1.json
+
+version: "1.0"
+description: "Development environment policy with broad permissions"
+permissions:
+  storage:
+    allow:
+    - uri: "fs://workspace/**"
+      access: ["read", "write"]
+    - uri: "fs://home/dev/**"
+      access: ["read", "write"]
+    - uri: "fs://tmp/**"
+      access: ["read", "write"]
+    deny:
+    - uri: "fs://etc/passwd"
+      access: ["write"]
+    - uri: "fs://etc/shadow"
+      access: ["read", "write"]
+      
+  network:
+    allow:
+    - host: "*.npmjs.org"
+    - host: "*.github.com"
+    - host: "*.docker.io"
+    - host: "*.pypi.org"
+    - host: "localhost"
+    - cidr: "127.0.0.0/8"
+    - cidr: "192.168.0.0/16"
+    - cidr: "10.0.0.0/8"
+      
+  environment:
+    allow:
+    - key: "PATH"
+    - key: "HOME"
+    - key: "USER"
+    - key: "SHELL"
+    - key: "TERM"
+    - key: "EDITOR"
+    - key: "NODE_ENV"
+    - key: "PYTHON_PATH"
+    - key: "GOPATH"
+    - key: "CARGO_HOME"
+    - key: "RUSTUP_HOME"
+      
+  runtime:
+    docker:
+      security:
+        privileged: false
+        no_new_privileges: true
+        capabilities:
+          drop: ["ALL"]
+          add: ["NET_BIND_SERVICE"] 

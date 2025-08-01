@@ -10,7 +10,7 @@ component2json = { path = "../component2json" }
 futures = { workspace = true }
 oci-client = { workspace = true }
 oci-wasm = { workspace = true }
-policy-mcp = { workspace = true }
+policy = { workspace = true }
 reqwest = { workspace = true }
 serde_json = { workspace = true }
 tempfile = { workspace = true }

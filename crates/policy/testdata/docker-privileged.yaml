@@ -1,0 +1,18 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/semcp/policy-mcp/main/schema/v1.json
+
+version: "1.0"
+description: "Policy with privileged Docker runtime for system administration"
+permissions:
+  storage:
+    allow:
+    - uri: "fs://admin/**"
+      access: ["read", "write"]
+    
+  runtime:
+    docker:
+      security:
+        privileged: true
+        no_new_privileges: false
+        capabilities:
+          drop: []
+          add: ["SYS_ADMIN", "NET_BIND_SERVICE", "SYS_TIME"] 

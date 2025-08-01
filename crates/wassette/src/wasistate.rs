@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::env;
 use std::path::{Path, PathBuf};
 
-use policy_mcp::{AccessType, PolicyDocument};
+use policy::{AccessType, PolicyDocument};
 
 /// A struct that presents the arguments passed to `wasmtime_wasi::WasiCtxBuilder::preopened_dir`
 #[derive(Clone)]
@@ -146,7 +146,7 @@ pub(crate) fn calculate_permissions(
 
 #[cfg(test)]
 mod tests {
-    use policy_mcp::{AccessType, PolicyParser};
+    use policy::{AccessType, PolicyParser};
     use proptest::prelude::*;
     use tempfile::TempDir;
 

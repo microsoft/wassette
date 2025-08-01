@@ -1,0 +1,49 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/semcp/policy-mcp/main/schema/v1.json
+
+version: "1.0"
+description: "Web service policy for HTTP server deployment"
+permissions:
+  storage:
+    allow:
+    - uri: "fs://app/**"
+      access: ["read"]
+    - uri: "fs://logs/**"
+      access: ["write"]
+    - uri: "fs://uploads/**"
+      access: ["read", "write"]
+    deny:
+    - uri: "fs://app/config/secrets.yaml"
+      access: ["read"]
+      
+  network:
+    allow:
+    - host: "api.stripe.com"
+    - host: "api.sendgrid.com"
+    - host: "*.amazonaws.com"
+    - cidr: "10.0.0.0/8"
+    deny:
+    - host: "*.internal.admin.com"
+      
+  environment:
+    allow:
+    - key: "PATH"
+    - key: "PORT"
+    - key: "NODE_ENV"
+    - key: "DATABASE_URL"
+    - key: "REDIS_URL"
+    - key: "JWT_SECRET"
+    - key: "STRIPE_API_KEY"
+      
+  runtime:
+    docker:
+      security:
+        privileged: false
+        no_new_privileges: true
+        capabilities:
+          drop: ["ALL"]
+          add: ["NET_BIND_SERVICE"]
+          
+  resources:
+    cpu: 75.0
+    memory: 512
+    io: 500 

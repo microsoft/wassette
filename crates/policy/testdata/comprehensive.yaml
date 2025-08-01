@@ -1,0 +1,54 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/semcp/policy-mcp/main/schema/v1.json
+
+version: "1.0"
+description: "Comprehensive policy with all permission types"
+permissions:
+  storage:
+    allow:
+    - uri: "fs://workspace/**"
+      access: ["read", "write"]
+    - uri: "fs://config/app.yaml"
+      access: ["read"]
+    deny:
+    - uri: "fs://system/**"
+      access: ["read", "write"]
+      
+  network:
+    allow:
+    - host: "api.openai.com"
+    - host: "*.internal.company.com"
+    - cidr: "10.0.0.0/8"
+    - cidr: "172.16.0.0/12"
+    deny:
+    - host: "*.malicious.com"
+    - cidr: "0.0.0.0/0"
+      
+  environment:
+    allow:
+    - key: "PATH"
+    - key: "HOME"
+    - key: "USER"
+    - key: "API_KEY"
+    - key: "DATABASE_URL"
+      
+  runtime:
+    docker:
+      security:
+        privileged: false
+        no_new_privileges: true
+        capabilities:
+          drop: ["ALL"]
+          add: ["NET_BIND_SERVICE", "SYS_TIME"]
+    hyperlight:
+      
+  resources:
+    cpu: 50.0
+    memory: 1024
+    io: 1000
+    
+  ipc:
+    allow:
+    - uri: "pipe://app-service"
+    - uri: "socket://unix:/tmp/app.sock"
+    deny:
+    - uri: "pipe://system-service" 

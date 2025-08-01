@@ -1,0 +1,40 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/semcp/policy-mcp/main/schema/v1.json
+
+version: "1.0"
+description: "Highly restricted policy for untrusted code"
+permissions:
+  storage:
+    allow:
+    - uri: "fs://sandbox/readonly/**"
+      access: ["read"]
+    - uri: "fs://sandbox/temp/**"
+      access: ["write"]
+    deny:
+    - uri: "fs://sandbox/temp/system/**"
+      access: ["read", "write"]
+      
+  network:
+    allow:
+    - host: "api.safe-service.com"
+    deny:
+    - host: "*"
+    - cidr: "0.0.0.0/0"
+      
+  environment:
+    allow:
+    - key: "PATH"
+    - key: "HOME"
+      
+  runtime:
+    docker:
+      security:
+        privileged: false
+        no_new_privileges: true
+        capabilities:
+          drop: ["ALL"]
+          add: []
+          
+  resources:
+    cpu: 10.0
+    memory: 128
+    io: 100 

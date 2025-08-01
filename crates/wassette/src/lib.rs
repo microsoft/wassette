@@ -9,7 +9,7 @@ use component2json::{
     component_exports_to_json_schema, create_placeholder_results, json_to_vals, vals_to_json,
 };
 use futures::TryStreamExt;
-use policy_mcp::PolicyParser;
+use policy::PolicyParser;
 use serde_json::Value;
 use tokio::fs::DirEntry;
 use tokio::io::AsyncWriteExt;

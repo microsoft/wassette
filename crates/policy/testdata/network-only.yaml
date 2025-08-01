@@ -1,0 +1,16 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/semcp/policy-mcp/main/schema/v1.json
+
+version: "1.0"
+description: "Network-only policy for API access"
+permissions:
+  network:
+    allow:
+    - host: "api.github.com"
+    - host: "*.googleapis.com"
+    - host: "registry.npmjs.org"
+    - cidr: "192.168.1.0/24"
+    - cidr: "10.0.0.0/8"
+    deny:
+    - host: "*.facebook.com"
+    - host: "*.doubleclick.net"
+    - cidr: "169.254.0.0/16" 

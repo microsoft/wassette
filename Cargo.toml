@@ -21,7 +21,7 @@ mcp-sdk = "0.0.3"
 mcp-server = { path = "crates/mcp-server" }
 oci-client = "0.15"
 oci-wasm = "0.3"
-policy-mcp = { git = "https://github.com/semcp/policy-mcp-rs", branch = "main" }
+policy = { path = "crates/policy" }
 reqwest = "0.12"
 rmcp = "0.2"
 serde = "1.0"
