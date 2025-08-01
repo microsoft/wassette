@@ -1,7 +1,8 @@
 <div align="center">
   <h1 align="center">Wassette</h1>
   <p>A security-oriented runtime that runs WebAssembly Components via MCP</p>
-  [![](https://dcbadge.limes.pink/api/server/microsoft-open-source)](https://discord.gg/microsoft-open-source)
+  
+  <!-- [![](https://dcbadge.limes.pink/api/server/microsoft-open-source)](https://discord.gg/microsoft-open-source) -->
 </div>
 
 Wassette extends AI agents by dynamically loading and configuring MCP tools using natural language prompts. It does this by pulling Wasm components from OCI registries or local files, and running them as MCP tools in isolated processes with precisely scoped permissions.
