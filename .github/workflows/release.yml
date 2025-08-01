@@ -27,11 +27,10 @@ jobs:
             name: wassette
             arch: linux_amd64
             runner: ubuntu-latest
-          # Temporarily disabled - aarch64 runners not available for private repos
-          # - target: aarch64-unknown-linux-gnu
-          #   name: wassette
-          #   arch: linux_arm64
-          #   runner: ubuntu-24.04-arm
+          - target: aarch64-unknown-linux-gnu
+            name: wassette
+            arch: linux_arm64
+            runner: ubuntu-24.04-arm
           # macOS targets
           - target: x86_64-apple-darwin
             name: wassette
@@ -46,11 +45,10 @@ jobs:
             name: wassette
             arch: windows_amd64
             runner: windows-latest
-          # Temporarily disabled - aarch64 runners not available for private repos
-          # - target: aarch64-pc-windows-msvc
-          #   name: wassette
-          #   arch: windows_arm64
-          #   runner: windows-11-arm
+          - target: aarch64-pc-windows-msvc
+            name: wassette
+            arch: windows_arm64
+            runner: windows-11-arm
 
     steps:
       - name: Checkout repository
