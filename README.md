@@ -11,70 +11,76 @@ Wassette extends AI agents by dynamically loading and configuring MCP tools usin
 
 To learn more about the architecture and design philosophy, see the [Architecture Design Document](docs/architecture-design.md).
 
-## Quick Start
+## Installation
 
-### Install
+For Linux and macOS, you can install Wassette using the provided install script:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/microsoft/wassette/main/install.sh | bash
 ```
 
-This will detect your platform and install the latest `wassette` binary to your `$PATH`.
+This will detect your platform and install the latest `wassette` binary to your `$PATH`. For Windows, you can download the latest release from the [GitHub Releases page](https://github.com/microsoft/wassette/releases).
 
-## Setup Your Agent
+## Using Wassette
 
-Wassette works with any MCP-compatible agent. The setup is always the same: **add `wassette serve --stdio` as an MCP server**.
-
-**👉 [Complete setup guide for all agents (Visual Studio Code, Cursor, Claude Code, Gemini CLI, etc.)](https://github.com/microsoft/wassette/blob/main/docs/mcp-clients.md)**
-
-**Example for Visual Studio Code:**
+With Wassette installed, the next step is to register it with your agent of
+choice. We have a complete [complete setup guide][setup guide] for all agents
+here, including Cursor, Claude Code, and Gemini CLI. However to get started with
+Visual Studio Code, just run the following command:
 
 ```bash
 code --add-mcp '{"name":"Wassette","command":"wassette","args":["serve","--stdio"]}'
 ```
 
-## Try It
+Now that your agent knows about Wassette, we are ready to load Wasm Components. To teach your agent to tell the time, we can ask it to load a time component:
 
-Enter the following prompts into your AI client's chat:
+```text
+Please load the time component from oci://ghcr.io/yoshuawuyts/time:latest
+```
 
-1. **Load the time server component:**
+Now that the time component is loaded, we can ask your agent to tell you the current time:
 
-   ```
-   Please load the time component from oci://ghcr.io/yoshuawuyts/time:latest
-   ```
+```text
+What is the current time?
+```
 
-   When prompted, confirm loading. This downloads the time server from the OCI registry and makes it available to Wassette.
+The agent will respond with the current time, which is fetched from the time component running in a secure WebAssembly sandbox:
 
-2. **Query the current time:**
+```output
+The current time July 31, 2025 at 10:30 AM UTC
+```
 
-   ```
-   What is the current time?
-   ```
+Congratulations! You've just run your first Wasm Component and taught your agent how to tell time!
 
-   This will prompt your MCP agent (e.g., GitHub Copilot in VS Code) to call Wassette, which uses the time component to return the current time.
+## Building for Wassette
 
-   ```output
-   The current time July 31, 2025 at 10:30 AM UTC
-   ```
+Wasm Components provide fully typed interfaces defined using WebAssembly
+Interface Types (WIT). Wassette can take any Wasm Component and load it as an
+MCP tool by inspecting the types it exposes. Take for example the following WIT
+definition for a time server:
 
-**Built-in Tools for Dynamic Loading:**
+```wit
+package local:time-server;
 
-- `load-component` - Load WebAssembly components from any source
-- `unload-component` - Remove components from the runtime
+world time-server {
+    export get-current-time: func() -> string;
+}
+```
 
-## Examples
+You'll notice that this interface doesn't mention MCP at all; it is just a
+regular library interface that exports a function. That means there is no such
+thing as a "Wassette-specific Wasm Component". Wassette is able to load any Wasm
+Component and expose its functions as MCP tools. Just like Components built for Wassette can be re-used by other Wasm runtimes.
+
+See the [`examples/`](./examples/) directory for a complete list of examples. Here is a
+selection of examples written in different languages:
 
 | Example                                    | Description                                            |
 | ------------------------------------------ | ------------------------------------------------------ |
-| [fetch-rs](examples/fetch-rs/)             | HTTP client for making web requests                    |
 | [filesystem-rs](examples/filesystem-rs/)   | File system operations (read, write, list directories) |
 | [eval-py](examples/eval-py/)               | Python code execution sandbox                          |
 | [get-weather-js](examples/get-weather-js/) | Weather API client for fetching weather data           |
-| [time-server-js](examples/time-server-js/) | Simple time server component                           |
 | [gomodule-go](examples/gomodule-go/)       | Go module information tool                             |
-| [eval-py](examples/eval-py/)               | Python code execution sandbox                          |
-
-See the `examples/` directory for more components you can build and load dynamically.
 
 ## Contributing
 
@@ -82,10 +88,10 @@ Please see [CONTRIBUTING.md](CONTRIBUTING.md) for more information on how to con
 
 ## License
 
-<sup>
-Licensed under the <a href="LICENSE">MIT License</a>.
-</sup>
+This project is icensed under the <a href="LICENSE">MIT License</a>.
 
 ## Trademarks
 
 This project may contain trademarks or logos for projects, products, or services. Authorized use of Microsoft trademarks or logos is subject to and must follow [Microsoft’s Trademark & Brand Guidelines](https://www.microsoft.com/en-us/legal/intellectualproperty/trademarks). Use of Microsoft trademarks or logos in modified versions of this project must not cause confusion or imply Microsoft sponsorship. Any use of third-party trademarks or logos are subject to those third-party’s policies.
+
+[setup guide]: https://github.com/microsoft/wassette/blob/main/docs/mcp-clients.md
