@@ -214,8 +214,7 @@ impl Permissions {
             bail!("Wildcard should be at start like *.domain.com in: {}", host);
         }
 
-        if host.starts_with("*.") {
-            let domain_part = &host[2..];
+        if let Some(domain_part) = host.strip_prefix("*.") {
             if domain_part.is_empty() || domain_part.ends_with('.') {
                 bail!("Domain part looks wrong in: {}", host);
             }

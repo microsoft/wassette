@@ -3,7 +3,7 @@
 //! Parser for MCP server policy files. Supports storage, network, environment
 //! and runtime permissions.
 
-use anyhow::{Context, Result, bail};
+use anyhow::{bail, Context, Result};
 use serde::{Deserialize, Serialize};
 
 pub mod parser;
