@@ -1,5 +1,3 @@
-# yaml-language-server: $schema=https://raw.githubusercontent.com/semcp/policy-mcp/main/schema/v1.json
-
 version: "1.0"
 description: "Comprehensive policy with all permission types"
 permissions:
