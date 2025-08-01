@@ -1,15 +1,23 @@
 <div align="center">
   <h1 align="center">Wassette</h1>
-  <p>A security-oriented runtime that runs WebAssembly Components via MCP</p>
+  <p><b>A security-oriented runtime that runs WebAssembly Components via MCP</b></p>
   
-  <!-- [![](https://dcbadge.limes.pink/api/server/microsoft-open-source)](https://discord.gg/microsoft-open-source) -->
+  <!-- <a href="https://discord.gg/microsoft-open-source">
+    <img src="https://dcbadge.limes.pink/api/server/microsoft-open-source" alt="Discord" style="height: 25px;">
+  </a> -->
+
+[Getting started][setup guide] | [Releases] | [Contributing] | [Discord]
+
 </div>
 
-Wassette extends AI agents by dynamically loading and configuring MCP tools using natural language prompts. It does this by pulling Wasm components from OCI registries or local files, and running them as MCP tools in isolated processes with precisely scoped permissions.
+## Why Wassette?
 
-> 🦺 This project is in early development and actively evolving. Expect rapid iteration, breaking changes, and responsiveness to feedback. Please submit issues or reach out with questions!
-
-To learn more about the architecture and design philosophy, see the [Architecture Design Document](docs/architecture-design.md).
+- **Convenience**: Wassette makes it easy to extend AI agents with new tools,
+  all without ever having to leave the chat window.
+- **Reusability**: Wasm Components built for Wassette are generic and reusable;
+  there is nothing MCP-specific about them.
+- **Security**: Wassette is built on the Wasmtime security sandbox, providing
+  browser-grade isolation of tools.
 
 ## Installation
 
@@ -19,7 +27,7 @@ For Linux and macOS, you can install Wassette using the provided install script:
 curl -fsSL https://raw.githubusercontent.com/microsoft/wassette/main/install.sh | bash
 ```
 
-This will detect your platform and install the latest `wassette` binary to your `$PATH`. For Windows, you can download the latest release from the [GitHub Releases page](https://github.com/microsoft/wassette/releases).
+This will detect your platform and install the latest `wassette` binary to your `$PATH`. For Windows, you can download the latest release from the [GitHub Releases page][Releases]
 
 ## Using Wassette
 
@@ -84,7 +92,7 @@ selection of examples written in different languages:
 
 ## Contributing
 
-Please see [CONTRIBUTING.md](CONTRIBUTING.md) for more information on how to contribute to this project.
+Please see [CONTRIBUTING.md][Contributing] for more information on how to contribute to this project.
 
 ## License
 
@@ -95,3 +103,6 @@ This project is icensed under the <a href="LICENSE">MIT License</a>.
 This project may contain trademarks or logos for projects, products, or services. Authorized use of Microsoft trademarks or logos is subject to and must follow [Microsoft’s Trademark & Brand Guidelines](https://www.microsoft.com/en-us/legal/intellectualproperty/trademarks). Use of Microsoft trademarks or logos in modified versions of this project must not cause confusion or imply Microsoft sponsorship. Any use of third-party trademarks or logos are subject to those third-party’s policies.
 
 [setup guide]: https://github.com/microsoft/wassette/blob/main/docs/mcp-clients.md
+[Contributing]: CONTRIBUTING.md
+[Releases]: https://github.com/microsoft/wassette/releases
+[Discord]: https://discord.gg/microsoft-open-source
