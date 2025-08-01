@@ -1,15 +1,10 @@
 <div align="center">
   <h1 align="center">Wassette</h1>
+  <p>A security-oriented runtime that runs WebAssembly Components via MCP</p>
+  [![](https://dcbadge.limes.pink/api/server/microsoft-open-source)](https://discord.gg/microsoft-open-source)
 </div>
 
-Instantly discover and run MCP tools using natural language—all within secure, isolated WebAssembly sandboxes. Wassette replaces risky native tool execution with a controlled, sandboxed environment, letting you define exactly what each tool can access—without the hassle of manually configuring every MCP tool.
-
-- 🔧 **Dynamic Loading**: Load WebAssembly components on-demand from OCI registries, URLs, or local files - no restart required.
-- 🔒 **Secure Sandboxes**: Each tool runs in isolated WebAssembly environments with capability-based policies controlling file/network access.
-- 🎯 **Runtime Introspection**: Automatically discover tool capabilities and exported functions without manual configuration.
-- 🧩 **Composable Tools**: Mix and match components from different sources in real-time - build workflows dynamically.
-- 🚀 **Developer-Friendly**: Write functions that compile to WASM components, not entire servers - focus on logic, not infrastructure.
-- ⚡ **Hot-Swap Tools**: Load, unload, and replace components without downtime - perfect for experimentation and development.
+Wassette extends AI agents by dynamically loading and configuring MCP tools using natural language prompts. It does this by pulling Wasm components from OCI registries or local files, and running them as MCP tools in isolated processes with precisely scoped permissions.
 
 > 🦺 This project is in early development and actively evolving. Expect rapid iteration, breaking changes, and responsiveness to feedback. Please submit issues or reach out with questions!
 
