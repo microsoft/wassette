@@ -362,6 +362,10 @@ impl Loadable for ComponentResource {
         )
         .await?;
         file.write_all(&data.layers[0].data).await?;
+
+        file.flush().await?;
+        file.sync_all().await?;
+        drop(file); // Ensure the file handle is closed
         Ok(downloaded_resource)
     }
 
@@ -390,6 +394,9 @@ impl Loadable for ComponentResource {
         tokio::io::copy(&mut reader, &mut file)
             .await
             .context("Failed to write downloaded component to temp file")?;
+        file.flush().await?;
+        file.sync_all().await?;
+        drop(file);
         Ok(downloaded_resource)
     }
 }
@@ -445,6 +452,10 @@ impl Loadable for PolicyResource {
 
         let policy_bytes = response.bytes().await?;
         tokio::io::copy(&mut policy_bytes.as_ref(), &mut temp_file).await?;
+
+        temp_file.flush().await?;
+        temp_file.sync_all().await?;
+        drop(temp_file);
 
         Ok(downloaded_resource)
     }
