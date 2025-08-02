@@ -246,16 +246,18 @@ add_path_to_file() {
 modified_files=()
 
 # Add to shell configuration files
+shell_configured=false
+
 # Check for bash
 if [[ -n "$BASH_VERSION" ]] || [[ "$SHELL" == */bash ]]; then
-    # Try .bashrc first (most common)
     if add_path_to_file "$HOME/.bashrc"; then
         modified_files+=("$HOME/.bashrc")
+        shell_configured=true
     fi
     
-    # Also try .bash_profile for login shells
     if add_path_to_file "$HOME/.bash_profile"; then
         modified_files+=("$HOME/.bash_profile")
+        shell_configured=true
     fi
 fi
 
@@ -263,12 +265,22 @@ fi
 if [[ -n "$ZSH_VERSION" ]] || [[ "$SHELL" == */zsh ]]; then
     if add_path_to_file "$HOME/.zshrc"; then
         modified_files+=("$HOME/.zshrc")
+        shell_configured=true
     fi
 fi
 
-# Add to .profile as fallback (POSIX compliant)
-if add_path_to_file "$HOME/.profile"; then
-    modified_files+=("$HOME/.profile")
+# Only add to .profile if no shell-specific config was added
+if [[ "$shell_configured" == "false" ]]; then
+    if add_path_to_file "$HOME/.profile"; then
+        modified_files+=("$HOME/.profile")
+        print_warning "Added PATH to .profile - you may need to start a new login session"
+        print_warning "or run 'source ~/.profile' to use $BINARY_NAME immediately"
+    else
+        print_warning "Unsupported shell detected: $SHELL"
+        print_warning "Please manually add '$INSTALL_DIR' to your PATH"
+        print_warning "For most shells, add this line to your shell's config file:"
+        print_warning "  export PATH=\"\$HOME/.local/bin:\$PATH\""
+    fi
 fi
 
 # Update current session's PATH
