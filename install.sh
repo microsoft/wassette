@@ -53,10 +53,10 @@ print_error() {
 }
 
 # Configuration
-BINARY_NAME="wassette"  # Change this to your binary name
-GITHUB_REPO="microsoft/wassette"  # GitHub repository (owner/repo)
-BASE_URL="https://api.github.com/repos/${GITHUB_REPO}/releases/latest"  # Base download URL
-INSTALL_DIR="$HOME/.local/bin"  # Installation directory
+BINARY_NAME="wassette"
+GITHUB_REPO="microsoft/wassette"
+BASE_URL="https://api.github.com/repos/${GITHUB_REPO}/releases/latest"
+INSTALL_DIR="$HOME/.local/bin"
 
 # OS and Architecture detection
 get_os() {
@@ -110,7 +110,6 @@ get_latest_release_info() {
         exit 1
     fi
     
-    # Extract tag name (version) - using sed instead of grep -P for macOS compatibility
     local tag_name
     tag_name=$(echo "$api_response" | sed -n 's/.*"tag_name": *"\([^"]*\)".*/\1/p' | head -1)
     
@@ -124,10 +123,8 @@ get_latest_release_info() {
     
     print_status "Latest version: $tag_name"
     
-    # Wassette binary naming: wassette_0.11.0_darwin_amd64.tar.gz (no 'v' prefix in filename)
     BINARY_ARCHIVE="${BINARY_NAME}_${version}_${PLATFORM}.tar.gz"
     
-    # Extract download URL for our platform - using sed instead of grep -P
     DOWNLOAD_URL=$(echo "$api_response" | sed -n 's/.*"browser_download_url": *"\([^"]*'"$BINARY_ARCHIVE"'[^"]*\)".*/\1/p' | head -1)
     
     if [[ -z "$DOWNLOAD_URL" ]]; then
@@ -147,7 +144,6 @@ download_and_extract() {
     # Create temporary directory
     local tmp_dir
     tmp_dir=$(mktemp -d)
-    print_status "Using temporary directory: $tmp_dir"
     
     # Download the binary archive
     local archive_path="$tmp_dir/$BINARY_ARCHIVE"
@@ -275,22 +271,6 @@ if add_path_to_file "$HOME/.profile"; then
     modified_files+=("$HOME/.profile")
 fi
 
-# Create a system-wide PATH file for immediate recognition
-print_status "Creating PATH configuration in /etc/environment (if writable)"
-if sudo -n true 2>/dev/null; then
-    # We have sudo access
-    if [[ -f /etc/environment ]]; then
-        if ! sudo grep -q "$HOME/.local/bin" /etc/environment 2>/dev/null; then
-            echo "PATH=\"$HOME/.local/bin:\$PATH\"" | sudo tee -a /etc/environment > /dev/null
-            print_status "Added PATH to /etc/environment"
-        fi
-    fi
-else
-    # Skip system-wide PATH configuration
-    print_warning "Skipping system-wide PATH configuration in /etc/environment"
-    print_warning "Consider manually adding '$HOME/.local/bin' to your PATH if needed"
-fi
-
 # Update current session's PATH
 export PATH="$HOME/.local/bin:$PATH"
 
@@ -316,16 +296,12 @@ print_status "Installation Summary:"
 echo "  Binary: $BINARY_NAME"
 echo "  Platform: $PLATFORM"
 echo "  Location: $INSTALL_DIR/$BINARY_NAME"
-echo "  Available in current session: Yes"
 
 if [[ ${#modified_files[@]} -gt 0 ]]; then
     echo "  Modified files:"
     for file in "${modified_files[@]}"; do
         echo "    - $file"
     done
-    echo ""
-    print_status "The binary will be available in new bash sessions automatically."
-    print_status "No need to source any files - just open a new terminal!"
 else
     echo ""
     print_warning "No shell configuration files were modified."
@@ -334,4 +310,5 @@ fi
 
 echo ""
 print_status "You can now run '$BINARY_NAME' from any new terminal window."
+print_status "For system-wide access, you can manually add '$HOME/.local/bin' to your system PATH if needed."
 echo ""
