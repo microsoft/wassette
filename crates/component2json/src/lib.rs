@@ -6,6 +6,34 @@ use wasmtime::component::types::{ComponentFunc, ComponentItem};
 use wasmtime::component::{Component, Type, Val};
 use wasmtime::Engine;
 
+/// Function identifier for tools, containing WIT package, WIT interface, and function names.
+#[derive(Debug, Clone, PartialEq)]
+pub struct FunctionIdentifier {
+    pub package_name: Option<String>,
+    pub interface_name: Option<String>,
+    pub function_name: String,
+}
+
+/// Metadata for a tool, including its identifier, normalized name, and JSON schema.
+#[derive(Debug, Clone)]
+pub struct ToolMetadata {
+    /// Identifier for the tool, including package and interface names
+    pub identifier: FunctionIdentifier,
+    /// Normalized tool name that complies with MCP specification. "^[a-zA-Z0-9_-]{1,128}$"
+    pub normalized_name: String,
+    /// JSON schema for the tool's function, including input and output types
+    pub schema: Value,
+}
+
+/// Error type for tool name validation
+#[derive(Debug, thiserror::Error)]
+pub enum ValidationError {
+    #[error("Invalid tool name: {0}")]
+    InvalidToolName(String),
+    #[error("Tool name too long: {0} characters (max 128)")]
+    ToolNameTooLong(usize),
+}
+
 #[derive(Error, Debug)]
 pub enum ValError {
     /// The JSON number could not be interpreted as either an integer or a float.
@@ -30,6 +58,89 @@ pub enum ValError {
     ResourceError,
 }
 
+/// Validates a tool name according to MCP specification
+pub fn validate_tool_name(tool_name: &str) -> Result<(), ValidationError> {
+    if tool_name.len() > 128 {
+        return Err(ValidationError::ToolNameTooLong(tool_name.len()));
+    }
+
+    if tool_name.is_empty() {
+        return Err(ValidationError::InvalidToolName(
+            "Tool name cannot be empty".to_string(),
+        ));
+    }
+
+    // Check if all characters are valid according to MCP specification: ^[a-zA-Z0-9_-]{1,128}$
+    for c in tool_name.chars() {
+        if !c.is_ascii_alphanumeric() && c != '_' && c != '-' {
+            return Err(ValidationError::InvalidToolName(format!(
+                "Invalid character '{c}' in tool name"
+            )));
+        }
+    }
+
+    Ok(())
+}
+
+/// Normalizes a tool name component by replacing invalid characters with underscores
+fn normalize_name_component(name: &str) -> String {
+    name.to_lowercase()
+        .chars()
+        .map(|c| match c {
+            ':' | '/' | '.' => '_',
+            c if c.is_ascii_alphanumeric() || c == '-' => c,
+            _ => '_',
+        })
+        .collect()
+}
+
+/// Generates a normalized tool name from a function identifier
+pub fn normalize_tool_name(identifier: &FunctionIdentifier) -> String {
+    let mut parts = Vec::new();
+
+    if let Some(pkg) = &identifier.package_name {
+        parts.push(normalize_name_component(pkg));
+    }
+
+    if let Some(iface) = &identifier.interface_name {
+        parts.push(normalize_name_component(iface));
+    }
+
+    parts.push(normalize_name_component(&identifier.function_name));
+
+    let normalized = parts.join("_");
+
+    // Validate the result
+    validate_tool_name(&normalized).expect("Internal error: generated tool name failed validation");
+
+    normalized
+}
+
+/// Given a component and a wasmtime engine, return structured tool metadata with normalized names.
+///
+/// The `output` parameter determines whether to include the output schema for functions.
+pub fn component_exports_to_tools(
+    component: &Component,
+    engine: &Engine,
+    output: bool,
+) -> Vec<ToolMetadata> {
+    let mut tools = Vec::new();
+
+    for (export_name, export_item) in component.component_type().exports(engine) {
+        gather_exported_functions_with_metadata(
+            export_name,
+            None,
+            None,
+            &export_item,
+            engine,
+            &mut tools,
+            output,
+        );
+    }
+
+    tools
+}
+
 /// Given a component and a wasmtime engine, return a full JSON schema of the component's exports.
 ///
 /// The `output` parameter determines whether to include the output schema for functions.
@@ -38,20 +149,8 @@ pub fn component_exports_to_json_schema(
     engine: &Engine,
     output: bool,
 ) -> Value {
-    let mut tools_array = Vec::new();
-
-    for (export_name, export_item) in component.component_type().exports(engine) {
-        gather_exported_functions(
-            export_name,
-            None,
-            &export_item,
-            engine,
-            &mut tools_array,
-            output,
-        );
-    }
-
-    json!({ "tools": tools_array })
+    let tools = component_exports_to_tools(component, engine, output);
+    json!({ "tools": tools.into_iter().map(|t| t.schema).collect::<Vec<_>>() })
 }
 
 /// Converts a slice of component model [`Val`] objects into a JSON representation.
@@ -292,29 +391,39 @@ fn component_func_to_schema(name: &str, func: &ComponentFunc, output: bool) -> s
     json!(tool_obj)
 }
 
-fn gather_exported_functions(
+fn gather_exported_functions_with_metadata(
     export_name: &str,
     previous_name: Option<String>,
+    package_name: Option<String>,
     item: &ComponentItem,
     engine: &Engine,
-    results: &mut Vec<Value>,
+    results: &mut Vec<ToolMetadata>,
     output: bool,
 ) {
     match item {
         ComponentItem::ComponentFunc(func) => {
-            let name = if let Some(prefix) = previous_name {
-                format!("{prefix}.{export_name}")
-            } else {
-                export_name.to_string()
+            let function_id = FunctionIdentifier {
+                package_name: package_name.clone(),
+                interface_name: previous_name,
+                function_name: export_name.to_string(),
             };
-            results.push(component_func_to_schema(&name, func, output));
+
+            let normalized_name = normalize_tool_name(&function_id);
+            let schema = component_func_to_schema(&normalized_name, func, output);
+
+            results.push(ToolMetadata {
+                identifier: function_id,
+                normalized_name,
+                schema,
+            });
         }
         ComponentItem::Component(sub_component) => {
             let previous_name = Some(export_name.to_string());
             for (export_name, export_item) in sub_component.exports(engine) {
-                gather_exported_functions(
+                gather_exported_functions_with_metadata(
                     export_name,
                     previous_name.clone(),
+                    package_name.clone(),
                     &export_item,
                     engine,
                     results,
@@ -325,9 +434,10 @@ fn gather_exported_functions(
         ComponentItem::ComponentInstance(instance) => {
             let previous_name = Some(export_name.to_string());
             for (export_name, export_item) in instance.exports(engine) {
-                gather_exported_functions(
+                gather_exported_functions_with_metadata(
                     export_name,
                     previous_name.clone(),
+                    package_name.clone(),
                     &export_item,
                     engine,
                     results,
@@ -872,7 +982,7 @@ mod tests {
         config.wasm_component_model(true);
         config.async_support(true);
         let engine = Engine::new(&config).unwrap();
-        let component = Component::from_file(&engine, "testdata/filesystem-rs.wasm").unwrap();
+        let component = Component::from_file(&engine, "testdata/filesystem.wasm").unwrap();
         let schema = component_exports_to_json_schema(&component, &engine, true);
 
         let tools = schema.get("tools").unwrap().as_array().unwrap();
@@ -886,9 +996,7 @@ mod tests {
         ];
 
         for (i, tool) in tools.iter().enumerate() {
-            let fully_qualified_name =
-                format!("{}.{}", "component:filesystem2/fs", expected_exports[i]);
-            assert_eq!(json!(tool.get("name").unwrap()), fully_qualified_name);
+            assert_eq!(json!(tool.get("name").unwrap()), expected_exports[i]);
 
             let input_schema = tool.get("inputSchema").unwrap();
             let properties = input_schema.get("properties").unwrap().as_object().unwrap();
@@ -951,7 +1059,7 @@ mod tests {
         assert_eq!(tools.len(), 1);
 
         let generate_tool = &tools[0];
-        assert_eq!(generate_tool.get("name").unwrap(), "foo:foo/foo.generate");
+        assert_eq!(generate_tool.get("name").unwrap(), "foo_foo_foo_generate");
 
         let input_schema = generate_tool.get("inputSchema").unwrap();
         let properties = input_schema.get("properties").unwrap().as_object().unwrap();
@@ -1157,7 +1265,7 @@ mod tests {
         }
 
         // Test foo namespace functions
-        let foo_a = find_tool(tools, "foo.a").unwrap();
+        let foo_a = find_tool(tools, "foo_a").unwrap();
         assert!(foo_a
             .get("inputSchema")
             .unwrap()
@@ -1166,7 +1274,7 @@ mod tests {
             .is_object());
         assert!(foo_a.get("outputSchema").is_none());
 
-        let foo_b = find_tool(tools, "foo.b").unwrap();
+        let foo_b = find_tool(tools, "foo_b").unwrap();
         {
             let input_props = foo_b
                 .get("inputSchema")
@@ -1239,7 +1347,7 @@ mod tests {
             );
         }
 
-        let foo_c = find_tool(tools, "foo.c").unwrap();
+        let foo_c = find_tool(tools, "foo_c").unwrap();
         {
             let input_props = foo_c
                 .get("inputSchema")
@@ -1538,5 +1646,204 @@ mod tests {
         let json_list = val_to_json(&original_list);
         let roundtrip_list = json_to_val(&json_list, &list_type).unwrap();
         assert_eq!(original_list, roundtrip_list);
+    }
+
+    #[test]
+    fn test_tool_name_validation() {
+        // Valid tool names
+        assert!(validate_tool_name("get-weather").is_ok());
+        assert!(validate_tool_name("local_time_server_time_get_current_time").is_ok());
+        assert!(validate_tool_name("wasi_http_types_request").is_ok());
+        assert!(validate_tool_name("a").is_ok());
+        assert!(validate_tool_name("A").is_ok());
+        assert!(validate_tool_name("123").is_ok());
+        assert!(validate_tool_name("test_123-abc").is_ok());
+
+        // Invalid tool names
+        assert!(validate_tool_name("").is_err());
+        assert!(validate_tool_name("local:time-server/time.get-current-time").is_err());
+        assert!(validate_tool_name("test.function").is_err());
+        assert!(validate_tool_name("test:function").is_err());
+        assert!(validate_tool_name("test/function").is_err());
+        assert!(validate_tool_name("test@function").is_err());
+        assert!(validate_tool_name("test function").is_err());
+
+        // Too long (over 128 characters)
+        let long_name = "a".repeat(129);
+        assert!(validate_tool_name(&long_name).is_err());
+
+        // Exactly 128 characters should be valid
+        let max_name = "a".repeat(128);
+        assert!(validate_tool_name(&max_name).is_ok());
+    }
+
+    #[test]
+    fn test_normalize_name_component() {
+        assert_eq!(normalize_name_component("get-weather"), "get-weather");
+        assert_eq!(
+            normalize_name_component("local:time-server"),
+            "local_time-server"
+        );
+        assert_eq!(normalize_name_component("wasi:http"), "wasi_http");
+        assert_eq!(
+            normalize_name_component("time.get-current-time"),
+            "time_get-current-time"
+        );
+        assert_eq!(normalize_name_component("example/path"), "example_path");
+        assert_eq!(normalize_name_component("UPPERCASE"), "uppercase");
+        assert_eq!(normalize_name_component("Mixed-CASE"), "mixed-case");
+        assert_eq!(
+            normalize_name_component("special@chars#here"),
+            "special_chars_here"
+        );
+    }
+
+    #[test]
+    fn test_normalize_tool_name() {
+        let test_cases = vec![
+            (
+                FunctionIdentifier {
+                    package_name: Some("local:time-server".to_string()),
+                    interface_name: Some("time".to_string()),
+                    function_name: "get-current-time".to_string(),
+                },
+                "local_time-server_time_get-current-time",
+            ),
+            (
+                FunctionIdentifier {
+                    package_name: None,
+                    interface_name: None,
+                    function_name: "get-weather".to_string(),
+                },
+                "get-weather",
+            ),
+            (
+                FunctionIdentifier {
+                    package_name: Some("wasi:http".to_string()),
+                    interface_name: Some("types".to_string()),
+                    function_name: "request".to_string(),
+                },
+                "wasi_http_types_request",
+            ),
+            (
+                FunctionIdentifier {
+                    package_name: Some("example:package".to_string()),
+                    interface_name: None,
+                    function_name: "function.name".to_string(),
+                },
+                "example_package_function_name",
+            ),
+            (
+                FunctionIdentifier {
+                    package_name: None,
+                    interface_name: Some("interface/name".to_string()),
+                    function_name: "func-name".to_string(),
+                },
+                "interface_name_func-name",
+            ),
+        ];
+
+        for (identifier, expected) in test_cases {
+            let normalized = normalize_tool_name(&identifier);
+            assert_eq!(normalized, expected);
+            assert!(validate_tool_name(&normalized).is_ok());
+        }
+    }
+
+    #[test]
+    fn test_function_identifier_equality() {
+        let id1 = FunctionIdentifier {
+            package_name: Some("test".to_string()),
+            interface_name: Some("interface".to_string()),
+            function_name: "function".to_string(),
+        };
+
+        let id2 = FunctionIdentifier {
+            package_name: Some("test".to_string()),
+            interface_name: Some("interface".to_string()),
+            function_name: "function".to_string(),
+        };
+
+        let id3 = FunctionIdentifier {
+            package_name: Some("test".to_string()),
+            interface_name: Some("interface".to_string()),
+            function_name: "different".to_string(),
+        };
+
+        assert_eq!(id1, id2);
+        assert_ne!(id1, id3);
+    }
+
+    #[test]
+    fn test_mcp_compliance() {
+        // Test names from the design document examples
+        let test_names = vec![
+            "local_time-server_time_get-current-time",
+            "get-weather",
+            "wasi_http_types_request",
+        ];
+
+        for tool_name in test_names {
+            assert!(
+                validate_tool_name(tool_name).is_ok(),
+                "Tool name '{}' should be MCP compliant",
+                tool_name
+            );
+        }
+    }
+
+    #[test]
+    fn test_simple_tool_name_normalization() -> Result<(), Box<dyn std::error::Error>> {
+        // Create a simple test component using WAT
+        let mut config = wasmtime::Config::new();
+        config.wasm_component_model(true);
+        let engine = wasmtime::Engine::new(&config)?;
+
+        // This is a minimal component with an interface-exported function
+        let wat = r#"(component
+            (type (component
+                (type (component
+                    (type (list u8))
+                    (type (tuple string 0))
+                    (type (list 1))
+                    (type (result 2 (error string)))
+                    (type (func (param "name" string) (param "wit" 0) (result 3)))
+                    (export "generate" (func (type 4)))
+                ))
+                (export "foo:foo/foo" (component (type 0)))
+            ))
+            (export "foo" (type 0))
+            (@custom "package-docs" "\00{}")
+            (@producers (processed-by "wit-component" "0.223.0"))
+        )"#;
+
+        let component = wasmtime::component::Component::new(&engine, wat)?;
+        let tool_metadata = component_exports_to_tools(&component, &engine, true);
+
+        // Should have exactly one tool
+        assert_eq!(tool_metadata.len(), 1);
+
+        let tool = &tool_metadata[0];
+
+        // The tool name should be normalized from "foo:foo/foo.generate" to "foo_foo_foo_generate"
+        assert_eq!(tool.normalized_name, "foo_foo_foo_generate");
+
+        // Verify it's MCP compliant
+        assert!(validate_tool_name(&tool.normalized_name).is_ok());
+
+        // The schema should have the normalized name
+        assert_eq!(
+            tool.schema["name"].as_str().unwrap(),
+            "foo_foo_foo_generate"
+        );
+
+        // The function identifier should preserve the original structure
+        assert_eq!(
+            tool.identifier.interface_name.as_deref(),
+            Some("foo:foo/foo")
+        );
+        assert_eq!(tool.identifier.function_name, "generate");
+
+        Ok(())
     }
 }

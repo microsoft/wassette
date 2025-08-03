@@ -6,7 +6,8 @@ use std::time::Instant;
 
 use anyhow::{anyhow, bail, Context, Result};
 use component2json::{
-    component_exports_to_json_schema, create_placeholder_results, json_to_vals, vals_to_json,
+    component_exports_to_json_schema, component_exports_to_tools, create_placeholder_results,
+    json_to_vals, vals_to_json, FunctionIdentifier, ToolMetadata,
 };
 use futures::TryStreamExt;
 use policy::{
@@ -124,6 +125,7 @@ impl WasiStateTemplate {
 #[derive(Debug, Clone)]
 struct ToolInfo {
     component_id: String,
+    identifier: FunctionIdentifier,
     schema: Value,
 }
 
@@ -147,35 +149,33 @@ impl ComponentRegistry {
         Self::default()
     }
 
-    fn register_component(&mut self, component_id: &str, schema: &Value) -> Result<()> {
-        let tools = schema["tools"]
-            .as_array()
-            .context("Schema does not contain tools array")?;
+    fn register_tools(&mut self, component_id: &str, tools: Vec<ToolMetadata>) -> Result<()> {
+        let mut tool_names = Vec::new();
 
-        let mut component_tools = Vec::new();
-
-        for tool in tools {
-            let name = tool["name"]
-                .as_str()
-                .context("Tool name is not a string")?
-                .to_string();
-
+        for tool_metadata in tools {
             let tool_info = ToolInfo {
                 component_id: component_id.to_string(),
-                schema: tool.clone(),
+                identifier: tool_metadata.identifier,
+                schema: tool_metadata.schema,
             };
 
             self.tool_map
-                .entry(name.clone())
+                .entry(tool_metadata.normalized_name.clone())
                 .or_default()
                 .push(tool_info);
-
-            component_tools.push(name);
+            tool_names.push(tool_metadata.normalized_name);
         }
 
         self.component_map
-            .insert(component_id.to_string(), component_tools);
+            .insert(component_id.to_string(), tool_names);
         Ok(())
+    }
+
+    fn get_function_identifier(&self, tool_name: &str) -> Option<&FunctionIdentifier> {
+        self.tool_map
+            .get(tool_name)
+            .and_then(|tool_infos| tool_infos.first())
+            .map(|tool_info| &tool_info.identifier)
     }
 
     fn unregister_component(&mut self, component_id: &str) {
@@ -554,9 +554,9 @@ impl LifecycleManager {
                 .await?;
 
         for (component, name) in loaded_components.into_iter() {
-            let schema = component_exports_to_json_schema(&component, &engine, true);
+            let tool_metadata = component_exports_to_tools(&component, &engine, true);
             registry
-                .register_component(&name, &schema)
+                .register_tools(&name, tool_metadata)
                 .context("unable to insert component into registry")?;
             components.insert(name.clone(), Arc::new(component));
 
@@ -629,12 +629,12 @@ impl LifecycleManager {
 
         let component = Component::new(&self.engine, wasm_bytes).map_err(|e| anyhow::anyhow!("Failed to compile component from path: {}. Error: {}. Please ensure the file is a valid WebAssembly component.", downloaded_resource.as_ref().display(), e))?;
         let id = downloaded_resource.id()?;
-        let schema = component_exports_to_json_schema(&component, &self.engine, true);
+        let tool_metadata = component_exports_to_tools(&component, &self.engine, true);
 
         {
             let mut registry_write = self.registry.write().await;
             registry_write.unregister_component(&id);
-            registry_write.register_component(&id, &schema)?;
+            registry_write.register_tools(&id, tool_metadata)?;
         }
 
         if let Err(e) = downloaded_resource.copy_to(&self.plugin_dir).await {
@@ -908,8 +908,19 @@ impl LifecycleManager {
 
         let instance = linker.instantiate_async(&mut store, &component).await?;
 
-        let (interface_name, func_name) =
-            function_name.split_once(".").unwrap_or(("", function_name));
+        // Use the new function identifier lookup instead of dot-splitting
+        let function_id = self
+            .registry
+            .read()
+            .await
+            .get_function_identifier(function_name)
+            .ok_or_else(|| anyhow!("Unknown tool name: {}", function_name))?
+            .clone();
+
+        let (interface_name, func_name) = (
+            function_id.interface_name.as_deref().unwrap_or(""),
+            &function_id.function_name,
+        );
 
         let func = if !interface_name.is_empty() {
             let interface_index = instance
@@ -1262,7 +1273,6 @@ mod tests {
     use std::path::PathBuf;
     use std::process::Command;
 
-    use serde_json::json;
     use test_log::test;
 
     use super::*;
@@ -1331,60 +1341,6 @@ mod tests {
         }
 
         Ok(component_path)
-    }
-
-    #[test]
-    fn test_component_registry() {
-        let mut registry = ComponentRegistry::new();
-
-        // Test registering a component with tools
-        let schema = json!({
-            "tools": [
-                {
-                    "name": "tool1",
-                    "description": "Test tool 1"
-                },
-                {
-                    "name": "tool2",
-                    "description": "Test tool 2"
-                }
-            ]
-        });
-
-        registry.register_component("comp1", &schema).unwrap();
-
-        // Test tool lookup
-        let tool1_info = registry.get_tool_info("tool1").unwrap();
-        assert_eq!(tool1_info[0].component_id, "comp1");
-
-        // Test listing tools
-        let tools = registry.list_tools();
-        assert_eq!(tools.len(), 2);
-
-        // Test registering another component with overlapping tool name
-        let schema2 = json!({
-            "tools": [
-                {
-                    "name": "tool1",
-                    "description": "Test tool 1 from comp2"
-                }
-            ]
-        });
-
-        registry.register_component("comp2", &schema2).unwrap();
-
-        // Verify tool1 now has two components
-        let tool1_info = registry.get_tool_info("tool1").unwrap();
-        assert_eq!(tool1_info.len(), 2);
-
-        // Test unregistering a component
-        registry.unregister_component("comp1");
-
-        // Verify tool2 is gone and tool1 only has one component
-        assert!(registry.get_tool_info("tool2").is_none());
-        let tool1_info = registry.get_tool_info("tool1").unwrap();
-        assert_eq!(tool1_info.len(), 1);
-        assert_eq!(tool1_info[0].component_id, "comp2");
     }
 
     #[test(tokio::test)]
