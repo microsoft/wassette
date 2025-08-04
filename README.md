@@ -85,10 +85,12 @@ selection of examples written in different languages:
 
 | Example                                    | Description                                            |
 | ------------------------------------------ | ------------------------------------------------------ |
-| [filesystem-rs](examples/filesystem-rs/)   | File system operations (read, write, list directories) |
 | [eval-py](examples/eval-py/)               | Python code execution sandbox                          |
+| [fetch-rs](examples/fetch-rs/)             | HTTP API client for fetching and converting web content |
+| [filesystem-rs](examples/filesystem-rs/)   | File system operations (read, write, list directories) |
 | [get-weather-js](examples/get-weather-js/) | Weather API client for fetching weather data           |
 | [gomodule-go](examples/gomodule-go/)       | Go module information tool                             |
+| [time-server-js](examples/time-server-js/) | JavaScript-based time server component                |
 
 ## Discord
 
