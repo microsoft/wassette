@@ -357,7 +357,7 @@ dependencies = [
  "num",
  "pin-project-lite",
  "rand 0.9.2",
- "rustls 0.23.30",
+ "rustls 0.23.31",
  "rustls-native-certs",
  "rustls-pemfile",
  "rustls-pki-types",
@@ -1527,7 +1527,7 @@ dependencies = [
  "http",
  "hyper",
  "hyper-util",
- "rustls 0.23.30",
+ "rustls 0.23.31",
  "rustls-pki-types",
  "tokio",
  "tokio-rustls 0.26.2",
@@ -3008,9 +3008,9 @@ dependencies = [
 
 [[package]]
 name = "rustls"
-version = "0.23.30"
+version = "0.23.31"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "069a8df149a16b1a12dcc31497c3396a173844be3cac4bd40c9e7671fef96671"
+checksum = "c0ebcbd2f03de0fc1122ad9bb24b127a5a6cd51d72604a3f3c50ac459762b6cc"
 dependencies = [
  "aws-lc-rs",
  "log",
@@ -3806,7 +3806,7 @@ version = "0.26.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8e727b36a1a0e8b74c376ac2211e40c2c8af09fb4013c60d910495810f008e9b"
 dependencies = [
- "rustls 0.23.30",
+ "rustls 0.23.31",
  "tokio",
 ]
 
@@ -4157,7 +4157,7 @@ dependencies = [
  "base64 0.22.1",
  "log",
  "once_cell",
- "rustls 0.23.30",
+ "rustls 0.23.31",
  "rustls-pki-types",
  "url",
  "webpki-roots 0.26.11",
@@ -4809,7 +4809,7 @@ dependencies = [
  "rcgen",
  "reqwest",
  "rmcp",
- "rustls 0.23.30",
+ "rustls 0.23.31",
  "serde_json",
  "temp-env",
  "tempfile",
