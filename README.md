@@ -90,13 +90,19 @@ selection of examples written in different languages:
 | [get-weather-js](examples/get-weather-js/) | Weather API client for fetching weather data           |
 | [gomodule-go](examples/gomodule-go/)       | Go module information tool                             |
 
+## Discord
+
+You can join us via the `#wassette` channel on the [Microsoft Open Source Discord](https://discord.gg/microsoft-open-source):
+
+[![Microsoft Open Source Discord](https://dcbadge.limes.pink/api/server/microsoft-open-source)](https://discord.gg/microsoft-open-source)
+
 ## Contributing
 
 Please see [CONTRIBUTING.md][Contributing] for more information on how to contribute to this project.
 
 ## License
 
-This project is icensed under the <a href="LICENSE">MIT License</a>.
+This project is licensed under the <a href="LICENSE">MIT License</a>.
 
 ## Trademarks
 
