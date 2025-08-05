@@ -1,3 +1,6 @@
+# Copyright (c) Microsoft Corporation.
+# Licensed under the MIT license.
+
 from typing import TypeVar, Generic, Union, Optional, Protocol, Tuple, List, Any, Self
 from types import TracebackType
 from enum import Flag, Enum, auto

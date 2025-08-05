@@ -1,3 +1,6 @@
+// Copyright (c) Microsoft Corporation.
+// Licensed under the MIT license.
+
 use std::env;
 use std::future::Future;
 use std::path::PathBuf;

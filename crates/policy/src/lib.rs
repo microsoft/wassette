@@ -1,3 +1,6 @@
+// Copyright (c) Microsoft Corporation.
+// Licensed under the MIT license.
+
 //! Capability Policy for Local MCP Servers
 //!
 //! Parser for MCP server policy files. Supports storage, network, environment

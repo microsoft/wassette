@@ -1,3 +1,6 @@
+# Copyright (c) Microsoft Corporation.
+# Licensed under the MIT license.
+
 # code is from https://github.com/bytecodealliance/componentize-py/blob/main/examples/sandbox/guest.py
 import wit_world
 from wit_world.types import Err

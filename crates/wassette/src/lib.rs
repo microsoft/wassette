@@ -1,3 +1,6 @@
+// Copyright (c) Microsoft Corporation.
+// Licensed under the MIT license.
+
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};

@@ -1,3 +1,6 @@
+// Copyright (c) Microsoft Corporation.
+// Licensed under the MIT license.
+
 use anyhow::{Context, Result};
 use tempfile::TempDir;
 use wassette::LifecycleManager;

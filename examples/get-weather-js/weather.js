@@ -1,3 +1,6 @@
+// Copyright (c) Microsoft Corporation.
+// Licensed under the MIT license.
+
 import { get } from "wasi:config/store@0.2.0-draft";
 
 export async function getWeather(city) {

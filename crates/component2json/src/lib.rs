@@ -1,3 +1,6 @@
+// Copyright (c) Microsoft Corporation.
+// Licensed under the MIT license.
+
 #![doc = include_str!("../README.md")]
 
 use serde_json::{json, Map, Value};

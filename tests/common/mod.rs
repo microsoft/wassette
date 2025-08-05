@@ -1,3 +1,6 @@
+// Copyright (c) Microsoft Corporation.
+// Licensed under the MIT license.
+
 use std::path::PathBuf;
 
 use anyhow::{Context, Result};

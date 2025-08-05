@@ -1,3 +1,6 @@
+// Copyright (c) Microsoft Corporation.
+// Licensed under the MIT license.
+
 use std::process::Stdio;
 use std::sync::Arc;
 use std::time::Duration;

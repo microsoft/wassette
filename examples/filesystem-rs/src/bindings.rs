@@ -1,3 +1,6 @@
+// Copyright (c) Microsoft Corporation.
+// Licensed under the MIT license.
+
 #[doc(hidden)]
 #[allow(non_snake_case)]
 pub unsafe fn _export_list_directory_cabi<T: Guest>(
