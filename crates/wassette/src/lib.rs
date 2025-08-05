@@ -588,6 +588,10 @@ async fn load_components_parallel(
     Ok(components)
 }
 
+impl LifecycleManager {
+    // Granular permission system methods
+}
+
 async fn load_component_from_entry(
     engine: Arc<Engine>,
     linker: &Linker<WassetteWasiState<WasiState>>,
@@ -969,6 +973,200 @@ permissions:
         assert_eq!(template.allowed_hosts.len(), 2);
         assert!(template.allowed_hosts.contains("api.example.com"));
         assert!(template.allowed_hosts.contains("cdn.example.com"));
+
+        Ok(())
+    }
+
+    // Revoke permission system tests
+
+    #[test(tokio::test)]
+    async fn test_revoke_permission_network() -> Result<()> {
+        let manager = create_test_manager().await?;
+        manager.load_test_component().await?;
+
+        // Grant network permission first
+        let details = serde_json::json!({"host": "api.example.com"});
+        manager
+            .grant_permission(TEST_COMPONENT_ID, "network", &details)
+            .await?;
+
+        // Verify permission was granted
+        let policy_path = manager.get_component_policy_path(TEST_COMPONENT_ID);
+        let policy_content = tokio::fs::read_to_string(&policy_path).await?;
+        assert!(policy_content.contains("api.example.com"));
+
+        // Revoke the network permission
+        manager
+            .revoke_permission(TEST_COMPONENT_ID, "network", &details)
+            .await?;
+
+        // Verify permission was revoked
+        let policy_content = tokio::fs::read_to_string(&policy_path).await?;
+        assert!(!policy_content.contains("api.example.com"));
+
+        Ok(())
+    }
+
+    #[test(tokio::test)]
+    async fn test_revoke_permission_storage() -> Result<()> {
+        let manager = create_test_manager().await?;
+        manager.load_test_component().await?;
+
+        // Grant storage permission first
+        let details = serde_json::json!({"uri": "fs:///tmp/test", "access": ["read", "write"]});
+        manager
+            .grant_permission(TEST_COMPONENT_ID, "storage", &details)
+            .await?;
+
+        // Verify permission was granted
+        let policy_path = manager.get_component_policy_path(TEST_COMPONENT_ID);
+        let policy_content = tokio::fs::read_to_string(&policy_path).await?;
+        assert!(policy_content.contains("fs:///tmp/test"));
+
+        // Revoke the storage permission
+        manager
+            .revoke_permission(TEST_COMPONENT_ID, "storage", &details)
+            .await?;
+
+        // Verify permission was revoked
+        let policy_content = tokio::fs::read_to_string(&policy_path).await?;
+        assert!(!policy_content.contains("fs:///tmp/test"));
+
+        Ok(())
+    }
+
+    #[test(tokio::test)]
+    async fn test_revoke_permission_environment() -> Result<()> {
+        let manager = create_test_manager().await?;
+        manager.load_test_component().await?;
+
+        // Grant environment permission first
+        let details = serde_json::json!({"key": "API_KEY"});
+        manager
+            .grant_permission(TEST_COMPONENT_ID, "environment", &details)
+            .await?;
+
+        // Verify permission was granted
+        let policy_path = manager.get_component_policy_path(TEST_COMPONENT_ID);
+        let policy_content = tokio::fs::read_to_string(&policy_path).await?;
+        assert!(policy_content.contains("API_KEY"));
+
+        // Revoke the environment permission
+        manager
+            .revoke_permission(TEST_COMPONENT_ID, "environment", &details)
+            .await?;
+
+        // Verify permission was revoked
+        let policy_content = tokio::fs::read_to_string(&policy_path).await?;
+        assert!(!policy_content.contains("API_KEY"));
+
+        Ok(())
+    }
+
+    #[test(tokio::test)]
+    async fn test_reset_permission() -> Result<()> {
+        let manager = create_test_manager().await?;
+        manager.load_test_component().await?;
+
+        // Grant multiple permissions first
+        let network_details = serde_json::json!({"host": "api.example.com"});
+        manager
+            .grant_permission(TEST_COMPONENT_ID, "network", &network_details)
+            .await?;
+
+        let storage_details = serde_json::json!({"uri": "fs:///tmp/test", "access": ["read"]});
+        manager
+            .grant_permission(TEST_COMPONENT_ID, "storage", &storage_details)
+            .await?;
+
+        let env_details = serde_json::json!({"key": "API_KEY"});
+        manager
+            .grant_permission(TEST_COMPONENT_ID, "environment", &env_details)
+            .await?;
+
+        // Verify permissions were granted
+        let policy_path = manager.get_component_policy_path(TEST_COMPONENT_ID);
+        assert!(policy_path.exists());
+
+        // Reset all permissions
+        manager.reset_permission(TEST_COMPONENT_ID).await?;
+
+        // Verify policy file was removed
+        assert!(!policy_path.exists());
+
+        // Verify metadata file was also removed
+        let metadata_path = manager.get_component_metadata_path(TEST_COMPONENT_ID);
+        assert!(!metadata_path.exists());
+
+        Ok(())
+    }
+
+    #[test(tokio::test)]
+    async fn test_revoke_permission_component_not_found() -> Result<()> {
+        let manager = create_test_manager().await?;
+
+        // Try to revoke permission from non-existent component
+        let details = serde_json::json!({"host": "api.example.com"});
+        let result = manager
+            .revoke_permission("non-existent", "network", &details)
+            .await;
+
+        assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("Component not found"));
+
+        Ok(())
+    }
+
+    #[test(tokio::test)]
+    async fn test_reset_permission_component_not_found() -> Result<()> {
+        let manager = create_test_manager().await?;
+
+        // Try to reset permissions for non-existent component
+        let result = manager.reset_permission("non-existent").await;
+
+        assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("Component not found"));
+
+        Ok(())
+    }
+
+    #[test(tokio::test)]
+    async fn test_grant_revoke_grant_cycle() -> Result<()> {
+        let manager = create_test_manager().await?;
+        manager.load_test_component().await?;
+
+        let details = serde_json::json!({"host": "api.example.com"});
+
+        // Grant permission
+        manager
+            .grant_permission(TEST_COMPONENT_ID, "network", &details)
+            .await?;
+
+        let policy_path = manager.get_component_policy_path(TEST_COMPONENT_ID);
+        let policy_content = tokio::fs::read_to_string(&policy_path).await?;
+        assert!(policy_content.contains("api.example.com"));
+
+        // Revoke permission
+        manager
+            .revoke_permission(TEST_COMPONENT_ID, "network", &details)
+            .await?;
+
+        let policy_content = tokio::fs::read_to_string(&policy_path).await?;
+        assert!(!policy_content.contains("api.example.com"));
+
+        // Grant permission again
+        manager
+            .grant_permission(TEST_COMPONENT_ID, "network", &details)
+            .await?;
+
+        let policy_content = tokio::fs::read_to_string(&policy_path).await?;
+        assert!(policy_content.contains("api.example.com"));
 
         Ok(())
     }
