@@ -27,7 +27,7 @@ For Linux and macOS, you can install Wassette using the provided install script:
 curl -fsSL https://raw.githubusercontent.com/microsoft/wassette/main/install.sh | bash
 ```
 
-This will detect your platform and install the latest `wassette` binary to your `$PATH`. 
+This will detect your platform and install the latest `wassette` binary to your `$PATH`.
 
 We also provide a [Homebrew formula for macOS and Linux](./docs/homebrew.md).
 
@@ -87,14 +87,14 @@ Component and expose its functions as MCP tools. Just like Components built for 
 See the [`examples/`](./examples/) directory for a complete list of examples. Here is a
 selection of examples written in different languages:
 
-| Example                                    | Description                                            |
-| ------------------------------------------ | ------------------------------------------------------ |
-| [eval-py](examples/eval-py/)               | Python code execution sandbox                          |
+| Example                                    | Description                                             |
+| ------------------------------------------ | ------------------------------------------------------- |
+| [eval-py](examples/eval-py/)               | Python code execution sandbox                           |
 | [fetch-rs](examples/fetch-rs/)             | HTTP API client for fetching and converting web content |
-| [filesystem-rs](examples/filesystem-rs/)   | File system operations (read, write, list directories) |
-| [get-weather-js](examples/get-weather-js/) | Weather API client for fetching weather data           |
-| [gomodule-go](examples/gomodule-go/)       | Go module information tool                             |
-| [time-server-js](examples/time-server-js/) | JavaScript-based time server component                |
+| [filesystem-rs](examples/filesystem-rs/)   | File system operations (read, write, list directories)  |
+| [get-weather-js](examples/get-weather-js/) | Weather API client for fetching weather data            |
+| [gomodule-go](examples/gomodule-go/)       | Go module information tool                              |
+| [time-server-js](examples/time-server-js/) | JavaScript-based time server component                  |
 
 ## Discord
 
