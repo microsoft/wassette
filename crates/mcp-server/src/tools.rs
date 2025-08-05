@@ -56,6 +56,18 @@ pub async fn handle_tools_call(
         "grant-environment-variable-permission" => {
             handle_grant_environment_variable_permission(&req, lifecycle_manager).await
         }
+        "revoke-storage-permission" => {
+            handle_revoke_storage_permission(&req, lifecycle_manager).await
+        }
+        "revoke-network-permission" => {
+            handle_revoke_network_permission(&req, lifecycle_manager).await
+        }
+        "revoke-environment-variable-permission" => {
+            handle_revoke_environment_variable_permission(&req, lifecycle_manager).await
+        }
+        "reset-permission" => {
+            handle_reset_permission(&req, lifecycle_manager).await
+        }
         _ => handle_component_call(&req, lifecycle_manager).await,
     };
 
@@ -246,6 +258,127 @@ fn get_builtin_tools() -> Vec<Tool> {
                       }
                     },
                     "required": ["component_id", "details"]
+                  }))
+                .unwrap_or_default(),
+            ),
+            annotations: None,
+        },
+        Tool {
+            name: Cow::Borrowed("revoke-storage-permission"),
+            description: Some(Cow::Borrowed(
+                "Revokes storage access permission from a component, removing its ability to read from and/or write to specific storage locations."
+            )),
+            input_schema: Arc::new(
+                serde_json::from_value(json!({
+                    "type": "object",
+                    "properties": {
+                      "component_id": {
+                        "type": "string",
+                        "description": "ID of the component to revoke storage permission from"
+                      },
+                      "details": {
+                        "type": "object",
+                        "properties": {
+                          "uri": { 
+                            "type": "string",
+                            "description": "URI of the storage resource to revoke access from. e.g. fs:///tmp/test"
+                          },
+                          "access": {
+                            "type": "array",
+                            "items": {
+                              "type": "string",
+                              "enum": ["read", "write"]
+                            },
+                            "description": "Access type for the storage resource, this must be an array of strings with values 'read' or 'write'"
+                          }
+                        },
+                        "required": ["uri", "access"],
+                        "additionalProperties": false
+                      }
+                    },
+                    "required": ["component_id", "details"]
+                  }))
+                .unwrap_or_default(),
+            ),
+            annotations: None,
+        },
+        Tool {
+            name: Cow::Borrowed("revoke-network-permission"),
+            description: Some(Cow::Borrowed(
+                "Revokes network access permission from a component, removing its ability to make network requests to specific hosts."
+            )),
+            input_schema: Arc::new(
+                serde_json::from_value(json!({
+                    "type": "object",
+                    "properties": {
+                      "component_id": {
+                        "type": "string",
+                        "description": "ID of the component to revoke network permission from"
+                      },
+                      "details": {
+                        "type": "object",
+                        "properties": {
+                          "host": { 
+                            "type": "string",
+                            "description": "Host to revoke network access from"
+                          }
+                        },
+                        "required": ["host"],
+                        "additionalProperties": false
+                      }
+                    },
+                    "required": ["component_id", "details"]
+                  }))
+                .unwrap_or_default(),
+            ),
+            annotations: None,
+        },
+        Tool {
+            name: Cow::Borrowed("revoke-environment-variable-permission"),
+            description: Some(Cow::Borrowed(
+                "Revokes environment variable access permission from a component, removing its ability to access specific environment variables."
+            )),
+            input_schema: Arc::new(
+                serde_json::from_value(json!({
+                    "type": "object",
+                    "properties": {
+                      "component_id": {
+                        "type": "string",
+                        "description": "ID of the component to revoke environment variable permission from"
+                      },
+                      "details": {
+                        "type": "object",
+                        "properties": {
+                          "key": { 
+                            "type": "string",
+                            "description": "Environment variable key to revoke access from"
+                          }
+                        },
+                        "required": ["key"],
+                        "additionalProperties": false
+                      }
+                    },
+                    "required": ["component_id", "details"]
+                  }))
+                .unwrap_or_default(),
+            ),
+            annotations: None,
+        },
+        Tool {
+            name: Cow::Borrowed("reset-permission"),
+            description: Some(Cow::Borrowed(
+                "Resets all permissions for a component, removing all granted permissions and returning it to the default state."
+            )),
+            input_schema: Arc::new(
+                serde_json::from_value(json!({
+                    "type": "object",
+                    "properties": {
+                      "component_id": {
+                        "type": "string",
+                        "description": "ID of the component to reset permissions for"
+                      }
+                    },
+                    "required": ["component_id"]
                   }))
                 .unwrap_or_default(),
             ),
@@ -447,6 +580,197 @@ async fn handle_grant_environment_variable_permission(
     }
 }
 
+#[instrument(skip(lifecycle_manager))]
+async fn handle_revoke_storage_permission(
+    req: &CallToolRequestParam,
+    lifecycle_manager: &LifecycleManager,
+) -> Result<CallToolResult> {
+    let args = extract_args_from_request(req)?;
+
+    let component_id = args
+        .get("component_id")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| anyhow::anyhow!("Missing required argument: 'component_id'"))?;
+
+    let details = args
+        .get("details")
+        .ok_or_else(|| anyhow::anyhow!("Missing required argument: 'details'"))?;
+
+    info!("Revoking storage permission from component {}", component_id);
+
+    let result = lifecycle_manager
+        .revoke_permission(component_id, "storage", details)
+        .await;
+
+    match result {
+        Ok(()) => {
+            let status_text = serde_json::to_string(&json!({
+                "status": "permission revoked",
+                "component_id": component_id,
+                "permission_type": "storage",
+                "details": details
+            }))?;
+
+            let contents = vec![Content::text(status_text)];
+
+            Ok(CallToolResult {
+                content: contents,
+                is_error: None,
+            })
+        }
+        Err(e) => {
+            error!("Failed to revoke storage permission: {}", e);
+            Err(anyhow::anyhow!(
+                "Failed to revoke storage permission from component {}: {}",
+                component_id,
+                e
+            ))
+        }
+    }
+}
+
+#[instrument(skip(lifecycle_manager))]
+async fn handle_revoke_network_permission(
+    req: &CallToolRequestParam,
+    lifecycle_manager: &LifecycleManager,
+) -> Result<CallToolResult> {
+    let args = extract_args_from_request(req)?;
+
+    let component_id = args
+        .get("component_id")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| anyhow::anyhow!("Missing required argument: 'component_id'"))?;
+
+    let details = args
+        .get("details")
+        .ok_or_else(|| anyhow::anyhow!("Missing required argument: 'details'"))?;
+
+    info!("Revoking network permission from component {}", component_id);
+
+    let result = lifecycle_manager
+        .revoke_permission(component_id, "network", details)
+        .await;
+
+    match result {
+        Ok(()) => {
+            let status_text = serde_json::to_string(&json!({
+                "status": "permission revoked",
+                "component_id": component_id,
+                "permission_type": "network",
+                "details": details
+            }))?;
+
+            let contents = vec![Content::text(status_text)];
+
+            Ok(CallToolResult {
+                content: contents,
+                is_error: None,
+            })
+        }
+        Err(e) => {
+            error!("Failed to revoke network permission: {}", e);
+            Err(anyhow::anyhow!(
+                "Failed to revoke network permission from component {}: {}",
+                component_id,
+                e
+            ))
+        }
+    }
+}
+
+#[instrument(skip(lifecycle_manager))]
+async fn handle_revoke_environment_variable_permission(
+    req: &CallToolRequestParam,
+    lifecycle_manager: &LifecycleManager,
+) -> Result<CallToolResult> {
+    let args = extract_args_from_request(req)?;
+
+    let component_id = args
+        .get("component_id")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| anyhow::anyhow!("Missing required argument: 'component_id'"))?;
+
+    let details = args
+        .get("details")
+        .ok_or_else(|| anyhow::anyhow!("Missing required argument: 'details'"))?;
+
+    info!(
+        "Revoking environment variable permission from component {}",
+        component_id
+    );
+
+    let result = lifecycle_manager
+        .revoke_permission(component_id, "environment", details)
+        .await;
+
+    match result {
+        Ok(()) => {
+            let status_text = serde_json::to_string(&json!({
+                "status": "permission revoked",
+                "component_id": component_id,
+                "permission_type": "environment",
+                "details": details
+            }))?;
+
+            let contents = vec![Content::text(status_text)];
+
+            Ok(CallToolResult {
+                content: contents,
+                is_error: None,
+            })
+        }
+        Err(e) => {
+            error!("Failed to revoke environment variable permission: {}", e);
+            Err(anyhow::anyhow!(
+                "Failed to revoke environment variable permission from component {}: {}",
+                component_id,
+                e
+            ))
+        }
+    }
+}
+
+#[instrument(skip(lifecycle_manager))]
+async fn handle_reset_permission(
+    req: &CallToolRequestParam,
+    lifecycle_manager: &LifecycleManager,
+) -> Result<CallToolResult> {
+    let args = extract_args_from_request(req)?;
+
+    let component_id = args
+        .get("component_id")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| anyhow::anyhow!("Missing required argument: 'component_id'"))?;
+
+    info!("Resetting all permissions for component {}", component_id);
+
+    let result = lifecycle_manager.reset_permission(component_id).await;
+
+    match result {
+        Ok(()) => {
+            let status_text = serde_json::to_string(&json!({
+                "status": "permissions reset",
+                "component_id": component_id
+            }))?;
+
+            let contents = vec![Content::text(status_text)];
+
+            Ok(CallToolResult {
+                content: contents,
+                is_error: None,
+            })
+        }
+        Err(e) => {
+            error!("Failed to reset permissions: {}", e);
+            Err(anyhow::anyhow!(
+                "Failed to reset permissions for component {}: {}",
+                component_id,
+                e
+            ))
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -454,7 +778,7 @@ mod tests {
     #[test]
     fn test_get_builtin_tools() {
         let tools = get_builtin_tools();
-        assert_eq!(tools.len(), 7);
+        assert_eq!(tools.len(), 11);
         assert!(tools.iter().any(|t| t.name == "load-component"));
         assert!(tools.iter().any(|t| t.name == "unload-component"));
         assert!(tools.iter().any(|t| t.name == "list-components"));
@@ -464,6 +788,12 @@ mod tests {
         assert!(tools
             .iter()
             .any(|t| t.name == "grant-environment-variable-permission"));
+        assert!(tools.iter().any(|t| t.name == "revoke-storage-permission"));
+        assert!(tools.iter().any(|t| t.name == "revoke-network-permission"));
+        assert!(tools
+            .iter()
+            .any(|t| t.name == "revoke-environment-variable-permission"));
+        assert!(tools.iter().any(|t| t.name == "reset-permission"));
     }
 
     #[tokio::test]
@@ -598,6 +928,177 @@ mod tests {
             .unwrap_err()
             .to_string()
             .contains("Missing required argument: 'details'"));
+
+        Ok(())
+    }
+
+    // Revoke permission system tests
+
+    #[tokio::test]
+    async fn test_revoke_permission_network() -> Result<()> {
+        let tempdir = tempfile::tempdir()?;
+        let lifecycle_manager = wassette::LifecycleManager::new(&tempdir).await?;
+
+        // Test the revoke-network-permission tool call
+        let mut args = serde_json::Map::new();
+        args.insert("component_id".to_string(), json!("test-component"));
+        args.insert("details".to_string(), json!({"host": "api.example.com"}));
+
+        let req = CallToolRequestParam {
+            name: "revoke-network-permission".into(),
+            arguments: Some(args),
+        };
+
+        // This should fail because the component doesn't exist, but it tests the flow
+        let result = handle_revoke_network_permission(&req, &lifecycle_manager).await;
+
+        // The result should be an error because the component doesn't exist
+        assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("Component not found"));
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_revoke_storage_permission_integration() -> Result<()> {
+        let tempdir = tempfile::tempdir()?;
+        let lifecycle_manager = wassette::LifecycleManager::new(&tempdir).await?;
+
+        // Test the revoke-storage-permission tool call
+        let mut args = serde_json::Map::new();
+        args.insert("component_id".to_string(), json!("test-component"));
+        args.insert(
+            "details".to_string(),
+            json!({"uri": "fs:///tmp/test", "access": ["read", "write"]}),
+        );
+
+        let req = CallToolRequestParam {
+            name: "revoke-storage-permission".into(),
+            arguments: Some(args),
+        };
+
+        // This should fail because the component doesn't exist, but it tests the flow
+        let result = handle_revoke_storage_permission(&req, &lifecycle_manager).await;
+
+        // The result should be an error because the component doesn't exist
+        assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("Component not found"));
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_revoke_environment_variable_permission_integration() -> Result<()> {
+        let tempdir = tempfile::tempdir()?;
+        let lifecycle_manager = wassette::LifecycleManager::new(&tempdir).await?;
+
+        // Test the revoke-environment-variable-permission tool call
+        let mut args = serde_json::Map::new();
+        args.insert("component_id".to_string(), json!("test-component"));
+        args.insert("details".to_string(), json!({"key": "API_KEY"}));
+
+        let req = CallToolRequestParam {
+            name: "revoke-environment-variable-permission".into(),
+            arguments: Some(args),
+        };
+
+        // This should fail because the component doesn't exist, but it tests the flow
+        let result = handle_revoke_environment_variable_permission(&req, &lifecycle_manager).await;
+
+        // The result should be an error because the component doesn't exist
+        assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("Component not found"));
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_reset_permission_integration() -> Result<()> {
+        let tempdir = tempfile::tempdir()?;
+        let lifecycle_manager = wassette::LifecycleManager::new(&tempdir).await?;
+
+        // Test the reset-permission tool call
+        let mut args = serde_json::Map::new();
+        args.insert("component_id".to_string(), json!("test-component"));
+
+        let req = CallToolRequestParam {
+            name: "reset-permission".into(),
+            arguments: Some(args),
+        };
+
+        // This should fail because the component doesn't exist, but it tests the flow
+        let result = handle_reset_permission(&req, &lifecycle_manager).await;
+
+        // The result should be an error because the component doesn't exist
+        assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("Component not found"));
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_revoke_permission_missing_arguments() -> Result<()> {
+        let tempdir = tempfile::tempdir()?;
+        let lifecycle_manager = wassette::LifecycleManager::new(&tempdir).await?;
+
+        // Test with missing component_id for revoke network permission
+        let mut args = serde_json::Map::new();
+        args.insert("details".to_string(), json!({"host": "api.example.com"}));
+
+        let req = CallToolRequestParam {
+            name: "revoke-network-permission".into(),
+            arguments: Some(args),
+        };
+
+        let result = handle_revoke_network_permission(&req, &lifecycle_manager).await;
+        assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("Missing required argument: 'component_id'"));
+
+        // Test with missing details for revoke network permission
+        let mut args = serde_json::Map::new();
+        args.insert("component_id".to_string(), json!("test-component"));
+
+        let req = CallToolRequestParam {
+            name: "revoke-network-permission".into(),
+            arguments: Some(args),
+        };
+
+        let result = handle_revoke_network_permission(&req, &lifecycle_manager).await;
+        assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("Missing required argument: 'details'"));
+
+        // Test with missing component_id for reset permission
+        let args = serde_json::Map::new();
+
+        let req = CallToolRequestParam {
+            name: "reset-permission".into(),
+            arguments: Some(args),
+        };
+
+        let result = handle_reset_permission(&req, &lifecycle_manager).await;
+        assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("Missing required argument: 'component_id'"));
 
         Ok(())
     }
