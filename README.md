@@ -21,17 +21,26 @@
 
 ## Installation
 
-For Linux and macOS, you can install Wassette using the provided install script:
+For Linux, use this Bash script to install Wassette:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/microsoft/wassette/main/install.sh | bash
 ```
 
-This will detect your platform and install the latest `wassette` binary to your `$PATH`.
+For macOS, use Homebrew to install Wassette:
 
-We also provide a [Homebrew formula for macOS and Linux](./docs/homebrew.md).
+```bash
+brew tap microsoft/wassette https://github.com/microsoft/wassette
+brew install wassette
+```
 
-For Windows, you can download the latest release from the [GitHub Releases page][Releases]
+See the [Homebrew guide](docs/homebrew.md) for more details.
+
+For Windows, use this PowerShell script to install Wassette:
+
+```powershell
+[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; iex (irm https://raw.githubusercontent.com/microsoft/wassette/install.ps1)
+```
 
 ## Using Wassette
 
