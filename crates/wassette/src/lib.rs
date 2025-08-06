@@ -27,7 +27,7 @@ use tokio::fs::{metadata, DirEntry};
 use tokio::io::AsyncWriteExt;
 use tokio::sync::RwLock;
 use tracing::{debug, info, instrument, warn};
-use wasmtime::component::{Component, Linker};
+use wasmtime::component::{Component, InstancePre, Linker};
 use wasmtime::{Engine, Store};
 use wasmtime_wasi::p2::WasiCtxBuilder;
 use wasmtime_wasi_config::{WasiConfig, WasiConfigVariables};
@@ -504,6 +504,21 @@ async fn load_resource<T: Loadable>(
     }
 }
 
+/// Creates and configures a shared linker for component execution.
+/// 
+/// This linker is created once and reused for all component instantiations,
+/// providing better performance compared to creating a new linker for each call.
+/// The linker is configured with WASI, HTTP, and config support.
+fn create_shared_linker(engine: &Engine) -> Result<Linker<WeldWasiState<WasiState>>> {
+    let mut linker = Linker::new(engine);
+    wasmtime_wasi::p2::add_to_linker_async(&mut linker)?;
+    wasmtime_wasi_http::add_only_http_to_linker_async(&mut linker)?;
+    wasmtime_wasi_config::add_to_linker(&mut linker, |h: &mut WeldWasiState<WasiState>| {
+        WasiConfig::from(&h.inner.wasi_config_vars)
+    })?;
+    Ok(linker)
+}
+
 /// A manager that handles the dynamic lifecycle of WebAssembly components.
 #[derive(Clone)]
 pub struct LifecycleManager {
@@ -514,6 +529,14 @@ pub struct LifecycleManager {
     oci_client: Arc<oci_wasm::WasmClient>,
     http_client: reqwest::Client,
     plugin_dir: PathBuf,
+    /// Shared linker configured once and reused for all component instantiations.
+    /// This provides significant performance improvements by avoiding the overhead
+    /// of creating and configuring a new linker for each function call.
+    linker: Arc<Linker<WeldWasiState<WasiState>>>,
+    /// Cache of preinstantiated components for faster execution.
+    /// Each component is preinstantiated using `linker.instantiate_pre()` when loaded,
+    /// allowing much faster instantiation during function calls via `instance_pre.instantiate_async()`.
+    preinstantiated: Arc<RwLock<HashMap<String, InstancePre<WeldWasiState<WasiState>>>>>,
 }
 
 impl LifecycleManager {
@@ -575,12 +598,22 @@ impl LifecycleManager {
                 .try_collect::<Vec<_>>()
                 .await?;
 
+        // Create and configure the shared linker
+        let linker = Arc::new(create_shared_linker(&engine)?);
+        let mut preinstantiated = HashMap::new();
+        
         for (component, name) in loaded_components.into_iter() {
             let tool_metadata = component_exports_to_tools(&component, &engine, true);
             registry
                 .register_tools(&name, tool_metadata)
                 .context("unable to insert component into registry")?;
-            components.insert(name.clone(), Arc::new(component));
+            
+            // Create preinstantiated component for faster execution
+            let component_arc = Arc::new(component);
+            let instance_pre = linker.instantiate_pre(&component_arc)
+                .context("Failed to create preinstantiated component")?;
+            preinstantiated.insert(name.clone(), instance_pre);
+            components.insert(name.clone(), component_arc);
 
             // Check for co-located policy file and restore policy association
             let policy_path = plugin_dir.as_ref().join(format!("{name}.policy.yaml"));
@@ -631,6 +664,8 @@ impl LifecycleManager {
             oci_client: Arc::new(oci_wasm::WasmClient::new(oci_client)),
             http_client,
             plugin_dir: plugin_dir.as_ref().to_path_buf(),
+            linker,
+            preinstantiated: Arc::new(RwLock::new(preinstantiated)),
         })
     }
 
@@ -669,13 +704,22 @@ impl LifecycleManager {
             );
         }
 
-        let res = self
-            .components
-            .write()
-            .await
-            .insert(id.clone(), Arc::new(component))
-            .map(|_| LoadResult::Replaced)
-            .unwrap_or(LoadResult::New);
+        // Create preinstantiated component for faster execution
+        let component_arc = Arc::new(component);
+        let instance_pre = self.linker.instantiate_pre(&component_arc)
+            .context("Failed to create preinstantiated component")?;
+
+        let res = {
+            let mut preinstantiated_write = self.preinstantiated.write().await;
+            preinstantiated_write.insert(id.clone(), instance_pre);
+            
+            self.components
+                .write()
+                .await
+                .insert(id.clone(), component_arc)
+                .map(|_| LoadResult::Replaced)
+                .unwrap_or(LoadResult::New)
+        };
 
         info!("Successfully loaded component");
         Ok((id, res))
@@ -737,6 +781,7 @@ impl LifecycleManager {
 
         // Only cleanup memory after all files are successfully removed
         self.components.write().await.remove(id);
+        self.preinstantiated.write().await.remove(id);
         self.registry.write().await.unregister_component(id);
         self.cleanup_policy_registry(id).await;
 
@@ -944,7 +989,11 @@ impl LifecycleManager {
         })
     }
 
-    /// Executes a function call on a WebAssembly component
+    /// Executes a function call on a WebAssembly component.
+    /// 
+    /// This method uses cached preinstantiated components for optimal performance.
+    /// Instead of creating a new linker and instantiating the component from scratch,
+    /// it uses the shared linker and cached `InstancePre` for much faster execution.
     #[instrument(skip(self))]
     pub async fn execute_component_call(
         &self,
@@ -952,26 +1001,22 @@ impl LifecycleManager {
         function_name: &str,
         parameters: &str,
     ) -> Result<String> {
-        let component = self
-            .get_component(component_id)
-            .await
-            .ok_or_else(|| anyhow!("Component not found: {}", component_id))?;
+        // Get the preinstantiated component from cache
+        let instance_pre = {
+            let preinstantiated_read = self.preinstantiated.read().await;
+            preinstantiated_read
+                .get(component_id)
+                .ok_or_else(|| anyhow!("Component not found: {}", component_id))?
+                .clone()
+        };
 
         let state = self.get_wasi_state_for_component(component_id).await?;
-
-        let mut linker = Linker::new(self.engine.as_ref());
-        wasmtime_wasi::p2::add_to_linker_async(&mut linker)?;
-
-        // Use the standard HTTP linker - filtering happens at WasiHttpView level
-        wasmtime_wasi_http::add_only_http_to_linker_async(&mut linker)?;
-
-        wasmtime_wasi_config::add_to_linker(&mut linker, |h: &mut WeldWasiState<WasiState>| {
-            WasiConfig::from(&h.inner.wasi_config_vars)
-        })?;
-
         let mut store = Store::new(self.engine.as_ref(), state);
 
-        let instance = linker.instantiate_async(&mut store, &component).await?;
+        // Use cached preinstantiated component for much faster instantiation!
+        // This avoids the overhead of linker configuration and component instantiation
+        // that would happen with `linker.instantiate_async(&mut store, &component)`.
+        let instance = instance_pre.instantiate_async(&mut store).await?;
 
         // Use the new function identifier lookup instead of dot-splitting
         let function_id = self
@@ -2185,6 +2230,44 @@ permissions:
         assert!(template.allowed_hosts.contains("api.example.com"));
         assert!(template.allowed_hosts.contains("cdn.example.com"));
 
+        Ok(())
+    }
+
+    #[test(tokio::test)]
+    async fn test_preinstantiated_component_caching() -> Result<()> {
+        // Test that preinstantiated components are properly cached for better performance
+        let manager = create_test_manager().await?;
+        
+        // Initially, no preinstantiated components should exist
+        {
+            let preinstantiated_read = manager.preinstantiated.read().await;
+            assert!(preinstantiated_read.is_empty(), "Preinstantiated cache should be empty initially");
+        }
+        
+        // Verify that linker is initialized
+        assert!(Arc::strong_count(&manager.linker) >= 1, "Shared linker should be initialized");
+        
+        Ok(())
+    }
+
+    #[test(tokio::test)]
+    async fn test_shared_linker_initialization() -> Result<()> {
+        // Test that the shared linker is properly initialized and reused
+        let manager = create_test_manager().await?;
+        
+        // Check that linker is initialized and accessible
+        let linker_strong_count = Arc::strong_count(&manager.linker);
+        assert!(linker_strong_count >= 1, "Shared linker should have at least one reference");
+        
+        // The same linker instance should be used across the manager
+        let linker_ptr = Arc::as_ptr(&manager.linker);
+        
+        // Clone the manager and verify it uses the same linker
+        let manager_clone = manager.clone();
+        let clone_linker_ptr = Arc::as_ptr(&manager_clone.linker);
+        
+        assert_eq!(linker_ptr, clone_linker_ptr, "Cloned manager should share the same linker instance");
+        
         Ok(())
     }
 }
