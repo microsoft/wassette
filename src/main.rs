@@ -59,10 +59,10 @@ struct Serve {
     #[serde(skip)]
     stdio: bool,
 
-    /// Enable HTTP transport (SSE)
+    /// Enable SSE transport
     #[arg(long)]
     #[serde(skip)]
-    http: bool,
+    sse: bool,
 
     /// Enable streamable HTTP transport  
     #[arg(long)]
@@ -186,14 +186,14 @@ async fn main() -> Result<()> {
     match &cli.command {
         Commands::Serve(cfg) => {
             // Initialize logging based on transport type
-            let (use_stdio_transport, use_streamable_http) = match (cfg.stdio, cfg.http, cfg.streamable_http) {
+            let (use_stdio_transport, use_streamable_http) = match (cfg.stdio, cfg.sse, cfg.streamable_http) {
                 (false, false, false) => (true, false),  // Default case: use stdio transport
                 (true, false, false) => (true, false),   // Stdio transport only
-                (false, true, false) => (false, false),  // SSE HTTP transport only
+                (false, true, false) => (false, false),  // SSE transport only
                 (false, false, true) => (false, true),   // Streamable HTTP transport only
                 _ => {
                     return Err(anyhow::anyhow!(
-                        "Running multiple transports simultaneously is not supported. Please choose one of: --stdio, --http, or --streamable-http."
+                        "Running multiple transports simultaneously is not supported. Please choose one of: --stdio, --sse, or --streamable-http."
                     ));
                 }
             };

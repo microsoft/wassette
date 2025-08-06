@@ -181,7 +181,7 @@ jobs:
             ## Usage
             ```bash
             # Start the MCP server
-            wassette serve --http --policy-file policy.yaml
+            wassette serve --sse --policy-file policy.yaml
             ```
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
