@@ -32,6 +32,9 @@ component2json path="examples/fetch-rs/target/wasm32-wasip2/release/fetch_rs.was
 run RUST_LOG='info':
     RUST_LOG={{RUST_LOG}} cargo run --bin wassette serve --http
 
+run-streamable RUST_LOG='info':
+    RUST_LOG={{RUST_LOG}} cargo run --bin wassette serve --streamable-http
+
 run-filesystem RUST_LOG='info':
     RUST_LOG={{RUST_LOG}} cargo run --bin wassette serve --http --plugin-dir ./examples/filesystem-rs
 
