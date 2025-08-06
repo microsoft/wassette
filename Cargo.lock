@@ -4917,6 +4917,7 @@ name = "wassette-mcp-server"
 version = "0.2.0"
 dependencies = [
  "anyhow",
+ "axum",
  "built",
  "bytes",
  "clap",
