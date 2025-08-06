@@ -804,7 +804,7 @@ async fn test_http_transport() -> Result<()> {
 
     // Start the server with HTTP transport
     let mut child = tokio::process::Command::new(&binary_path)
-        .args(["serve", "--http", &plugin_dir_arg])
+        .args(["serve", "--sse", &plugin_dir_arg])
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
