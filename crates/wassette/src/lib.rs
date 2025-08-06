@@ -543,7 +543,7 @@ impl LifecycleManager {
         let mut components = HashMap::new();
         let mut policy_registry = PolicyRegistry::default();
 
-        // Scan for component files 
+        // Scan for component files
         let scanned_components =
             tokio_stream::wrappers::ReadDirStream::new(tokio::fs::read_dir(&plugin_dir).await?)
                 .map_err(anyhow::Error::from)
@@ -551,7 +551,10 @@ impl LifecycleManager {
                 .try_collect::<Vec<_>>()
                 .await?;
 
-        info!("Found {} components to load in parallel", scanned_components.len());
+        info!(
+            "Found {} components to load in parallel",
+            scanned_components.len()
+        );
 
         // Load all components in parallel for faster startup with parallelization
         let component_loading_tasks = scanned_components
@@ -561,7 +564,7 @@ impl LifecycleManager {
                 let plugin_dir = plugin_dir.as_ref().to_path_buf();
                 async move {
                     let start_time = Instant::now();
-                    
+
                     // Load and compile the component in a blocking task
                     let component = {
                         let engine = engine.clone();
@@ -609,22 +612,39 @@ impl LifecycleManager {
                     };
 
                     info!(component_id = %component_id, elapsed = ?start_time.elapsed(), "Component loaded successfully");
-                    
+
                     Ok::<_, anyhow::Error>((component_id, Arc::new(component), tool_metadata, policy_template))
                 }
             });
 
-        // Await all component loading tasks in parallel
-        let loaded_components = future::try_join_all(component_loading_tasks).await?;
+        // Await all component loading tasks in parallel, filtering out failed components
+        let component_results = future::join_all(component_loading_tasks).await;
+        let loaded_components: Vec<_> = component_results
+            .into_iter()
+            .filter_map(|result| match result {
+                Ok((component_id, component, tool_metadata, policy_template)) => {
+                    Some((component_id, component, tool_metadata, policy_template))
+                }
+                Err(e) => {
+                    warn!(error = %e, "Failed to load component, skipping");
+                    None
+                }
+            })
+            .collect();
 
         // Now register all loaded components
         for (component_id, component, tool_metadata, policy_template) in loaded_components {
-            registry.register_tools(&component_id, tool_metadata)
-                .with_context(|| format!("unable to register tools for component {}", component_id))?;
+            registry
+                .register_tools(&component_id, tool_metadata)
+                .with_context(|| {
+                    format!("unable to register tools for component {component_id}")
+                })?;
             components.insert(component_id.clone(), component);
-            
+
             if let Some(policy_template) = policy_template {
-                policy_registry.component_policies.insert(component_id, policy_template);
+                policy_registry
+                    .component_policies
+                    .insert(component_id, policy_template);
             }
         }
 
@@ -636,7 +656,10 @@ impl LifecycleManager {
             .await
             .context("Failed to create downloads directory")?;
 
-        info!("LifecycleManager initialized successfully with {} components loaded in parallel", components.len());
+        info!(
+            "LifecycleManager initialized successfully with {} components loaded in parallel",
+            components.len()
+        );
         Ok(Self {
             engine,
             components: Arc::new(RwLock::new(components)),
@@ -647,7 +670,6 @@ impl LifecycleManager {
             plugin_dir: plugin_dir.as_ref().to_path_buf(),
         })
     }
-
 
     /// Loads a new component from the given URI. This URI can be a file path, an OCI reference, or a URL.
     ///
@@ -712,7 +734,7 @@ impl LifecycleManager {
     pub async fn uninstall_component(&self, id: &str) -> Result<()> {
         debug!("Uninstalling component");
         self.unload_component(id).await;
-        
+
         let component_file = self.component_path(id);
         tokio::fs::remove_file(&component_file)
             .await
@@ -1404,56 +1426,70 @@ mod tests {
     #[test(tokio::test)]
     async fn test_parallel_loading_performance() -> Result<()> {
         let tempdir = tempfile::tempdir()?;
-        
+
         // Create a mock WASM component file in the directory
         let component_path = tempdir.path().join("test_component.wasm");
         std::fs::write(&component_path, b"mock wasm bytes")?;
-        
+
         let start_time = std::time::Instant::now();
-        
+
         // Create a new LifecycleManager - this should load all components in parallel
         let manager = LifecycleManager::new(&tempdir).await?;
-        
+
         let initialization_time = start_time.elapsed();
-        
+
         // With parallel loading, initialization will take longer than lazy loading
         // but should still be reasonable for a single mock component
-        println!("✅ Parallel loading initialization completed in {:?}", initialization_time);
-        
+        println!(
+            "✅ Parallel loading initialization completed in {:?}",
+            initialization_time
+        );
+
         // Components should be loaded and available immediately
         let components = manager.list_components().await;
         // Note: This will be 0 because our mock WASM file is invalid and compilation will fail
         // But the parallel loading path is still exercised
-        assert_eq!(components.len(), 0, "Invalid WASM components should not be loaded");
-        
+        assert_eq!(
+            components.len(),
+            0,
+            "Invalid WASM components should not be loaded"
+        );
+
         // Tools should be available immediately (but empty due to failed compilation)
         let tools = manager.list_tools().await;
         assert_eq!(tools.len(), 0);
-        
+
         Ok(())
     }
 
     #[test(tokio::test)]
     async fn test_parallel_loading_component_access() -> Result<()> {
         let tempdir = tempfile::tempdir()?;
-        
+
         // Create a mock WASM component file
         let component_path = tempdir.path().join("test_component.wasm");
         std::fs::write(&component_path, b"mock wasm bytes")?;
-        
+
         let manager = LifecycleManager::new(&tempdir).await?;
-        
+
         // With parallel loading, components are processed at startup
         // but invalid components are filtered out
         let components = manager.list_components().await;
-        assert_eq!(components.len(), 0, "Invalid WASM components should not be loaded");
-        
+        assert_eq!(
+            components.len(),
+            0,
+            "Invalid WASM components should not be loaded"
+        );
+
         // Try to get the component - this should return None since compilation failed
         let component_result = manager.get_component("test_component").await;
-        assert!(component_result.is_none(), "Expected None due to invalid WASM");
-        
+        assert!(
+            component_result.is_none(),
+            "Expected None due to invalid WASM"
+        );
+
         println!("✅ Parallel loading correctly filters out invalid components");
-        
+
         Ok(())
     }
 
