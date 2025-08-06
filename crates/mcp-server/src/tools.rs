@@ -65,9 +65,7 @@ pub async fn handle_tools_call(
         "revoke-environment-variable-permission" => {
             handle_revoke_environment_variable_permission(&req, lifecycle_manager).await
         }
-        "reset-permission" => {
-            handle_reset_permission(&req, lifecycle_manager).await
-        }
+        "reset-permission" => handle_reset_permission(&req, lifecycle_manager).await,
         _ => handle_component_call(&req, lifecycle_manager).await,
     };
 
@@ -596,7 +594,10 @@ async fn handle_revoke_storage_permission(
         .get("details")
         .ok_or_else(|| anyhow::anyhow!("Missing required argument: 'details'"))?;
 
-    info!("Revoking storage permission from component {}", component_id);
+    info!(
+        "Revoking storage permission from component {}",
+        component_id
+    );
 
     let result = lifecycle_manager
         .revoke_permission(component_id, "storage", details)
@@ -645,7 +646,10 @@ async fn handle_revoke_network_permission(
         .get("details")
         .ok_or_else(|| anyhow::anyhow!("Missing required argument: 'details'"))?;
 
-    info!("Revoking network permission from component {}", component_id);
+    info!(
+        "Revoking network permission from component {}",
+        component_id
+    );
 
     let result = lifecycle_manager
         .revoke_permission(component_id, "network", details)
