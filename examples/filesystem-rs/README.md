@@ -10,7 +10,7 @@ To use this component, load it from the OCI registry and provide a file path to 
 
 **Load the component:**
 ```
-Please load the component from oci://ghcr.io/microsoft/filesystem-rs:latest
+Please load the component from oci://ghcr.io/microsoft/filesystem:latest
 ```
 
 **Get file content:**
