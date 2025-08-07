@@ -21,17 +21,26 @@
 
 ## Installation
 
-For Linux and macOS, you can install Wassette using the provided install script:
+For Linux, use this Bash script to install Wassette:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/microsoft/wassette/main/install.sh | bash
 ```
 
-This will detect your platform and install the latest `wassette` binary to your `$PATH`. 
+For macOS, use Homebrew to install Wassette:
 
-We also provide a [Homebrew formula for macOS and Linux](./docs/homebrew.md).
+```bash
+brew tap microsoft/wassette https://github.com/microsoft/wassette
+brew install wassette
+```
 
-For Windows, you can download the latest release from the [GitHub Releases page][Releases]
+See the [Homebrew guide](docs/homebrew.md) for more details.
+
+For Windows, use this PowerShell script to install Wassette:
+
+```powershell
+[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; iex (irm https://raw.githubusercontent.com/microsoft/wassette/main/install.ps1)
+```
 
 ## Using Wassette
 
@@ -87,14 +96,14 @@ Component and expose its functions as MCP tools. Just like Components built for 
 See the [`examples/`](./examples/) directory for a complete list of examples. Here is a
 selection of examples written in different languages:
 
-| Example                                    | Description                                            |
-| ------------------------------------------ | ------------------------------------------------------ |
-| [eval-py](examples/eval-py/)               | Python code execution sandbox                          |
+| Example                                    | Description                                             |
+| ------------------------------------------ | ------------------------------------------------------- |
+| [eval-py](examples/eval-py/)               | Python code execution sandbox                           |
 | [fetch-rs](examples/fetch-rs/)             | HTTP API client for fetching and converting web content |
-| [filesystem-rs](examples/filesystem-rs/)   | File system operations (read, write, list directories) |
-| [get-weather-js](examples/get-weather-js/) | Weather API client for fetching weather data           |
-| [gomodule-go](examples/gomodule-go/)       | Go module information tool                             |
-| [time-server-js](examples/time-server-js/) | JavaScript-based time server component                |
+| [filesystem-rs](examples/filesystem-rs/)   | File system operations (read, write, list directories)  |
+| [get-weather-js](examples/get-weather-js/) | Weather API client for fetching weather data            |
+| [gomodule-go](examples/gomodule-go/)       | Go module information tool                              |
+| [time-server-js](examples/time-server-js/) | JavaScript-based time server component                  |
 
 ## Discord
 
