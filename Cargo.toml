@@ -89,3 +89,7 @@ bytes = "1"
 tokio-rustls = "0.26"
 rustls = { version = "0.23", features = ["aws-lc-rs"] }
 rcgen = "0.14"
+
+[profile.release]
+codegen-units = 1
+lto = true
