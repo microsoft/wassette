@@ -47,9 +47,9 @@ impl AllowedHost {
     }
 }
 
-/// WeldWasiState is a wrapper around a WASI state that enforces network policies by filtering outgoing HTTP requests
-/// based on a list of allowed hosts from the component's policy document.
-pub struct WeldWasiState<T> {
+/// WassetteWasiState is a wrapper around a WASI state that enforces network policies by filtering
+/// outgoing HTTP requests based on a list of allowed hosts from the component's policy document.
+pub struct WassetteWasiState<T> {
     /// The underlying WASI state
     pub inner: T,
 
@@ -57,8 +57,8 @@ pub struct WeldWasiState<T> {
     allowed_hosts: HashSet<AllowedHost>,
 }
 
-impl<T> WeldWasiState<T> {
-    /// Create a new WeldWasiState with the given allowed hosts
+impl<T> WassetteWasiState<T> {
+    /// Create a new WassetteWasiState with the given allowed hosts
     pub fn new(inner: T, allowed_hosts: HashSet<String>) -> Result<Self> {
         let mut parsed_hosts = HashSet::new();
 
@@ -101,19 +101,19 @@ impl<T> WeldWasiState<T> {
     }
 }
 
-impl<T: IoView> IoView for WeldWasiState<T> {
+impl<T: IoView> IoView for WassetteWasiState<T> {
     fn table(&mut self) -> &mut wasmtime_wasi::ResourceTable {
         self.inner.table()
     }
 }
 
-impl<T: WasiView> WasiView for WeldWasiState<T> {
+impl<T: WasiView> WasiView for WassetteWasiState<T> {
     fn ctx(&mut self) -> &mut wasmtime_wasi::p2::WasiCtx {
         self.inner.ctx()
     }
 }
 
-impl<T: WasiHttpView> WasiHttpView for WeldWasiState<T> {
+impl<T: WasiHttpView> WasiHttpView for WassetteWasiState<T> {
     fn ctx(&mut self) -> &mut wasmtime_wasi_http::WasiHttpCtx {
         self.inner.ctx()
     }
@@ -215,7 +215,7 @@ mod tests {
         let mut allowed_hosts = HashSet::new();
         allowed_hosts.insert("api.example.com".to_string());
 
-        let state = WeldWasiState::new(create_mock_wasi_state(), allowed_hosts).unwrap();
+        let state = WassetteWasiState::new(create_mock_wasi_state(), allowed_hosts).unwrap();
 
         let uri1: hyper::Uri = "http://api.example.com".parse().unwrap();
         let uri2: hyper::Uri = "http://other.example.com".parse().unwrap();
@@ -231,7 +231,7 @@ mod tests {
         let mut allowed_hosts = HashSet::new();
         allowed_hosts.insert("https://api.example.com".to_string());
 
-        let state = WeldWasiState::new(create_mock_wasi_state(), allowed_hosts).unwrap();
+        let state = WassetteWasiState::new(create_mock_wasi_state(), allowed_hosts).unwrap();
 
         let uri1: hyper::Uri = "http://api.example.com".parse().unwrap();
         let uri2: hyper::Uri = "https://api.example.com".parse().unwrap();
@@ -247,7 +247,7 @@ mod tests {
         let mut allowed_hosts = HashSet::new();
         allowed_hosts.insert("api.example.com".to_string());
 
-        let state = WeldWasiState::new(create_mock_wasi_state(), allowed_hosts).unwrap();
+        let state = WassetteWasiState::new(create_mock_wasi_state(), allowed_hosts).unwrap();
 
         let uri1: hyper::Uri = "http://api.example.com:8080".parse().unwrap();
         let uri2: hyper::Uri = "http://api.example.com:443".parse().unwrap();
@@ -262,7 +262,7 @@ mod tests {
         allowed_hosts.insert("https://secure.api.com".to_string());
         allowed_hosts.insert("api.example.com".to_string()); // scheme-agnostic
 
-        let state = WeldWasiState::new(create_mock_wasi_state(), allowed_hosts).unwrap();
+        let state = WassetteWasiState::new(create_mock_wasi_state(), allowed_hosts).unwrap();
 
         // Scheme-specific host should only match HTTPS
         let https_secure: hyper::Uri = "https://secure.api.com".parse().unwrap();
@@ -285,7 +285,7 @@ mod tests {
         allowed_hosts.insert("http://".to_string());
         allowed_hosts.insert("".to_string());
 
-        match WeldWasiState::new(create_mock_wasi_state(), allowed_hosts) {
+        match WassetteWasiState::new(create_mock_wasi_state(), allowed_hosts) {
             Ok(_) => panic!("Expected error, got Ok"),
             Err(e) => assert!(e.to_string().contains("Invalid host format")),
         }
@@ -296,7 +296,7 @@ mod tests {
         let mut allowed_hosts = HashSet::new();
         allowed_hosts.insert("api.example.com".to_string());
 
-        let state = WeldWasiState::new(create_mock_wasi_state(), allowed_hosts).unwrap();
+        let state = WassetteWasiState::new(create_mock_wasi_state(), allowed_hosts).unwrap();
 
         let uri1: hyper::Uri = "http://api.example.com".parse().unwrap();
         let uri2: hyper::Uri = "http://API.EXAMPLE.COM".parse().unwrap();

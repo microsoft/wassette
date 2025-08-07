@@ -6,6 +6,77 @@ use std::env;
 use std::path::{Path, PathBuf};
 
 use policy::{AccessType, PolicyDocument};
+use wasmtime_wasi::p2::WasiCtxBuilder;
+use wasmtime_wasi_config::WasiConfigVariables;
+use wasmtime_wasi_http::{WasiHttpCtx, WasiHttpView};
+
+pub struct WasiState {
+    pub ctx: wasmtime_wasi::p2::WasiCtx,
+    pub table: wasmtime_wasi::ResourceTable,
+    pub http: wasmtime_wasi_http::WasiHttpCtx,
+    pub wasi_config_vars: WasiConfigVariables,
+}
+
+impl wasmtime_wasi::p2::IoView for WasiState {
+    fn table(&mut self) -> &mut wasmtime_wasi::ResourceTable {
+        &mut self.table
+    }
+}
+
+impl wasmtime_wasi::p2::WasiView for WasiState {
+    fn ctx(&mut self) -> &mut wasmtime_wasi::p2::WasiCtx {
+        &mut self.ctx
+    }
+}
+
+impl WasiHttpView for WasiState {
+    fn ctx(&mut self) -> &mut WasiHttpCtx {
+        &mut self.http
+    }
+}
+
+impl WasiStateTemplate {
+    /// Creates a new `WasiState` from the template.
+    pub fn build(&self) -> anyhow::Result<WasiState> {
+        let mut ctx_builder = WasiCtxBuilder::new();
+        if self.allow_stdout {
+            ctx_builder.inherit_stdout();
+        }
+        if self.allow_stderr {
+            ctx_builder.inherit_stderr();
+        }
+        ctx_builder.inherit_args();
+        if self.allow_args {
+            ctx_builder.inherit_args();
+        }
+        // Note(mossaka): removed ctx_builder.inherit_network() to implement deny-by-default network policy
+        // For HTTP requests to work, we need to allow TCP and DNS lookups when there are network permissions
+        // But HTTP-level filtering happens in WassetteWasiState::send_request
+        if self.network_perms.allow_tcp || !self.allowed_hosts.is_empty() {
+            ctx_builder.allow_tcp(true);
+            ctx_builder.allow_ip_name_lookup(true);
+        } else {
+            ctx_builder.allow_tcp(false);
+            ctx_builder.allow_ip_name_lookup(false);
+        }
+        ctx_builder.allow_udp(self.network_perms.allow_udp);
+        for preopened_dir in &self.preopened_dirs {
+            ctx_builder.preopened_dir(
+                preopened_dir.host_path.as_path(),
+                preopened_dir.guest_path.as_str(),
+                preopened_dir.dir_perms,
+                preopened_dir.file_perms,
+            )?;
+        }
+
+        Ok(WasiState {
+            ctx: ctx_builder.build(),
+            table: wasmtime_wasi::ResourceTable::default(),
+            http: WasiHttpCtx::new(),
+            wasi_config_vars: WasiConfigVariables::from_iter(self.config_vars.clone()),
+        })
+    }
+}
 
 /// A struct that presents the arguments passed to `wasmtime_wasi::WasiCtxBuilder::preopened_dir`
 #[derive(Clone)]
