@@ -3,9 +3,12 @@ name: Publish Examples
 on:
   push:
     branches: [ "main" ]
-    tags: [ "v*" ]
+    paths:
+      - 'examples/**'
   pull_request:
     branches: [ "main" ]
+    paths:
+      - 'examples/**'
   workflow_dispatch:
 
 env:
