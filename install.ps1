@@ -39,7 +39,7 @@ function Get-OperatingSystem {
         return "windows"
     }
     else {
-        Write-Error "This installer is designed for Windows only. For other platforms, use the bash installer."
+        Write-Error "This installer is designed for Windows only. For other platforms, use install.sh."
         exit 1
     }
 }
