@@ -319,7 +319,43 @@ impl DownloadedResource {
                     file.file_name()
                         .context("Path to copy is missing filename")?,
                 );
-                tokio::fs::rename(file, dest).await?;
+                #[cfg(test)]
+                let rename_result = if crate::exdev_test_support::should_exdev() {
+                    Err(std::io::Error::from_raw_os_error(18)) // EXDEV
+                } else {
+                    tokio::fs::rename(&file, &dest).await
+                };
+                #[cfg(not(test))]
+                let rename_result = tokio::fs::rename(&file, &dest).await;
+
+                match rename_result {
+                    Ok(()) => {}
+                    Err(e) if e.raw_os_error() == Some(18) => {
+                        // 18 == EXDEV on Unix-like systems (cross-device link).
+                        // Fallback to copy + remove.
+                        debug!(
+                            from = %file.display(),
+                            to = %dest.display(),
+                            "Cross-device rename detected; falling back to copy"
+                        );
+                        tokio::fs::copy(&file, &dest).await.with_context(|| {
+                            format!(
+                                "Failed to copy component from {} to {} during EXDEV fallback",
+                                file.display(),
+                                dest.display()
+                            )
+                        })?;
+                        if let Err(remove_err) = tokio::fs::remove_file(&file).await {
+                            warn!(
+                                path = %file.display(),
+                                error = %remove_err,
+                                "Failed to remove original temp file after copy"
+                            );
+                        }
+                    }
+                    Err(e) => return Err(e.into()),
+                }
+                // Close & cleanup the tempdir (spawn_blocking to mirror previous behavior)
                 tokio::task::spawn_blocking(move || tempdir.close())
                     .await?
                     .context("Failed to clean up temporary download file")?;
@@ -1332,6 +1368,34 @@ async fn load_component_from_entry(
     Ok(Some((component, name)))
 }
 
+// Moved test support module to bottom for clarity: only compiled during tests.
+#[cfg(test)]
+mod exdev_test_support {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    static EXDEV_REMAINING: AtomicUsize = AtomicUsize::new(0);
+
+    pub fn force_exdev(times: usize) {
+        EXDEV_REMAINING.store(times, Ordering::SeqCst);
+    }
+
+    pub fn should_exdev() -> bool {
+        let mut current = EXDEV_REMAINING.load(Ordering::SeqCst);
+        while current > 0 {
+            match EXDEV_REMAINING.compare_exchange(
+                current,
+                current - 1,
+                Ordering::SeqCst,
+                Ordering::SeqCst,
+            ) {
+                Ok(_) => return true,
+                Err(new_val) => current = new_val,
+            }
+        }
+        false
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::ops::Deref;
@@ -2185,6 +2249,42 @@ permissions:
         assert!(template.allowed_hosts.contains("api.example.com"));
         assert!(template.allowed_hosts.contains("cdn.example.com"));
 
+        Ok(())
+    }
+
+    #[test(tokio::test)]
+    async fn test_copy_to_rename_fast_path() -> Result<()> {
+        let (resource, mut file) = DownloadedResource::new_temp_file("fastpath", "wasm").await?;
+        use tokio::io::AsyncWriteExt as _; // ensure write_all in scope
+        file.write_all(b"fast-bytes").await?;
+        file.flush().await?;
+        drop(file);
+
+        let dest_dir = tempfile::tempdir()?;
+        resource.copy_to(dest_dir.path()).await?;
+
+        let mut entries = std::fs::read_dir(dest_dir.path())?;
+        let copied = entries.next().expect("expected one file")?.path();
+        assert_eq!(std::fs::read(&copied)?, b"fast-bytes");
+        Ok(())
+    }
+
+    #[test(tokio::test)]
+    async fn test_copy_to_exdev_fallback() -> Result<()> {
+        // Force EXDEV simulation for the next rename attempt
+        crate::exdev_test_support::force_exdev(1);
+        let (resource, mut file) = DownloadedResource::new_temp_file("fallback", "wasm").await?;
+        use tokio::io::AsyncWriteExt as _;
+        file.write_all(b"fallback-bytes").await?;
+        file.flush().await?;
+        drop(file);
+
+        let dest_dir = tempfile::tempdir()?;
+        resource.copy_to(dest_dir.path()).await?; // Should fall back to copy
+
+        let mut entries = std::fs::read_dir(dest_dir.path())?;
+        let copied = entries.next().expect("expected one file")?.path();
+        assert_eq!(std::fs::read(&copied)?, b"fallback-bytes");
         Ok(())
     }
 }
