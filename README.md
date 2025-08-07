@@ -39,7 +39,7 @@ See the [Homebrew guide](docs/homebrew.md) for more details.
 For Windows, use this PowerShell script to install Wassette:
 
 ```powershell
-[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; iex (irm https://raw.githubusercontent.com/microsoft/wassette/install.ps1)
+[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; iex (irm https://raw.githubusercontent.com/microsoft/wassette/main/install.ps1)
 ```
 
 ## Using Wassette
