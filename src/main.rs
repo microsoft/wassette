@@ -20,11 +20,10 @@ use rmcp::model::{
     ListToolsResult, PaginatedRequestParam, ServerCapabilities, ServerInfo, ToolsCapability,
 };
 use rmcp::service::{serve_server, RequestContext, RoleServer};
-use rmcp::transport::{stdio as stdio_transport, SseServer};
 use rmcp::transport::streamable_http_server::{
-    StreamableHttpService, session::local::LocalSessionManager,
+    session::local::LocalSessionManager, StreamableHttpService,
 };
-use axum;
+use rmcp::transport::{stdio as stdio_transport, SseServer};
 use rmcp::ServerHandler;
 use serde::{Deserialize, Serialize};
 use tracing_subscriber::layer::SubscriberExt as _;
@@ -186,11 +185,15 @@ async fn main() -> Result<()> {
     match &cli.command {
         Commands::Serve(cfg) => {
             // Initialize logging based on transport type
-            let (use_stdio_transport, use_streamable_http) = match (cfg.stdio, cfg.sse, cfg.streamable_http) {
-                (false, false, false) => (true, false),  // Default case: use stdio transport
-                (true, false, false) => (true, false),   // Stdio transport only
-                (false, true, false) => (false, false),  // SSE transport only
-                (false, false, true) => (false, true),   // Streamable HTTP transport only
+            let (use_stdio_transport, use_streamable_http) = match (
+                cfg.stdio,
+                cfg.sse,
+                cfg.streamable_http,
+            ) {
+                (false, false, false) => (true, false), // Default case: use stdio transport
+                (true, false, false) => (true, false),  // Stdio transport only
+                (false, true, false) => (false, false), // SSE transport only
+                (false, false, true) => (false, true),  // Streamable HTTP transport only
                 _ => {
                     return Err(anyhow::anyhow!(
                         "Running multiple transports simultaneously is not supported. Please choose one of: --stdio, --sse, or --streamable-http."
