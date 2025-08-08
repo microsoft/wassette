@@ -21,7 +21,7 @@
 
 ## Installation
 
-For Linux and macOS, you can install Wassette using the provided install script:
+For Linux (including Windows Subsystem for Linux) and macOS, you can install Wassette using the provided install script:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/microsoft/wassette/main/install.sh | bash
@@ -29,7 +29,11 @@ curl -fsSL https://raw.githubusercontent.com/microsoft/wassette/main/install.sh 
 
 This will detect your platform and install the latest `wassette` binary to your `$PATH`. 
 
-We also provide a [Homebrew formula for macOS and Linux](./docs/homebrew.md).
+We provide a [Homebrew formula for macOS and Linux](./docs/homebrew.md).
+
+And a [WinGet package for Windows](./docs/winget.md).
+
+You can also download the latest release from the [GitHub Releases page][Releases] and add it to your `$PATH`.
 
 ### Nix
 
@@ -45,8 +49,6 @@ nix profile install github:microsoft/wassette
 # Or in a development shell
 nix develop github:microsoft/wassette
 ```
-
-For Windows, you can download the latest release from the [GitHub Releases page][Releases]
 
 ## Using Wassette
 
