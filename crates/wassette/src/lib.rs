@@ -22,7 +22,7 @@ use serde_json::Value;
 use tokio::fs::DirEntry;
 use tokio::sync::RwLock;
 use tracing::{debug, info, instrument, warn};
-use wasmtime::component::{Component, Linker};
+use wasmtime::component::{Component, InstancePre, Linker};
 use wasmtime::{Engine, Store};
 use wasmtime_wasi_config::WasiConfig;
 
@@ -125,12 +125,21 @@ impl ComponentRegistry {
 #[derive(Clone)]
 pub struct LifecycleManager {
     engine: Arc<Engine>,
-    components: Arc<RwLock<HashMap<String, Arc<Component>>>>,
+    linker: Arc<Linker<WassetteWasiState<WasiState>>>,
+    components: Arc<RwLock<HashMap<String, ComponentInstance>>>,
     registry: Arc<RwLock<ComponentRegistry>>,
     policy_registry: Arc<RwLock<PolicyRegistry>>,
     oci_client: Arc<oci_wasm::WasmClient>,
     http_client: reqwest::Client,
     plugin_dir: PathBuf,
+}
+
+/// A representation of a loaded component instance. It contains both the base component info and a
+/// pre-instantiated component ready for execution
+#[derive(Clone)]
+pub struct ComponentInstance {
+    component: Arc<Component>,
+    instance_pre: Arc<InstancePre<WassetteWasiState<WasiState>>>,
 }
 
 impl LifecycleManager {
@@ -182,22 +191,37 @@ impl LifecycleManager {
         let mut components = HashMap::new();
         let mut policy_registry = PolicyRegistry::default();
 
+        let mut linker = Linker::new(engine.as_ref());
+        wasmtime_wasi::p2::add_to_linker_async(&mut linker)?;
+
+        // Use the standard HTTP linker - filtering happens at WasiHttpView level
+        wasmtime_wasi_http::add_only_http_to_linker_async(&mut linker)?;
+
+        wasmtime_wasi_config::add_to_linker(
+            &mut linker,
+            |h: &mut WassetteWasiState<WasiState>| WasiConfig::from(&h.inner.wasi_config_vars),
+        )?;
+
+        let linker = Arc::new(linker);
+
         let loaded_components =
             tokio_stream::wrappers::ReadDirStream::new(tokio::fs::read_dir(&plugin_dir).await?)
                 .map_err(anyhow::Error::from)
                 .try_filter_map(|entry| {
                     let value = engine.clone();
-                    async move { load_component_from_entry(value, entry).await }
+                    let link = linker.clone();
+                    async move { load_component_from_entry(value, &link, entry).await }
                 })
                 .try_collect::<Vec<_>>()
                 .await?;
 
-        for (component, name) in loaded_components.into_iter() {
-            let tool_metadata = component_exports_to_tools(&component, &engine, true);
+        for (component_instance, name) in loaded_components.into_iter() {
+            let tool_metadata =
+                component_exports_to_tools(&component_instance.component, &engine, true);
             registry
                 .register_tools(&name, tool_metadata)
                 .context("unable to insert component into registry")?;
-            components.insert(name.clone(), Arc::new(component));
+            components.insert(name.clone(), component_instance);
 
             // Check for co-located policy file and restore policy association
             let policy_path = plugin_dir.as_ref().join(format!("{name}.policy.yaml"));
@@ -242,6 +266,7 @@ impl LifecycleManager {
         info!("LifecycleManager initialized successfully");
         Ok(Self {
             engine,
+            linker,
             components: Arc::new(RwLock::new(components)),
             registry: Arc::new(RwLock::new(registry)),
             policy_registry: Arc::new(RwLock::new(policy_registry)),
@@ -268,6 +293,11 @@ impl LifecycleManager {
             .context("Failed to read component file")?;
 
         let component = Component::new(&self.engine, wasm_bytes).map_err(|e| anyhow::anyhow!("Failed to compile component from path: {}. Error: {}. Please ensure the file is a valid WebAssembly component.", downloaded_resource.as_ref().display(), e))?;
+        // Pre-instantiate the component
+        let instance_pre = self
+            .linker
+            .instantiate_pre(&component)
+            .context("failed to instantiate component")?;
         let id = downloaded_resource.id()?;
         let tool_metadata = component_exports_to_tools(&component, &self.engine, true);
 
@@ -291,7 +321,13 @@ impl LifecycleManager {
             .components
             .write()
             .await
-            .insert(id.clone(), Arc::new(component))
+            .insert(
+                id.clone(),
+                ComponentInstance {
+                    component: Arc::new(component),
+                    instance_pre: Arc::new(instance_pre),
+                },
+            )
             .map(|_| LoadResult::Replaced)
             .unwrap_or(LoadResult::New);
 
@@ -394,7 +430,7 @@ impl LifecycleManager {
 
     /// Returns the requested component. Returns `None` if the component is not found.
     #[instrument(skip(self))]
-    pub async fn get_component(&self, component_id: &str) -> Option<Arc<Component>> {
+    pub async fn get_component(&self, component_id: &str) -> Option<ComponentInstance> {
         self.components.read().await.get(component_id).cloned()
     }
 
@@ -407,9 +443,9 @@ impl LifecycleManager {
     /// Gets the schema for a specific component
     #[instrument(skip(self))]
     pub async fn get_component_schema(&self, component_id: &str) -> Option<Value> {
-        let component = self.get_component(component_id).await?;
+        let component_instance = self.get_component(component_id).await?;
         Some(component_exports_to_json_schema(
-            &component,
+            &component_instance.component,
             self.engine.as_ref(),
             true,
         ))
@@ -452,20 +488,13 @@ impl LifecycleManager {
 
         let state = self.get_wasi_state_for_component(component_id).await?;
 
-        let mut linker = Linker::new(self.engine.as_ref());
-        wasmtime_wasi::p2::add_to_linker_async(&mut linker)?;
-
-        // Use the standard HTTP linker - filtering happens at WasiHttpView level
-        wasmtime_wasi_http::add_only_http_to_linker_async(&mut linker)?;
-
-        wasmtime_wasi_config::add_to_linker(
-            &mut linker,
-            |h: &mut WassetteWasiState<WasiState>| WasiConfig::from(&h.inner.wasi_config_vars),
-        )?;
-
         let mut store = Store::new(self.engine.as_ref(), state);
 
-        let instance = linker.instantiate_async(&mut store, &component).await?;
+        let instance = component
+            .instance_pre
+            .instantiate_async(&mut store)
+            .await
+            .context("Failed to instantiate component")?;
 
         // Use the new function identifier lookup instead of dot-splitting
         let function_id = self
@@ -536,8 +565,9 @@ impl LifecycleManager {
 
 async fn load_component_from_entry(
     engine: Arc<Engine>,
+    linker: &Linker<WassetteWasiState<WasiState>>,
     entry: DirEntry,
-) -> Result<Option<(Component, String)>> {
+) -> Result<Option<(ComponentInstance, String)>> {
     let start_time = Instant::now();
     let is_file = entry
         .metadata()
@@ -562,7 +592,16 @@ async fn load_component_from_entry(
         .map(String::from)
         .context("wasm file didn't have a valid file name")?;
     info!(component_id = %name, elapsed = ?start_time.elapsed(), "component loaded");
-    Ok(Some((component, name)))
+    let instance_pre = linker
+        .instantiate_pre(&component)
+        .context("failed to instantiate component")?;
+    Ok(Some((
+        ComponentInstance {
+            component: Arc::new(component),
+            instance_pre: Arc::new(instance_pre),
+        },
+        name,
+    )))
 }
 
 #[cfg(test)]
