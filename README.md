@@ -31,24 +31,11 @@ This will detect your platform and install the latest `wassette` binary to your 
 
 We provide a [Homebrew formula for macOS and Linux](./docs/homebrew.md).
 
-And a [WinGet package for Windows](./docs/winget.md).
+For Windows users, we provide a [WinGet package](./docs/winget.md).
+
+And [Nix flakes for reproducible environments](./docs/nix.md).
 
 You can also download the latest release from the [GitHub Releases page][Releases] and add it to your `$PATH`.
-
-### Nix
-
-You can install Wassette using Nix flakes:
-
-```bash
-# Run directly without installation
-nix run github:microsoft/wassette -- serve --stdio
-
-# Install to your profile
-nix profile install github:microsoft/wassette
-
-# Or in a development shell
-nix develop github:microsoft/wassette
-```
 
 ## Using Wassette
 
