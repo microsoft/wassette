@@ -1,3 +1,6 @@
+// Copyright (c) Microsoft Corporation.
+// Licensed under the MIT license.
+
 //! A module for downloading and loading components and policies from various sources.
 use std::path::{Path, PathBuf};
 

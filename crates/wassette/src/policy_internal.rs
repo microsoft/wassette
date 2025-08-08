@@ -1,4 +1,8 @@
+// Copyright (c) Microsoft Corporation.
+// Licensed under the MIT license.
+
 //! Policy management structures and types
+
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
