@@ -41,24 +41,24 @@ fn format_build_info() -> String {
         .split_whitespace()
         .nth(1)
         .unwrap_or("unknown");
-    
+
     let build_profile = built_info::PROFILE;
-    
+
     let build_status = if built_info::GIT_DIRTY.unwrap_or(false) {
         "Modified"
     } else {
         "Clean"
     };
-    
+
     let git_tag = built_info::GIT_VERSION.unwrap_or("unknown");
-    
+
     let git_revision = built_info::GIT_COMMIT_HASH.unwrap_or("unknown");
     let version = if built_info::GIT_DIRTY.unwrap_or(false) {
         format!("{git_revision}-dirty")
     } else {
         git_revision.to_string()
     };
-    
+
     format!(
         "{} {} version.BuildInfo{{RustVersion:\"{}\", BuildProfile:\"{}\", BuildStatus:\"{}\", GitTag:\"{}\", Version:\"{}\", GitRevision:\"{}\"}}",
         built_info::PKG_NAME,
@@ -78,7 +78,7 @@ struct Cli {
     /// Print version information
     #[arg(long, short = 'V')]
     version: bool,
-    
+
     #[command(subcommand)]
     command: Option<Commands>,
 }
@@ -229,73 +229,75 @@ async fn main() -> Result<()> {
     // Handle command or show help if no command provided
     match cli.command {
         Some(command) => match &command {
-        Commands::Serve(cfg) => {
-            // Initialize logging based on transport type
-            let use_stdio_transport = match (cfg.stdio, cfg.http) {
-                (false, false) => true, // Default case: use stdio transport
-                (true, false) => true,  // Stdio transport only
-                (false, true) => false, // HTTP transport only
-                (true, true) => {
-                    return Err(anyhow::anyhow!(
+            Commands::Serve(cfg) => {
+                // Initialize logging based on transport type
+                let use_stdio_transport = match (cfg.stdio, cfg.http) {
+                    (false, false) => true, // Default case: use stdio transport
+                    (true, false) => true,  // Stdio transport only
+                    (false, true) => false, // HTTP transport only
+                    (true, true) => {
+                        return Err(anyhow::anyhow!(
                         "Running both stdio and HTTP transports simultaneously is not supported. Please choose one."
                     ));
-                }
-            };
+                    }
+                };
 
-            // Configure logging - use stderr for stdio transport to avoid interfering with MCP protocol
-            let env_filter = tracing_subscriber::EnvFilter::try_from_default_env()
+                // Configure logging - use stderr for stdio transport to avoid interfering with MCP protocol
+                let env_filter = tracing_subscriber::EnvFilter::try_from_default_env()
                 .unwrap_or_else(|_| {
                     "info,cranelift_codegen=warn,cranelift_entity=warn,cranelift_bforest=warn,cranelift_frontend=warn"
                         .to_string()
                         .into()
                 });
 
-            let registry = tracing_subscriber::registry().with(env_filter);
+                let registry = tracing_subscriber::registry().with(env_filter);
 
-            if use_stdio_transport {
-                registry
-                    .with(
-                        tracing_subscriber::fmt::layer()
-                            .with_writer(std::io::stderr)
-                            .with_ansi(false),
-                    )
-                    .init();
-            } else {
-                registry.with(tracing_subscriber::fmt::layer()).init();
+                if use_stdio_transport {
+                    registry
+                        .with(
+                            tracing_subscriber::fmt::layer()
+                                .with_writer(std::io::stderr)
+                                .with_ansi(false),
+                        )
+                        .init();
+                } else {
+                    registry.with(tracing_subscriber::fmt::layer()).init();
+                }
+
+                let config = config::Config::new(cfg).context("Failed to load configuration")?;
+
+                let lifecycle_manager = LifecycleManager::new(&config.plugin_dir).await?;
+
+                let server = McpServer::new(lifecycle_manager);
+
+                if use_stdio_transport {
+                    tracing::info!("Starting MCP server with stdio transport");
+                    let transport = stdio_transport();
+                    let running_service = serve_server(server, transport).await?;
+
+                    tokio::signal::ctrl_c().await?;
+                    let _ = running_service.cancel().await;
+                } else {
+                    tracing::info!(
+                        "Starting MCP server on {} with HTTP transport",
+                        BIND_ADDRESS
+                    );
+                    let ct = SseServer::serve(BIND_ADDRESS.parse().unwrap())
+                        .await?
+                        .with_service(move || server.clone());
+
+                    tokio::signal::ctrl_c().await?;
+                    ct.cancel();
+                }
+
+                tracing::info!("MCP server shutting down");
             }
-
-            let config = config::Config::new(cfg).context("Failed to load configuration")?;
-
-            let lifecycle_manager = LifecycleManager::new(&config.plugin_dir).await?;
-
-            let server = McpServer::new(lifecycle_manager);
-
-            if use_stdio_transport {
-                tracing::info!("Starting MCP server with stdio transport");
-                let transport = stdio_transport();
-                let running_service = serve_server(server, transport).await?;
-
-                tokio::signal::ctrl_c().await?;
-                let _ = running_service.cancel().await;
-            } else {
-                tracing::info!(
-                    "Starting MCP server on {} with HTTP transport",
-                    BIND_ADDRESS
-                );
-                let ct = SseServer::serve(BIND_ADDRESS.parse().unwrap())
-                    .await?
-                    .with_service(move || server.clone());
-
-                tokio::signal::ctrl_c().await?;
-                ct.cancel();
-            }
-
-            tracing::info!("MCP server shutting down");
-        }
         },
         None => {
             // Show help if no command provided
-            return Err(anyhow::anyhow!("No command provided. Use --help for usage information."));
+            return Err(anyhow::anyhow!(
+                "No command provided. Use --help for usage information."
+            ));
         }
     }
 
@@ -309,7 +311,7 @@ mod version_tests {
     #[test]
     fn test_version_format_contains_required_fields() {
         let version_info = format_build_info();
-        
+
         // Check that the version output contains expected components
         assert!(version_info.contains("wassette-mcp-server"));
         assert!(version_info.contains("0.2.0"));
