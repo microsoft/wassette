@@ -181,16 +181,7 @@ impl LifecycleManager {
         let mut registry = ComponentRegistry::new();
         let mut components = HashMap::new();
         let mut policy_registry = PolicyRegistry::default();
-
-        let loaded_components =
-            tokio_stream::wrappers::ReadDirStream::new(tokio::fs::read_dir(&plugin_dir).await?)
-                .map_err(anyhow::Error::from)
-                .try_filter_map(|entry| {
-                    let value = engine.clone();
-                    async move { load_component_from_entry(value, entry).await }
-                })
-                .try_collect::<Vec<_>>()
-                .await?;
+        let loaded_components = load_components_parallel(plugin_dir.as_ref(), &engine).await?;
 
         for (component, name) in loaded_components.into_iter() {
             let tool_metadata = component_exports_to_tools(&component, &engine, true);
@@ -532,6 +523,40 @@ impl LifecycleManager {
     }
 
     // Granular permission system methods
+}
+// Load components in parallel for improved startup performance
+async fn load_components_parallel(
+    plugin_dir: &Path,
+    engine: &Arc<Engine>,
+) -> Result<Vec<(Component, String)>> {
+    let mut entries = tokio::fs::read_dir(plugin_dir).await?;
+    let mut load_futures = Vec::new();
+
+    while let Some(entry) = entries.next_entry().await? {
+        let engine = engine.clone();
+        let future = async move {
+            match load_component_from_entry(engine, entry).await {
+                Ok(Some(result)) => Some(Ok(result)),
+                Ok(None) => None,
+                Err(e) => Some(Err(e)),
+            }
+        };
+        load_futures.push(future);
+    }
+
+    let results = futures::future::join_all(load_futures).await;
+    let mut components = Vec::new();
+
+    for result in results {
+        if let Some(result) = result {
+            match result {
+                Ok(component) => components.push(component),
+                Err(e) => warn!("Failed to load component: {}", e),
+            }
+        }
+    }
+
+        Ok(components)
 }
 
 async fn load_component_from_entry(
