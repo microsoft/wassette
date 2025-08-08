@@ -68,6 +68,10 @@ The current time July 31, 2025 at 10:30 AM UTC
 
 Congratulations! You've just run your first Wasm Component and taught your agent how to tell time!
 
+## Demo
+
+https://github.com/user-attachments/assets/8e5a371c-ac72-406d-859c-03833ee83963
+
 ## Building for Wassette
 
 Wasm Components provide fully typed interfaces defined using WebAssembly
