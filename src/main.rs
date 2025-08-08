@@ -28,13 +28,59 @@ use tracing_subscriber::util::SubscriberInitExt as _;
 
 mod config;
 
+// Include build-time information
+mod built_info {
+    include!(concat!(env!("OUT_DIR"), "/built.rs"));
+}
+
 const BIND_ADDRESS: &str = "127.0.0.1:9001";
 
+/// Formats build information similar to agentgateway's version output
+fn format_build_info() -> String {
+    let rust_version = built_info::RUSTC_VERSION
+        .split_whitespace()
+        .nth(1)
+        .unwrap_or("unknown");
+    
+    let build_profile = built_info::PROFILE;
+    
+    let build_status = if built_info::GIT_DIRTY.unwrap_or(false) {
+        "Modified"
+    } else {
+        "Clean"
+    };
+    
+    let git_tag = built_info::GIT_VERSION.unwrap_or("unknown");
+    
+    let git_revision = built_info::GIT_COMMIT_HASH.unwrap_or("unknown");
+    let version = if built_info::GIT_DIRTY.unwrap_or(false) {
+        format!("{git_revision}-dirty")
+    } else {
+        git_revision.to_string()
+    };
+    
+    format!(
+        "{} {} version.BuildInfo{{RustVersion:\"{}\", BuildProfile:\"{}\", BuildStatus:\"{}\", GitTag:\"{}\", Version:\"{}\", GitRevision:\"{}\"}}",
+        built_info::PKG_NAME,
+        built_info::PKG_VERSION,
+        rust_version,
+        build_profile,
+        build_status,
+        git_tag,
+        version,
+        git_revision
+    )
+}
+
 #[derive(Parser, Debug)]
-#[command(version, about, long_about = None)]
+#[command(name = "wassette", about, long_about = None)]
 struct Cli {
+    /// Print version information
+    #[arg(long, short = 'V')]
+    version: bool,
+    
     #[command(subcommand)]
-    command: Commands,
+    command: Option<Commands>,
 }
 
 #[derive(Subcommand, Debug)]
@@ -174,7 +220,15 @@ Key points:
 async fn main() -> Result<()> {
     let cli = Cli::parse();
 
-    match &cli.command {
+    // Handle version flag
+    if cli.version {
+        println!("{}", format_build_info());
+        return Ok(());
+    }
+
+    // Handle command or show help if no command provided
+    match cli.command {
+        Some(command) => match &command {
         Commands::Serve(cfg) => {
             // Initialize logging based on transport type
             let use_stdio_transport = match (cfg.stdio, cfg.http) {
@@ -238,7 +292,40 @@ async fn main() -> Result<()> {
 
             tracing::info!("MCP server shutting down");
         }
+        },
+        None => {
+            // Show help if no command provided
+            return Err(anyhow::anyhow!("No command provided. Use --help for usage information."));
+        }
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod version_tests {
+    use super::*;
+
+    #[test]
+    fn test_version_format_contains_required_fields() {
+        let version_info = format_build_info();
+        
+        // Check that the version output contains expected components
+        assert!(version_info.contains("wassette-mcp-server"));
+        assert!(version_info.contains("0.2.0"));
+        assert!(version_info.contains("version.BuildInfo"));
+        assert!(version_info.contains("RustVersion"));
+        assert!(version_info.contains("BuildProfile"));
+        assert!(version_info.contains("BuildStatus"));
+        assert!(version_info.contains("GitTag"));
+        assert!(version_info.contains("Version"));
+        assert!(version_info.contains("GitRevision"));
+    }
+
+    #[test]
+    fn test_version_contains_cargo_version() {
+        let version_info = format_build_info();
+        // This test ensures the Homebrew formula test will pass
+        assert!(version_info.contains(&format!("wassette-mcp-server {}", built_info::PKG_VERSION)));
+    }
 }
