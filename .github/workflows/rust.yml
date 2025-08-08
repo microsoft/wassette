@@ -22,6 +22,25 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
+  license-headers:
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+    - name: Verify Rust license headers
+      shell: bash
+      run: |
+        set -euo pipefail
+        bash ./scripts/copyright.sh
+        # If the script made any changes to Rust files, fail and list them
+        if git diff --name-only -- '*.rs' | grep -q .; then
+          echo "The following Rust files are missing license headers:" >&2
+          git diff --name-only -- '*.rs' >&2
+          echo >&2
+          echo "Please run ./scripts/copyright.sh locally and commit the changes." >&2
+          exit 1
+        fi
+
   lint:
     runs-on: ubuntu-latest
 

@@ -49,7 +49,7 @@ jobs:
     strategy:
       matrix:
         component:
-          - name: gomodule
+          - name: gomodule-go
             file: gomodule.wasm
           - name: eval-py
             file: eval-py.wasm
@@ -57,7 +57,7 @@ jobs:
             file: time-server-js.wasm
           - name: get-weather-js
             file: get-weather-js.wasm
-          - name: filesystem
+          - name: filesystem-rs
             file: filesystem.wasm
           - name: fetch-rs
             file: fetch-rs.wasm

@@ -10,7 +10,7 @@ To use this component, load it from the OCI registry and provide a Go module pat
 
 **Load the component:**
 ```
-Please load the component from oci://ghcr.io/microsoft/gomodule:latest
+Please load the component from oci://ghcr.io/microsoft/gomodule-go:latest
 ```
 
 **Get module information:**
