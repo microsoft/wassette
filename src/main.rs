@@ -20,6 +20,8 @@ use rmcp::model::{
     ListToolsResult, PaginatedRequestParam, ServerCapabilities, ServerInfo, ToolsCapability,
 };
 use rmcp::service::{serve_server, RequestContext, RoleServer};
+use rmcp::transport::streamable_http_server::session::local::LocalSessionManager;
+use rmcp::transport::streamable_http_server::StreamableHttpService;
 use rmcp::transport::{stdio as stdio_transport, SseServer};
 use rmcp::ServerHandler;
 use serde::{Deserialize, Serialize};
@@ -55,10 +57,15 @@ struct Serve {
     #[serde(skip)]
     stdio: bool,
 
-    /// Enable HTTP transport
+    /// Enable SSE transport
     #[arg(long)]
     #[serde(skip)]
-    http: bool,
+    sse: bool,
+
+    /// Enable streamable HTTP transport  
+    #[arg(long)]
+    #[serde(skip)]
+    streamable_http: bool,
 }
 
 /// A security-oriented runtime that runs WebAssembly Components via MCP.
@@ -177,13 +184,18 @@ async fn main() -> Result<()> {
     match &cli.command {
         Commands::Serve(cfg) => {
             // Initialize logging based on transport type
-            let use_stdio_transport = match (cfg.stdio, cfg.http) {
-                (false, false) => true, // Default case: use stdio transport
-                (true, false) => true,  // Stdio transport only
-                (false, true) => false, // HTTP transport only
-                (true, true) => {
+            let (use_stdio_transport, use_streamable_http) = match (
+                cfg.stdio,
+                cfg.sse,
+                cfg.streamable_http,
+            ) {
+                (false, false, false) => (true, false), // Default case: use stdio transport
+                (true, false, false) => (true, false),  // Stdio transport only
+                (false, true, false) => (false, false), // SSE transport only
+                (false, false, true) => (false, true),  // Streamable HTTP transport only
+                _ => {
                     return Err(anyhow::anyhow!(
-                        "Running both stdio and HTTP transports simultaneously is not supported. Please choose one."
+                        "Running multiple transports simultaneously is not supported. Please choose one of: --stdio, --sse, or --streamable-http."
                     ));
                 }
             };
@@ -223,9 +235,25 @@ async fn main() -> Result<()> {
 
                 tokio::signal::ctrl_c().await?;
                 let _ = running_service.cancel().await;
+            } else if use_streamable_http {
+                tracing::info!(
+                    "Starting MCP server on {} with streamable HTTP transport",
+                    BIND_ADDRESS
+                );
+                let service = StreamableHttpService::new(
+                    move || Ok(server.clone()),
+                    LocalSessionManager::default().into(),
+                    Default::default(),
+                );
+
+                let router = axum::Router::new().nest_service("/mcp", service);
+                let tcp_listener = tokio::net::TcpListener::bind(BIND_ADDRESS).await?;
+                let _ = axum::serve(tcp_listener, router)
+                    .with_graceful_shutdown(async { tokio::signal::ctrl_c().await.unwrap() })
+                    .await;
             } else {
                 tracing::info!(
-                    "Starting MCP server on {} with HTTP transport",
+                    "Starting MCP server on {} with SSE HTTP transport",
                     BIND_ADDRESS
                 );
                 let ct = SseServer::serve(BIND_ADDRESS.parse().unwrap())

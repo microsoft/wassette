@@ -79,7 +79,8 @@ mod tests {
         crate::Serve {
             plugin_dir: Some(PathBuf::from("/test/plugin/dir")),
             stdio: true,
-            http: false,
+            sse: false,
+            streamable_http: false,
         }
     }
 
@@ -87,7 +88,8 @@ mod tests {
         crate::Serve {
             plugin_dir: None,
             stdio: false,
-            http: false,
+            sse: false,
+            streamable_http: false,
         }
     }
 
