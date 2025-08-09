@@ -578,12 +578,10 @@ async fn load_components_parallel(
     let results = futures::future::join_all(load_futures).await;
     let mut components = Vec::new();
 
-    for result in results {
-        if let Some(result) = result {
-            match result {
-                Ok(component) => components.push(component),
-                Err(e) => warn!("Failed to load component: {}", e),
-            }
+    for result in results.into_iter().flatten() {
+        match result {
+            Ok(component) => components.push(component),
+            Err(e) => warn!("Failed to load component: {}", e),
         }
     }
 
