@@ -4838,11 +4838,9 @@ name = "wassette"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "bytes",
  "component2json",
  "futures",
  "http",
- "http-body-util",
  "hyper",
  "oci-client",
  "oci-wasm",
@@ -4878,7 +4876,6 @@ dependencies = [
  "clap",
  "etcetera",
  "figment",
- "futures",
  "futures-util",
  "http-body-util",
  "hyper",

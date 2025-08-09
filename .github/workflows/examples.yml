@@ -10,6 +10,12 @@ on:
     paths:
       - 'examples/**'
   workflow_dispatch:
+    inputs:
+      tag:
+        description: 'The tag to use for the OCI artifacts.'
+        required: true
+        type: string
+        default: 'latest'
 
 env:
   CARGO_TERM_COLOR: always
@@ -80,6 +86,10 @@ jobs:
             VERSION=${GITHUB_REF#refs/tags/}
             echo "tag=$VERSION" >> $GITHUB_OUTPUT
             echo "latest=true" >> $GITHUB_OUTPUT
+          elif [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            echo "tag=$GITHUB_SHA" >> $GITHUB_OUTPUT
+            echo "latest=true" >> $GITHUB_OUTPUT
+            echo "release_tag=${{ github.event.inputs.tag }}" >> $GITHUB_OUTPUT
           else
             echo "tag=$GITHUB_SHA" >> $GITHUB_OUTPUT
             echo "latest=false" >> $GITHUB_OUTPUT
@@ -90,10 +100,10 @@ jobs:
           file: bin/${{ matrix.component.file }}
           oci-reference-without-tag: ghcr.io/${{ github.repository_owner }}/${{ matrix.component.name }}
           version: ${{ steps.meta.outputs.tag }}
-      - name: Publish ${{ matrix.component.name }} latest (if latest)
+      - name: Publish ${{ matrix.component.name }} with tag ${{ steps.meta.outputs.release_tag || 'latest' }} (if specified)
         uses: bytecodealliance/wkg-github-action@10b3b04b9059ba46208cd7daf7d352af14bded0f # v5
         if: steps.meta.outputs.latest == 'true'
         with:
           file: bin/${{ matrix.component.file }}
           oci-reference-without-tag: ghcr.io/${{ github.repository_owner }}/${{ matrix.component.name }}
-          version: latest
+          version: ${{ steps.meta.outputs.release_tag || 'latest' }}

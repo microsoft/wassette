@@ -6,11 +6,9 @@ license.workspace = true
 
 [dependencies]
 anyhow = { workspace = true }
-bytes = "1"
 component2json = { path = "../component2json" }
 futures = { workspace = true }
 http = "1.0"
-http-body-util = "0.1"
 hyper = { version = "1.0", features = ["client"] }
 oci-client = { workspace = true }
 oci-wasm = { workspace = true }
