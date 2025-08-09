@@ -4854,7 +4854,6 @@ dependencies = [
  "tempfile",
  "test-log",
  "tokio",
- "tokio-stream",
  "tokio-test",
  "tokio-util",
  "tracing",

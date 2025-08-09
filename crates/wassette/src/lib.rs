@@ -16,7 +16,6 @@ use component2json::{
     component_exports_to_json_schema, component_exports_to_tools, create_placeholder_results,
     json_to_vals, vals_to_json, FunctionIdentifier, ToolMetadata,
 };
-use futures::TryStreamExt;
 use policy::PolicyParser;
 use serde_json::Value;
 use tokio::fs::DirEntry;
@@ -205,15 +204,7 @@ impl LifecycleManager {
         let linker = Arc::new(linker);
 
         let loaded_components =
-            tokio_stream::wrappers::ReadDirStream::new(tokio::fs::read_dir(&plugin_dir).await?)
-                .map_err(anyhow::Error::from)
-                .try_filter_map(|entry| {
-                    let value = engine.clone();
-                    let link = linker.clone();
-                    async move { load_component_from_entry(value, &link, entry).await }
-                })
-                .try_collect::<Vec<_>>()
-                .await?;
+            load_components_parallel(plugin_dir.as_ref(), &engine, &linker).await?;
 
         for (component_instance, name) in loaded_components.into_iter() {
             let tool_metadata =
@@ -561,6 +552,40 @@ impl LifecycleManager {
     }
 
     // Granular permission system methods
+}
+// Load components in parallel for improved startup performance
+async fn load_components_parallel(
+    plugin_dir: &Path,
+    engine: &Arc<Engine>,
+    linker: &Arc<Linker<WassetteWasiState<WasiState>>>,
+) -> Result<Vec<(ComponentInstance, String)>> {
+    let mut entries = tokio::fs::read_dir(plugin_dir).await?;
+    let mut load_futures = Vec::new();
+
+    while let Some(entry) = entries.next_entry().await? {
+        let engine = engine.clone();
+        let linker = linker.clone();
+        let future = async move {
+            match load_component_from_entry(engine, &linker, entry).await {
+                Ok(Some(result)) => Some(Ok(result)),
+                Ok(None) => None,
+                Err(e) => Some(Err(e)),
+            }
+        };
+        load_futures.push(future);
+    }
+
+    let results = futures::future::join_all(load_futures).await;
+    let mut components = Vec::new();
+
+    for result in results.into_iter().flatten() {
+        match result {
+            Ok(component) => components.push(component),
+            Err(e) => warn!("Failed to load component: {}", e),
+        }
+    }
+
+    Ok(components)
 }
 
 async fn load_component_from_entry(
