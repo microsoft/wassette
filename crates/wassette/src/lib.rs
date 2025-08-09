@@ -16,7 +16,6 @@ use component2json::{
     component_exports_to_json_schema, component_exports_to_tools, create_placeholder_results,
     json_to_vals, vals_to_json, FunctionIdentifier, ToolMetadata,
 };
-use futures::TryStreamExt;
 use policy::PolicyParser;
 use serde_json::Value;
 use tokio::fs::DirEntry;
@@ -556,7 +555,7 @@ async fn load_components_parallel(
         }
     }
 
-        Ok(components)
+    Ok(components)
 }
 
 async fn load_component_from_entry(
