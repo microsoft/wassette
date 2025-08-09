@@ -20,9 +20,8 @@ use rmcp::model::{
     ListToolsResult, PaginatedRequestParam, ServerCapabilities, ServerInfo, ToolsCapability,
 };
 use rmcp::service::{serve_server, RequestContext, RoleServer};
-use rmcp::transport::streamable_http_server::{
-    session::local::LocalSessionManager, StreamableHttpService,
-};
+use rmcp::transport::streamable_http_server::session::local::LocalSessionManager;
+use rmcp::transport::streamable_http_server::StreamableHttpService;
 use rmcp::transport::{stdio as stdio_transport, SseServer};
 use rmcp::ServerHandler;
 use serde::{Deserialize, Serialize};
