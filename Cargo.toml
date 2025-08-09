@@ -67,6 +67,9 @@ tracing-subscriber = { workspace = true, features = ["env-filter"] }
 name = "wassette"
 path = "src/main.rs"
 
+[build-dependencies]
+built = { version = "0.8", features = ["git2"] }
+
 [dev-dependencies]
 proptest = "1.4"
 temp-env = "0.3"

@@ -28,10 +28,56 @@ use tracing_subscriber::util::SubscriberInitExt as _;
 
 mod config;
 
+use std::sync::LazyLock;
+
+// Create a static version string that can be used by clap
+static VERSION_INFO: LazyLock<String> = LazyLock::new(format_build_info);
+mod built_info {
+    include!(concat!(env!("OUT_DIR"), "/built.rs"));
+}
+
 const BIND_ADDRESS: &str = "127.0.0.1:9001";
 
+/// Formats build information similar to agentgateway's version output
+fn format_build_info() -> String {
+    // Parse Rust version more robustly by looking for version pattern
+    // Expected format: "rustc 1.88.0 (extra info)"
+    let rust_version = built_info::RUSTC_VERSION
+        .split_whitespace()
+        .find(|part| part.chars().next().is_some_and(|c| c.is_ascii_digit()))
+        .unwrap_or("unknown");
+
+    let build_profile = built_info::PROFILE;
+
+    let build_status = if built_info::GIT_DIRTY.unwrap_or(false) {
+        "Modified"
+    } else {
+        "Clean"
+    };
+
+    let git_tag = built_info::GIT_VERSION.unwrap_or("unknown");
+
+    let git_revision = built_info::GIT_COMMIT_HASH.unwrap_or("unknown");
+    let version = if built_info::GIT_DIRTY.unwrap_or(false) {
+        format!("{git_revision}-dirty")
+    } else {
+        git_revision.to_string()
+    };
+
+    format!(
+        "{} version.BuildInfo{{RustVersion:\"{}\", BuildProfile:\"{}\", BuildStatus:\"{}\", GitTag:\"{}\", Version:\"{}\", GitRevision:\"{}\"}}",
+        built_info::PKG_VERSION,
+        rust_version,
+        build_profile,
+        build_status,
+        git_tag,
+        version,
+        git_revision
+    )
+}
+
 #[derive(Parser, Debug)]
-#[command(version, about, long_about = None)]
+#[command(name = "wassette-mcp-server", about, long_about = None, version = VERSION_INFO.as_str())]
 struct Cli {
     #[command(subcommand)]
     command: Commands,
@@ -241,4 +287,31 @@ async fn main() -> Result<()> {
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod version_tests {
+    use super::*;
+
+    #[test]
+    fn test_version_format_contains_required_fields() {
+        let version_info = format_build_info();
+
+        // Check that the version output contains expected components
+        assert!(version_info.contains("0.2.0"));
+        assert!(version_info.contains("version.BuildInfo"));
+        assert!(version_info.contains("RustVersion"));
+        assert!(version_info.contains("BuildProfile"));
+        assert!(version_info.contains("BuildStatus"));
+        assert!(version_info.contains("GitTag"));
+        assert!(version_info.contains("Version"));
+        assert!(version_info.contains("GitRevision"));
+    }
+
+    #[test]
+    fn test_version_contains_cargo_version() {
+        let version_info = format_build_info();
+        // This test ensures the Homebrew formula test will pass by checking the version info contains package version
+        assert!(version_info.contains(built_info::PKG_VERSION));
+    }
 }
