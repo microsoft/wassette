@@ -28,7 +28,10 @@ use tracing_subscriber::util::SubscriberInitExt as _;
 
 mod config;
 
-// Include build-time information
+use std::sync::LazyLock;
+
+// Create a static version string that can be used by clap
+static VERSION_INFO: LazyLock<String> = LazyLock::new(format_build_info);
 mod built_info {
     include!(concat!(env!("OUT_DIR"), "/built.rs"));
 }
@@ -37,9 +40,11 @@ const BIND_ADDRESS: &str = "127.0.0.1:9001";
 
 /// Formats build information similar to agentgateway's version output
 fn format_build_info() -> String {
+    // Parse Rust version more robustly by looking for version pattern
+    // Expected format: "rustc 1.88.0 (extra info)"
     let rust_version = built_info::RUSTC_VERSION
         .split_whitespace()
-        .nth(1)
+        .find(|part| part.chars().next().is_some_and(|c| c.is_ascii_digit()))
         .unwrap_or("unknown");
 
     let build_profile = built_info::PROFILE;
@@ -60,8 +65,7 @@ fn format_build_info() -> String {
     };
 
     format!(
-        "{} {} version.BuildInfo{{RustVersion:\"{}\", BuildProfile:\"{}\", BuildStatus:\"{}\", GitTag:\"{}\", Version:\"{}\", GitRevision:\"{}\"}}",
-        built_info::PKG_NAME,
+        "{} version.BuildInfo{{RustVersion:\"{}\", BuildProfile:\"{}\", BuildStatus:\"{}\", GitTag:\"{}\", Version:\"{}\", GitRevision:\"{}\"}}",
         built_info::PKG_VERSION,
         rust_version,
         build_profile,
@@ -73,14 +77,10 @@ fn format_build_info() -> String {
 }
 
 #[derive(Parser, Debug)]
-#[command(name = "wassette", about, long_about = None)]
+#[command(name = "wassette-mcp-server", about, long_about = None, version = VERSION_INFO.as_str())]
 struct Cli {
-    /// Print version information
-    #[arg(long, short = 'V')]
-    version: bool,
-
     #[command(subcommand)]
-    command: Option<Commands>,
+    command: Commands,
 }
 
 #[derive(Subcommand, Debug)]
@@ -220,84 +220,69 @@ Key points:
 async fn main() -> Result<()> {
     let cli = Cli::parse();
 
-    // Handle version flag
-    if cli.version {
-        println!("{}", format_build_info());
-        return Ok(());
-    }
-
-    // Handle command or show help if no command provided
-    match cli.command {
-        Some(command) => match &command {
-            Commands::Serve(cfg) => {
-                // Initialize logging based on transport type
-                let use_stdio_transport = match (cfg.stdio, cfg.http) {
-                    (false, false) => true, // Default case: use stdio transport
-                    (true, false) => true,  // Stdio transport only
-                    (false, true) => false, // HTTP transport only
-                    (true, true) => {
-                        return Err(anyhow::anyhow!(
+    match &cli.command {
+        Commands::Serve(cfg) => {
+            // Initialize logging based on transport type
+            let use_stdio_transport = match (cfg.stdio, cfg.http) {
+                (false, false) => true, // Default case: use stdio transport
+                (true, false) => true,  // Stdio transport only
+                (false, true) => false, // HTTP transport only
+                (true, true) => {
+                    return Err(anyhow::anyhow!(
                         "Running both stdio and HTTP transports simultaneously is not supported. Please choose one."
                     ));
-                    }
-                };
+                }
+            };
 
-                // Configure logging - use stderr for stdio transport to avoid interfering with MCP protocol
-                let env_filter = tracing_subscriber::EnvFilter::try_from_default_env()
+            // Configure logging - use stderr for stdio transport to avoid interfering with MCP protocol
+            let env_filter = tracing_subscriber::EnvFilter::try_from_default_env()
                 .unwrap_or_else(|_| {
                     "info,cranelift_codegen=warn,cranelift_entity=warn,cranelift_bforest=warn,cranelift_frontend=warn"
                         .to_string()
                         .into()
                 });
 
-                let registry = tracing_subscriber::registry().with(env_filter);
+            let registry = tracing_subscriber::registry().with(env_filter);
 
-                if use_stdio_transport {
-                    registry
-                        .with(
-                            tracing_subscriber::fmt::layer()
-                                .with_writer(std::io::stderr)
-                                .with_ansi(false),
-                        )
-                        .init();
-                } else {
-                    registry.with(tracing_subscriber::fmt::layer()).init();
-                }
-
-                let config = config::Config::new(cfg).context("Failed to load configuration")?;
-
-                let lifecycle_manager = LifecycleManager::new(&config.plugin_dir).await?;
-
-                let server = McpServer::new(lifecycle_manager);
-
-                if use_stdio_transport {
-                    tracing::info!("Starting MCP server with stdio transport");
-                    let transport = stdio_transport();
-                    let running_service = serve_server(server, transport).await?;
-
-                    tokio::signal::ctrl_c().await?;
-                    let _ = running_service.cancel().await;
-                } else {
-                    tracing::info!(
-                        "Starting MCP server on {} with HTTP transport",
-                        BIND_ADDRESS
-                    );
-                    let ct = SseServer::serve(BIND_ADDRESS.parse().unwrap())
-                        .await?
-                        .with_service(move || server.clone());
-
-                    tokio::signal::ctrl_c().await?;
-                    ct.cancel();
-                }
-
-                tracing::info!("MCP server shutting down");
+            if use_stdio_transport {
+                registry
+                    .with(
+                        tracing_subscriber::fmt::layer()
+                            .with_writer(std::io::stderr)
+                            .with_ansi(false),
+                    )
+                    .init();
+            } else {
+                registry.with(tracing_subscriber::fmt::layer()).init();
             }
-        },
-        None => {
-            // Show help if no command provided
-            return Err(anyhow::anyhow!(
-                "No command provided. Use --help for usage information."
-            ));
+
+            let config = config::Config::new(cfg).context("Failed to load configuration")?;
+
+            let lifecycle_manager = LifecycleManager::new(&config.plugin_dir).await?;
+
+            let server = McpServer::new(lifecycle_manager);
+
+            if use_stdio_transport {
+                tracing::info!("Starting MCP server with stdio transport");
+                let transport = stdio_transport();
+                let running_service = serve_server(server, transport).await?;
+
+                tokio::signal::ctrl_c().await?;
+                let _ = running_service.cancel().await;
+            } else {
+                tracing::info!(
+                    "Starting MCP server on {} with HTTP transport",
+                    BIND_ADDRESS
+                );
+                let ct = SseServer::serve(BIND_ADDRESS.parse().unwrap())
+                    .await?
+                    .with_service(move || server.clone());
+
+                tokio::signal::ctrl_c().await?;
+                ct.cancel();
+            }
+
+            tracing::info!("MCP server shutting down");
         }
     }
 
@@ -313,7 +298,6 @@ mod version_tests {
         let version_info = format_build_info();
 
         // Check that the version output contains expected components
-        assert!(version_info.contains("wassette-mcp-server"));
         assert!(version_info.contains("0.2.0"));
         assert!(version_info.contains("version.BuildInfo"));
         assert!(version_info.contains("RustVersion"));
@@ -327,7 +311,7 @@ mod version_tests {
     #[test]
     fn test_version_contains_cargo_version() {
         let version_info = format_build_info();
-        // This test ensures the Homebrew formula test will pass
-        assert!(version_info.contains(&format!("wassette-mcp-server {}", built_info::PKG_VERSION)));
+        // This test ensures the Homebrew formula test will pass by checking the version info contains package version
+        assert!(version_info.contains(built_info::PKG_VERSION));
     }
 }
