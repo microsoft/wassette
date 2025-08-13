@@ -4,10 +4,18 @@ If you haven't installed Wassette yet, follow the [installation instructions](ht
 
 ## Visual Studio Code
 
-[Click to install Wassette in GitHub Copilot in Visual Studio Code](vscode:mcp/install?%7B%22name%22%3A%22wassette%22%2C%22gallery%22%3Afalse%2C%22command%22%3A%22wassette%22%2C%22args%22%3A%5B%22serve%22%2C%22--stdio%22%5D%7D), or add the Wassete MCP server to VS Code from the command line using the `code` command:
+[Click to install Wassette in GitHub Copilot in Visual Studio Code](vscode:mcp/install?%7B%22name%22%3A%22wassette%22%2C%22gallery%22%3Afalse%2C%22command%22%3A%22wassette%22%2C%22args%22%3A%5B%22serve%22%2C%22--stdio%22%5D%7D), or add the Wassete MCP server to VS Code from the command line using the `code` command in a bash/zsh or PowerShell terminal:
+
+### bash/zsh
 
 ```bash
-code --add-mcp '{"name":"wassette","command":"wassette","args":["serve","--stdio"]}'
+code --add-mcp '{"name":"Wassette","command":"wassette","args":["serve","--stdio"]}'
+```
+
+### PowerShell
+
+```powershell
+ code --% --add-mcp "{\"name\":\"wassette\",\"command\":\"wassette\",\"args\":[\"serve\",\"--stdio\"]}"
 ```
 
 You can list and configure MCP servers in VS Code by running the command `MCP: List Servers` in the command palette (Ctrl+Shift+P or Cmd+Shift+P).
