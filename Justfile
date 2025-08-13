@@ -6,6 +6,7 @@ build mode="debug":
     mkdir -p bin
     cargo build --workspace {{ if mode == "release" { "--release" } else { "" } }}
     cp target/{{ mode }}/wassette bin/
+    cp target/{{ mode }}/weld bin/
     
 build-examples mode="debug":
     mkdir -p bin
@@ -30,15 +31,22 @@ component2json path="examples/fetch-rs/target/wasm32-wasip2/release/fetch_rs.was
     cargo run --bin component2json -p component2json -- {{ path }}
 
 run RUST_LOG='info':
-    RUST_LOG={{RUST_LOG}} cargo run --bin wassette serve --http
+    RUST_LOG={{RUST_LOG}} cargo run --bin weld serve
 
 run-filesystem RUST_LOG='info':
-    RUST_LOG={{RUST_LOG}} cargo run --bin wassette serve --http --plugin-dir ./examples/filesystem-rs
+    RUST_LOG={{RUST_LOG}} cargo run --bin weld serve --plugin-dir ./examples/filesystem-rs
 
 # Requires an openweather API key in the environment variable OPENWEATHER_API_KEY
 run-get-weather RUST_LOG='info':
-    RUST_LOG={{RUST_LOG}} cargo run --bin wassette serve --http --plugin-dir ./examples/get-weather-js
+    RUST_LOG={{RUST_LOG}} cargo run --bin weld serve --plugin-dir ./examples/get-weather-js
 
 run-fetch-rs RUST_LOG='info':
-    RUST_LOG={{RUST_LOG}} cargo run --bin wassette serve --http --plugin-dir ./examples/fetch-rs
+    RUST_LOG={{RUST_LOG}} cargo run --bin weld serve --plugin-dir ./examples/fetch-rs
+
+# Legacy commands (deprecated)
+run-legacy RUST_LOG='info':
+    RUST_LOG={{RUST_LOG}} cargo run --bin wassette serve --http
+
+run-mcp RUST_LOG='info':
+    RUST_LOG={{RUST_LOG}} cargo run --bin weld run
 

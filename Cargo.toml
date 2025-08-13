@@ -67,6 +67,10 @@ tracing-subscriber = { workspace = true, features = ["env-filter"] }
 name = "wassette"
 path = "src/main.rs"
 
+[[bin]]
+name = "weld"
+path = "src/weld.rs"
+
 [build-dependencies]
 built = { version = "0.8", features = ["git2"] }
 
