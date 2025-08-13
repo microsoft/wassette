@@ -42,10 +42,18 @@ You can also download the latest release from the [GitHub Releases page][Release
 With Wassette installed, the next step is to register it with your agent of
 choice. We have a complete [complete setup guide][setup guide] for all agents
 here, including Cursor, Claude Code, and Gemini CLI. However to get started with
-Visual Studio Code, just run the following command:
+Visual Studio Code, just run the following command in a bash/zsh or PowerShell terminal:
+
+### bash/zsh
 
 ```bash
 code --add-mcp '{"name":"Wassette","command":"wassette","args":["serve","--stdio"]}'
+```
+
+### PowerShell
+
+```powershell
+ code --% --add-mcp "{\"name\":\"wassette\",\"command\":\"wassette\",\"args\":[\"serve\",\"--stdio\"]}"
 ```
 
 Now that your agent knows about Wassette, we are ready to load Wasm Components. To teach your agent to tell the time, we can ask it to load a time component:
