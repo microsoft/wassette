@@ -684,3 +684,59 @@ mod version_tests {
         assert!(version_info.contains(built_info::PKG_VERSION));
     }
 }
+
+#[cfg(test)]
+mod cli_tests {
+    use super::*;
+    use clap::Parser;
+
+    #[test]
+    fn test_cli_command_parsing() {
+        // Test component commands
+        let args = vec!["wassette", "component", "list"];
+        let cli = Cli::try_parse_from(args).unwrap();
+        matches!(cli.command, Commands::Component { .. });
+
+        // Test policy commands
+        let args = vec!["wassette", "policy", "get", "test-component"];
+        let cli = Cli::try_parse_from(args).unwrap();
+        matches!(cli.command, Commands::Policy { .. });
+
+        // Test permission commands
+        let args = vec!["wassette", "permission", "grant", "storage", "test-component", "fs:///tmp", "--access", "read"];
+        let cli = Cli::try_parse_from(args).unwrap();
+        matches!(cli.command, Commands::Permission { .. });
+
+        // Test serve command still works
+        let args = vec!["wassette", "serve", "--http"];
+        let cli = Cli::try_parse_from(args).unwrap();
+        matches!(cli.command, Commands::Serve(_));
+    }
+
+    #[test]
+    fn test_permission_grant_storage_parsing() {
+        let args = vec!["wassette", "permission", "grant", "storage", "test-component", "fs:///tmp/test", "--access", "read,write"];
+        let cli = Cli::try_parse_from(args).unwrap();
+        
+        if let Commands::Permission { command: PermissionCommands::Grant { permission: GrantPermissionCommands::Storage { component_id, uri, access, .. } } } = cli.command {
+            assert_eq!(component_id, "test-component");
+            assert_eq!(uri, "fs:///tmp/test");
+            assert_eq!(access, vec!["read", "write"]);
+        } else {
+            panic!("Expected storage grant command");
+        }
+    }
+
+    #[test]
+    fn test_permission_revoke_network_parsing() {
+        let args = vec!["wassette", "permission", "revoke", "network", "test-component", "example.com"];
+        let cli = Cli::try_parse_from(args).unwrap();
+        
+        if let Commands::Permission { command: PermissionCommands::Revoke { permission: RevokePermissionCommands::Network { component_id, host, .. } } } = cli.command {
+            assert_eq!(component_id, "test-component");
+            assert_eq!(host, "example.com");
+        } else {
+            panic!("Expected network revoke command");
+        }
+    }
+}
