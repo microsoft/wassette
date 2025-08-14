@@ -115,9 +115,14 @@ Supported permission types:
 1. `get-policy`: Get policy information
 2. `grant-storage-permission`: Grant storage access
 3. `grant-network-permission`: Grant network access
-4. `load-component`: Load WebAssembly component
-5. `unload-component`: Unload component
-6. `list-components`: List loaded components
+4. `grant-environment-variable-permission`: Grant environment variable access
+5. `revoke-storage-permission`: Revoke storage access permissions
+6. `revoke-network-permission`: Revoke network access permissions  
+7. `revoke-environment-variable-permission`: Revoke environment variable access permissions
+8. `reset-permission`: Reset all permissions for a component
+9. `load-component`: Load WebAssembly component
+10. `unload-component`: Unload component
+11. `list-components`: List loaded components
 
 ## Permission Types and Structure
 
