@@ -482,8 +482,8 @@ permissions: {}
     }
 
     #[test]
-    fn test_parse_testdata_k8s_resources() {
-        let policy = PolicyParser::parse_file("testdata/k8s-resources.yaml").unwrap();
+    fn test_parse_testdata_resource_limits() {
+        let policy = PolicyParser::parse_file("testdata/resource-limits.yaml").unwrap();
         assert_eq!(policy.version, "1.0");
         assert_eq!(
             policy.description,
@@ -526,7 +526,7 @@ permissions: {}
             "testdata/development.yaml",
             "testdata/web-service.yaml",
             "testdata/docker.yaml",
-            "testdata/k8s-resources.yaml",
+            "testdata/resource-limits.yaml",
         ];
 
         for file_path in &test_files {
@@ -553,7 +553,7 @@ permissions: {}
             "testdata/development.yaml",
             "testdata/web-service.yaml",
             "testdata/docker.yaml",
-            "testdata/k8s-resources.yaml",
+            "testdata/resource-limits.yaml",
         ];
 
         for file_path in &test_files {
