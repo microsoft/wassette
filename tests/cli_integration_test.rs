@@ -444,10 +444,10 @@ async fn test_cli_permission_revoke_and_reset() -> Result<()> {
 }
 
 #[test(tokio::test)]
-async fn test_cli_pretty_output() -> Result<()> {
+async fn test_cli_json_output_default() -> Result<()> {
     let ctx = CliTestContext::new().await?;
 
-    let (stdout, stderr, exit_code) = ctx.run_command(&["component", "list", "--pretty"]).await?;
+    let (stdout, stderr, exit_code) = ctx.run_command(&["component", "list"]).await?;
 
     assert_eq!(exit_code, 0, "Command failed with stderr: {}", stderr);
 
@@ -455,11 +455,70 @@ async fn test_cli_pretty_output() -> Result<()> {
     let _: Value = ctx.parse_json_output(&stdout)?;
     assert!(
         stdout.contains('\n'),
-        "Pretty output should contain newlines"
+        "JSON output should contain newlines by default"
     );
     assert!(
         stdout.contains("  "),
-        "Pretty output should contain indentation"
+        "JSON output should contain indentation by default"
+    );
+
+    Ok(())
+}
+
+#[test(tokio::test)]
+async fn test_cli_output_format_json() -> Result<()> {
+    let ctx = CliTestContext::new().await?;
+
+    let (stdout, stderr, exit_code) = ctx
+        .run_command(&["component", "list", "-o", "json"])
+        .await?;
+
+    assert_eq!(exit_code, 0, "Command failed with stderr: {}", stderr);
+
+    // Verify the output is valid JSON and pretty-formatted
+    let _: Value = ctx.parse_json_output(&stdout)?;
+    assert!(stdout.contains('\n'), "JSON output should contain newlines");
+    assert!(
+        stdout.contains("  "),
+        "JSON output should contain indentation"
+    );
+
+    Ok(())
+}
+
+#[test(tokio::test)]
+async fn test_cli_output_format_yaml() -> Result<()> {
+    let ctx = CliTestContext::new().await?;
+
+    let (stdout, stderr, exit_code) = ctx
+        .run_command(&["component", "list", "-o", "yaml"])
+        .await?;
+
+    assert_eq!(exit_code, 0, "Command failed with stderr: {}", stderr);
+
+    // YAML output should contain YAML formatting indicators
+    assert!(
+        stdout.contains("components:") || stdout.contains("total:"),
+        "YAML output should contain YAML-formatted keys"
+    );
+
+    Ok(())
+}
+
+#[test(tokio::test)]
+async fn test_cli_output_format_table() -> Result<()> {
+    let ctx = CliTestContext::new().await?;
+
+    let (stdout, stderr, exit_code) = ctx
+        .run_command(&["component", "list", "-o", "table"])
+        .await?;
+
+    assert_eq!(exit_code, 0, "Command failed with stderr: {}", stderr);
+
+    // Table output should contain table headers
+    assert!(
+        stdout.contains("ID") && stdout.contains("Tools Count"),
+        "Table output should contain table headers"
     );
 
     Ok(())

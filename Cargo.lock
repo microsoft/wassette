@@ -4938,6 +4938,7 @@ dependencies = [
  "rustls 0.23.31",
  "serde",
  "serde_json",
+ "serde_yaml",
  "temp-env",
  "tempfile",
  "test-log",
