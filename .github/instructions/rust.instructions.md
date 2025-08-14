@@ -17,6 +17,7 @@ View the design/architecture.md for a high-level overview of the architecture an
 - Keep it simple: avoid unnecessary complexity in code and design. Favor straightforward solutions that are easy to understand and maintain.
 - Manage dependencies carefully: use `Cargo.toml` to manage dependencies and keep them up-to-date. Avoid unnecessary dependencies that bloat the project.
 - Idiomatic error handling: Use `anyhow` for error handling to provide context and stack traces.
+- ALWAYS run `cargo +nightly fmt` to format your code.
 - Write idiomatic Rust code that passes `cargo clippy` warnings.
 - Use traits to define shared behavior and generics to create reusable, type-safe components. Design the API to be extensible
 - Use stdlib primitives like `Arc` and `Mutex` for thread safety and shared state.
