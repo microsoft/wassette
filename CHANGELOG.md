@@ -37,48 +37,29 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ## [v0.2.0] - 2025-08-05
 
 ### Added
-- Enhanced unload-component API to delete files on disk (symmetric to load-component)
-- Improved logging with structured fields for component operations
-- Missing documentation warnings and comprehensive documentation
-- Comprehensive release process documentation
+- Enhanced component lifecycle management with improved file cleanup
+- Comprehensive documentation and release process improvements
 - Integration tests for component notifications
-- Installation instruction links
-- Enhanced code documentation coverage
-- Rust coding instructions for GitHub Copilot
 
 ### Changed
 - Refactored component lifecycle management with better file cleanup
-- Simplified policy cleanup and metadata path retrieval
-- Enhanced developer experience with copyright headers and build scripts
-- Moved design documentation to proper location
+- Enhanced developer experience improvements
 
 ### Fixed
 - Logging to stderr for stdio transport
-- Removed optionality of server_peer in component handling functions
-- Corrected typos and added ARM64 links for Linux and Windows
+- Various typos and documentation corrections
 
-## [v0.1.0] - 2025-07-10
+## [v0.1.0] - 2025-08-05
 
 Initial release of Wassette - A security-oriented runtime that runs WebAssembly Components via MCP (Model Context Protocol).
 
 ### Added
 - Core MCP server implementation for running WebAssembly components
-- Support for SSE (Server-Sent Events) transport
-- Support for stdio transport
+- Support for SSE and stdio transports
 - Component lifecycle management (load, unload, call)
 - Policy-based security system for component permissions
-- Permission management for network, environment, and storage access
-- Built-in examples including:
-  - HTTP API client for fetching web content (fetch-rs)
-  - File system operations (filesystem-rs)
-  - Weather API client (get-weather-js)
-  - Go module information tool (gomodule-go)
-  - Time server component (time-server-js)
-  - Python evaluation component (eval-py)
-- CLI interface with serve command
-- Integration with Visual Studio Code MCP clients
-- Installation support via Homebrew (macOS)
-- Comprehensive documentation and setup guides
+- Built-in examples and CLI interface
+- Installation support and documentation
 
 [Unreleased]: https://github.com/microsoft/wassette/compare/v0.2.0...HEAD
 [v0.2.0]: https://github.com/microsoft/wassette/compare/v0.1.0...v0.2.0
