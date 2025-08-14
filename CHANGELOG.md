@@ -26,13 +26,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Fixed
 - Component loading across different filesystems (EXDEV error handling) ([#109](https://github.com/microsoft/wassette/pull/109))
-- Linting and test failures related to unused imports and config field references ([#100](https://github.com/microsoft/wassette/pull/100))
 - Component names in README files for consistency ([#115](https://github.com/microsoft/wassette/pull/115))
 - Installation instructions for Linux and Windows in README ([#120](https://github.com/microsoft/wassette/pull/120))
-- Component load instructions in README for filesystem and gomodule examples ([#97](https://github.com/microsoft/wassette/pull/97))
-
-### Removed
-- Unused dependencies from Cargo.toml ([#116](https://github.com/microsoft/wassette/pull/116))
 
 ## [v0.2.0] - 2025-08-05
 
