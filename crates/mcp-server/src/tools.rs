@@ -593,8 +593,7 @@ async fn handle_revoke_storage_permission(
 
     info!(
         "Revoking all storage permissions for URI {} from component {}",
-        uri,
-        component_id
+        uri, component_id
     );
 
     let result = lifecycle_manager

@@ -613,10 +613,7 @@ impl LifecycleManager {
         self.save_component_policy(component_id, &policy).await?;
         self.update_policy_registry(component_id, &policy).await?;
 
-        info!(
-            component_id,
-            uri, "Storage permission revoked successfully"
-        );
+        info!(component_id, uri, "Storage permission revoked successfully");
         Ok(())
     }
 
