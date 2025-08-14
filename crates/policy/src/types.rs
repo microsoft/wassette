@@ -119,11 +119,46 @@ pub struct HyperlightRuntime {
     pub config: HashMap<String, serde_yaml::Value>,
 }
 
-/// Resource limits configuration (future/TODO)
+/// CPU resource limit that supports k8s-style values
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum CpuLimit {
+    /// String format supporting millicores ("500m") or cores ("1", "2")
+    String(String),
+    /// Numeric format for backward compatibility
+    Number(f64),
+}
+
+/// Memory resource limit that supports k8s-style values
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum MemoryLimit {
+    /// String format supporting Ki, Mi, Gi suffixes ("512Mi", "1Gi")
+    String(String),
+    /// Numeric format for backward compatibility (assumed to be in MB)
+    Number(u64),
+}
+
+/// Resource limit values under the limits section
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ResourceLimitValues {
+    /// CPU limit in k8s format (millicores "500m" or cores "1")
+    pub cpu: Option<CpuLimit>,
+    /// Memory limit in k8s format ("512Mi", "1Gi", "256Ki")
+    pub memory: Option<MemoryLimit>,
+}
+
+/// Resource limits configuration
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ResourceLimits {
+    /// Resource limits in k8s-style format
+    pub limits: Option<ResourceLimitValues>,
+    /// Legacy numeric fields for backward compatibility
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub cpu: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub memory: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub io: Option<u64>,
 }
 
@@ -173,6 +208,126 @@ pub struct Permissions {
     pub runtime: Option<Runtime>,
     pub resources: Option<ResourceLimits>,
     pub ipc: Option<PermissionList<IpcPermission>>,
+}
+
+impl CpuLimit {
+    /// Validate and convert CPU limit to numeric value (in cores)
+    pub fn to_cores(&self) -> PolicyResult<f64> {
+        match self {
+            CpuLimit::String(s) => {
+                if s.is_empty() {
+                    bail!("CPU limit string cannot be empty");
+                }
+                
+                if s.ends_with('m') {
+                    // Millicores format like "500m"
+                    let millicores_str = &s[..s.len() - 1];
+                    let millicores: f64 = millicores_str.parse()
+                        .map_err(|_| anyhow::anyhow!("Invalid millicores value: {}", s))?;
+                    
+                    if millicores < 0.0 {
+                        bail!("CPU millicores cannot be negative: {}", s);
+                    }
+                    
+                    Ok(millicores / 1000.0)
+                } else {
+                    // Cores format like "1", "2", "0.5"
+                    let cores: f64 = s.parse()
+                        .map_err(|_| anyhow::anyhow!("Invalid cores value: {}", s))?;
+                    
+                    if cores < 0.0 {
+                        bail!("CPU cores cannot be negative: {}", s);
+                    }
+                    
+                    Ok(cores)
+                }
+            }
+            CpuLimit::Number(n) => {
+                if *n < 0.0 {
+                    bail!("CPU cores cannot be negative: {}", n);
+                }
+                Ok(*n)
+            }
+        }
+    }
+}
+
+impl MemoryLimit {
+    /// Validate and convert memory limit to bytes
+    pub fn to_bytes(&self) -> PolicyResult<u64> {
+        match self {
+            MemoryLimit::String(s) => {
+                if s.is_empty() {
+                    bail!("Memory limit string cannot be empty");
+                }
+                
+                let (value_str, multiplier) = if s.ends_with("Ki") {
+                    (&s[..s.len() - 2], 1024u64)
+                } else if s.ends_with("Mi") {
+                    (&s[..s.len() - 2], 1024u64 * 1024)
+                } else if s.ends_with("Gi") {
+                    (&s[..s.len() - 2], 1024u64 * 1024 * 1024)
+                } else if s.ends_with("Ti") {
+                    (&s[..s.len() - 2], 1024u64 * 1024 * 1024 * 1024)
+                } else {
+                    // No suffix, assume bytes
+                    (s.as_str(), 1u64)
+                };
+                
+                let value: u64 = value_str.parse()
+                    .map_err(|_| anyhow::anyhow!("Invalid memory value: {}", s))?;
+                
+                value.checked_mul(multiplier)
+                    .ok_or_else(|| anyhow::anyhow!("Memory value too large: {}", s))
+            }
+            MemoryLimit::Number(n) => {
+                // Assume legacy numeric values are in MB
+                n.checked_mul(1024 * 1024)
+                    .ok_or_else(|| anyhow::anyhow!("Memory value too large: {}", n))
+            }
+        }
+    }
+}
+
+impl ResourceLimitValues {
+    /// Validate resource limit values
+    pub fn validate(&self) -> PolicyResult<()> {
+        if let Some(cpu) = &self.cpu {
+            cpu.to_cores()?;
+        }
+        
+        if let Some(memory) = &self.memory {
+            memory.to_bytes()?;
+        }
+        
+        Ok(())
+    }
+}
+
+impl ResourceLimits {
+    /// Validate resource limits
+    pub fn validate(&self) -> PolicyResult<()> {
+        if let Some(limits) = &self.limits {
+            limits.validate()?;
+        }
+        
+        // Validate legacy fields
+        if let Some(cpu) = self.cpu {
+            if cpu < 0.0 {
+                bail!("Legacy CPU value cannot be negative: {}", cpu);
+            }
+        }
+        
+        if let Some(_memory) = self.memory {
+            // Legacy memory values are fine as u64 is naturally non-negative
+        }
+        
+        if let Some(_io) = self.io {
+            // IO values are fine as u64 is naturally non-negative
+        }
+        
+        Ok(())
+    }
 }
 
 impl Permissions {
@@ -303,6 +458,10 @@ impl Permissions {
                     Self::validate_environment_key(&perm.key)?;
                 }
             }
+        }
+
+        if let Some(resources) = &self.resources {
+            resources.validate()?;
         }
 
         Ok(())
@@ -455,6 +614,184 @@ mod tests {
             ..Default::default()
         };
 
+        assert!(permissions.validate().is_ok());
+    }
+
+    #[test]
+    fn test_cpu_limit_parsing() {
+        // Test millicores format
+        let cpu_millicores = CpuLimit::String("500m".to_string());
+        assert_eq!(cpu_millicores.to_cores().unwrap(), 0.5);
+        
+        let cpu_millicores_large = CpuLimit::String("2000m".to_string());
+        assert_eq!(cpu_millicores_large.to_cores().unwrap(), 2.0);
+        
+        // Test cores format
+        let cpu_cores = CpuLimit::String("1".to_string());
+        assert_eq!(cpu_cores.to_cores().unwrap(), 1.0);
+        
+        let cpu_cores_decimal = CpuLimit::String("1.5".to_string());
+        assert_eq!(cpu_cores_decimal.to_cores().unwrap(), 1.5);
+        
+        // Test numeric format
+        let cpu_numeric = CpuLimit::Number(2.5);
+        assert_eq!(cpu_numeric.to_cores().unwrap(), 2.5);
+        
+        // Test invalid formats
+        let invalid_empty = CpuLimit::String("".to_string());
+        assert!(invalid_empty.to_cores().is_err());
+        
+        let invalid_millicores = CpuLimit::String("invalidm".to_string());
+        assert!(invalid_millicores.to_cores().is_err());
+        
+        let invalid_cores = CpuLimit::String("invalid".to_string());
+        assert!(invalid_cores.to_cores().is_err());
+        
+        let negative_numeric = CpuLimit::Number(-1.0);
+        assert!(negative_numeric.to_cores().is_err());
+        
+        let negative_millicores = CpuLimit::String("-100m".to_string());
+        assert!(negative_millicores.to_cores().is_err());
+    }
+
+    #[test]
+    fn test_memory_limit_parsing() {
+        // Test Ki format
+        let memory_ki = MemoryLimit::String("512Ki".to_string());
+        assert_eq!(memory_ki.to_bytes().unwrap(), 512 * 1024);
+        
+        // Test Mi format
+        let memory_mi = MemoryLimit::String("256Mi".to_string());
+        assert_eq!(memory_mi.to_bytes().unwrap(), 256 * 1024 * 1024);
+        
+        // Test Gi format
+        let memory_gi = MemoryLimit::String("2Gi".to_string());
+        assert_eq!(memory_gi.to_bytes().unwrap(), 2 * 1024 * 1024 * 1024);
+        
+        // Test Ti format
+        let memory_ti = MemoryLimit::String("1Ti".to_string());
+        assert_eq!(memory_ti.to_bytes().unwrap(), 1024u64 * 1024 * 1024 * 1024);
+        
+        // Test plain bytes
+        let memory_bytes = MemoryLimit::String("1024".to_string());
+        assert_eq!(memory_bytes.to_bytes().unwrap(), 1024);
+        
+        // Test numeric format (legacy, assumes MB)
+        let memory_numeric = MemoryLimit::Number(512);
+        assert_eq!(memory_numeric.to_bytes().unwrap(), 512 * 1024 * 1024);
+        
+        // Test invalid formats
+        let invalid_empty = MemoryLimit::String("".to_string());
+        assert!(invalid_empty.to_bytes().is_err());
+        
+        let invalid_suffix = MemoryLimit::String("512Xi".to_string());
+        assert!(invalid_suffix.to_bytes().is_err());
+        
+        let invalid_number = MemoryLimit::String("invalidMi".to_string());
+        assert!(invalid_number.to_bytes().is_err());
+    }
+
+    #[test]
+    fn test_resource_limit_values_validation() {
+        // Valid resource limits
+        let valid_limits = ResourceLimitValues {
+            cpu: Some(CpuLimit::String("500m".to_string())),
+            memory: Some(MemoryLimit::String("512Mi".to_string())),
+        };
+        assert!(valid_limits.validate().is_ok());
+        
+        // Valid with numeric values
+        let valid_numeric = ResourceLimitValues {
+            cpu: Some(CpuLimit::Number(1.5)),
+            memory: Some(MemoryLimit::Number(256)),
+        };
+        assert!(valid_numeric.validate().is_ok());
+        
+        // Invalid CPU
+        let invalid_cpu = ResourceLimitValues {
+            cpu: Some(CpuLimit::String("invalidm".to_string())),
+            memory: None,
+        };
+        assert!(invalid_cpu.validate().is_err());
+        
+        // Invalid memory
+        let invalid_memory = ResourceLimitValues {
+            cpu: None,
+            memory: Some(MemoryLimit::String("invalidMi".to_string())),
+        };
+        assert!(invalid_memory.validate().is_err());
+    }
+
+    #[test]
+    fn test_resource_limits_validation() {
+        // Valid new format
+        let valid_new = ResourceLimits {
+            limits: Some(ResourceLimitValues {
+                cpu: Some(CpuLimit::String("500m".to_string())),
+                memory: Some(MemoryLimit::String("512Mi".to_string())),
+            }),
+            cpu: None,
+            memory: None,
+            io: None,
+        };
+        assert!(valid_new.validate().is_ok());
+        
+        // Valid legacy format
+        let valid_legacy = ResourceLimits {
+            limits: None,
+            cpu: Some(1.5),
+            memory: Some(512),
+            io: Some(1000),
+        };
+        assert!(valid_legacy.validate().is_ok());
+        
+        // Invalid new format
+        let invalid_new = ResourceLimits {
+            limits: Some(ResourceLimitValues {
+                cpu: Some(CpuLimit::String("invalidm".to_string())),
+                memory: None,
+            }),
+            cpu: None,
+            memory: None,
+            io: None,
+        };
+        assert!(invalid_new.validate().is_err());
+        
+        // Invalid legacy format
+        let invalid_legacy = ResourceLimits {
+            limits: None,
+            cpu: Some(-1.0),
+            memory: None,
+            io: None,
+        };
+        assert!(invalid_legacy.validate().is_err());
+    }
+
+    #[test]
+    fn test_k8s_style_permissions_validation() {
+        let permissions = Permissions {
+            storage: Some(PermissionList {
+                allow: Some(vec![StoragePermission {
+                    uri: "fs://workspace/**".to_string(),
+                    access: vec![AccessType::Read, AccessType::Write],
+                }]),
+                deny: None,
+            }),
+            network: None,
+            environment: None,
+            runtime: None,
+            resources: Some(ResourceLimits {
+                limits: Some(ResourceLimitValues {
+                    cpu: Some(CpuLimit::String("500m".to_string())),
+                    memory: Some(MemoryLimit::String("512Mi".to_string())),
+                }),
+                cpu: None,
+                memory: None,
+                io: None,
+            }),
+            ipc: None,
+        };
+        
         assert!(permissions.validate().is_ok());
     }
 

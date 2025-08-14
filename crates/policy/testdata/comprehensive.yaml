@@ -40,8 +40,10 @@ permissions:
     hyperlight:
       
   resources:
-    cpu: 50.0
-    memory: 1024
+    limits:
+      cpu: "50"                 # 50 cores
+      memory: "1Gi"             # 1 GiB
+    # Legacy field maintained for backward compatibility
     io: 1000
     
   ipc:
