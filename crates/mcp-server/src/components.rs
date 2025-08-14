@@ -188,7 +188,7 @@ pub(crate) async fn handle_component_call(
 }
 
 #[instrument(skip(lifecycle_manager))]
-pub(crate) async fn handle_list_components(
+pub async fn handle_list_components(
     lifecycle_manager: &LifecycleManager,
 ) -> Result<CallToolResult> {
     info!("Listing loaded components");

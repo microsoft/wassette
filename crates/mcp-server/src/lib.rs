@@ -3,10 +3,10 @@
 
 pub use wassette::LifecycleManager;
 
-mod components;
-mod prompts;
-mod resources;
-mod tools;
+pub mod components;
+pub mod prompts;
+pub mod resources;
+pub mod tools;
 
 pub use prompts::handle_prompts_list;
 pub use resources::handle_resources_list;

@@ -378,7 +378,7 @@ fn get_builtin_tools() -> Vec<Tool> {
 }
 
 #[instrument(skip(lifecycle_manager))]
-async fn handle_get_policy(
+pub async fn handle_get_policy(
     req: &CallToolRequestParam,
     lifecycle_manager: &LifecycleManager,
 ) -> Result<CallToolResult> {
@@ -421,7 +421,7 @@ async fn handle_get_policy(
 }
 
 #[instrument(skip(lifecycle_manager))]
-async fn handle_grant_storage_permission(
+pub async fn handle_grant_storage_permission(
     req: &CallToolRequestParam,
     lifecycle_manager: &LifecycleManager,
 ) -> Result<CallToolResult> {
@@ -470,7 +470,7 @@ async fn handle_grant_storage_permission(
 }
 
 #[instrument(skip(lifecycle_manager))]
-async fn handle_grant_network_permission(
+pub async fn handle_grant_network_permission(
     req: &CallToolRequestParam,
     lifecycle_manager: &LifecycleManager,
 ) -> Result<CallToolResult> {
@@ -519,7 +519,7 @@ async fn handle_grant_network_permission(
 }
 
 #[instrument(skip(lifecycle_manager))]
-async fn handle_grant_environment_variable_permission(
+pub async fn handle_grant_environment_variable_permission(
     req: &CallToolRequestParam,
     lifecycle_manager: &LifecycleManager,
 ) -> Result<CallToolResult> {
@@ -571,7 +571,7 @@ async fn handle_grant_environment_variable_permission(
 }
 
 #[instrument(skip(lifecycle_manager))]
-async fn handle_revoke_storage_permission(
+pub async fn handle_revoke_storage_permission(
     req: &CallToolRequestParam,
     lifecycle_manager: &LifecycleManager,
 ) -> Result<CallToolResult> {
@@ -628,7 +628,7 @@ async fn handle_revoke_storage_permission(
 }
 
 #[instrument(skip(lifecycle_manager))]
-async fn handle_revoke_network_permission(
+pub async fn handle_revoke_network_permission(
     req: &CallToolRequestParam,
     lifecycle_manager: &LifecycleManager,
 ) -> Result<CallToolResult> {
@@ -680,7 +680,7 @@ async fn handle_revoke_network_permission(
 }
 
 #[instrument(skip(lifecycle_manager))]
-async fn handle_revoke_environment_variable_permission(
+pub async fn handle_revoke_environment_variable_permission(
     req: &CallToolRequestParam,
     lifecycle_manager: &LifecycleManager,
 ) -> Result<CallToolResult> {
@@ -732,7 +732,7 @@ async fn handle_revoke_environment_variable_permission(
 }
 
 #[instrument(skip(lifecycle_manager))]
-async fn handle_reset_permission(
+pub async fn handle_reset_permission(
     req: &CallToolRequestParam,
     lifecycle_manager: &LifecycleManager,
 ) -> Result<CallToolResult> {

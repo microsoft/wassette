@@ -15,6 +15,7 @@ use mcp_server::{
     handle_prompts_list, handle_resources_list, handle_tools_call, handle_tools_list,
     LifecycleManager,
 };
+use serde_json::{json, Map, Value};
 use rmcp::model::{
     CallToolRequestParam, CallToolResult, ErrorData, ListPromptsResult, ListResourcesResult,
     ListToolsResult, PaginatedRequestParam, ServerCapabilities, ServerInfo, ToolsCapability,
@@ -89,6 +90,154 @@ struct Cli {
 enum Commands {
     /// Begin handling requests over the specified protocol.
     Serve(Serve),
+    /// Manage WebAssembly components.
+    Component {
+        #[command(subcommand)]
+        command: ComponentCommands,
+    },
+    /// Manage component policies.
+    Policy {
+        #[command(subcommand)]
+        command: PolicyCommands,
+    },
+    /// Manage component permissions.
+    Permission {
+        #[command(subcommand)]
+        command: PermissionCommands,
+    },
+}
+
+#[derive(Subcommand, Debug)]
+enum ComponentCommands {
+    /// Load a WebAssembly component from a file path or OCI registry.
+    Load {
+        /// Path to the component (file:// or oci://)
+        path: String,
+        /// Directory where plugins are stored. Defaults to $XDG_DATA_HOME/wassette/components
+        #[arg(long)]
+        plugin_dir: Option<PathBuf>,
+    },
+    /// Unload a WebAssembly component.
+    Unload {
+        /// Component ID to unload
+        id: String,
+        /// Directory where plugins are stored. Defaults to $XDG_DATA_HOME/wassette/components
+        #[arg(long)]
+        plugin_dir: Option<PathBuf>,
+    },
+    /// List all loaded components.
+    List {
+        /// Directory where plugins are stored. Defaults to $XDG_DATA_HOME/wassette/components
+        #[arg(long)]
+        plugin_dir: Option<PathBuf>,
+    },
+}
+
+#[derive(Subcommand, Debug)]
+enum PolicyCommands {
+    /// Get policy information for a component.
+    Get {
+        /// Component ID to get policy for
+        component_id: String,
+        /// Directory where plugins are stored. Defaults to $XDG_DATA_HOME/wassette/components
+        #[arg(long)]
+        plugin_dir: Option<PathBuf>,
+    },
+}
+
+#[derive(Subcommand, Debug)]
+enum PermissionCommands {
+    /// Grant permissions to a component.
+    Grant {
+        #[command(subcommand)]
+        permission: GrantPermissionCommands,
+    },
+    /// Revoke permissions from a component.
+    Revoke {
+        #[command(subcommand)]
+        permission: RevokePermissionCommands,
+    },
+    /// Reset all permissions for a component.
+    Reset {
+        /// Component ID to reset permissions for
+        component_id: String,
+        /// Directory where plugins are stored. Defaults to $XDG_DATA_HOME/wassette/components
+        #[arg(long)]
+        plugin_dir: Option<PathBuf>,
+    },
+}
+
+#[derive(Subcommand, Debug)]
+enum GrantPermissionCommands {
+    /// Grant storage access permission.
+    Storage {
+        /// Component ID to grant permission to
+        component_id: String,
+        /// Storage URI (e.g., fs:///tmp/workspace)
+        uri: String,
+        /// Access types (read, write, or both)
+        #[arg(long, value_delimiter = ',')]
+        access: Vec<String>,
+        /// Directory where plugins are stored. Defaults to $XDG_DATA_HOME/wassette/components
+        #[arg(long)]
+        plugin_dir: Option<PathBuf>,
+    },
+    /// Grant network access permission.
+    Network {
+        /// Component ID to grant permission to
+        component_id: String,
+        /// Host to grant access to
+        host: String,
+        /// Directory where plugins are stored. Defaults to $XDG_DATA_HOME/wassette/components
+        #[arg(long)]
+        plugin_dir: Option<PathBuf>,
+    },
+    /// Grant environment variable access permission.
+    #[command(name = "environment-variable")]
+    EnvironmentVariable {
+        /// Component ID to grant permission to
+        component_id: String,
+        /// Environment variable key
+        key: String,
+        /// Directory where plugins are stored. Defaults to $XDG_DATA_HOME/wassette/components
+        #[arg(long)]
+        plugin_dir: Option<PathBuf>,
+    },
+}
+
+#[derive(Subcommand, Debug)]
+enum RevokePermissionCommands {
+    /// Revoke storage access permission.
+    Storage {
+        /// Component ID to revoke permission from
+        component_id: String,
+        /// Storage URI to revoke access from
+        uri: String,
+        /// Directory where plugins are stored. Defaults to $XDG_DATA_HOME/wassette/components
+        #[arg(long)]
+        plugin_dir: Option<PathBuf>,
+    },
+    /// Revoke network access permission.
+    Network {
+        /// Component ID to revoke permission from
+        component_id: String,
+        /// Host to revoke access from
+        host: String,
+        /// Directory where plugins are stored. Defaults to $XDG_DATA_HOME/wassette/components
+        #[arg(long)]
+        plugin_dir: Option<PathBuf>,
+    },
+    /// Revoke environment variable access permission.
+    #[command(name = "environment-variable")]
+    EnvironmentVariable {
+        /// Component ID to revoke permission from
+        component_id: String,
+        /// Environment variable key to revoke access from
+        key: String,
+        /// Directory where plugins are stored. Defaults to $XDG_DATA_HOME/wassette/components
+        #[arg(long)]
+        plugin_dir: Option<PathBuf>,
+    },
 }
 
 #[derive(Parser, Debug, Clone, Serialize, Deserialize)]
@@ -118,6 +267,94 @@ struct Serve {
 #[derive(Clone)]
 pub struct McpServer {
     lifecycle_manager: LifecycleManager,
+}
+
+/// Handle CLI commands by creating appropriate tool call requests
+async fn handle_cli_command(
+    lifecycle_manager: &LifecycleManager,
+    tool_name: &str,
+    args: Map<String, Value>,
+) -> Result<()> {
+    let req = CallToolRequestParam {
+        name: tool_name.to_string().into(),
+        arguments: Some(args),
+    };
+
+    let result = match tool_name {
+        "load-component" | "unload-component" => {
+            // These commands require a Peer, but we can't easily create one for CLI usage
+            // For now, return an error suggesting to use the MCP server
+            return Err(anyhow::anyhow!(
+                "The '{}' command is only available through the MCP server interface. Please use 'wassette serve' and connect with an MCP client.",
+                tool_name
+            ));
+        }
+        "list-components" => {
+            // Import the function directly
+            use mcp_server::components::handle_list_components;
+            handle_list_components(lifecycle_manager).await?
+        }
+        "get-policy" => {
+            use mcp_server::tools::handle_get_policy;
+            handle_get_policy(&req, lifecycle_manager).await?
+        }
+        "grant-storage-permission" => {
+            use mcp_server::tools::handle_grant_storage_permission;
+            handle_grant_storage_permission(&req, lifecycle_manager).await?
+        }
+        "grant-network-permission" => {
+            use mcp_server::tools::handle_grant_network_permission;
+            handle_grant_network_permission(&req, lifecycle_manager).await?
+        }
+        "grant-environment-variable-permission" => {
+            use mcp_server::tools::handle_grant_environment_variable_permission;
+            handle_grant_environment_variable_permission(&req, lifecycle_manager).await?
+        }
+        "revoke-storage-permission" => {
+            use mcp_server::tools::handle_revoke_storage_permission;
+            handle_revoke_storage_permission(&req, lifecycle_manager).await?
+        }
+        "revoke-network-permission" => {
+            use mcp_server::tools::handle_revoke_network_permission;
+            handle_revoke_network_permission(&req, lifecycle_manager).await?
+        }
+        "revoke-environment-variable-permission" => {
+            use mcp_server::tools::handle_revoke_environment_variable_permission;
+            handle_revoke_environment_variable_permission(&req, lifecycle_manager).await?
+        }
+        "reset-permission" => {
+            use mcp_server::tools::handle_reset_permission;
+            handle_reset_permission(&req, lifecycle_manager).await?
+        }
+        _ => {
+            return Err(anyhow::anyhow!("Unknown command: {}", tool_name));
+        }
+    };
+    
+    // Print the result content
+    for content in result.content {
+        // Convert content to text and print
+        if let Some(text) = content.as_text() {
+            println!("{}", text.text);
+        }
+    }
+    
+    Ok(())
+}
+
+/// Create LifecycleManager from plugin directory
+async fn create_lifecycle_manager(plugin_dir: Option<PathBuf>) -> Result<LifecycleManager> {
+    let config = if let Some(dir) = plugin_dir {
+        config::Config { plugin_dir: dir }
+    } else {
+        config::Config::new(&Serve { 
+            plugin_dir: None, 
+            stdio: false, 
+            http: false 
+        }).context("Failed to load configuration")?
+    };
+    
+    LifecycleManager::new(&config.plugin_dir).await
 }
 
 impl McpServer {
@@ -311,6 +548,110 @@ async fn main() -> Result<()> {
             }
 
             tracing::info!("MCP server shutting down");
+        }
+        Commands::Component { command } => {
+            match command {
+                ComponentCommands::Load { path, plugin_dir } => {
+                    let lifecycle_manager = create_lifecycle_manager(plugin_dir.clone()).await?;
+                    let mut args = Map::new();
+                    args.insert("path".to_string(), json!(path));
+                    handle_cli_command(&lifecycle_manager, "load-component", args).await?;
+                }
+                ComponentCommands::Unload { id, plugin_dir } => {
+                    let lifecycle_manager = create_lifecycle_manager(plugin_dir.clone()).await?;
+                    let mut args = Map::new();
+                    args.insert("id".to_string(), json!(id));
+                    handle_cli_command(&lifecycle_manager, "unload-component", args).await?;
+                }
+                ComponentCommands::List { plugin_dir } => {
+                    let lifecycle_manager = create_lifecycle_manager(plugin_dir.clone()).await?;
+                    let args = Map::new();
+                    handle_cli_command(&lifecycle_manager, "list-components", args).await?;
+                }
+            }
+        }
+        Commands::Policy { command } => {
+            match command {
+                PolicyCommands::Get { component_id, plugin_dir } => {
+                    let lifecycle_manager = create_lifecycle_manager(plugin_dir.clone()).await?;
+                    let mut args = Map::new();
+                    args.insert("component_id".to_string(), json!(component_id));
+                    handle_cli_command(&lifecycle_manager, "get-policy", args).await?;
+                }
+            }
+        }
+        Commands::Permission { command } => {
+            match command {
+                PermissionCommands::Grant { permission } => {
+                    match permission {
+                        GrantPermissionCommands::Storage { component_id, uri, access, plugin_dir } => {
+                            let lifecycle_manager = create_lifecycle_manager(plugin_dir.clone()).await?;
+                            let mut args = Map::new();
+                            args.insert("component_id".to_string(), json!(component_id));
+                            args.insert("details".to_string(), json!({
+                                "uri": uri,
+                                "access": access
+                            }));
+                            handle_cli_command(&lifecycle_manager, "grant-storage-permission", args).await?;
+                        }
+                        GrantPermissionCommands::Network { component_id, host, plugin_dir } => {
+                            let lifecycle_manager = create_lifecycle_manager(plugin_dir.clone()).await?;
+                            let mut args = Map::new();
+                            args.insert("component_id".to_string(), json!(component_id));
+                            args.insert("details".to_string(), json!({
+                                "host": host
+                            }));
+                            handle_cli_command(&lifecycle_manager, "grant-network-permission", args).await?;
+                        }
+                        GrantPermissionCommands::EnvironmentVariable { component_id, key, plugin_dir } => {
+                            let lifecycle_manager = create_lifecycle_manager(plugin_dir.clone()).await?;
+                            let mut args = Map::new();
+                            args.insert("component_id".to_string(), json!(component_id));
+                            args.insert("details".to_string(), json!({
+                                "key": key
+                            }));
+                            handle_cli_command(&lifecycle_manager, "grant-environment-variable-permission", args).await?;
+                        }
+                    }
+                }
+                PermissionCommands::Revoke { permission } => {
+                    match permission {
+                        RevokePermissionCommands::Storage { component_id, uri, plugin_dir } => {
+                            let lifecycle_manager = create_lifecycle_manager(plugin_dir.clone()).await?;
+                            let mut args = Map::new();
+                            args.insert("component_id".to_string(), json!(component_id));
+                            args.insert("details".to_string(), json!({
+                                "uri": uri
+                            }));
+                            handle_cli_command(&lifecycle_manager, "revoke-storage-permission", args).await?;
+                        }
+                        RevokePermissionCommands::Network { component_id, host, plugin_dir } => {
+                            let lifecycle_manager = create_lifecycle_manager(plugin_dir.clone()).await?;
+                            let mut args = Map::new();
+                            args.insert("component_id".to_string(), json!(component_id));
+                            args.insert("details".to_string(), json!({
+                                "host": host
+                            }));
+                            handle_cli_command(&lifecycle_manager, "revoke-network-permission", args).await?;
+                        }
+                        RevokePermissionCommands::EnvironmentVariable { component_id, key, plugin_dir } => {
+                            let lifecycle_manager = create_lifecycle_manager(plugin_dir.clone()).await?;
+                            let mut args = Map::new();
+                            args.insert("component_id".to_string(), json!(component_id));
+                            args.insert("details".to_string(), json!({
+                                "key": key
+                            }));
+                            handle_cli_command(&lifecycle_manager, "revoke-environment-variable-permission", args).await?;
+                        }
+                    }
+                }
+                PermissionCommands::Reset { component_id, plugin_dir } => {
+                    let lifecycle_manager = create_lifecycle_manager(plugin_dir.clone()).await?;
+                    let mut args = Map::new();
+                    args.insert("component_id".to_string(), json!(component_id));
+                    handle_cli_command(&lifecycle_manager, "reset-permission", args).await?;
+                }
+            }
         }
     }
 
