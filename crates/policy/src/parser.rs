@@ -113,7 +113,10 @@ mod tests {
     use tempfile::NamedTempFile;
 
     use super::*;
-    use crate::{AccessType, CapabilityAction, PermissionList, Permissions, StoragePermission, CpuLimit, MemoryLimit};
+    use crate::{
+        AccessType, CapabilityAction, CpuLimit, MemoryLimit, PermissionList, Permissions,
+        StoragePermission,
+    };
 
     #[test]
     fn test_parse_str_valid() {
@@ -338,12 +341,12 @@ permissions: {}
         assert!(policy.permissions.ipc.is_some());
 
         let resources = policy.permissions.resources.unwrap();
-        
+
         // Check new limits format
         let limits = resources.limits.unwrap();
         assert!(matches!(limits.cpu, Some(CpuLimit::String(ref s)) if s == "50"));
         assert!(matches!(limits.memory, Some(MemoryLimit::String(ref s)) if s == "1Gi"));
-        
+
         // Check legacy field still works
         assert_eq!(resources.io, Some(1000));
     }
@@ -489,21 +492,21 @@ permissions: {}
 
         let resources = policy.permissions.resources.unwrap();
         let limits = resources.limits.unwrap();
-        
+
         // Test CPU parsing
         assert!(matches!(limits.cpu, Some(CpuLimit::String(ref s)) if s == "500m"));
         if let Some(CpuLimit::String(cpu_str)) = &limits.cpu {
             let cpu_limit = CpuLimit::String(cpu_str.clone());
             assert_eq!(cpu_limit.to_cores().unwrap(), 0.5);
         }
-        
+
         // Test memory parsing
         assert!(matches!(limits.memory, Some(MemoryLimit::String(ref s)) if s == "512Mi"));
         if let Some(MemoryLimit::String(memory_str)) = &limits.memory {
             let memory_limit = MemoryLimit::String(memory_str.clone());
             assert_eq!(memory_limit.to_bytes().unwrap(), 512 * 1024 * 1024);
         }
-        
+
         // Ensure legacy fields are not used
         assert!(resources.cpu.is_none());
         assert!(resources.memory.is_none());
