@@ -4,3 +4,6 @@
 /result
 # Env and .envrc files
 .env*
+
+# mdbook output
+/docs/book

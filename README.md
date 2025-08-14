@@ -6,8 +6,7 @@
     <img src="https://dcbadge.limes.pink/api/server/microsoft-open-source" alt="Discord" style="height: 25px;">
   </a> -->
 
-[Getting started][setup guide] | [FAQ] | [Releases] | [Contributing] | [Discord]
-
+[Getting started][setup guide] | [FAQ] | [Documentation] | [Releases] | [Contributing] | [Discord]
 </div>
 
 ## Why Wassette?
@@ -122,6 +121,7 @@ selection of examples written in different languages:
 The Wassette community has built amazing components that you can use in your projects:
 
 - **[QR Code Generator](https://github.com/attackordie/qr-code-webassembly)** - Generate QR codes from text using a WebAssembly component by @attackordie
+## Documentation
 
 ## Discord
 
@@ -143,6 +143,7 @@ This project may contain trademarks or logos for projects, products, or services
 
 [setup guide]: https://github.com/microsoft/wassette/blob/main/docs/mcp-clients.md
 [FAQ]: docs/faq.md
+[Documentation]: https://microsoft.github.io/wassette
 [Contributing]: CONTRIBUTING.md
 [Releases]: https://github.com/microsoft/wassette/releases
 [Discord]: https://discord.gg/microsoft-open-source
