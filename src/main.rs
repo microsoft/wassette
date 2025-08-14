@@ -130,6 +130,9 @@ enum ComponentCommands {
         /// Directory where plugins are stored. Defaults to $XDG_DATA_HOME/wassette/components
         #[arg(long)]
         plugin_dir: Option<PathBuf>,
+        /// Format JSON output for better readability
+        #[arg(long)]
+        pretty: bool,
     },
 }
 
@@ -142,6 +145,9 @@ enum PolicyCommands {
         /// Directory where plugins are stored. Defaults to $XDG_DATA_HOME/wassette/components
         #[arg(long)]
         plugin_dir: Option<PathBuf>,
+        /// Format JSON output for better readability
+        #[arg(long)]
+        pretty: bool,
     },
 }
 
@@ -274,6 +280,7 @@ async fn handle_cli_command(
     lifecycle_manager: &LifecycleManager,
     tool_name: &str,
     args: Map<String, Value>,
+    pretty: bool,
 ) -> Result<()> {
     let req = CallToolRequestParam {
         name: tool_name.to_string().into(),
@@ -282,12 +289,18 @@ async fn handle_cli_command(
 
     let result = match tool_name {
         "load-component" | "unload-component" => {
-            // These commands require a Peer, but we can't easily create one for CLI usage
-            // For now, return an error suggesting to use the MCP server
-            return Err(anyhow::anyhow!(
-                "The '{}' command is only available through the MCP server interface. Please use 'wassette serve' and connect with an MCP client.",
-                tool_name
-            ));
+            // For CLI usage, we'll implement load/unload without peer notifications
+            match tool_name {
+                "load-component" => {
+                    use mcp_server::components::handle_load_component_cli;
+                    handle_load_component_cli(&req, lifecycle_manager).await?
+                }
+                "unload-component" => {
+                    use mcp_server::components::handle_unload_component_cli;
+                    handle_unload_component_cli(&req, lifecycle_manager).await?
+                }
+                _ => unreachable!(),
+            }
         }
         "list-components" => {
             // Import the function directly
@@ -335,7 +348,16 @@ async fn handle_cli_command(
     for content in result.content {
         // Convert content to text and print
         if let Some(text) = content.as_text() {
-            println!("{}", text.text);
+            if pretty {
+                // Try to parse as JSON and pretty-print it
+                if let Ok(json_value) = serde_json::from_str::<Value>(&text.text) {
+                    println!("{}", serde_json::to_string_pretty(&json_value)?);
+                } else {
+                    println!("{}", text.text);
+                }
+            } else {
+                println!("{}", text.text);
+            }
         }
     }
     
@@ -555,28 +577,28 @@ async fn main() -> Result<()> {
                     let lifecycle_manager = create_lifecycle_manager(plugin_dir.clone()).await?;
                     let mut args = Map::new();
                     args.insert("path".to_string(), json!(path));
-                    handle_cli_command(&lifecycle_manager, "load-component", args).await?;
+                    handle_cli_command(&lifecycle_manager, "load-component", args, false).await?;
                 }
                 ComponentCommands::Unload { id, plugin_dir } => {
                     let lifecycle_manager = create_lifecycle_manager(plugin_dir.clone()).await?;
                     let mut args = Map::new();
                     args.insert("id".to_string(), json!(id));
-                    handle_cli_command(&lifecycle_manager, "unload-component", args).await?;
+                    handle_cli_command(&lifecycle_manager, "unload-component", args, false).await?;
                 }
-                ComponentCommands::List { plugin_dir } => {
+                ComponentCommands::List { plugin_dir, pretty } => {
                     let lifecycle_manager = create_lifecycle_manager(plugin_dir.clone()).await?;
                     let args = Map::new();
-                    handle_cli_command(&lifecycle_manager, "list-components", args).await?;
+                    handle_cli_command(&lifecycle_manager, "list-components", args, *pretty).await?;
                 }
             }
         }
         Commands::Policy { command } => {
             match command {
-                PolicyCommands::Get { component_id, plugin_dir } => {
+                PolicyCommands::Get { component_id, plugin_dir, pretty } => {
                     let lifecycle_manager = create_lifecycle_manager(plugin_dir.clone()).await?;
                     let mut args = Map::new();
                     args.insert("component_id".to_string(), json!(component_id));
-                    handle_cli_command(&lifecycle_manager, "get-policy", args).await?;
+                    handle_cli_command(&lifecycle_manager, "get-policy", args, *pretty).await?;
                 }
             }
         }
@@ -592,7 +614,7 @@ async fn main() -> Result<()> {
                                 "uri": uri,
                                 "access": access
                             }));
-                            handle_cli_command(&lifecycle_manager, "grant-storage-permission", args).await?;
+                            handle_cli_command(&lifecycle_manager, "grant-storage-permission", args, false).await?;
                         }
                         GrantPermissionCommands::Network { component_id, host, plugin_dir } => {
                             let lifecycle_manager = create_lifecycle_manager(plugin_dir.clone()).await?;
@@ -601,7 +623,7 @@ async fn main() -> Result<()> {
                             args.insert("details".to_string(), json!({
                                 "host": host
                             }));
-                            handle_cli_command(&lifecycle_manager, "grant-network-permission", args).await?;
+                            handle_cli_command(&lifecycle_manager, "grant-network-permission", args, false).await?;
                         }
                         GrantPermissionCommands::EnvironmentVariable { component_id, key, plugin_dir } => {
                             let lifecycle_manager = create_lifecycle_manager(plugin_dir.clone()).await?;
@@ -610,7 +632,7 @@ async fn main() -> Result<()> {
                             args.insert("details".to_string(), json!({
                                 "key": key
                             }));
-                            handle_cli_command(&lifecycle_manager, "grant-environment-variable-permission", args).await?;
+                            handle_cli_command(&lifecycle_manager, "grant-environment-variable-permission", args, false).await?;
                         }
                     }
                 }
@@ -623,7 +645,7 @@ async fn main() -> Result<()> {
                             args.insert("details".to_string(), json!({
                                 "uri": uri
                             }));
-                            handle_cli_command(&lifecycle_manager, "revoke-storage-permission", args).await?;
+                            handle_cli_command(&lifecycle_manager, "revoke-storage-permission", args, false).await?;
                         }
                         RevokePermissionCommands::Network { component_id, host, plugin_dir } => {
                             let lifecycle_manager = create_lifecycle_manager(plugin_dir.clone()).await?;
@@ -632,7 +654,7 @@ async fn main() -> Result<()> {
                             args.insert("details".to_string(), json!({
                                 "host": host
                             }));
-                            handle_cli_command(&lifecycle_manager, "revoke-network-permission", args).await?;
+                            handle_cli_command(&lifecycle_manager, "revoke-network-permission", args, false).await?;
                         }
                         RevokePermissionCommands::EnvironmentVariable { component_id, key, plugin_dir } => {
                             let lifecycle_manager = create_lifecycle_manager(plugin_dir.clone()).await?;
@@ -641,7 +663,7 @@ async fn main() -> Result<()> {
                             args.insert("details".to_string(), json!({
                                 "key": key
                             }));
-                            handle_cli_command(&lifecycle_manager, "revoke-environment-variable-permission", args).await?;
+                            handle_cli_command(&lifecycle_manager, "revoke-environment-variable-permission", args, false).await?;
                         }
                     }
                 }
@@ -649,7 +671,7 @@ async fn main() -> Result<()> {
                     let lifecycle_manager = create_lifecycle_manager(plugin_dir.clone()).await?;
                     let mut args = Map::new();
                     args.insert("component_id".to_string(), json!(component_id));
-                    handle_cli_command(&lifecycle_manager, "reset-permission", args).await?;
+                    handle_cli_command(&lifecycle_manager, "reset-permission", args, false).await?;
                 }
             }
         }

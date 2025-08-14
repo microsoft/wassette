@@ -248,6 +248,98 @@ pub(crate) fn extract_args_from_request(
     }
 }
 
+/// CLI-specific version of handle_load_component that doesn't require server peer notifications
+#[instrument(skip(lifecycle_manager))]
+pub async fn handle_load_component_cli(
+    req: &CallToolRequestParam,
+    lifecycle_manager: &LifecycleManager,
+) -> Result<CallToolResult> {
+    let args = extract_args_from_request(req)?;
+    let path = args
+        .get("path")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| anyhow::anyhow!("Missing required argument: 'path'"))?;
+
+    info!(path, "Loading component (CLI mode)");
+
+    let result = lifecycle_manager.load_component(path).await;
+
+    match result {
+        Ok((id, _load_result)) => {
+            let status_text = serde_json::to_string(&json!({
+                "status": "component loaded",
+                "id": id
+            }))?;
+
+            let contents = vec![Content::text(status_text)];
+
+            info!(component_id = %id, "Component loaded successfully in CLI mode");
+
+            Ok(CallToolResult {
+                content: contents,
+                is_error: None,
+            })
+        }
+        Err(e) => {
+            error!(error = %e, path, "Failed to load component");
+            Err(anyhow::anyhow!(
+                "Failed to load component: {}. Error: {}",
+                path,
+                e
+            ))
+        }
+    }
+}
+
+/// CLI-specific version of handle_unload_component that doesn't require server peer notifications
+#[instrument(skip(lifecycle_manager))]
+pub async fn handle_unload_component_cli(
+    req: &CallToolRequestParam,
+    lifecycle_manager: &LifecycleManager,
+) -> Result<CallToolResult> {
+    let args = extract_args_from_request(req)?;
+
+    let id = args
+        .get("id")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| anyhow::anyhow!("Missing 'id' in arguments"))?;
+
+    info!(component_id = %id, "Unloading component (CLI mode)");
+
+    match lifecycle_manager.unload_component(id).await {
+        Ok(()) => {
+            let status_text = serde_json::to_string(&json!({
+                "status": "component unloaded successfully",
+                "id": id
+            }))?;
+
+            let contents = vec![Content::text(status_text)];
+
+            info!(component_id = %id, "Component unloaded successfully in CLI mode");
+
+            Ok(CallToolResult {
+                content: contents,
+                is_error: None,
+            })
+        }
+        Err(e) => {
+            error!(error = %e, "Failed to unload component");
+            let error_text = serde_json::to_string(&json!({
+                "status": "error",
+                "message": format!("Failed to unload component: {}", e),
+                "id": id
+            }))?;
+
+            let contents = vec![Content::text(error_text)];
+
+            Ok(CallToolResult {
+                content: contents,
+                is_error: Some(true),
+            })
+        }
+    }
+}
+
 #[instrument]
 fn parse_tool_schema(tool_json: &Value) -> Option<Tool> {
     let name = tool_json
