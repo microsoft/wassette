@@ -589,7 +589,54 @@ async fn load_components_parallel(
 }
 
 impl LifecycleManager {
-    // Granular permission system methods
+    /// Revoke storage permission from a component by URI (removes all access types for that URI)
+    #[instrument(skip(self))]
+    pub async fn revoke_storage_permission_by_uri(
+        &self,
+        component_id: &str,
+        uri: &str,
+    ) -> Result<()> {
+        info!(
+            component_id,
+            uri, "Revoking storage permission by URI from component"
+        );
+        if !self.components.read().await.contains_key(component_id) {
+            return Err(anyhow!("Component not found: {}", component_id));
+        }
+
+        if uri.is_empty() {
+            return Err(anyhow!("Storage URI cannot be empty"));
+        }
+
+        let mut policy = self.load_or_create_component_policy(component_id).await?;
+        self.remove_storage_permission_by_uri_from_policy(&mut policy, uri)?;
+        self.save_component_policy(component_id, &policy).await?;
+        self.update_policy_registry(component_id, &policy).await?;
+
+        info!(
+            component_id,
+            uri, "Storage permission revoked successfully"
+        );
+        Ok(())
+    }
+
+    /// Remove all storage permissions for a specific URI from policy
+    fn remove_storage_permission_by_uri_from_policy(
+        &self,
+        policy: &mut policy::PolicyDocument,
+        uri: &str,
+    ) -> Result<()> {
+        if let Some(storage_perms) = &mut policy.permissions.storage {
+            if let Some(allow_set) = &mut storage_perms.allow {
+                allow_set.retain(|perm| perm.uri != uri);
+                // Clean up empty structures
+                if allow_set.is_empty() {
+                    storage_perms.allow = None;
+                }
+            }
+        }
+        Ok(())
+    }
 }
 
 async fn load_component_from_entry(

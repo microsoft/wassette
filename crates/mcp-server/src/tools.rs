@@ -264,7 +264,7 @@ fn get_builtin_tools() -> Vec<Tool> {
         Tool {
             name: Cow::Borrowed("revoke-storage-permission"),
             description: Some(Cow::Borrowed(
-                "Revokes storage access permission from a component, removing its ability to read from and/or write to specific storage locations."
+                "Revokes all storage access permissions from a component for the specified URI path, removing both read and write access to that location."
             )),
             input_schema: Arc::new(
                 serde_json::from_value(json!({
@@ -279,18 +279,10 @@ fn get_builtin_tools() -> Vec<Tool> {
                         "properties": {
                           "uri": { 
                             "type": "string",
-                            "description": "URI of the storage resource to revoke access from. e.g. fs:///tmp/test"
-                          },
-                          "access": {
-                            "type": "array",
-                            "items": {
-                              "type": "string",
-                              "enum": ["read", "write"]
-                            },
-                            "description": "Access type for the storage resource, this must be an array of strings with values 'read' or 'write'"
+                            "description": "URI of the storage resource to revoke all access from. e.g. fs:///tmp/test"
                           }
                         },
-                        "required": ["uri", "access"],
+                        "required": ["uri"],
                         "additionalProperties": false
                       }
                     },
@@ -594,22 +586,28 @@ async fn handle_revoke_storage_permission(
         .get("details")
         .ok_or_else(|| anyhow::anyhow!("Missing required argument: 'details'"))?;
 
+    let uri = details
+        .get("uri")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| anyhow::anyhow!("Missing 'uri' field in details"))?;
+
     info!(
-        "Revoking storage permission from component {}",
+        "Revoking all storage permissions for URI {} from component {}",
+        uri,
         component_id
     );
 
     let result = lifecycle_manager
-        .revoke_permission(component_id, "storage", details)
+        .revoke_storage_permission_by_uri(component_id, uri)
         .await;
 
     match result {
         Ok(()) => {
             let status_text = serde_json::to_string(&json!({
-                "status": "permission revoked",
+                "status": "storage permission revoked",
                 "component_id": component_id,
-                "permission_type": "storage",
-                "details": details
+                "uri": uri,
+                "message": "All access (read and write) to the specified URI has been revoked"
             }))?;
 
             let contents = vec![Content::text(status_text)];

@@ -286,7 +286,7 @@ impl crate::LifecycleManager {
     }
 
     /// Load or create component policy
-    async fn load_or_create_component_policy(
+    pub(crate) async fn load_or_create_component_policy(
         &self,
         component_id: &str,
     ) -> Result<policy::PolicyDocument> {
@@ -403,7 +403,7 @@ impl crate::LifecycleManager {
     }
 
     /// Save component policy to file
-    async fn save_component_policy(
+    pub(crate) async fn save_component_policy(
         &self,
         component_id: &str,
         policy: &PolicyDocument,
@@ -415,7 +415,7 @@ impl crate::LifecycleManager {
     }
 
     /// Update policy registry with new policy
-    async fn update_policy_registry(
+    pub(crate) async fn update_policy_registry(
         &self,
         component_id: &str,
         policy: &PolicyDocument,
