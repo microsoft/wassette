@@ -26,7 +26,7 @@ use rmcp::transport::{stdio as stdio_transport, SseServer};
 use rmcp::ServerHandler;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Value};
-use serde_yaml;
+
 use tracing_subscriber::layer::SubscriberExt as _;
 use tracing_subscriber::util::SubscriberInitExt as _;
 
@@ -383,7 +383,7 @@ fn format_components_table(components: &[Value]) -> Result<String> {
             .and_then(|v| v.as_u64())
             .unwrap_or(0);
 
-        table.push_str(&format!("{:<21} | {}\n", id, tools_count));
+        table.push_str(&format!("{id:<21} | {tools_count}\n"));
     }
 
     Ok(table)
@@ -404,7 +404,7 @@ fn format_object_table(obj: &serde_json::Map<String, Value>) -> Result<String> {
             Value::Array(_) => "[array]".to_string(),
             Value::Object(_) => "[object]".to_string(),
         };
-        table.push_str(&format!("{:<21} | {}\n", key, value_str));
+        table.push_str(&format!("{key:<21} | {value_str}\n"));
     }
 
     Ok(table)
@@ -515,7 +515,8 @@ async fn create_lifecycle_manager(plugin_dir: Option<PathBuf>) -> Result<Lifecyc
         config::Config::new(&crate::Serve {
             plugin_dir: None,
             stdio: false,
-            http: false,
+            sse: false,
+            streamable_http: false,
         })
         .context("Failed to load configuration")?
     };
