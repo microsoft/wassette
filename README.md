@@ -41,8 +41,8 @@ You can also download the latest release from the [GitHub Releases page][Release
 
 Wassette provides two main commands for different use cases:
 
-- **`weld run`** - Run locally with MCP stdio transport for AI agent integration
-- **`weld serve`** - Serve remotely with HTTP transport for development and testing
+- **`wassette run`** - Run locally with MCP stdio transport for AI agent integration
+- **`wassette serve`** - Serve remotely with HTTP transport for development and testing
 
 ### MCP Integration
 
@@ -52,7 +52,7 @@ here, including Cursor, Claude Code, and Gemini CLI. However to get started with
 Visual Studio Code, just run the following command:
 
 ```bash
-code --add-mcp '{"name":"Wassette","command":"weld","args":["run"]}'
+code --add-mcp '{"name":"Wassette","command":"wassette","args":["run"]}'
 ```
 
 Now that your agent knows about Wassette, we are ready to load Wasm Components. To teach your agent to tell the time, we can ask it to load a time component:
@@ -79,8 +79,8 @@ Congratulations! You've just run your first Wasm Component and taught your agent
 
 If you're upgrading from a previous version, note that the command structure has changed for better security:
 
-- `wassette serve --stdio` → `weld run`
-- `wassette serve --http` → `weld serve`
+- `wassette serve --stdio` → `wassette run`
+- `wassette serve --http` → `wassette serve` (without flags)
 
 The old `wassette serve` commands still work but will show deprecation warnings.
 

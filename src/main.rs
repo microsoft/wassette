@@ -1,11 +1,11 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT license.
 
-//! The main `wassette(1)` command.
-//! 
-//! DEPRECATED: This binary is deprecated in favor of the `weld` command.
-//! - Use `weld run` instead of `wassette serve --stdio`
-//! - Use `weld serve` instead of `wassette serve --http`
+//! The main `wassette(1)` command with improved command structure.
+//!
+//! Commands:
+//! - `wassette run` - Local MCP execution via stdio transport
+//! - `wassette serve` - Remote HTTP execution for development
 
 #![warn(missing_docs)]
 
@@ -20,12 +20,11 @@ mod server;
 
 use server::{get_version_info, run_server, ServerConfig, TransportType};
 
-
 #[derive(Parser, Debug)]
 #[command(
-    name = "wassette-mcp-server", 
-    about = "DEPRECATED: Use 'weld run' for MCP stdio or 'weld serve' for HTTP", 
-    long_about = "This binary is deprecated in favor of the 'weld' command.\n\nMigration guide:\n- 'wassette serve --stdio' → 'weld run'\n- 'wassette serve --http' → 'weld serve'", 
+    name = "wassette",
+    about = "A security-oriented runtime that runs WebAssembly Components via MCP",
+    long_about = None,
     version = get_version_info()
 )]
 struct Cli {
@@ -35,32 +34,44 @@ struct Cli {
 
 #[derive(Subcommand, Debug)]
 enum Commands {
-    /// Begin handling requests over the specified protocol. DEPRECATED: Use 'weld run' or 'weld serve'
-    Serve(Serve),
+    Run(RunConfig),
+    Serve(ServeConfig),
 }
 
 #[derive(Parser, Debug, Clone, Serialize, Deserialize)]
-struct Serve {
-    /// Directory where plugins are stored. Defaults to $XDG_DATA_HOME/wasette/components
+struct RunConfig {
+    #[arg(long)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    plugin_dir: Option<PathBuf>,
+}
+
+#[derive(Parser, Debug, Clone, Serialize, Deserialize)]
+struct ServeConfig {
     #[arg(long)]
     #[serde(skip_serializing_if = "Option::is_none")]
     plugin_dir: Option<PathBuf>,
 
-    /// Enable stdio transport. DEPRECATED: Use 'weld run' instead
-    #[arg(long)]
+    #[arg(long, hide = true)]
     #[serde(skip)]
     stdio: bool,
 
-    /// Enable HTTP transport. DEPRECATED: Use 'weld serve' instead
-    #[arg(long)]
+    #[arg(long, hide = true)]
     #[serde(skip)]
     http: bool,
 }
 
-impl From<Serve> for ServerConfig {
-    fn from(serve: Serve) -> Self {
+impl From<RunConfig> for ServerConfig {
+    fn from(config: RunConfig) -> Self {
         ServerConfig {
-            plugin_dir: serve.plugin_dir,
+            plugin_dir: config.plugin_dir,
+        }
+    }
+}
+
+impl From<ServeConfig> for ServerConfig {
+    fn from(config: ServeConfig) -> Self {
+        ServerConfig {
+            plugin_dir: config.plugin_dir,
         }
     }
 }
@@ -69,33 +80,23 @@ impl From<Serve> for ServerConfig {
 async fn main() -> Result<()> {
     let cli = Cli::parse();
 
-    match &cli.command {
-        Commands::Serve(cfg) => {
-            // Print deprecation warning
-            eprintln!("⚠️  WARNING: 'wassette serve' is deprecated!");
-            eprintln!("   Migration guide:");
-            if cfg.stdio || (!cfg.stdio && !cfg.http) {
-                eprintln!("   - Use 'weld run' instead of 'wassette serve --stdio'");
-            }
-            if cfg.http {
-                eprintln!("   - Use 'weld serve' instead of 'wassette serve --http'");
-            }
-            eprintln!();
+    match cli.command {
+        Commands::Run(config) => {
+            let server_config: ServerConfig = config.into();
+            run_server(server_config, TransportType::Stdio).await?;
+        }
+        Commands::Serve(config) => {
+            if config.stdio {
+                eprintln!("⚠️  WARNING: 'wassette serve --stdio' is deprecated!");
+                eprintln!("   Please use 'wassette run' for MCP stdio transport.");
+                eprintln!();
 
-            // Determine transport type
-            let transport_type = match (cfg.stdio, cfg.http) {
-                (false, false) => TransportType::Stdio, // Default case: use stdio transport
-                (true, false) => TransportType::Stdio,  // Stdio transport only
-                (false, true) => TransportType::Http,   // HTTP transport only
-                (true, true) => {
-                    return Err(anyhow::anyhow!(
-                        "Running both stdio and HTTP transports simultaneously is not supported. Please choose one."
-                    ));
-                }
-            };
-
-            let server_config: ServerConfig = cfg.clone().into();
-            run_server(server_config, transport_type).await?;
+                let server_config: ServerConfig = config.into();
+                run_server(server_config, TransportType::Stdio).await?;
+            } else {
+                let server_config: ServerConfig = config.into();
+                run_server(server_config, TransportType::Http).await?;
+            }
         }
     }
 

@@ -4,13 +4,13 @@ If you haven't installed Wassette yet, follow the [installation instructions](ht
 
 ## Visual Studio Code
 
-[Click to install Wassette in GitHub Copilot in Visual Studio Code](vscode:mcp/install?%7B%22name%22%3A%22wassette%22%2C%22gallery%22%3Afalse%2C%22command%22%3A%22weld%22%2C%22args%22%3A%5B%22run%22%5D%7D), or add the Wassete MCP server to VS Code from the command line using the `code` command:
+[Click to install Wassette in GitHub Copilot in Visual Studio Code](vscode:mcp/install?%7B%22name%22%3A%22wassette%22%2C%22gallery%22%3Afalse%2C%22command%22%3A%22wassette%22%2C%22args%22%3A%5B%22run%22%5D%7D), or add the Wassete MCP server to VS Code from the command line using the `code` command:
 
 ```bash
-code --add-mcp '{"name":"wassette","command":"weld","args":["run"]}'
+code --add-mcp '{"name":"wassette","command":"wassette","args":["run"]}'
 ```
 
-> **Note**: You can still use the legacy `wassette serve --stdio` command, but it will show deprecation warnings. We recommend migrating to `weld run`.
+> **Note**: You can still use the legacy `wassette serve --stdio` command, but it will show deprecation warnings. We recommend using `wassette run`.
 
 You can list and configure MCP servers in VS Code by running the command `MCP: List Servers` in the command palette (Ctrl+Shift+P or Cmd+Shift+P).
 
@@ -18,9 +18,9 @@ You can list and configure MCP servers in VS Code by running the command `MCP: L
 
 Click the below button to use the [one-click installation](https://docs.cursor.com/en/context/mcp#one-click-installation) to add Wassette to Cursor.
 
-[![Install MCP Server](https://cursor.com/deeplink/mcp-install-light.svg)](https://cursor.com/install-mcp?name=wassette&config=JTdCJTIyY29tbWFuZCUyMiUzQSUyMndlbGQlMjBydW4lMjIlN0Q%3D)
+[![Install MCP Server](https://cursor.com/deeplink/mcp-install-light.svg)](https://cursor.com/install-mcp?name=wassette&config=JTdCJTIyY29tbWFuZCUyMiUzQSUyMndhc3NldHRlJTIwcnVuJTIyJTdE)
 
-> **Note**: The button above uses the new `weld run` command. If you're using an older version, you may need to use `wassette serve --stdio`.
+> **Note**: The button above uses the new `wassette run` command. If you're using an older version, you may need to use `wassette serve --stdio`.
 ## Claude Code
 
 First, [install Claude Code](https://github.com/anthropics/claude-code?tab=readme-ov-file#get-started) (requires Node.js 18 or higher):
@@ -32,7 +32,7 @@ npm install -g @anthropic-ai/claude-code
 Add the Wassette MCP server to Claude Code using the following command:
 
 ```bash
-claude mcp add -- wassette weld run
+claude mcp add -- wassette wassette run
 ```
 
 This will configure the Wassette MCP server as a local stdio server that Claude Code can use to execute Wassette commands and interact with your data infrastructure.
@@ -61,7 +61,7 @@ To add the Wassette MCP server to Gemini CLI, you need to configure it in your s
 {
   "mcpServers": {
     "wassette": {
-      "command": "weld",
+      "command": "wassette",
       "args": ["run"]
     }
   }
