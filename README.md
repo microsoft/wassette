@@ -39,6 +39,13 @@ You can also download the latest release from the [GitHub Releases page][Release
 
 ## Using Wassette
 
+Wassette provides two main commands for different use cases:
+
+- **`wassette run`** - Run locally with MCP stdio transport for AI agent integration
+- **`wassette serve`** - Serve remotely with HTTP transport for development and testing
+
+### MCP Integration
+
 With Wassette installed, the next step is to register it with your agent of
 choice. We have a complete [complete setup guide][setup guide] for all agents
 here, including Cursor, Claude Code, and Gemini CLI. 
@@ -52,7 +59,7 @@ Alternatively, you can add the Wassete MCP server to VS Code from the command li
 ### bash/zsh
 
 ```bash
-code --add-mcp '{"name":"Wassette","command":"wassette","args":["serve","--stdio"]}'
+code --add-mcp '{"name":"Wassette","command":"wassette","args":["run"]}'
 ```
 
 ### PowerShell
@@ -80,6 +87,15 @@ The current time July 31, 2025 at 10:30 AM UTC
 ```
 
 Congratulations! You've just run your first Wasm Component and taught your agent how to tell time!
+
+### Migration from Legacy Commands
+
+If you're upgrading from a previous version, note that the command structure has changed for better security:
+
+- `wassette serve --stdio` → `wassette run`
+- `wassette serve --http` → `wassette serve` (without flags)
+
+The old `wassette serve` commands still work but will show deprecation warnings.
 
 ## Demo
 
