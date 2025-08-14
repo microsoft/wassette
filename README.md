@@ -41,8 +41,13 @@ You can also download the latest release from the [GitHub Releases page][Release
 
 With Wassette installed, the next step is to register it with your agent of
 choice. We have a complete [complete setup guide][setup guide] for all agents
-here, including Cursor, Claude Code, and Gemini CLI. However to get started with
-Visual Studio Code, just run the following command in a bash/zsh or PowerShell terminal:
+here, including Cursor, Claude Code, and Gemini CLI. 
+
+Add the Wassette MCP Server to GitHub Copilot in Visual Studio Code by clicking the **Install in VS Code** or **Install in VS Code Insiders** badge below:
+
+[![Install in VS Code](https://img.shields.io/badge/VS_Code-Install_Server-0098FF?style=flat-square&logo=visualstudiocode&logoColor=white)](https://vscode.dev/redirect?url=vscode:mcp/install?%7B%22name%22%3A%22wassette%22%2C%22gallery%22%3Afalse%2C%22command%22%3A%22wassette%22%2C%22args%22%3A%5B%22serve%22%2C%22--stdio%22%5D%7D) [![Install in VS Code Insiders](https://img.shields.io/badge/VS_Code_Insiders-Install_Server-24bfa5?style=flat-square&logo=visualstudiocode&logoColor=white)](https://vscode.dev/redirect?url=vscode-insiders:mcp/install?%7B%22name%22%3A%22wassette%22%2C%22gallery%22%3Afalse%2C%22command%22%3A%22wassette%22%2C%22args%22%3A%5B%22serve%22%2C%22--stdio%22%5D%7D)
+
+Alternatively, you can add the Wassete MCP server to VS Code from the command line using the `code` command in a bash/zsh or PowerShell terminal:
 
 ### bash/zsh
 
