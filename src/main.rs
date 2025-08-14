@@ -347,7 +347,7 @@ async fn create_lifecycle_manager(plugin_dir: Option<PathBuf>) -> Result<Lifecyc
     let config = if let Some(dir) = plugin_dir {
         config::Config { plugin_dir: dir }
     } else {
-        config::Config::new(&Serve { 
+        config::Config::new(&crate::Serve { 
             plugin_dir: None, 
             stdio: false, 
             http: false 
