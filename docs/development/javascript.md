@@ -11,10 +11,9 @@ This guide provides detailed instructions on how to create WebAssembly (Wasm) Co
 5. [Writing Component Code](#writing-component-code)
 6. [Building Components](#building-components)
 7. [WASI Interfaces and Imports](#wasi-interfaces-and-imports)
-8. [Policy Configuration](#policy-configuration)
-9. [Testing and Debugging](#testing-and-debugging)
-10. [Best Practices](#best-practices)
-11. [Examples](#examples)
+8. [Testing and Debugging](#testing-and-debugging)
+9. [Best Practices](#best-practices)
+10. [Examples](#examples)
 
 ## Prerequisites
 
@@ -100,7 +99,6 @@ my-component/
 ├── wit/             # WIT interface definitions
 │   ├── world.wit    # Main world definition
 │   └── deps/        # External interface dependencies
-├── policy.yaml      # Security policy (optional)
 └── README.md
 ```
 
@@ -466,74 +464,6 @@ world my-component {
 }
 ```
 
-## Policy Configuration
-
-Wassette uses policy files to control what resources components can access. This follows the principle of least privilege - components only get access to explicitly allowed resources.
-
-### Basic Policy Structure
-
-Create a `policy.yaml` file:
-
-```yaml
-version: "1.0"
-description: "Security policy for my component"
-permissions:
-  network:
-    allow:
-      - host: "api.example.com"
-      - host: "cdn.example.com"
-  environment:
-    allow:
-      - key: "API_KEY"
-      - key: "DEBUG_MODE"
-  filesystem:
-    allow:
-      - path: "/tmp"
-        access: ["read", "write"]
-```
-
-### Network Permissions
-
-Control which hosts your component can access:
-
-```yaml
-permissions:
-  network:
-    allow:
-      - host: "api.openweathermap.org"
-        ports: [80, 443]
-      - host: "backup-api.example.com"
-    deny:
-      - host: "internal.company.com"
-```
-
-### Environment Variables
-
-Specify which environment variables the component can read:
-
-```yaml
-permissions:
-  environment:
-    allow:
-      - key: "API_KEY"
-      - key: "LOG_LEVEL"
-      - key: "TIMEOUT_SECONDS"
-```
-
-### File System Access
-
-Control file system access:
-
-```yaml
-permissions:
-  filesystem:
-    allow:
-      - path: "/data"
-        access: ["read"]
-      - path: "/tmp/component-cache"
-        access: ["read", "write", "create"]
-```
-
 ## Testing and Debugging
 
 ### Local Testing
@@ -814,19 +744,6 @@ export async function getWeather(city) {
         return { tag: "err", val: `Error: ${error.message}` };
     }
 }
-```
-
-**policy.yaml:**
-```yaml
-version: "1.0"
-description: "Weather service permissions"
-permissions:
-  network:
-    allow:
-      - host: "api.openweathermap.org"
-  environment:
-    allow:
-      - key: "OPENWEATHER_API_KEY"
 ```
 
 ### Example 4: Data Processing with File System
