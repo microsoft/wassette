@@ -557,16 +557,6 @@ Test your component with Wassette locally:
 # Build your component
 cargo build --target wasm32-wasip2 --release
 
-# Create a test policy.yaml if needed
-cat > policy.yaml << EOF
-version: "1.0"
-description: "Test policy for my component"
-permissions:
-  network:
-    allow:
-      - host: "https://example.com"
-EOF
-
 # Start Wassette with your component
 wassette serve --sse --plugin-dir .
 ```
@@ -861,79 +851,6 @@ impl Guest for Component {
 }
 ```
 
-## Troubleshooting
-
-### Common Build Issues
-
-1. **"error: target 'wasm32-wasip2' not found"**
-   ```bash
-   rustup target add wasm32-wasip2
-   ```
-
-2. **"file not found for module `bindings`"**
-   - You need to generate bindings first before building
-   - Run: `wit-bindgen rust wit/ --out-dir src/ --runtime-path wit_bindgen_rt --async none`
-   - Rename the generated file to `src/bindings.rs`
-
-3. **"cannot find macro `export!` in crate `bindings`"**
-   - Ensure your `wit/world.wit` file is properly formatted
-   - Check that `wit-bindgen-rt` dependency is correct
-   - Verify bindings were generated correctly
-   - Try `cargo clean` and regenerate bindings
-
-4. **"unresolved import `bindings`"**
-   - The bindings module must be generated from your WIT file
-   - Make sure your WIT file syntax is correct
-   - Check that the package name matches between WIT and Cargo.toml
-   - Ensure the generated bindings file is named `bindings.rs`
-
-5. **wit-bindgen command fails**
-   - Install the correct version: `cargo install wit-bindgen-cli --version 0.37.0`
-   - Make sure your WIT syntax is valid
-   - Check that wit/ directory exists and contains world.wit
-
-6. **Large Wasm file size**
-   - Ensure you're using release mode: `--release`
-   - Check your `[profile.release]` settings in Cargo.toml
-   - Consider using `wee_alloc` for smaller allocator:
-   ```rust
-   #[global_allocator]
-   static ALLOC: wee_alloc::WeeAlloc = wee_alloc::WeeAlloc::INIT;
-   ```
-
-### Runtime Issues
-
-1. **"component exports not found"**
-   - Verify your WIT world definition matches the implementation
-   - Ensure you're using the correct `export!` macro
-   - Check function signatures match exactly
-
-2. **Memory or performance issues**
-   - Profile your component with tools like `twiggy`
-   - Avoid unnecessary string allocations
-   - Use appropriate data structures for your use case
-
-3. **Permission denied errors**
-   - Check your `policy.yaml` configuration
-   - Ensure Wassette has appropriate permissions
-   - Verify file paths and network access requirements
-
-### Debugging Tips
-
-1. **Enable debug logging**
-   ```bash
-   RUST_LOG=debug cargo build --target wasm32-wasip2
-   ```
-
-2. **Use component inspection tools**
-   ```bash
-   wasm-tools component wit target/wasm32-wasip2/release/my_component.wasm
-   ```
-
-3. **Test incrementally**
-   - Start with a minimal component and add complexity gradually
-   - Test each function independently when possible
-   - Use unit tests to catch issues early
 
 ## Additional Resources
 
