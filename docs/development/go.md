@@ -30,11 +30,12 @@ Before you begin, ensure you have the following tools installed:
 ### Optional but Recommended
 
 - **wkg** (Wasm Component Tooling): For managing WIT dependencies
-- **just** (Command runner): For simplified build automation
 
 ## Understanding WIT (WebAssembly Interface Types)
 
-WIT (WebAssembly Interface Types) is an IDL (Interface Definition Language) for defining interfaces between WebAssembly components and their hosts. When creating a Wasm component with Go, you'll need to:
+WIT (WebAssembly Interface Types) is an IDL (Interface Definition Language) for defining interfaces between WebAssembly components and their hosts. For detailed information about WIT, see the [WIT specification](https://github.com/WebAssembly/component-model/blob/main/design/mvp/WIT.md).
+
+When creating a Wasm component with Go, you'll need to:
 
 1. Define your component's interface in a `.wit` file
 2. Generate Go bindings from the WIT file
@@ -65,6 +66,8 @@ world gomodule-server {
 }
 ```
 
+**Note**: If your WIT World needs to import from other WIT packages, you will need to use the `wkg wit fetch` command to fetch the WIT packages from registries.
+
 Key concepts:
 - **Package**: Defines the namespace for your component
 - **Interface**: Groups related functions together
@@ -84,9 +87,7 @@ my-component/
 ├── gen/                    # Generated Go bindings (auto-generated)
 ├── main.go                # Your component implementation
 ├── go.mod                 # Go module definition
-├── go.sum                 # Go dependency checksums
-├── Justfile               # Build automation (optional)
-└── policy.yaml            # Network/resource permissions (optional)
+└── go.sum                 # Go dependency checksums
 ```
 
 ## Step-by-Step Component Creation
@@ -134,28 +135,13 @@ require (
 
 ### 3. Generate Go Bindings
 
-Create a `Justfile` for build automation:
-
-```just
-bindings:
-    go run go.bytecodealliance.org/cmd/wit-bindgen-go@v0.6.2 generate -o gen ./wit
-
-build: bindings
-    tinygo build -o component.wasm -target wasip2 --wit-package ./wit --wit-world my-component main.go
-
-clean:
-    rm -rf gen *.wasm
-```
-
-Generate the bindings:
+Generate the bindings using the wit-bindgen-go tool:
 
 ```bash
-# If using just
-just bindings
-
-# Or manually
 go run go.bytecodealliance.org/cmd/wit-bindgen-go@v0.6.2 generate -o gen ./wit
 ```
+
+The bindings files (.go files) will be output to the `gen` folder. You can examine that folder to understand the generated Go code and types that correspond to your WIT interface definitions.
 
 ### 4. Implement Your Component
 
@@ -202,10 +188,6 @@ func main() {
 ### 5. Build the Component
 
 ```bash
-# If using just
-just build
-
-# Or manually
 tinygo build -o component.wasm -target wasip2 --wit-package ./wit --wit-world my-component main.go
 ```
 
@@ -267,20 +249,6 @@ func myFunction(input string) MyResult {
     result := "processed: " + input
     return cm.OK[MyResult](result)
 }
-```
-
-## Network Permissions
-
-If your component needs network access, create a `policy.yaml` file:
-
-```yaml
-version: "1.0"
-description: "Network permissions for my component"
-permissions:
-  network:
-    allow:
-      - host: "https://api.example.com"
-      - host: "https://httpbin.org"
 ```
 
 ## Testing Your Component
@@ -385,46 +353,6 @@ tinygo build -o component.wasm \
     main.go
 ```
 
-## Common Issues and Troubleshooting
-
-### Build Issues
-
-**Error: "requires go version 1.19 through 1.23, got go1.24"**
-- TinyGo has specific Go version requirements
-- Install Go 1.23 or earlier from https://golang.org/dl/
-- You can have multiple Go versions installed side by side
-
-**Error: "target wasip2 not supported"**
-- Update TinyGo to version 0.32 or later
-- Verify your TinyGo installation
-
-**Error: "wit-bindgen-go not found"**
-- Ensure you have internet connectivity
-- The tool is downloaded automatically during build
-
-### Runtime Issues
-
-**Error: "function not found"**
-- Verify your function is registered in the `init()` function
-- Check that function names match between WIT and Go exactly
-
-**HTTP requests failing**
-- Check your `policy.yaml` file
-- Ensure the target host is in the allow list
-- Verify network connectivity
-
-### Performance Issues
-
-**Large binary size**
-- Use TinyGo optimization flags
-- Avoid importing large standard library packages
-- Consider using build tags to exclude unused code
-
-**Slow execution**
-- Profile your Go code before compilation
-- Avoid frequent allocations in hot paths
-- Use efficient data structures
-
 ## Advanced Topics
 
 ### Custom WIT Types
@@ -481,9 +409,8 @@ The [gomodule-go example](../../examples/gomodule-go/) in this repository demons
 - JSON data processing
 - Error handling
 - Multiple exported functions
-- Network policy configuration
 
-Study this example for a complete working implementation.
+Study this example for a complete working implementation. Some of the real world examples can also be found at [go-modules](https://github.com/bytecodealliance/go-modules).
 
 ## Resources
 
