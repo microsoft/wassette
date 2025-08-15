@@ -310,50 +310,6 @@ world network-tool {
 # Note: This requires appropriate policy permissions
 ```
 
-## Security and Policy Considerations
-
-Wassette runs components in a secure sandbox. Consider these guidelines:
-
-### Policy Configuration
-
-Create a `policy.yaml` file to define what your component can access:
-
-```yaml
-version: "1.0"
-description: "Policy for my Python calculator tool"
-
-permissions:
-  # Most Python tools don't need network access
-  network:
-    allow: []
-  
-  # Environment access (if needed)
-  environment:
-    allow:
-      - key: "CALCULATOR_PRECISION"
-        description: "Number of decimal places for calculations"
-  
-  # File system access (if needed)
-  storage:
-    allow:
-      - path: "/app/data"
-        access: ["read"]
-        description: "Read calculation history"
-  
-  # Resource limits
-  resources:
-    cpu: 50.0      # 50% CPU limit
-    memory: 128    # 128MB memory limit
-```
-
-### Best Security Practices
-
-1. **Minimize Dependencies**: Only include necessary packages
-2. **Validate Inputs**: Always validate and sanitize user inputs
-3. **Handle Errors Gracefully**: Don't expose internal details in error messages
-4. **Use Safe Evaluation**: Avoid `eval()` for untrusted input; use `ast.literal_eval()` or proper parsers
-5. **Follow Principle of Least Privilege**: Request only the permissions you need
-
 ## Testing Your Component
 
 ### Unit Testing
@@ -510,31 +466,7 @@ class DataAnalyzer(wit_world.DataAnalyzer):
             raise handle_error(e)
 ```
 
-## Troubleshooting
 
-### Common Issues
-
-1. **Build Failures**
-   - Ensure Python 3.10+ is installed
-   - Check that componentize-py is properly installed
-   - Verify WIT syntax is correct
-
-2. **Runtime Errors**
-   - Check that all required dependencies are included
-   - Ensure error handling is properly implemented
-   - Verify policy permissions match component needs
-
-3. **Interface Mismatches**
-   - Regenerate bindings after changing WIT files
-   - Ensure Python implementation matches WIT interface exactly
-   - Check parameter and return types
-
-### Debug Tips
-
-1. **Use Logging**: Add logging to understand component behavior
-2. **Test Incrementally**: Build and test small pieces at a time
-3. **Check Generated Bindings**: Review `wit_world/` files to understand expected interfaces
-4. **Validate WIT Syntax**: Use `wasm-tools component wit` to validate WIT files
 
 ## Resources
 
