@@ -10,10 +10,12 @@ use std::path::PathBuf;
 use std::pin::Pin;
 
 use anyhow::{Context, Result};
-use clap::{Parser, Subcommand, ValueEnum};
+use clap::Parser;
 use mcp_server::{
     handle_prompts_list, handle_resources_list, handle_tools_call, handle_tools_list,
-    LifecycleManager,
+    LifecycleManager, 
+    tools::*,
+    components::{handle_load_component_cli, handle_unload_component_cli, handle_list_components},
 };
 use rmcp::model::{
     CallToolRequestParam, CallToolResult, ErrorData, ListPromptsResult, ListResourcesResult,
@@ -24,13 +26,18 @@ use rmcp::transport::streamable_http_server::session::local::LocalSessionManager
 use rmcp::transport::streamable_http_server::StreamableHttpService;
 use rmcp::transport::{stdio as stdio_transport, SseServer};
 use rmcp::ServerHandler;
-use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Value};
 
 use tracing_subscriber::layer::SubscriberExt as _;
 use tracing_subscriber::util::SubscriberInitExt as _;
 
 mod config;
+mod format;
+mod commands;
+
+use commands::{Cli, Commands, ComponentCommands, PolicyCommands, PermissionCommands, 
+                GrantPermissionCommands, RevokePermissionCommands, Serve};
+use format::{OutputFormat, print_result};
 
 use std::sync::LazyLock;
 
@@ -50,10 +57,11 @@ enum ToolName {
     ResetPermission,
 }
 
-impl ToolName {
-    /// Convert string to ToolName enum
-    fn from_str(s: &str) -> Result<Self> {
-        match s {
+impl TryFrom<&str> for ToolName {
+    type Error = anyhow::Error;
+
+    fn try_from(value: &str) -> Result<Self, Self::Error> {
+        match value {
             "load-component" => Ok(Self::LoadComponent),
             "unload-component" => Ok(Self::UnloadComponent),
             "list-components" => Ok(Self::ListComponents),
@@ -67,12 +75,21 @@ impl ToolName {
                 Ok(Self::RevokeEnvironmentVariablePermission)
             }
             "reset-permission" => Ok(Self::ResetPermission),
-            _ => Err(anyhow::anyhow!("Unknown tool name: {}", s)),
+            _ => Err(anyhow::anyhow!("Unknown tool name: {}", value)),
         }
     }
+}
 
-    /// Get the tool name as a string
-    fn as_str(&self) -> &'static str {
+impl TryFrom<String> for ToolName {
+    type Error = anyhow::Error;
+
+    fn try_from(value: String) -> Result<Self, Self::Error> {
+        Self::try_from(value.as_str())
+    }
+}
+
+impl AsRef<str> for ToolName {
+    fn as_ref(&self) -> &str {
         match self {
             Self::LoadComponent => "load-component",
             Self::UnloadComponent => "unload-component",
@@ -89,20 +106,10 @@ impl ToolName {
     }
 }
 
-/// Output format options for CLI commands
-#[derive(Debug, Clone, Copy, PartialEq, ValueEnum)]
-enum OutputFormat {
-    /// JSON format
-    Json,
-    /// YAML format
-    Yaml,
-    /// Table format
-    Table,
-}
-
-impl Default for OutputFormat {
-    fn default() -> Self {
-        Self::Json
+impl ToolName {
+    /// Get the tool name as a string (convenience method that delegates to AsRef)
+    fn as_str(&self) -> &str {
+        self.as_ref()
     }
 }
 
@@ -152,278 +159,20 @@ fn format_build_info() -> String {
     )
 }
 
-#[derive(Parser, Debug)]
-#[command(name = "wassette-mcp-server", about, long_about = None, version = VERSION_INFO.as_str())]
-struct Cli {
-    #[command(subcommand)]
-    command: Commands,
-}
-
-#[derive(Subcommand, Debug)]
-enum Commands {
-    /// Begin handling requests over the specified protocol.
-    Serve(Serve),
-    /// Manage WebAssembly components.
-    Component {
-        #[command(subcommand)]
-        command: ComponentCommands,
-    },
-    /// Manage component policies.
-    Policy {
-        #[command(subcommand)]
-        command: PolicyCommands,
-    },
-    /// Manage component permissions.
-    Permission {
-        #[command(subcommand)]
-        command: PermissionCommands,
-    },
-}
-
-#[derive(Subcommand, Debug)]
-enum ComponentCommands {
-    /// Load a WebAssembly component from a file path or OCI registry.
-    Load {
-        /// Path to the component (file:// or oci://)
-        path: String,
-        /// Directory where plugins are stored. Defaults to $XDG_DATA_HOME/wassette/components
-        #[arg(long)]
-        plugin_dir: Option<PathBuf>,
-    },
-    /// Unload a WebAssembly component.
-    Unload {
-        /// Component ID to unload
-        id: String,
-        /// Directory where plugins are stored. Defaults to $XDG_DATA_HOME/wassette/components
-        #[arg(long)]
-        plugin_dir: Option<PathBuf>,
-    },
-    /// List all loaded components.
-    List {
-        /// Directory where plugins are stored. Defaults to $XDG_DATA_HOME/wassette/components
-        #[arg(long)]
-        plugin_dir: Option<PathBuf>,
-        /// Output format
-        #[arg(short = 'o', long = "output-format", default_value = "json")]
-        output_format: OutputFormat,
-    },
-}
-
-#[derive(Subcommand, Debug)]
-enum PolicyCommands {
-    /// Get policy information for a component.
-    Get {
-        /// Component ID to get policy for
-        component_id: String,
-        /// Directory where plugins are stored. Defaults to $XDG_DATA_HOME/wassette/components
-        #[arg(long)]
-        plugin_dir: Option<PathBuf>,
-        /// Output format
-        #[arg(short = 'o', long = "output-format", default_value = "json")]
-        output_format: OutputFormat,
-    },
-}
-
-#[derive(Subcommand, Debug)]
-enum PermissionCommands {
-    /// Grant permissions to a component.
-    Grant {
-        #[command(subcommand)]
-        permission: GrantPermissionCommands,
-    },
-    /// Revoke permissions from a component.
-    Revoke {
-        #[command(subcommand)]
-        permission: RevokePermissionCommands,
-    },
-    /// Reset all permissions for a component.
-    Reset {
-        /// Component ID to reset permissions for
-        component_id: String,
-        /// Directory where plugins are stored. Defaults to $XDG_DATA_HOME/wassette/components
-        #[arg(long)]
-        plugin_dir: Option<PathBuf>,
-    },
-}
-
-#[derive(Subcommand, Debug)]
-enum GrantPermissionCommands {
-    /// Grant storage access permission.
-    Storage {
-        /// Component ID to grant permission to
-        component_id: String,
-        /// Storage URI (e.g., fs:///tmp/workspace)
-        uri: String,
-        /// Access types (read, write, or both)
-        #[arg(long, value_delimiter = ',')]
-        access: Vec<String>,
-        /// Directory where plugins are stored. Defaults to $XDG_DATA_HOME/wassette/components
-        #[arg(long)]
-        plugin_dir: Option<PathBuf>,
-    },
-    /// Grant network access permission.
-    Network {
-        /// Component ID to grant permission to
-        component_id: String,
-        /// Host to grant access to
-        host: String,
-        /// Directory where plugins are stored. Defaults to $XDG_DATA_HOME/wassette/components
-        #[arg(long)]
-        plugin_dir: Option<PathBuf>,
-    },
-    /// Grant environment variable access permission.
-    #[command(name = "environment-variable")]
-    EnvironmentVariable {
-        /// Component ID to grant permission to
-        component_id: String,
-        /// Environment variable key
-        key: String,
-        /// Directory where plugins are stored. Defaults to $XDG_DATA_HOME/wassette/components
-        #[arg(long)]
-        plugin_dir: Option<PathBuf>,
-    },
-}
-
-#[derive(Subcommand, Debug)]
-enum RevokePermissionCommands {
-    /// Revoke storage access permission.
-    Storage {
-        /// Component ID to revoke permission from
-        component_id: String,
-        /// Storage URI to revoke access from
-        uri: String,
-        /// Directory where plugins are stored. Defaults to $XDG_DATA_HOME/wassette/components
-        #[arg(long)]
-        plugin_dir: Option<PathBuf>,
-    },
-    /// Revoke network access permission.
-    Network {
-        /// Component ID to revoke permission from
-        component_id: String,
-        /// Host to revoke access from
-        host: String,
-        /// Directory where plugins are stored. Defaults to $XDG_DATA_HOME/wassette/components
-        #[arg(long)]
-        plugin_dir: Option<PathBuf>,
-    },
-    /// Revoke environment variable access permission.
-    #[command(name = "environment-variable")]
-    EnvironmentVariable {
-        /// Component ID to revoke permission from
-        component_id: String,
-        /// Environment variable key to revoke access from
-        key: String,
-        /// Directory where plugins are stored. Defaults to $XDG_DATA_HOME/wassette/components
-        #[arg(long)]
-        plugin_dir: Option<PathBuf>,
-    },
-}
-
-#[derive(Parser, Debug, Clone, Serialize, Deserialize)]
-struct Serve {
-    /// Directory where plugins are stored. Defaults to $XDG_DATA_HOME/wasette/components
-    #[arg(long)]
-    #[serde(skip_serializing_if = "Option::is_none")]
-    plugin_dir: Option<PathBuf>,
-
-    /// Enable stdio transport
-    #[arg(long)]
-    #[serde(skip)]
-    stdio: bool,
-
-    /// Enable SSE transport
-    #[arg(long)]
-    #[serde(skip)]
-    sse: bool,
-
-    /// Enable streamable HTTP transport  
-    #[arg(long)]
-    #[serde(skip)]
-    streamable_http: bool,
-}
-
-/// Format JSON value as YAML
-fn format_as_yaml(value: &Value) -> Result<String> {
-    serde_yaml::to_string(value).context("Failed to convert to YAML")
-}
-
-/// Format JSON value as a table
-fn format_as_table(value: &Value) -> Result<String> {
-    match value {
-        Value::Object(obj) => {
-            // For component list or policy get
-            if let Some(components) = obj.get("components").and_then(|v| v.as_array()) {
-                // Format component list as table
-                format_components_table(components)
-            } else {
-                // For single object like policy info, format as key-value table
-                format_object_table(obj)
-            }
-        }
-        _ => Ok(format!(
-            "# Table format not supported for this output type\n{}",
-            serde_json::to_string_pretty(value)?
-        )),
-    }
-}
-
-/// Format components array as a table
-fn format_components_table(components: &[Value]) -> Result<String> {
-    let mut table = String::new();
-    table.push_str("ID                    | Tools Count\n");
-    table.push_str("----------------------|------------\n");
-
-    for component in components {
-        let id = component
-            .get("id")
-            .and_then(|v| v.as_str())
-            .unwrap_or("N/A");
-        let tools_count = component
-            .get("tools_count")
-            .and_then(|v| v.as_u64())
-            .unwrap_or(0);
-
-        table.push_str(&format!("{id:<21} | {tools_count}\n"));
-    }
-
-    Ok(table)
-}
-
-/// Format object as key-value table
-fn format_object_table(obj: &serde_json::Map<String, Value>) -> Result<String> {
-    let mut table = String::new();
-    table.push_str("Key                   | Value\n");
-    table.push_str("----------------------|----------------------\n");
-
-    for (key, value) in obj {
-        let value_str = match value {
-            Value::String(s) => s.clone(),
-            Value::Number(n) => n.to_string(),
-            Value::Bool(b) => b.to_string(),
-            Value::Null => "null".to_string(),
-            Value::Array(_) => "[array]".to_string(),
-            Value::Object(_) => "[object]".to_string(),
-        };
-        table.push_str(&format!("{key:<21} | {value_str}\n"));
-    }
-
-    Ok(table)
-}
-
 /// A security-oriented runtime that runs WebAssembly Components via MCP.
 #[derive(Clone)]
 pub struct McpServer {
     lifecycle_manager: LifecycleManager,
 }
 
-/// Handle CLI commands by creating appropriate tool call requests
-async fn handle_cli_command(
+/// Handle CLI tool commands by creating appropriate tool call requests
+async fn handle_tool_cli_command(
     lifecycle_manager: &LifecycleManager,
     tool_name: &str,
     args: Map<String, Value>,
     output_format: OutputFormat,
 ) -> Result<()> {
-    let tool = ToolName::from_str(tool_name)?;
+    let tool = ToolName::try_from(tool_name)?;
 
     let req = CallToolRequestParam {
         name: tool.as_str().to_string().into(),
@@ -432,77 +181,42 @@ async fn handle_cli_command(
 
     let result = match tool {
         ToolName::LoadComponent => {
-            use mcp_server::components::handle_load_component_cli;
             handle_load_component_cli(&req, lifecycle_manager).await?
         }
         ToolName::UnloadComponent => {
-            use mcp_server::components::handle_unload_component_cli;
             handle_unload_component_cli(&req, lifecycle_manager).await?
         }
         ToolName::ListComponents => {
-            use mcp_server::components::handle_list_components;
             handle_list_components(lifecycle_manager).await?
         }
         ToolName::GetPolicy => {
-            use mcp_server::tools::handle_get_policy;
             handle_get_policy(&req, lifecycle_manager).await?
         }
         ToolName::GrantStoragePermission => {
-            use mcp_server::tools::handle_grant_storage_permission;
             handle_grant_storage_permission(&req, lifecycle_manager).await?
         }
         ToolName::GrantNetworkPermission => {
-            use mcp_server::tools::handle_grant_network_permission;
             handle_grant_network_permission(&req, lifecycle_manager).await?
         }
         ToolName::GrantEnvironmentVariablePermission => {
-            use mcp_server::tools::handle_grant_environment_variable_permission;
             handle_grant_environment_variable_permission(&req, lifecycle_manager).await?
         }
         ToolName::RevokeStoragePermission => {
-            use mcp_server::tools::handle_revoke_storage_permission;
             handle_revoke_storage_permission(&req, lifecycle_manager).await?
         }
         ToolName::RevokeNetworkPermission => {
-            use mcp_server::tools::handle_revoke_network_permission;
             handle_revoke_network_permission(&req, lifecycle_manager).await?
         }
         ToolName::RevokeEnvironmentVariablePermission => {
-            use mcp_server::tools::handle_revoke_environment_variable_permission;
             handle_revoke_environment_variable_permission(&req, lifecycle_manager).await?
         }
         ToolName::ResetPermission => {
-            use mcp_server::tools::handle_reset_permission;
             handle_reset_permission(&req, lifecycle_manager).await?
         }
     };
 
-    // Print the result content
-    for content in result.content {
-        // Convert content to text and print
-        if let Some(text) = content.as_text() {
-            // Try to parse as JSON first
-            if let Ok(json_value) = serde_json::from_str::<Value>(&text.text) {
-                match output_format {
-                    OutputFormat::Json => {
-                        // Always pretty-print JSON for better readability
-                        println!("{}", serde_json::to_string_pretty(&json_value)?);
-                    }
-                    OutputFormat::Yaml => {
-                        // Convert JSON to YAML
-                        println!("{}", format_as_yaml(&json_value)?);
-                    }
-                    OutputFormat::Table => {
-                        // Format as table
-                        println!("{}", format_as_table(&json_value)?);
-                    }
-                }
-            } else {
-                // If not JSON, just print as-is
-                println!("{}", text.text);
-            }
-        }
-    }
+    // Print the result using the format module
+    print_result(&result, output_format)?;
 
     Ok(())
 }
@@ -721,7 +435,7 @@ async fn main() -> Result<()> {
                 let lifecycle_manager = create_lifecycle_manager(plugin_dir.clone()).await?;
                 let mut args = Map::new();
                 args.insert("path".to_string(), json!(path));
-                handle_cli_command(
+                handle_tool_cli_command(
                     &lifecycle_manager,
                     "load-component",
                     args,
@@ -733,7 +447,7 @@ async fn main() -> Result<()> {
                 let lifecycle_manager = create_lifecycle_manager(plugin_dir.clone()).await?;
                 let mut args = Map::new();
                 args.insert("id".to_string(), json!(id));
-                handle_cli_command(
+                handle_tool_cli_command(
                     &lifecycle_manager,
                     "unload-component",
                     args,
@@ -747,7 +461,7 @@ async fn main() -> Result<()> {
             } => {
                 let lifecycle_manager = create_lifecycle_manager(plugin_dir.clone()).await?;
                 let args = Map::new();
-                handle_cli_command(&lifecycle_manager, "list-components", args, *output_format)
+                handle_tool_cli_command(&lifecycle_manager, "list-components", args, *output_format)
                     .await?;
             }
         },
@@ -760,7 +474,7 @@ async fn main() -> Result<()> {
                 let lifecycle_manager = create_lifecycle_manager(plugin_dir.clone()).await?;
                 let mut args = Map::new();
                 args.insert("component_id".to_string(), json!(component_id));
-                handle_cli_command(&lifecycle_manager, "get-policy", args, *output_format).await?;
+                handle_tool_cli_command(&lifecycle_manager, "get-policy", args, *output_format).await?;
             }
         },
         Commands::Permission { command } => match command {
@@ -781,7 +495,7 @@ async fn main() -> Result<()> {
                             "access": access
                         }),
                     );
-                    handle_cli_command(
+                    handle_tool_cli_command(
                         &lifecycle_manager,
                         "grant-storage-permission",
                         args,
@@ -803,7 +517,7 @@ async fn main() -> Result<()> {
                             "host": host
                         }),
                     );
-                    handle_cli_command(
+                    handle_tool_cli_command(
                         &lifecycle_manager,
                         "grant-network-permission",
                         args,
@@ -825,7 +539,7 @@ async fn main() -> Result<()> {
                             "key": key
                         }),
                     );
-                    handle_cli_command(
+                    handle_tool_cli_command(
                         &lifecycle_manager,
                         "grant-environment-variable-permission",
                         args,
@@ -849,7 +563,7 @@ async fn main() -> Result<()> {
                             "uri": uri
                         }),
                     );
-                    handle_cli_command(
+                    handle_tool_cli_command(
                         &lifecycle_manager,
                         "revoke-storage-permission",
                         args,
@@ -871,7 +585,7 @@ async fn main() -> Result<()> {
                             "host": host
                         }),
                     );
-                    handle_cli_command(
+                    handle_tool_cli_command(
                         &lifecycle_manager,
                         "revoke-network-permission",
                         args,
@@ -893,7 +607,7 @@ async fn main() -> Result<()> {
                             "key": key
                         }),
                     );
-                    handle_cli_command(
+                    handle_tool_cli_command(
                         &lifecycle_manager,
                         "revoke-environment-variable-permission",
                         args,
@@ -909,7 +623,7 @@ async fn main() -> Result<()> {
                 let lifecycle_manager = create_lifecycle_manager(plugin_dir.clone()).await?;
                 let mut args = Map::new();
                 args.insert("component_id".to_string(), json!(component_id));
-                handle_cli_command(
+                handle_tool_cli_command(
                     &lifecycle_manager,
                     "reset-permission",
                     args,
@@ -959,52 +673,52 @@ mod cli_tests {
     #[test]
     fn test_tool_name_from_str() {
         assert_eq!(
-            ToolName::from_str("load-component").unwrap(),
+            ToolName::try_from("load-component").unwrap(),
             ToolName::LoadComponent
         );
         assert_eq!(
-            ToolName::from_str("unload-component").unwrap(),
+            ToolName::try_from("unload-component").unwrap(),
             ToolName::UnloadComponent
         );
         assert_eq!(
-            ToolName::from_str("list-components").unwrap(),
+            ToolName::try_from("list-components").unwrap(),
             ToolName::ListComponents
         );
         assert_eq!(
-            ToolName::from_str("get-policy").unwrap(),
+            ToolName::try_from("get-policy").unwrap(),
             ToolName::GetPolicy
         );
         assert_eq!(
-            ToolName::from_str("grant-storage-permission").unwrap(),
+            ToolName::try_from("grant-storage-permission").unwrap(),
             ToolName::GrantStoragePermission
         );
         assert_eq!(
-            ToolName::from_str("grant-network-permission").unwrap(),
+            ToolName::try_from("grant-network-permission").unwrap(),
             ToolName::GrantNetworkPermission
         );
         assert_eq!(
-            ToolName::from_str("grant-environment-variable-permission").unwrap(),
+            ToolName::try_from("grant-environment-variable-permission").unwrap(),
             ToolName::GrantEnvironmentVariablePermission
         );
         assert_eq!(
-            ToolName::from_str("revoke-storage-permission").unwrap(),
+            ToolName::try_from("revoke-storage-permission").unwrap(),
             ToolName::RevokeStoragePermission
         );
         assert_eq!(
-            ToolName::from_str("revoke-network-permission").unwrap(),
+            ToolName::try_from("revoke-network-permission").unwrap(),
             ToolName::RevokeNetworkPermission
         );
         assert_eq!(
-            ToolName::from_str("revoke-environment-variable-permission").unwrap(),
+            ToolName::try_from("revoke-environment-variable-permission").unwrap(),
             ToolName::RevokeEnvironmentVariablePermission
         );
         assert_eq!(
-            ToolName::from_str("reset-permission").unwrap(),
+            ToolName::try_from("reset-permission").unwrap(),
             ToolName::ResetPermission
         );
 
         // Test invalid tool name
-        assert!(ToolName::from_str("invalid-tool").is_err());
+        assert!(ToolName::try_from("invalid-tool").is_err());
     }
 
     #[test]
@@ -1058,7 +772,7 @@ mod cli_tests {
 
         for tool in test_cases {
             let str_repr = tool.as_str();
-            let parsed = ToolName::from_str(str_repr).unwrap();
+            let parsed = ToolName::try_from(str_repr).unwrap();
             assert_eq!(tool, parsed);
         }
     }
@@ -1090,7 +804,7 @@ mod cli_tests {
         matches!(cli.command, Commands::Permission { .. });
 
         // Test serve command still works
-        let args = vec!["wassette", "serve", "--http"];
+        let args = vec!["wassette", "serve", "--sse"];
         let cli = Cli::try_parse_from(args).unwrap();
         matches!(cli.command, Commands::Serve(_));
     }

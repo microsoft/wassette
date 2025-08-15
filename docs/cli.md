@@ -374,6 +374,39 @@ wassette component list --output-format table
 
 ## Configuration
 
+Wassette can be configured using configuration files, environment variables, and command-line options. The configuration sources are merged with the following order of precedence:
+
+1. Command-line options (highest priority)
+2. Environment variables prefixed with `WASSETTE_`
+3. Configuration file (lowest priority)
+
+### Configuration File
+
+By default, Wassette looks for a configuration file at:
+- **Linux/macOS**: `$XDG_CONFIG_HOME/wassette/config.toml` (typically `~/.config/wassette/config.toml`)
+- **Windows**: `%APPDATA%\wassette\config.toml`
+
+You can override the default configuration file location using the `WASSETTE_CONFIG_FILE` environment variable:
+
+```bash
+export WASSETTE_CONFIG_FILE=/custom/path/to/config.toml
+wassette component list
+```
+
+Example configuration file (`config.toml`):
+
+```toml
+# Directory where components are stored
+plugin_dir = "/opt/wassette/components"
+```
+
+### Environment Variables
+
+- **`WASSETTE_CONFIG_FILE`**: Override the default configuration file location
+- **`WASSETTE_PLUGIN_DIR`**: Override the default component storage location
+- **`XDG_CONFIG_HOME`**: Base directory for configuration files (Linux/macOS)
+- **`XDG_DATA_HOME`**: Base directory for data storage (Linux/macOS)
+
 ### Component Storage
 
 By default, Wassette stores components in `$XDG_DATA_HOME/wassette/components` (typically `~/.local/share/wassette/components` on Linux/macOS). You can override this with the `--plugin-dir` option:
@@ -383,11 +416,6 @@ By default, Wassette stores components in `$XDG_DATA_HOME/wassette/components` (
 export WASSETTE_PLUGIN_DIR=/opt/wassette/components
 wassette component load oci://example.com/tool:latest --plugin-dir $WASSETTE_PLUGIN_DIR
 ```
-
-### Environment Variables
-
-- `XDG_DATA_HOME`: Base directory for data storage
-- `WASSETTE_PLUGIN_DIR`: Override default component storage location
 
 ## Integration with MCP Clients
 

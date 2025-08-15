@@ -1,0 +1,93 @@
+// Copyright (c) Microsoft Corporation.
+// Licensed under the MIT license.
+
+//! Output formatting utilities for CLI commands
+
+use anyhow::Result;
+use clap::ValueEnum;
+use rmcp::model::CallToolResult;
+use serde_json::{Map, Value};
+
+/// Output format options for CLI commands
+#[derive(Debug, Clone, Copy, PartialEq, ValueEnum)]
+pub enum OutputFormat {
+    /// JSON format
+    Json,
+    /// YAML format
+    Yaml,
+    /// Table format
+    Table,
+}
+
+impl Default for OutputFormat {
+    fn default() -> Self {
+        Self::Json
+    }
+}
+
+/// Format a JSON value as YAML string
+pub fn format_as_yaml(value: &Value) -> Result<String> {
+    serde_yaml::to_string(value).map_err(|e| anyhow::anyhow!("Failed to format as YAML: {}", e))
+}
+
+/// Format a JSON value as a table string
+pub fn format_as_table(value: &Value) -> Result<String> {
+    let mut table = String::new();
+    table.push_str("Key                   | Value\n");
+    table.push_str("----------------------|--------\n");
+
+    fn add_to_table(obj: &Map<String, Value>, table: &mut String) {
+        for (key, value) in obj {
+            let value_str = match value {
+                Value::String(s) => s.clone(),
+                Value::Number(n) => n.to_string(),
+                Value::Bool(b) => b.to_string(),
+                Value::Null => "null".to_string(),
+                Value::Array(_) => "[array]".to_string(),
+                Value::Object(_) => "[object]".to_string(),
+            };
+            table.push_str(&format!("{key:<21} | {value_str}\n"));
+        }
+    }
+
+    match value {
+        Value::Object(obj) => add_to_table(obj, &mut table),
+        _ => table.push_str(&format!("Value: {value}\n")),
+    }
+
+    Ok(table)
+}
+
+/// Print the result of a tool call with the specified format
+pub fn print_result(result: &CallToolResult, output_format: OutputFormat) -> Result<()> {
+    for content in &result.content {
+        // Convert content to text and print
+        if let Some(text) = content.as_text() {
+            // Try to parse as JSON first
+            if let Ok(json_value) = serde_json::from_str::<Value>(&text.text) {
+                match output_format {
+                    OutputFormat::Json => {
+                        // Always pretty-print JSON for better readability
+                        println!("{}", serde_json::to_string_pretty(&json_value)?);
+                    }
+                    OutputFormat::Yaml => {
+                        // Convert JSON to YAML
+                        println!("{}", format_as_yaml(&json_value)?);
+                    }
+                    OutputFormat::Table => {
+                        // Format as table
+                        println!("{}", format_as_table(&json_value)?);
+                    }
+                }
+            } else {
+                // If it's not JSON, just print the text
+                println!("{}", text.text);
+            }
+        } else {
+            // Handle other content types
+            println!("Content: {}", serde_json::to_string_pretty(content)?);
+        }
+    }
+
+    Ok(())
+}
