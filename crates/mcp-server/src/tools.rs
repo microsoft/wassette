@@ -80,7 +80,8 @@ pub async fn handle_tools_call(
             let contents = vec![Content::text(error_text)];
 
             let error_result = CallToolResult {
-                content: contents,
+                content: Some(contents),
+                structured_content: None,
                 is_error: Some(true),
             };
             Ok(serde_json::to_value(error_result)?)
@@ -106,6 +107,7 @@ fn get_builtin_tools() -> Vec<Tool> {
                 }))
                 .unwrap_or_default(),
             ),
+            output_schema: None,
             annotations: None,
         },
         Tool {
@@ -123,6 +125,7 @@ fn get_builtin_tools() -> Vec<Tool> {
                 }))
                 .unwrap_or_default(),
             ),
+            output_schema: None,
             annotations: None,
         },
         Tool {
@@ -138,6 +141,7 @@ fn get_builtin_tools() -> Vec<Tool> {
                 }))
                 .unwrap_or_default(),
             ),
+            output_schema: None,
             annotations: None,
         },
         Tool {
@@ -158,6 +162,7 @@ fn get_builtin_tools() -> Vec<Tool> {
                 }))
                 .unwrap_or_default(),
             ),
+            output_schema: None,
             annotations: None,
         },
         Tool {
@@ -197,6 +202,7 @@ fn get_builtin_tools() -> Vec<Tool> {
                   }))
                 .unwrap_or_default(),
             ),
+            output_schema: None,
             annotations: None,
         },
         Tool {
@@ -228,6 +234,7 @@ fn get_builtin_tools() -> Vec<Tool> {
                   }))
                 .unwrap_or_default(),
             ),
+            output_schema: None,
             annotations: None,
         },
         Tool {
@@ -259,6 +266,7 @@ fn get_builtin_tools() -> Vec<Tool> {
                   }))
                 .unwrap_or_default(),
             ),
+            output_schema: None,
             annotations: None,
         },
         Tool {
@@ -290,6 +298,7 @@ fn get_builtin_tools() -> Vec<Tool> {
                   }))
                 .unwrap_or_default(),
             ),
+            output_schema: None,
             annotations: None,
         },
         Tool {
@@ -321,6 +330,7 @@ fn get_builtin_tools() -> Vec<Tool> {
                   }))
                 .unwrap_or_default(),
             ),
+            output_schema: None,
             annotations: None,
         },
         Tool {
@@ -352,6 +362,7 @@ fn get_builtin_tools() -> Vec<Tool> {
                   }))
                 .unwrap_or_default(),
             ),
+            output_schema: None,
             annotations: None,
         },
         Tool {
@@ -372,6 +383,7 @@ fn get_builtin_tools() -> Vec<Tool> {
                   }))
                 .unwrap_or_default(),
             ),
+            output_schema: None,
             annotations: None,
         },
     ]
@@ -424,7 +436,8 @@ pub async fn handle_get_policy(
     let contents = vec![Content::text(status_text)];
 
     Ok(CallToolResult {
-        content: contents,
+        content: Some(contents),
+        structured_content: None,
         is_error: None,
     })
 }
@@ -463,7 +476,8 @@ pub async fn handle_grant_storage_permission(
             let contents = vec![Content::text(status_text)];
 
             Ok(CallToolResult {
-                content: contents,
+                content: Some(contents),
+                structured_content: None,
                 is_error: None,
             })
         }
@@ -512,7 +526,8 @@ pub async fn handle_grant_network_permission(
             let contents = vec![Content::text(status_text)];
 
             Ok(CallToolResult {
-                content: contents,
+                content: Some(contents),
+                structured_content: None,
                 is_error: None,
             })
         }
@@ -564,7 +579,8 @@ pub async fn handle_grant_environment_variable_permission(
             let contents = vec![Content::text(status_text)];
 
             Ok(CallToolResult {
-                content: contents,
+                content: Some(contents),
+                structured_content: None,
                 is_error: None,
             })
         }
@@ -621,7 +637,8 @@ pub async fn handle_revoke_storage_permission(
             let contents = vec![Content::text(status_text)];
 
             Ok(CallToolResult {
-                content: contents,
+                content: Some(contents),
+                structured_content: None,
                 is_error: None,
             })
         }
@@ -673,7 +690,8 @@ pub async fn handle_revoke_network_permission(
             let contents = vec![Content::text(status_text)];
 
             Ok(CallToolResult {
-                content: contents,
+                content: Some(contents),
+                structured_content: None,
                 is_error: None,
             })
         }
@@ -725,7 +743,8 @@ pub async fn handle_revoke_environment_variable_permission(
             let contents = vec![Content::text(status_text)];
 
             Ok(CallToolResult {
-                content: contents,
+                content: Some(contents),
+                structured_content: None,
                 is_error: None,
             })
         }
@@ -766,7 +785,8 @@ pub async fn handle_reset_permission(
             let contents = vec![Content::text(status_text)];
 
             Ok(CallToolResult {
-                content: contents,
+                content: Some(contents),
+                structured_content: None,
                 is_error: None,
             })
         }

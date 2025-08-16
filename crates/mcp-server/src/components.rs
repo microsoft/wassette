@@ -121,7 +121,8 @@ pub(crate) async fn handle_component_call(
             let contents = vec![Content::text(result_str)];
 
             Ok(CallToolResult {
-                content: contents,
+                content: Some(contents),
+                structured_content: None,
                 is_error: None,
             })
         }
@@ -175,7 +176,8 @@ pub async fn handle_list_components(
     let contents = vec![Content::text(result_text)];
 
     Ok(CallToolResult {
-        content: contents,
+        content: Some(contents),
+        structured_content: None,
         is_error: None,
     })
 }
@@ -210,7 +212,8 @@ fn create_component_success_result(
     let contents = vec![Content::text(status_text)];
 
     Ok(CallToolResult {
-        content: contents,
+        content: Some(contents),
+        structured_content: None,
         is_error: None,
     })
 }
@@ -233,7 +236,8 @@ fn create_component_error_result(
     let contents = vec![Content::text(error_text)];
 
     CallToolResult {
-        content: contents,
+        content: Some(contents),
+        structured_content: None,
         is_error: Some(true),
     }
 }
@@ -331,40 +335,39 @@ fn parse_tool_schema(tool_json: &Value) -> Option<Tool> {
     // Extract outputSchema if present for MCP structured output support
     let output_schema = tool_json.get("outputSchema");
     
-    if let Some(output_schema) = output_schema {
-        debug!(
-            tool_name = %name, 
-            has_output_schema = true,
-            "Parsed tool schema with structured output support"
-        );
-        
-        // For now, we'll include outputSchema information in the description
-        // until rmcp is upgraded to support output_schema field natively
-        let enhanced_description = if output_schema.is_null() {
-            description.to_string()
+    let output_schema_arc = if let Some(schema) = output_schema {
+        if schema.is_null() {
+            None
         } else {
-            format!(
-                "{} (Supports structured output as defined by MCP specification)", 
-                description
-            )
-        };
-        
-        Some(Tool {
-            name: Cow::Owned(name.to_string()),
-            description: Some(Cow::Owned(enhanced_description)),
-            input_schema: Arc::new(serde_json::from_value(input_schema).unwrap_or_default()),
-            annotations: None,
-        })
+            // Convert Value to Map<String, Value> as expected by rmcp 0.5.0
+            match schema {
+                Value::Object(map) => Some(Arc::new(map.clone())),
+                _ => {
+                    // If it's not an object, we need to wrap it in a map structure
+                    // This preserves the schema structure while making it compatible
+                    let mut wrapper = serde_json::Map::new();
+                    wrapper.insert("schema".to_string(), schema.clone());
+                    Some(Arc::new(wrapper))
+                }
+            }
+        }
     } else {
-        debug!(tool_name = %name, has_output_schema = false, "Parsed tool schema");
-        
-        Some(Tool {
-            name: Cow::Owned(name.to_string()),
-            description: Some(Cow::Owned(description.to_string())),
-            input_schema: Arc::new(serde_json::from_value(input_schema).unwrap_or_default()),
-            annotations: None,
-        })
-    }
+        None
+    };
+    
+    debug!(
+        tool_name = %name, 
+        has_output_schema = output_schema_arc.is_some(),
+        "Parsed tool schema"
+    );
+    
+    Some(Tool {
+        name: Cow::Owned(name.to_string()),
+        description: Some(Cow::Owned(description.to_string())),
+        input_schema: Arc::new(serde_json::from_value(input_schema).unwrap_or_default()),
+        output_schema: output_schema_arc,
+        annotations: None,
+    })
 }
 
 #[cfg(test)]
@@ -390,6 +393,8 @@ mod tests {
 
         assert_eq!(tool.name, "test-tool");
         assert_eq!(tool.description, Some("Test tool description".into()));
+        // Verify that output_schema is None when not provided
+        assert!(tool.output_schema.is_none());
 
         let schema_json = serde_json::to_value(&*tool.input_schema).unwrap();
         let expected = json!({
@@ -476,9 +481,21 @@ mod tests {
         let tool = parse_tool_schema(&tool_json).unwrap();
 
         assert_eq!(tool.name, "weather-tool");
-        // Verify that the description indicates structured output support
-        assert!(tool.description.as_ref().unwrap().contains("Supports structured output"));
-        assert!(tool.description.as_ref().unwrap().contains("Get weather data"));
+        // Verify that the description is now the original description (no enhancement needed)
+        assert_eq!(tool.description.as_ref().unwrap(), "Get weather data");
+        
+        // Verify that output_schema is correctly set
+        assert!(tool.output_schema.is_some());
+        let output_schema_json = serde_json::to_value(&**tool.output_schema.as_ref().unwrap()).unwrap();
+        let expected_output = json!({
+            "type": "object",
+            "properties": {
+                "temperature": {"type": "number"},
+                "conditions": {"type": "string"}
+            },
+            "required": ["temperature", "conditions"]
+        });
+        assert_eq!(output_schema_json, expected_output);
 
         let schema_json = serde_json::to_value(&*tool.input_schema).unwrap();
         let expected_input = json!({
@@ -534,8 +551,31 @@ mod tests {
         let tool = parse_tool_schema(&component_generated_tool).unwrap();
 
         assert_eq!(tool.name, "fetch");
-        assert!(tool.description.as_ref().unwrap().contains("Supports structured output"));
-        assert!(tool.description.as_ref().unwrap().contains("Auto-generated schema for function"));
+        // Verify that the description is now the original description (no enhancement needed)
+        assert_eq!(tool.description.as_ref().unwrap(), "Auto-generated schema for function 'fetch'");
+        
+        // Verify that output_schema is correctly set
+        assert!(tool.output_schema.is_some());
+        let output_schema_json = serde_json::to_value(&**tool.output_schema.as_ref().unwrap()).unwrap();
+        let expected_output = json!({
+            "oneOf": [
+                {
+                    "type": "object",
+                    "properties": {
+                        "ok": {"type": "string"}
+                    },
+                    "required": ["ok"]
+                },
+                {
+                    "type": "object", 
+                    "properties": {
+                        "err": {"type": "string"}
+                    },
+                    "required": ["err"]
+                }
+            ]
+        });
+        assert_eq!(output_schema_json, expected_output);
         
         // Verify input schema is correctly parsed
         let input_schema_json = serde_json::to_value(&*tool.input_schema).unwrap();
