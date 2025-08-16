@@ -117,6 +117,12 @@ selection of examples written in different languages:
 | [gomodule-go](examples/gomodule-go/)       | Go module information tool                             |
 | [time-server-js](examples/time-server-js/) | JavaScript-based time server component                |
 
+## Community Components
+
+The Wassette community has built amazing components that you can use in your projects:
+
+- **[QR Code Generator](https://github.com/attackordie/qr-code-webassembly)** - Generate QR codes from text using a WebAssembly component by @attackordie
+
 ## Discord
 
 You can join us via the `#wassette` channel on the [Microsoft Open Source Discord](https://discord.gg/microsoft-open-source):
