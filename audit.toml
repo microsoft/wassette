@@ -1,0 +1,7 @@
+# Cargo Audit Configuration
+[advisories]
+# Allow the paste crate warning as it's classified as unmaintained but still functional
+# We acknowledge the risk and plan to migrate to pastey in the future when possible
+ignore = [
+    "RUSTSEC-2024-0436"  # paste - no longer maintained
+]
