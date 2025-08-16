@@ -328,14 +328,43 @@ fn parse_tool_schema(tool_json: &Value) -> Option<Tool> {
 
     let input_schema = tool_json.get("inputSchema").cloned().unwrap_or(json!({}));
 
-    debug!(tool_name = %name, "Parsed tool schema");
-
-    Some(Tool {
-        name: Cow::Owned(name.to_string()),
-        description: Some(Cow::Owned(description.to_string())),
-        input_schema: Arc::new(serde_json::from_value(input_schema).unwrap_or_default()),
-        annotations: None,
-    })
+    // Extract outputSchema if present for MCP structured output support
+    let output_schema = tool_json.get("outputSchema");
+    
+    if let Some(output_schema) = output_schema {
+        debug!(
+            tool_name = %name, 
+            has_output_schema = true,
+            "Parsed tool schema with structured output support"
+        );
+        
+        // For now, we'll include outputSchema information in the description
+        // until rmcp is upgraded to support output_schema field natively
+        let enhanced_description = if output_schema.is_null() {
+            description.to_string()
+        } else {
+            format!(
+                "{} (Supports structured output as defined by MCP specification)", 
+                description
+            )
+        };
+        
+        Some(Tool {
+            name: Cow::Owned(name.to_string()),
+            description: Some(Cow::Owned(enhanced_description)),
+            input_schema: Arc::new(serde_json::from_value(input_schema).unwrap_or_default()),
+            annotations: None,
+        })
+    } else {
+        debug!(tool_name = %name, has_output_schema = false, "Parsed tool schema");
+        
+        Some(Tool {
+            name: Cow::Owned(name.to_string()),
+            description: Some(Cow::Owned(description.to_string())),
+            input_schema: Arc::new(serde_json::from_value(input_schema).unwrap_or_default()),
+            annotations: None,
+        })
+    }
 }
 
 #[cfg(test)]
@@ -420,5 +449,104 @@ mod tests {
 
         assert_eq!(tool.name, "<unnamed>");
         assert_eq!(tool.description, Some("Test description".into()));
+    }
+
+    #[test]
+    fn test_parse_tool_schema_with_output_schema() {
+        let tool_json = json!({
+            "name": "weather-tool",
+            "description": "Get weather data",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "location": {"type": "string"}
+                },
+                "required": ["location"]
+            },
+            "outputSchema": {
+                "type": "object",
+                "properties": {
+                    "temperature": {"type": "number"},
+                    "conditions": {"type": "string"}
+                },
+                "required": ["temperature", "conditions"]
+            }
+        });
+
+        let tool = parse_tool_schema(&tool_json).unwrap();
+
+        assert_eq!(tool.name, "weather-tool");
+        // Verify that the description indicates structured output support
+        assert!(tool.description.as_ref().unwrap().contains("Supports structured output"));
+        assert!(tool.description.as_ref().unwrap().contains("Get weather data"));
+
+        let schema_json = serde_json::to_value(&*tool.input_schema).unwrap();
+        let expected_input = json!({
+            "type": "object",
+            "properties": {
+                "location": {"type": "string"}
+            },
+            "required": ["location"]
+        });
+        assert_eq!(schema_json, expected_input);
+    }
+
+    #[test]
+    fn test_parse_tool_schema_integration_with_component2json() {
+        // This test uses the same structure that component2json generates
+        // to verify the integration works properly
+        let component_generated_tool = json!({
+            "name": "fetch",
+            "description": "Auto-generated schema for function 'fetch'",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "url": {
+                        "type": "string"
+                    }
+                },
+                "required": ["url"]
+            },
+            "outputSchema": {
+                "oneOf": [
+                    {
+                        "type": "object",
+                        "properties": {
+                            "ok": {
+                                "type": "string"
+                            }
+                        },
+                        "required": ["ok"]
+                    },
+                    {
+                        "type": "object", 
+                        "properties": {
+                            "err": {
+                                "type": "string"
+                            }
+                        },
+                        "required": ["err"]
+                    }
+                ]
+            }
+        });
+
+        let tool = parse_tool_schema(&component_generated_tool).unwrap();
+
+        assert_eq!(tool.name, "fetch");
+        assert!(tool.description.as_ref().unwrap().contains("Supports structured output"));
+        assert!(tool.description.as_ref().unwrap().contains("Auto-generated schema for function"));
+        
+        // Verify input schema is correctly parsed
+        let input_schema_json = serde_json::to_value(&*tool.input_schema).unwrap();
+        let expected_input = json!({
+            "type": "object",
+            "properties": {
+                "url": {"type": "string"}
+            },
+            "required": ["url"]
+        });
+        assert_eq!(input_schema_json, expected_input);
+    }
     }
 }

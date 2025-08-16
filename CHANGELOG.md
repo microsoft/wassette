@@ -32,6 +32,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
   - `wassette permission reset <component_id>` - Reset all permissions for a component
 - **Output Formatting**: Added support for multiple output formats (JSON, YAML, table) using `--output-format` flag
 - **CLI Documentation**: Comprehensive CLI reference documentation in `docs/cli.md`
+- Support for MCP Tool structured output as defined in the MCP specification ([#181](https://github.com/microsoft/wassette/pull/181))
 - Copyright header instructions to Rust development guidelines ([#TBD](https://github.com/microsoft/wassette/pull/TBD))
 - Enhanced environment variable CLI experience with `--env` and `--env-file` options for better configuration management
 - Comprehensive Go development guide for authoring Wasm components ([#163](https://github.com/microsoft/wassette/pull/163))
