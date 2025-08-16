@@ -67,6 +67,16 @@ pub struct Serve {
     #[arg(long)]
     #[serde(skip)]
     pub streamable_http: bool,
+
+    /// Set environment variables (KEY=VALUE format). Can be specified multiple times.
+    #[arg(long = "env", value_parser = crate::parse_env_var)]
+    #[serde(skip)]
+    pub env_vars: Vec<(String, String)>,
+
+    /// Load environment variables from a file (supports .env format)
+    #[arg(long = "env-file")]
+    #[serde(skip)]
+    pub env_file: Option<PathBuf>,
 }
 
 #[derive(Subcommand, Debug)]

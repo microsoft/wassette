@@ -5,11 +5,12 @@
 
 #![warn(missing_docs)]
 
+use std::collections::HashMap;
 use std::future::Future;
 use std::path::PathBuf;
 use std::pin::Pin;
 
-use anyhow::{Context, Result};
+use anyhow::{bail, Context, Result};
 use clap::Parser;
 use mcp_server::components::{
     handle_list_components, handle_load_component_cli, handle_unload_component_cli,
@@ -114,6 +115,70 @@ impl ToolName {
     }
 }
 
+/// Parse environment variable in KEY=VALUE format
+fn parse_env_var(s: &str) -> Result<(String, String), String> {
+    match s.split_once('=') {
+        Some((key, value)) => {
+            if key.is_empty() {
+                Err("Environment variable key cannot be empty".to_string())
+            } else {
+                Ok((key.to_string(), value.to_string()))
+            }
+        }
+        None => Err("Environment variable must be in KEY=VALUE format".to_string()),
+    }
+}
+
+/// Load environment variables from a file (supports .env format)
+fn load_env_file(path: &PathBuf) -> Result<HashMap<String, String>, anyhow::Error> {
+    use std::fs;
+
+    let content = fs::read_to_string(path)
+        .with_context(|| format!("Failed to read environment file: {}", path.display()))?;
+
+    let mut env_vars = HashMap::new();
+
+    for (line_num, line) in content.lines().enumerate() {
+        let line = line.trim();
+
+        // Skip empty lines and comments
+        if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
+
+        // Parse KEY=VALUE format
+        match line.split_once('=') {
+            Some((key, value)) => {
+                let key = key.trim();
+                let value = value.trim();
+
+                if key.is_empty() {
+                    bail!("Empty environment variable key at line {}", line_num + 1);
+                }
+
+                // Handle quoted values
+                let value = if (value.starts_with('"') && value.ends_with('"'))
+                    || (value.starts_with('\'') && value.ends_with('\''))
+                {
+                    &value[1..value.len() - 1]
+                } else {
+                    value
+                };
+
+                env_vars.insert(key.to_string(), value.to_string());
+            }
+            None => {
+                bail!(
+                    "Invalid environment variable format at line {}: {}",
+                    line_num + 1,
+                    line
+                );
+            }
+        }
+    }
+
+    Ok(env_vars)
+}
 mod built_info {
     include!(concat!(env!("OUT_DIR"), "/built.rs"));
 }
@@ -180,18 +245,23 @@ async fn handle_tool_cli_command(
 /// Create LifecycleManager from plugin directory
 async fn create_lifecycle_manager(plugin_dir: Option<PathBuf>) -> Result<LifecycleManager> {
     let config = if let Some(dir) = plugin_dir {
-        config::Config { plugin_dir: dir }
+        config::Config { 
+            plugin_dir: dir,
+            environment_vars: std::collections::HashMap::new(),
+        }
     } else {
-        config::Config::new(&crate::Serve {
+        config::Config::from_serve(&crate::Serve {
             plugin_dir: None,
             stdio: false,
             sse: false,
             streamable_http: false,
+            env_vars: vec![],
+            env_file: None,
         })
         .context("Failed to load configuration")?
     };
 
-    LifecycleManager::new(&config.plugin_dir).await
+    LifecycleManager::new_with_env(&config.plugin_dir, config.environment_vars).await
 }
 
 impl McpServer {
@@ -387,9 +457,10 @@ async fn main() -> Result<()> {
                     registry.with(tracing_subscriber::fmt::layer()).init();
                 }
 
-                let config = config::Config::new(cfg).context("Failed to load configuration")?;
+                let config = config::Config::from_serve(cfg).context("Failed to load configuration")?;
 
-                let lifecycle_manager = LifecycleManager::new(&config.plugin_dir).await?;
+                let lifecycle_manager =
+                    LifecycleManager::new_with_env(&config.plugin_dir, config.environment_vars).await?;
 
                 let server = McpServer::new(lifecycle_manager);
 

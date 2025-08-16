@@ -1,6 +1,7 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT license.
 
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 use anyhow::Context;
@@ -27,6 +28,10 @@ pub struct Config {
     /// Directory where plugins are stored
     #[serde(default = "default_plugin_dir")]
     pub plugin_dir: PathBuf,
+
+    /// Environment variables to be made available to components
+    #[serde(default)]
+    pub environment_vars: HashMap<String, String>,
 }
 
 impl Config {
@@ -64,6 +69,39 @@ impl Config {
             .extract()
             .context("Unable to merge configs")
     }
+
+    /// Creates a new config from a Serve struct that includes environment variable handling
+    pub fn from_serve(serve_config: &crate::Serve) -> Result<Self, anyhow::Error> {
+        // Start with the base config using existing logic
+        let mut config = Self::new(serve_config)?;
+
+        // Load environment variables from file if specified
+        if let Some(env_file) = &serve_config.env_file {
+            let file_env_vars = crate::load_env_file(env_file).with_context(|| {
+                format!("Failed to load environment file: {}", env_file.display())
+            })?;
+
+            // Merge file environment variables (they have lower precedence than CLI args)
+            for (key, value) in file_env_vars {
+                config.environment_vars.insert(key, value);
+            }
+        }
+
+        // Apply CLI environment variables (highest precedence)
+        for (key, value) in &serve_config.env_vars {
+            config.environment_vars.insert(key.clone(), value.clone());
+        }
+
+        // Also include system environment variables that aren't overridden
+        // This maintains backward compatibility
+        for (key, value) in std::env::vars() {
+            if !config.environment_vars.contains_key(&key) {
+                config.environment_vars.insert(key, value);
+            }
+        }
+
+        Ok(config)
+    }
 }
 
 #[cfg(test)]
@@ -81,6 +119,8 @@ mod tests {
             stdio: true,
             sse: false,
             streamable_http: false,
+            env_vars: vec![],
+            env_file: None,
         }
     }
 
@@ -90,6 +130,8 @@ mod tests {
             stdio: false,
             sse: false,
             streamable_http: false,
+            env_vars: vec![],
+            env_file: None,
         }
     }
 

@@ -100,8 +100,11 @@ impl crate::LifecycleManager {
         let metadata_path = self.get_component_metadata_path(component_id);
         tokio::fs::write(&metadata_path, serde_json::to_string_pretty(&metadata)?).await?;
 
-        let wasi_template =
-            crate::create_wasi_state_template_from_policy(&policy, &self.plugin_dir)?;
+        let wasi_template = crate::create_wasi_state_template_from_policy(
+            &policy,
+            &self.plugin_dir,
+            &self.environment_vars,
+        )?;
         self.policy_registry
             .write()
             .await
@@ -435,8 +438,11 @@ impl crate::LifecycleManager {
         component_id: &str,
         policy: &PolicyDocument,
     ) -> Result<()> {
-        let wasi_template =
-            crate::create_wasi_state_template_from_policy(policy, &self.plugin_dir)?;
+        let wasi_template = crate::create_wasi_state_template_from_policy(
+            policy,
+            &self.plugin_dir,
+            &self.environment_vars,
+        )?;
         self.policy_registry
             .write()
             .await

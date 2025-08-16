@@ -84,6 +84,7 @@ async fn setup_lifecycle_manager_with_client(
     let manager = Arc::new(
         LifecycleManager::new_with_clients(
             &tempdir,
+            std::collections::HashMap::new(), // Empty environment variables for test
             oci_client::Client::new(oci_client::client::ClientConfig {
                 protocol: oci_client::client::ClientProtocol::Http,
                 ..Default::default()

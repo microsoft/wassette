@@ -131,6 +131,7 @@ pub struct LifecycleManager {
     oci_client: Arc<oci_wasm::WasmClient>,
     http_client: reqwest::Client,
     plugin_dir: PathBuf,
+    environment_vars: HashMap<String, String>,
 }
 
 /// A representation of a loaded component instance. It contains both the base component info and a
@@ -148,6 +149,22 @@ impl LifecycleManager {
     pub async fn new(plugin_dir: impl AsRef<Path>) -> Result<Self> {
         Self::new_with_clients(
             plugin_dir,
+            HashMap::new(), // Empty environment variables for backward compatibility
+            oci_client::Client::default(),
+            reqwest::Client::default(),
+        )
+        .await
+    }
+
+    /// Creates a lifecycle manager from configuration parameters with environment variables
+    #[instrument(skip_all, fields(plugin_dir = %plugin_dir.as_ref().display()))]
+    pub async fn new_with_env(
+        plugin_dir: impl AsRef<Path>,
+        environment_vars: HashMap<String, String>,
+    ) -> Result<Self> {
+        Self::new_with_clients(
+            plugin_dir,
+            environment_vars,
             oci_client::Client::default(),
             reqwest::Client::default(),
         )
@@ -158,6 +175,7 @@ impl LifecycleManager {
     #[instrument(skip_all)]
     pub async fn new_with_clients(
         plugin_dir: impl AsRef<Path>,
+        environment_vars: HashMap<String, String>,
         oci_client: oci_client::Client,
         http_client: reqwest::Client,
     ) -> Result<Self> {
@@ -173,7 +191,14 @@ impl LifecycleManager {
         let engine = Arc::new(wasmtime::Engine::new(&config)?);
 
         // Create the lifecycle manager
-        Self::new_with_policy(engine, components_dir, oci_client, http_client).await
+        Self::new_with_policy(
+            engine,
+            components_dir,
+            environment_vars,
+            oci_client,
+            http_client,
+        )
+        .await
     }
 
     /// Creates a lifecycle manager with custom clients and WASI state template
@@ -181,6 +206,7 @@ impl LifecycleManager {
     async fn new_with_policy(
         engine: Arc<Engine>,
         plugin_dir: impl AsRef<Path>,
+        environment_vars: HashMap<String, String>,
         oci_client: oci_client::Client,
         http_client: reqwest::Client,
     ) -> Result<Self> {
@@ -223,6 +249,7 @@ impl LifecycleManager {
                             match wasistate::create_wasi_state_template_from_policy(
                                 &policy,
                                 plugin_dir.as_ref(),
+                                &environment_vars,
                             ) {
                                 Ok(wasi_template) => {
                                     policy_registry
@@ -264,6 +291,7 @@ impl LifecycleManager {
             oci_client: Arc::new(oci_wasm::WasmClient::new(oci_client)),
             http_client,
             plugin_dir: plugin_dir.as_ref().to_path_buf(),
+            environment_vars,
         })
     }
 
@@ -1012,7 +1040,8 @@ permissions:
         let policy = PolicyParser::parse_str(policy_content)?;
 
         let temp_dir = tempfile::tempdir()?;
-        let template = create_wasi_state_template_from_policy(&policy, temp_dir.path())?;
+        let env_vars = HashMap::new(); // Empty environment for test
+        let template = create_wasi_state_template_from_policy(&policy, temp_dir.path(), &env_vars)?;
 
         assert_eq!(template.allowed_hosts.len(), 2);
         assert!(template.allowed_hosts.contains("api.example.com"));

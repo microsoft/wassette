@@ -2,7 +2,6 @@
 // Licensed under the MIT license.
 
 use std::collections::{HashMap, HashSet};
-use std::env;
 use std::path::{Path, PathBuf};
 
 use policy::{AccessType, PolicyDocument};
@@ -133,8 +132,9 @@ impl Default for WasiStateTemplate {
 pub fn create_wasi_state_template_from_policy(
     policy: &PolicyDocument,
     plugin_dir: &Path,
+    environment_vars: &HashMap<String, String>,
 ) -> anyhow::Result<WasiStateTemplate> {
-    let env_vars = extract_env_vars(policy)?;
+    let env_vars = extract_env_vars(policy, environment_vars)?;
     let network_perms = extract_network_perms(policy);
     let preopened_dirs = extract_storage_permissions(policy, plugin_dir)?;
     let allowed_hosts = extract_allowed_hosts(policy);
@@ -148,13 +148,16 @@ pub fn create_wasi_state_template_from_policy(
     })
 }
 
-pub(crate) fn extract_env_vars(policy: &PolicyDocument) -> anyhow::Result<HashMap<String, String>> {
+pub(crate) fn extract_env_vars(
+    policy: &PolicyDocument,
+    environment_vars: &HashMap<String, String>,
+) -> anyhow::Result<HashMap<String, String>> {
     let mut env_vars = HashMap::new();
     if let Some(env_perms) = &policy.permissions.environment {
         if let Some(env_allow_vec) = &env_perms.allow {
             for env_allow in env_allow_vec {
-                if let Ok(value) = env::var(&env_allow.key) {
-                    env_vars.insert(env_allow.key.clone(), value);
+                if let Some(value) = environment_vars.get(&env_allow.key) {
+                    env_vars.insert(env_allow.key.clone(), value.clone());
                 }
             }
         }
@@ -384,12 +387,15 @@ permissions:
         let policy = create_test_policy();
 
         temp_env::with_vars(vec![("TEST_VAR", Some("isolated_value"))], || {
-            let env_vars = extract_env_vars(&policy).unwrap();
+            let mut env_vars = HashMap::new();
+            env_vars.insert("TEST_VAR".to_string(), "isolated_value".to_string());
+
+            let extracted_vars = extract_env_vars(&policy, &env_vars).unwrap();
             assert_eq!(
-                env_vars.get("TEST_VAR"),
+                extracted_vars.get("TEST_VAR"),
                 Some(&"isolated_value".to_string())
             );
-            assert!(!env_vars.contains_key("NONEXISTENT_VAR"));
+            assert!(!extracted_vars.contains_key("NONEXISTENT_VAR"));
         });
     }
 
@@ -398,16 +404,18 @@ permissions:
         let policy = create_test_policy();
 
         temp_env::with_vars(vec![("TEST_VAR", None::<&str>)], || {
-            let env_vars = extract_env_vars(&policy).unwrap();
-            assert!(!env_vars.contains_key("TEST_VAR"));
+            let env_vars = HashMap::new(); // Empty environment
+            let extracted_vars = extract_env_vars(&policy, &env_vars).unwrap();
+            assert!(!extracted_vars.contains_key("TEST_VAR"));
         });
     }
 
     #[test]
     fn test_extract_environment_variables_no_permissions() {
         let policy = create_zero_permission_policy();
-        let env_vars = extract_env_vars(&policy).unwrap();
-        assert!(env_vars.is_empty());
+        let env_vars = HashMap::new();
+        let extracted_vars = extract_env_vars(&policy, &env_vars).unwrap();
+        assert!(extracted_vars.is_empty());
     }
 
     #[test]
@@ -420,8 +428,9 @@ permissions:
     allow:
 "#;
         let policy = PolicyParser::parse_str(yaml_content).unwrap();
-        let env_vars = extract_env_vars(&policy).unwrap();
-        assert!(env_vars.is_empty());
+        let env_vars = HashMap::new();
+        let extracted_vars = extract_env_vars(&policy, &env_vars).unwrap();
+        assert!(extracted_vars.is_empty());
     }
 
     #[test]
@@ -569,8 +578,10 @@ permissions:
         let temp_dir = TempDir::new().unwrap();
         let plugin_dir = temp_dir.path();
         let policy = create_test_policy();
+        let env_vars = HashMap::new(); // Empty environment for test
 
-        let template = create_wasi_state_template_from_policy(&policy, plugin_dir).unwrap();
+        let template =
+            create_wasi_state_template_from_policy(&policy, plugin_dir, &env_vars).unwrap();
 
         assert!(template.network_perms.allow_tcp);
         assert!(template.network_perms.allow_udp);
@@ -583,8 +594,10 @@ permissions:
         let temp_dir = TempDir::new().unwrap();
         let plugin_dir = temp_dir.path();
         let policy = create_policy_without_permissions();
+        let env_vars = HashMap::new(); // Empty environment for test
 
-        let template = create_wasi_state_template_from_policy(&policy, plugin_dir).unwrap();
+        let template =
+            create_wasi_state_template_from_policy(&policy, plugin_dir, &env_vars).unwrap();
 
         assert!(!template.network_perms.allow_tcp);
         assert!(!template.network_perms.allow_udp);
