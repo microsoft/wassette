@@ -5,6 +5,7 @@
 
 use std::collections::HashMap;
 use std::fmt::Display;
+use std::sync::OnceLock;
 
 use anyhow::bail;
 use serde::{Deserialize, Serialize};
@@ -146,6 +147,12 @@ pub struct ResourceLimitValues {
     pub cpu: Option<CpuLimit>,
     /// Memory limit in k8s format ("512Mi", "1Gi", "256Ki")
     pub memory: Option<MemoryLimit>,
+    /// Cached parsed CPU value in cores (not serialized)
+    #[serde(skip)]
+    cpu_cores_cache: OnceLock<f64>,
+    /// Cached parsed memory value in bytes (not serialized)
+    #[serde(skip)]
+    memory_bytes_cache: OnceLock<u64>,
 }
 
 /// Resource limits configuration
@@ -293,17 +300,62 @@ impl MemoryLimit {
     }
 }
 
+impl Default for ResourceLimitValues {
+    fn default() -> Self {
+        Self::new(None, None)
+    }
+}
+
 impl ResourceLimitValues {
+    /// Create a new ResourceLimitValues instance
+    pub fn new(cpu: Option<CpuLimit>, memory: Option<MemoryLimit>) -> Self {
+        Self {
+            cpu,
+            memory,
+            cpu_cores_cache: OnceLock::new(),
+            memory_bytes_cache: OnceLock::new(),
+        }
+    }
+
+    /// Get CPU limit value in cores (cached)
+    pub fn cpu_cores(&self) -> PolicyResult<Option<f64>> {
+        if let Some(cpu) = &self.cpu {
+            // Check if already cached
+            if let Some(cached_value) = self.cpu_cores_cache.get() {
+                return Ok(Some(*cached_value));
+            }
+
+            // Parse and cache the value
+            let parsed_value = cpu.to_cores()?;
+            let _ = self.cpu_cores_cache.set(parsed_value); // Ignore if already set by another thread
+            Ok(Some(parsed_value))
+        } else {
+            Ok(None)
+        }
+    }
+
+    /// Get memory limit value in bytes (cached)
+    pub fn memory_bytes(&self) -> PolicyResult<Option<u64>> {
+        if let Some(memory) = &self.memory {
+            // Check if already cached
+            if let Some(cached_value) = self.memory_bytes_cache.get() {
+                return Ok(Some(*cached_value));
+            }
+
+            // Parse and cache the value
+            let parsed_value = memory.to_bytes()?;
+            let _ = self.memory_bytes_cache.set(parsed_value); // Ignore if already set by another thread
+            Ok(Some(parsed_value))
+        } else {
+            Ok(None)
+        }
+    }
+
     /// Validate resource limit values
     pub fn validate(&self) -> PolicyResult<()> {
-        if let Some(cpu) = &self.cpu {
-            cpu.to_cores()?;
-        }
-
-        if let Some(memory) = &self.memory {
-            memory.to_bytes()?;
-        }
-
+        // Validation now uses the cached getters, which will parse and cache the values
+        self.cpu_cores()?;
+        self.memory_bytes()?;
         Ok(())
     }
 }
@@ -698,42 +750,66 @@ mod tests {
     #[test]
     fn test_resource_limit_values_validation() {
         // Valid resource limits
-        let valid_limits = ResourceLimitValues {
-            cpu: Some(CpuLimit::String("500m".to_string())),
-            memory: Some(MemoryLimit::String("512Mi".to_string())),
-        };
+        let valid_limits = ResourceLimitValues::new(
+            Some(CpuLimit::String("500m".to_string())),
+            Some(MemoryLimit::String("512Mi".to_string())),
+        );
         assert!(valid_limits.validate().is_ok());
 
         // Valid with numeric values
-        let valid_numeric = ResourceLimitValues {
-            cpu: Some(CpuLimit::Number(1.5)),
-            memory: Some(MemoryLimit::Number(256)),
-        };
+        let valid_numeric =
+            ResourceLimitValues::new(Some(CpuLimit::Number(1.5)), Some(MemoryLimit::Number(256)));
         assert!(valid_numeric.validate().is_ok());
 
         // Invalid CPU
-        let invalid_cpu = ResourceLimitValues {
-            cpu: Some(CpuLimit::String("invalidm".to_string())),
-            memory: None,
-        };
+        let invalid_cpu =
+            ResourceLimitValues::new(Some(CpuLimit::String("invalidm".to_string())), None);
         assert!(invalid_cpu.validate().is_err());
 
         // Invalid memory
-        let invalid_memory = ResourceLimitValues {
-            cpu: None,
-            memory: Some(MemoryLimit::String("invalidMi".to_string())),
-        };
+        let invalid_memory =
+            ResourceLimitValues::new(None, Some(MemoryLimit::String("invalidMi".to_string())));
         assert!(invalid_memory.validate().is_err());
+    }
+
+    #[test]
+    fn test_resource_limit_values_caching() {
+        // Test that parsing is cached for CPU
+        let cpu_limits = ResourceLimitValues::new(
+            Some(CpuLimit::String("500m".to_string())),
+            Some(MemoryLimit::String("512Mi".to_string())),
+        );
+
+        // First call should parse and cache
+        let cpu_result1 = cpu_limits.cpu_cores().unwrap();
+        assert_eq!(cpu_result1, Some(0.5));
+
+        // Second call should use cached value
+        let cpu_result2 = cpu_limits.cpu_cores().unwrap();
+        assert_eq!(cpu_result2, Some(0.5));
+
+        // First call should parse and cache memory
+        let memory_result1 = cpu_limits.memory_bytes().unwrap();
+        assert_eq!(memory_result1, Some(512 * 1024 * 1024));
+
+        // Second call should use cached value
+        let memory_result2 = cpu_limits.memory_bytes().unwrap();
+        assert_eq!(memory_result2, Some(512 * 1024 * 1024));
+
+        // Test with None values
+        let empty_limits = ResourceLimitValues::new(None, None);
+        assert_eq!(empty_limits.cpu_cores().unwrap(), None);
+        assert_eq!(empty_limits.memory_bytes().unwrap(), None);
     }
 
     #[test]
     fn test_resource_limits_validation() {
         // Valid new format
         let valid_new = ResourceLimits {
-            limits: Some(ResourceLimitValues {
-                cpu: Some(CpuLimit::String("500m".to_string())),
-                memory: Some(MemoryLimit::String("512Mi".to_string())),
-            }),
+            limits: Some(ResourceLimitValues::new(
+                Some(CpuLimit::String("500m".to_string())),
+                Some(MemoryLimit::String("512Mi".to_string())),
+            )),
             cpu: None,
             memory: None,
             io: None,
@@ -751,10 +827,10 @@ mod tests {
 
         // Invalid new format
         let invalid_new = ResourceLimits {
-            limits: Some(ResourceLimitValues {
-                cpu: Some(CpuLimit::String("invalidm".to_string())),
-                memory: None,
-            }),
+            limits: Some(ResourceLimitValues::new(
+                Some(CpuLimit::String("invalidm".to_string())),
+                None,
+            )),
             cpu: None,
             memory: None,
             io: None,
@@ -785,10 +861,10 @@ mod tests {
             environment: None,
             runtime: None,
             resources: Some(ResourceLimits {
-                limits: Some(ResourceLimitValues {
-                    cpu: Some(CpuLimit::String("500m".to_string())),
-                    memory: Some(MemoryLimit::String("512Mi".to_string())),
-                }),
+                limits: Some(ResourceLimitValues::new(
+                    Some(CpuLimit::String("500m".to_string())),
+                    Some(MemoryLimit::String("512Mi".to_string())),
+                )),
                 cpu: None,
                 memory: None,
                 io: None,
