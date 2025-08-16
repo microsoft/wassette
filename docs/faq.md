@@ -46,14 +46,13 @@ Wassette specifically requires WebAssembly **Components** (not just modules) tha
 1. **Define your interface** using WebAssembly Interface Types (WIT)
 2. **Implement the functionality** in your preferred supported language
 3. **Compile to a Component** using appropriate tooling for your language
-4. **Create a policy file** defining the permissions your component needs
-5. **Test with Wassette** by loading the component
+4. **Test with Wassette** by loading the component
 
 See the [examples directory](../examples/) for complete working examples in different languages.
 
 ### Do I need to rewrite existing MCP servers?
 
-Yes, existing MCP servers would need to be rewritten to target WebAssembly Components. This is a significant paradigm shift from writing servers to writing functions that compile to Wasm Components. However, the security benefits and flexibility of the Component Model make this worthwhile.
+Yes, existing MCP servers would need to be rewritten to target `wasip2` (WebAssembly Components). This is a significant paradigm shift from writing servers to writing functions that compile to Wasm Components. However, the security benefits and flexibility of the Component Model make this worthwhile.
 
 The project is exploring AI tools to help port existing MCP servers to Wasm, which should reduce the migration effort.
 
@@ -156,6 +155,10 @@ Wassette includes several built-in management tools:
 - `grant-storage-permission`: Grant storage access
 - `grant-network-permission`: Grant network access
 - `grant-environment-variable-permission`: Grant environment variable access
+- `revoke-storage-permission`: Revoke storage access permissions
+- `revoke-network-permission`: Revoke network access permissions
+- `revoke-environment-variable-permission`: Revoke environment variable access permissions
+- `reset-permission`: Reset all permissions for a component
 
 ### How do I debug component issues?
 
