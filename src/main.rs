@@ -39,8 +39,6 @@ use commands::{Cli, Commands, ComponentCommands, PolicyCommands, PermissionComma
                 GrantPermissionCommands, RevokePermissionCommands, Serve};
 use format::{OutputFormat, print_result};
 
-use std::sync::LazyLock;
-
 /// Represents the different types of tools available in the MCP server
 #[derive(Debug, Clone, PartialEq)]
 enum ToolName {
@@ -113,51 +111,11 @@ impl ToolName {
     }
 }
 
-// Create a static version string that can be used by clap
-static VERSION_INFO: LazyLock<String> = LazyLock::new(format_build_info);
 mod built_info {
     include!(concat!(env!("OUT_DIR"), "/built.rs"));
 }
 
 const BIND_ADDRESS: &str = "127.0.0.1:9001";
-
-/// Formats build information similar to agentgateway's version output
-fn format_build_info() -> String {
-    // Parse Rust version more robustly by looking for version pattern
-    // Expected format: "rustc 1.88.0 (extra info)"
-    let rust_version = built_info::RUSTC_VERSION
-        .split_whitespace()
-        .find(|part| part.chars().next().is_some_and(|c| c.is_ascii_digit()))
-        .unwrap_or("unknown");
-
-    let build_profile = built_info::PROFILE;
-
-    let build_status = if built_info::GIT_DIRTY.unwrap_or(false) {
-        "Modified"
-    } else {
-        "Clean"
-    };
-
-    let git_tag = built_info::GIT_VERSION.unwrap_or("unknown");
-
-    let git_revision = built_info::GIT_COMMIT_HASH.unwrap_or("unknown");
-    let version = if built_info::GIT_DIRTY.unwrap_or(false) {
-        format!("{git_revision}-dirty")
-    } else {
-        git_revision.to_string()
-    };
-
-    format!(
-        "{} version.BuildInfo{{RustVersion:\"{}\", BuildProfile:\"{}\", BuildStatus:\"{}\", GitTag:\"{}\", Version:\"{}\", GitRevision:\"{}\"}}",
-        built_info::PKG_VERSION,
-        rust_version,
-        build_profile,
-        build_status,
-        git_tag,
-        version,
-        git_revision
-    )
-}
 
 /// A security-oriented runtime that runs WebAssembly Components via MCP.
 #[derive(Clone)]
@@ -640,6 +598,44 @@ async fn main() -> Result<()> {
 #[cfg(test)]
 mod version_tests {
     use super::*;
+
+    /// Formats build information similar to agentgateway's version output
+    fn format_build_info() -> String {
+        // Parse Rust version more robustly by looking for version pattern
+        // Expected format: "rustc 1.88.0 (extra info)"
+        let rust_version = built_info::RUSTC_VERSION
+            .split_whitespace()
+            .find(|part| part.chars().next().is_some_and(|c| c.is_ascii_digit()))
+            .unwrap_or("unknown");
+
+        let build_profile = built_info::PROFILE;
+
+        let build_status = if built_info::GIT_DIRTY.unwrap_or(false) {
+            "Modified"
+        } else {
+            "Clean"
+        };
+
+        let git_tag = built_info::GIT_VERSION.unwrap_or("unknown");
+
+        let git_revision = built_info::GIT_COMMIT_HASH.unwrap_or("unknown");
+        let version = if built_info::GIT_DIRTY.unwrap_or(false) {
+            format!("{git_revision}-dirty")
+        } else {
+            git_revision.to_string()
+        };
+
+        format!(
+            "{} version.BuildInfo{{RustVersion:\"{}\", BuildProfile:\"{}\", BuildStatus:\"{}\", GitTag:\"{}\", Version:\"{}\", GitRevision:\"{}\"}}",
+            built_info::PKG_VERSION,
+            rust_version,
+            build_profile,
+            build_status,
+            git_tag,
+            version,
+            git_revision
+        )
+    }
 
     #[test]
     fn test_version_format_contains_required_fields() {
