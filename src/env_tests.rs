@@ -1,3 +1,6 @@
+// Copyright (c) Microsoft Corporation.
+// Licensed under the MIT license.
+
 // Test for environment variable parsing functionality
 use std::collections::HashMap;
 
