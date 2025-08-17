@@ -6,7 +6,7 @@ use std::process::Command;
 use std::time::Duration;
 
 use anyhow::{Context, Result};
-use serde_json::{json, Value};
+use serde_json::Value;
 use tempfile::TempDir;
 use test_log::test;
 use tokio::process::Command as AsyncCommand;
@@ -16,6 +16,7 @@ use common::build_fetch_component;
 
 /// Helper struct for managing the test environment
 struct CliTestContext {
+    #[allow(dead_code)] // Needed to keep temp directory alive
     temp_dir: TempDir,
     plugin_dir: PathBuf,
     wassette_bin: PathBuf,

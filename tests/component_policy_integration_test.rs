@@ -5,7 +5,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::{Context, Result};
-use serde_json::{json, Value};
+use serde_json::json;
 use tempfile::TempDir;
 use test_log::test;
 use wassette::LifecycleManager;
@@ -78,7 +78,7 @@ async fn test_component_lifecycle_with_policies() -> Result<()> {
         .context("Failed to grant environment variable permission")?;
 
     // Get policy info
-    let policy_info = manager.get_policy_info(&component_id);
+    let policy_info = manager.get_policy_info(&component_id).await;
     assert!(policy_info.is_some());
 
     // Revoke storage permission
@@ -100,7 +100,7 @@ async fn test_component_lifecycle_with_policies() -> Result<()> {
         .context("Failed to reset permissions")?;
 
     // Verify policy info is cleared
-    let policy_info = manager.get_policy_info(&component_id);
+    let policy_info = manager.get_policy_info(&component_id).await;
     assert!(policy_info.is_none());
 
     // Unload component
@@ -163,7 +163,7 @@ async fn test_multiple_component_management() -> Result<()> {
         .await?;
 
     // Verify policy exists
-    let policy_info = manager.get_policy_info(&component_id_1);
+    let policy_info = manager.get_policy_info(&component_id_1).await;
     assert!(policy_info.is_some());
 
     // Unload component
