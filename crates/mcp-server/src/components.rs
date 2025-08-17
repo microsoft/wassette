@@ -334,7 +334,7 @@ fn parse_tool_schema(tool_json: &Value) -> Option<Tool> {
 
     // Extract outputSchema if present for MCP structured output support
     let output_schema = tool_json.get("outputSchema");
-    
+
     let output_schema_arc = if let Some(schema) = output_schema {
         if schema.is_null() {
             None
@@ -354,13 +354,13 @@ fn parse_tool_schema(tool_json: &Value) -> Option<Tool> {
     } else {
         None
     };
-    
+
     debug!(
-        tool_name = %name, 
+        tool_name = %name,
         has_output_schema = output_schema_arc.is_some(),
         "Parsed tool schema"
     );
-    
+
     Some(Tool {
         name: Cow::Owned(name.to_string()),
         description: Some(Cow::Owned(description.to_string())),
@@ -483,10 +483,11 @@ mod tests {
         assert_eq!(tool.name, "weather-tool");
         // Verify that the description is now the original description (no enhancement needed)
         assert_eq!(tool.description.as_ref().unwrap(), "Get weather data");
-        
+
         // Verify that output_schema is correctly set
         assert!(tool.output_schema.is_some());
-        let output_schema_json = serde_json::to_value(&**tool.output_schema.as_ref().unwrap()).unwrap();
+        let output_schema_json =
+            serde_json::to_value(&**tool.output_schema.as_ref().unwrap()).unwrap();
         let expected_output = json!({
             "type": "object",
             "properties": {
@@ -536,7 +537,7 @@ mod tests {
                         "required": ["ok"]
                     },
                     {
-                        "type": "object", 
+                        "type": "object",
                         "properties": {
                             "err": {
                                 "type": "string"
@@ -552,11 +553,15 @@ mod tests {
 
         assert_eq!(tool.name, "fetch");
         // Verify that the description is now the original description (no enhancement needed)
-        assert_eq!(tool.description.as_ref().unwrap(), "Auto-generated schema for function 'fetch'");
-        
+        assert_eq!(
+            tool.description.as_ref().unwrap(),
+            "Auto-generated schema for function 'fetch'"
+        );
+
         // Verify that output_schema is correctly set
         assert!(tool.output_schema.is_some());
-        let output_schema_json = serde_json::to_value(&**tool.output_schema.as_ref().unwrap()).unwrap();
+        let output_schema_json =
+            serde_json::to_value(&**tool.output_schema.as_ref().unwrap()).unwrap();
         let expected_output = json!({
             "oneOf": [
                 {
@@ -567,7 +572,7 @@ mod tests {
                     "required": ["ok"]
                 },
                 {
-                    "type": "object", 
+                    "type": "object",
                     "properties": {
                         "err": {"type": "string"}
                     },
@@ -576,7 +581,7 @@ mod tests {
             ]
         });
         assert_eq!(output_schema_json, expected_output);
-        
+
         // Verify input schema is correctly parsed
         let input_schema_json = serde_json::to_value(&*tool.input_schema).unwrap();
         let expected_input = json!({
