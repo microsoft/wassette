@@ -95,9 +95,7 @@ impl Config {
         // Also include system environment variables that aren't overridden
         // This maintains backward compatibility
         for (key, value) in std::env::vars() {
-            if !config.environment_vars.contains_key(&key) {
-                config.environment_vars.insert(key, value);
-            }
+            config.environment_vars.entry(key).or_insert(value);
         }
 
         Ok(config)
