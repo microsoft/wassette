@@ -121,7 +121,6 @@ selection of examples written in different languages:
 The Wassette community has built amazing components that you can use in your projects:
 
 - **[QR Code Generator](https://github.com/attackordie/qr-code-webassembly)** - Generate QR codes from text using a WebAssembly component by @attackordie
-## Documentation
 
 ## Discord
 
