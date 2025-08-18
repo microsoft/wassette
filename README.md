@@ -6,7 +6,7 @@
     <img src="https://dcbadge.limes.pink/api/server/microsoft-open-source" alt="Discord" style="height: 25px;">
   </a> -->
 
-[Getting started][setup guide] | [FAQ] | [Releases] | [Changelog] | [Contributing] | [Discord]
+[Getting started][setup guide] | [FAQ] | [Releases] | [Contributing] | [Discord]
 
 </div>
 
@@ -145,7 +145,6 @@ This project may contain trademarks or logos for projects, products, or services
 [FAQ]: docs/faq.md
 [Contributing]: CONTRIBUTING.md
 [Releases]: https://github.com/microsoft/wassette/releases
-[Changelog]: CHANGELOG.md
 [Discord]: https://discord.gg/microsoft-open-source
 
 ## Contributors
