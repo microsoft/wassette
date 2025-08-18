@@ -367,6 +367,11 @@ impl LifecycleManager {
     pub async fn unload_component(&self, id: &str) -> Result<()> {
         debug!("Unloading component and removing files from disk");
 
+        // Check if the component exists
+        if self.get_component(id).await.is_none() {
+            return Err(anyhow::anyhow!("Component not found: {}", id));
+        }
+
         // Remove files first, then clean up memory on success
         let component_file = self.component_path(id);
         self.remove_file_if_exists(&component_file, "component file", id)

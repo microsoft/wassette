@@ -11,11 +11,13 @@ use std::pin::Pin;
 
 use anyhow::{Context, Result};
 use clap::Parser;
+use mcp_server::components::{
+    handle_list_components, handle_load_component_cli, handle_unload_component_cli,
+};
+use mcp_server::tools::*;
 use mcp_server::{
     handle_prompts_list, handle_resources_list, handle_tools_call, handle_tools_list,
-    LifecycleManager, 
-    tools::*,
-    components::{handle_load_component_cli, handle_unload_component_cli, handle_list_components},
+    LifecycleManager,
 };
 use rmcp::model::{
     CallToolRequestParam, CallToolResult, ErrorData, ListPromptsResult, ListResourcesResult,
@@ -27,17 +29,18 @@ use rmcp::transport::streamable_http_server::StreamableHttpService;
 use rmcp::transport::{stdio as stdio_transport, SseServer};
 use rmcp::ServerHandler;
 use serde_json::{json, Map, Value};
-
 use tracing_subscriber::layer::SubscriberExt as _;
 use tracing_subscriber::util::SubscriberInitExt as _;
 
+mod commands;
 mod config;
 mod format;
-mod commands;
 
-use commands::{Cli, Commands, ComponentCommands, PolicyCommands, PermissionCommands, 
-                GrantPermissionCommands, RevokePermissionCommands, Serve};
-use format::{OutputFormat, print_result};
+use commands::{
+    Cli, Commands, ComponentCommands, GrantPermissionCommands, PermissionCommands, PolicyCommands,
+    RevokePermissionCommands, Serve,
+};
+use format::{print_result, OutputFormat};
 
 /// Represents the different types of tools available in the MCP server
 #[derive(Debug, Clone, PartialEq)]
@@ -138,18 +141,10 @@ async fn handle_tool_cli_command(
     };
 
     let result = match tool {
-        ToolName::LoadComponent => {
-            handle_load_component_cli(&req, lifecycle_manager).await?
-        }
-        ToolName::UnloadComponent => {
-            handle_unload_component_cli(&req, lifecycle_manager).await?
-        }
-        ToolName::ListComponents => {
-            handle_list_components(lifecycle_manager).await?
-        }
-        ToolName::GetPolicy => {
-            handle_get_policy(&req, lifecycle_manager).await?
-        }
+        ToolName::LoadComponent => handle_load_component_cli(&req, lifecycle_manager).await?,
+        ToolName::UnloadComponent => handle_unload_component_cli(&req, lifecycle_manager).await?,
+        ToolName::ListComponents => handle_list_components(lifecycle_manager).await?,
+        ToolName::GetPolicy => handle_get_policy(&req, lifecycle_manager).await?,
         ToolName::GrantStoragePermission => {
             handle_grant_storage_permission(&req, lifecycle_manager).await?
         }
@@ -168,13 +163,16 @@ async fn handle_tool_cli_command(
         ToolName::RevokeEnvironmentVariablePermission => {
             handle_revoke_environment_variable_permission(&req, lifecycle_manager).await?
         }
-        ToolName::ResetPermission => {
-            handle_reset_permission(&req, lifecycle_manager).await?
-        }
+        ToolName::ResetPermission => handle_reset_permission(&req, lifecycle_manager).await?,
     };
 
     // Print the result using the format module
     print_result(&result, output_format)?;
+
+    // Exit with error code if the tool result indicates an error
+    if result.is_error.unwrap_or(false) {
+        std::process::exit(1);
+    }
 
     Ok(())
 }
@@ -299,297 +297,359 @@ Key points:
     }
 }
 
+/// Formats build information similar to agentgateway's version output
+fn format_build_info() -> String {
+    // Parse Rust version more robustly by looking for version pattern
+    // Expected format: "rustc 1.88.0 (extra info)"
+    let rust_version = built_info::RUSTC_VERSION
+        .split_whitespace()
+        .find(|part| part.chars().next().is_some_and(|c| c.is_ascii_digit()))
+        .unwrap_or("unknown");
+
+    let build_profile = built_info::PROFILE;
+
+    let build_status = if built_info::GIT_DIRTY.unwrap_or(false) {
+        "Modified"
+    } else {
+        "Clean"
+    };
+
+    let git_tag = built_info::GIT_VERSION.unwrap_or("unknown");
+
+    let git_revision = built_info::GIT_COMMIT_HASH.unwrap_or("unknown");
+    let version = if built_info::GIT_DIRTY.unwrap_or(false) {
+        format!("{git_revision}-dirty")
+    } else {
+        git_revision.to_string()
+    };
+
+    format!(
+        "{} version.BuildInfo{{RustVersion:\"{}\", BuildProfile:\"{}\", BuildStatus:\"{}\", GitTag:\"{}\", Version:\"{}\", GitRevision:\"{}\"}}",
+        built_info::PKG_VERSION,
+        rust_version,
+        build_profile,
+        build_status,
+        git_tag,
+        version,
+        git_revision
+    )
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
     let cli = Cli::parse();
 
+    // Handle version flag
+    if cli.version {
+        println!("{}", format_build_info());
+        return Ok(());
+    }
+
     match &cli.command {
-        Commands::Serve(cfg) => {
-            // Initialize logging based on transport type
-            let (use_stdio_transport, use_streamable_http) = match (
-                cfg.stdio,
-                cfg.sse,
-                cfg.streamable_http,
-            ) {
-                (false, false, false) => (true, false), // Default case: use stdio transport
-                (true, false, false) => (true, false),  // Stdio transport only
-                (false, true, false) => (false, false), // SSE transport only
-                (false, false, true) => (false, true),  // Streamable HTTP transport only
-                _ => {
-                    return Err(anyhow::anyhow!(
+        Some(command) => match command {
+            Commands::Serve(cfg) => {
+                // Initialize logging based on transport type
+                let (use_stdio_transport, use_streamable_http) = match (
+                    cfg.stdio,
+                    cfg.sse,
+                    cfg.streamable_http,
+                ) {
+                    (false, false, false) => (true, false), // Default case: use stdio transport
+                    (true, false, false) => (true, false),  // Stdio transport only
+                    (false, true, false) => (false, false), // SSE transport only
+                    (false, false, true) => (false, true),  // Streamable HTTP transport only
+                    _ => {
+                        return Err(anyhow::anyhow!(
                         "Running multiple transports simultaneously is not supported. Please choose one of: --stdio, --sse, or --streamable-http."
                     ));
-                }
-            };
+                    }
+                };
 
-            // Configure logging - use stderr for stdio transport to avoid interfering with MCP protocol
-            let env_filter = tracing_subscriber::EnvFilter::try_from_default_env()
+                // Configure logging - use stderr for stdio transport to avoid interfering with MCP protocol
+                let env_filter = tracing_subscriber::EnvFilter::try_from_default_env()
                 .unwrap_or_else(|_| {
                     "info,cranelift_codegen=warn,cranelift_entity=warn,cranelift_bforest=warn,cranelift_frontend=warn"
                         .to_string()
                         .into()
                 });
 
-            let registry = tracing_subscriber::registry().with(env_filter);
+                let registry = tracing_subscriber::registry().with(env_filter);
 
-            if use_stdio_transport {
-                registry
-                    .with(
-                        tracing_subscriber::fmt::layer()
-                            .with_writer(std::io::stderr)
-                            .with_ansi(false),
+                if use_stdio_transport {
+                    registry
+                        .with(
+                            tracing_subscriber::fmt::layer()
+                                .with_writer(std::io::stderr)
+                                .with_ansi(false),
+                        )
+                        .init();
+                } else {
+                    registry.with(tracing_subscriber::fmt::layer()).init();
+                }
+
+                let config = config::Config::new(cfg).context("Failed to load configuration")?;
+
+                let lifecycle_manager = LifecycleManager::new(&config.plugin_dir).await?;
+
+                let server = McpServer::new(lifecycle_manager);
+
+                if use_stdio_transport {
+                    tracing::info!("Starting MCP server with stdio transport");
+                    let transport = stdio_transport();
+                    let running_service = serve_server(server, transport).await?;
+
+                    tokio::signal::ctrl_c().await?;
+                    let _ = running_service.cancel().await;
+                } else if use_streamable_http {
+                    tracing::info!(
+                        "Starting MCP server on {} with streamable HTTP transport",
+                        BIND_ADDRESS
+                    );
+                    let service = StreamableHttpService::new(
+                        move || Ok(server.clone()),
+                        LocalSessionManager::default().into(),
+                        Default::default(),
+                    );
+
+                    let router = axum::Router::new().nest_service("/mcp", service);
+                    let tcp_listener = tokio::net::TcpListener::bind(BIND_ADDRESS).await?;
+                    let _ = axum::serve(tcp_listener, router)
+                        .with_graceful_shutdown(async { tokio::signal::ctrl_c().await.unwrap() })
+                        .await;
+                } else {
+                    tracing::info!(
+                        "Starting MCP server on {} with SSE HTTP transport",
+                        BIND_ADDRESS
+                    );
+                    let ct = SseServer::serve(BIND_ADDRESS.parse().unwrap())
+                        .await?
+                        .with_service(move || server.clone());
+
+                    tokio::signal::ctrl_c().await?;
+                    ct.cancel();
+                }
+
+                tracing::info!("MCP server shutting down");
+            }
+            Commands::Component { command } => match command {
+                ComponentCommands::Load { path, plugin_dir } => {
+                    let lifecycle_manager = create_lifecycle_manager(plugin_dir.clone()).await?;
+                    let mut args = Map::new();
+                    args.insert("path".to_string(), json!(path));
+                    handle_tool_cli_command(
+                        &lifecycle_manager,
+                        "load-component",
+                        args,
+                        OutputFormat::Json,
                     )
-                    .init();
-            } else {
-                registry.with(tracing_subscriber::fmt::layer()).init();
-            }
-
-            let config = config::Config::new(cfg).context("Failed to load configuration")?;
-
-            let lifecycle_manager = LifecycleManager::new(&config.plugin_dir).await?;
-
-            let server = McpServer::new(lifecycle_manager);
-
-            if use_stdio_transport {
-                tracing::info!("Starting MCP server with stdio transport");
-                let transport = stdio_transport();
-                let running_service = serve_server(server, transport).await?;
-
-                tokio::signal::ctrl_c().await?;
-                let _ = running_service.cancel().await;
-            } else if use_streamable_http {
-                tracing::info!(
-                    "Starting MCP server on {} with streamable HTTP transport",
-                    BIND_ADDRESS
-                );
-                let service = StreamableHttpService::new(
-                    move || Ok(server.clone()),
-                    LocalSessionManager::default().into(),
-                    Default::default(),
-                );
-
-                let router = axum::Router::new().nest_service("/mcp", service);
-                let tcp_listener = tokio::net::TcpListener::bind(BIND_ADDRESS).await?;
-                let _ = axum::serve(tcp_listener, router)
-                    .with_graceful_shutdown(async { tokio::signal::ctrl_c().await.unwrap() })
-                    .await;
-            } else {
-                tracing::info!(
-                    "Starting MCP server on {} with SSE HTTP transport",
-                    BIND_ADDRESS
-                );
-                let ct = SseServer::serve(BIND_ADDRESS.parse().unwrap())
-                    .await?
-                    .with_service(move || server.clone());
-
-                tokio::signal::ctrl_c().await?;
-                ct.cancel();
-            }
-
-            tracing::info!("MCP server shutting down");
+                    .await?;
+                }
+                ComponentCommands::Unload { id, plugin_dir } => {
+                    let lifecycle_manager = create_lifecycle_manager(plugin_dir.clone()).await?;
+                    let mut args = Map::new();
+                    args.insert("id".to_string(), json!(id));
+                    handle_tool_cli_command(
+                        &lifecycle_manager,
+                        "unload-component",
+                        args,
+                        OutputFormat::Json,
+                    )
+                    .await?;
+                }
+                ComponentCommands::List {
+                    plugin_dir,
+                    output_format,
+                } => {
+                    let lifecycle_manager = create_lifecycle_manager(plugin_dir.clone()).await?;
+                    let args = Map::new();
+                    handle_tool_cli_command(
+                        &lifecycle_manager,
+                        "list-components",
+                        args,
+                        *output_format,
+                    )
+                    .await?;
+                }
+            },
+            Commands::Policy { command } => match command {
+                PolicyCommands::Get {
+                    component_id,
+                    plugin_dir,
+                    output_format,
+                } => {
+                    let lifecycle_manager = create_lifecycle_manager(plugin_dir.clone()).await?;
+                    let mut args = Map::new();
+                    args.insert("component_id".to_string(), json!(component_id));
+                    handle_tool_cli_command(&lifecycle_manager, "get-policy", args, *output_format)
+                        .await?;
+                }
+            },
+            Commands::Permission { command } => match command {
+                PermissionCommands::Grant { permission } => match permission {
+                    GrantPermissionCommands::Storage {
+                        component_id,
+                        uri,
+                        access,
+                        plugin_dir,
+                    } => {
+                        let lifecycle_manager =
+                            create_lifecycle_manager(plugin_dir.clone()).await?;
+                        let mut args = Map::new();
+                        args.insert("component_id".to_string(), json!(component_id));
+                        args.insert(
+                            "details".to_string(),
+                            json!({
+                                "uri": uri,
+                                "access": access
+                            }),
+                        );
+                        handle_tool_cli_command(
+                            &lifecycle_manager,
+                            "grant-storage-permission",
+                            args,
+                            OutputFormat::Json,
+                        )
+                        .await?;
+                    }
+                    GrantPermissionCommands::Network {
+                        component_id,
+                        host,
+                        plugin_dir,
+                    } => {
+                        let lifecycle_manager =
+                            create_lifecycle_manager(plugin_dir.clone()).await?;
+                        let mut args = Map::new();
+                        args.insert("component_id".to_string(), json!(component_id));
+                        args.insert(
+                            "details".to_string(),
+                            json!({
+                                "host": host
+                            }),
+                        );
+                        handle_tool_cli_command(
+                            &lifecycle_manager,
+                            "grant-network-permission",
+                            args,
+                            OutputFormat::Json,
+                        )
+                        .await?;
+                    }
+                    GrantPermissionCommands::EnvironmentVariable {
+                        component_id,
+                        key,
+                        plugin_dir,
+                    } => {
+                        let lifecycle_manager =
+                            create_lifecycle_manager(plugin_dir.clone()).await?;
+                        let mut args = Map::new();
+                        args.insert("component_id".to_string(), json!(component_id));
+                        args.insert(
+                            "details".to_string(),
+                            json!({
+                                "key": key
+                            }),
+                        );
+                        handle_tool_cli_command(
+                            &lifecycle_manager,
+                            "grant-environment-variable-permission",
+                            args,
+                            OutputFormat::Json,
+                        )
+                        .await?;
+                    }
+                },
+                PermissionCommands::Revoke { permission } => match permission {
+                    RevokePermissionCommands::Storage {
+                        component_id,
+                        uri,
+                        plugin_dir,
+                    } => {
+                        let lifecycle_manager =
+                            create_lifecycle_manager(plugin_dir.clone()).await?;
+                        let mut args = Map::new();
+                        args.insert("component_id".to_string(), json!(component_id));
+                        args.insert(
+                            "details".to_string(),
+                            json!({
+                                "uri": uri
+                            }),
+                        );
+                        handle_tool_cli_command(
+                            &lifecycle_manager,
+                            "revoke-storage-permission",
+                            args,
+                            OutputFormat::Json,
+                        )
+                        .await?;
+                    }
+                    RevokePermissionCommands::Network {
+                        component_id,
+                        host,
+                        plugin_dir,
+                    } => {
+                        let lifecycle_manager =
+                            create_lifecycle_manager(plugin_dir.clone()).await?;
+                        let mut args = Map::new();
+                        args.insert("component_id".to_string(), json!(component_id));
+                        args.insert(
+                            "details".to_string(),
+                            json!({
+                                "host": host
+                            }),
+                        );
+                        handle_tool_cli_command(
+                            &lifecycle_manager,
+                            "revoke-network-permission",
+                            args,
+                            OutputFormat::Json,
+                        )
+                        .await?;
+                    }
+                    RevokePermissionCommands::EnvironmentVariable {
+                        component_id,
+                        key,
+                        plugin_dir,
+                    } => {
+                        let lifecycle_manager =
+                            create_lifecycle_manager(plugin_dir.clone()).await?;
+                        let mut args = Map::new();
+                        args.insert("component_id".to_string(), json!(component_id));
+                        args.insert(
+                            "details".to_string(),
+                            json!({
+                                "key": key
+                            }),
+                        );
+                        handle_tool_cli_command(
+                            &lifecycle_manager,
+                            "revoke-environment-variable-permission",
+                            args,
+                            OutputFormat::Json,
+                        )
+                        .await?;
+                    }
+                },
+                PermissionCommands::Reset {
+                    component_id,
+                    plugin_dir,
+                } => {
+                    let lifecycle_manager = create_lifecycle_manager(plugin_dir.clone()).await?;
+                    let mut args = Map::new();
+                    args.insert("component_id".to_string(), json!(component_id));
+                    handle_tool_cli_command(
+                        &lifecycle_manager,
+                        "reset-permission",
+                        args,
+                        OutputFormat::Json,
+                    )
+                    .await?;
+                }
+            },
+        },
+        None => {
+            eprintln!("No command provided. Use --help for usage information.");
+            std::process::exit(1);
         }
-        Commands::Component { command } => match command {
-            ComponentCommands::Load { path, plugin_dir } => {
-                let lifecycle_manager = create_lifecycle_manager(plugin_dir.clone()).await?;
-                let mut args = Map::new();
-                args.insert("path".to_string(), json!(path));
-                handle_tool_cli_command(
-                    &lifecycle_manager,
-                    "load-component",
-                    args,
-                    OutputFormat::Json,
-                )
-                .await?;
-            }
-            ComponentCommands::Unload { id, plugin_dir } => {
-                let lifecycle_manager = create_lifecycle_manager(plugin_dir.clone()).await?;
-                let mut args = Map::new();
-                args.insert("id".to_string(), json!(id));
-                handle_tool_cli_command(
-                    &lifecycle_manager,
-                    "unload-component",
-                    args,
-                    OutputFormat::Json,
-                )
-                .await?;
-            }
-            ComponentCommands::List {
-                plugin_dir,
-                output_format,
-            } => {
-                let lifecycle_manager = create_lifecycle_manager(plugin_dir.clone()).await?;
-                let args = Map::new();
-                handle_tool_cli_command(&lifecycle_manager, "list-components", args, *output_format)
-                    .await?;
-            }
-        },
-        Commands::Policy { command } => match command {
-            PolicyCommands::Get {
-                component_id,
-                plugin_dir,
-                output_format,
-            } => {
-                let lifecycle_manager = create_lifecycle_manager(plugin_dir.clone()).await?;
-                let mut args = Map::new();
-                args.insert("component_id".to_string(), json!(component_id));
-                handle_tool_cli_command(&lifecycle_manager, "get-policy", args, *output_format).await?;
-            }
-        },
-        Commands::Permission { command } => match command {
-            PermissionCommands::Grant { permission } => match permission {
-                GrantPermissionCommands::Storage {
-                    component_id,
-                    uri,
-                    access,
-                    plugin_dir,
-                } => {
-                    let lifecycle_manager = create_lifecycle_manager(plugin_dir.clone()).await?;
-                    let mut args = Map::new();
-                    args.insert("component_id".to_string(), json!(component_id));
-                    args.insert(
-                        "details".to_string(),
-                        json!({
-                            "uri": uri,
-                            "access": access
-                        }),
-                    );
-                    handle_tool_cli_command(
-                        &lifecycle_manager,
-                        "grant-storage-permission",
-                        args,
-                        OutputFormat::Json,
-                    )
-                    .await?;
-                }
-                GrantPermissionCommands::Network {
-                    component_id,
-                    host,
-                    plugin_dir,
-                } => {
-                    let lifecycle_manager = create_lifecycle_manager(plugin_dir.clone()).await?;
-                    let mut args = Map::new();
-                    args.insert("component_id".to_string(), json!(component_id));
-                    args.insert(
-                        "details".to_string(),
-                        json!({
-                            "host": host
-                        }),
-                    );
-                    handle_tool_cli_command(
-                        &lifecycle_manager,
-                        "grant-network-permission",
-                        args,
-                        OutputFormat::Json,
-                    )
-                    .await?;
-                }
-                GrantPermissionCommands::EnvironmentVariable {
-                    component_id,
-                    key,
-                    plugin_dir,
-                } => {
-                    let lifecycle_manager = create_lifecycle_manager(plugin_dir.clone()).await?;
-                    let mut args = Map::new();
-                    args.insert("component_id".to_string(), json!(component_id));
-                    args.insert(
-                        "details".to_string(),
-                        json!({
-                            "key": key
-                        }),
-                    );
-                    handle_tool_cli_command(
-                        &lifecycle_manager,
-                        "grant-environment-variable-permission",
-                        args,
-                        OutputFormat::Json,
-                    )
-                    .await?;
-                }
-            },
-            PermissionCommands::Revoke { permission } => match permission {
-                RevokePermissionCommands::Storage {
-                    component_id,
-                    uri,
-                    plugin_dir,
-                } => {
-                    let lifecycle_manager = create_lifecycle_manager(plugin_dir.clone()).await?;
-                    let mut args = Map::new();
-                    args.insert("component_id".to_string(), json!(component_id));
-                    args.insert(
-                        "details".to_string(),
-                        json!({
-                            "uri": uri
-                        }),
-                    );
-                    handle_tool_cli_command(
-                        &lifecycle_manager,
-                        "revoke-storage-permission",
-                        args,
-                        OutputFormat::Json,
-                    )
-                    .await?;
-                }
-                RevokePermissionCommands::Network {
-                    component_id,
-                    host,
-                    plugin_dir,
-                } => {
-                    let lifecycle_manager = create_lifecycle_manager(plugin_dir.clone()).await?;
-                    let mut args = Map::new();
-                    args.insert("component_id".to_string(), json!(component_id));
-                    args.insert(
-                        "details".to_string(),
-                        json!({
-                            "host": host
-                        }),
-                    );
-                    handle_tool_cli_command(
-                        &lifecycle_manager,
-                        "revoke-network-permission",
-                        args,
-                        OutputFormat::Json,
-                    )
-                    .await?;
-                }
-                RevokePermissionCommands::EnvironmentVariable {
-                    component_id,
-                    key,
-                    plugin_dir,
-                } => {
-                    let lifecycle_manager = create_lifecycle_manager(plugin_dir.clone()).await?;
-                    let mut args = Map::new();
-                    args.insert("component_id".to_string(), json!(component_id));
-                    args.insert(
-                        "details".to_string(),
-                        json!({
-                            "key": key
-                        }),
-                    );
-                    handle_tool_cli_command(
-                        &lifecycle_manager,
-                        "revoke-environment-variable-permission",
-                        args,
-                        OutputFormat::Json,
-                    )
-                    .await?;
-                }
-            },
-            PermissionCommands::Reset {
-                component_id,
-                plugin_dir,
-            } => {
-                let lifecycle_manager = create_lifecycle_manager(plugin_dir.clone()).await?;
-                let mut args = Map::new();
-                args.insert("component_id".to_string(), json!(component_id));
-                handle_tool_cli_command(
-                    &lifecycle_manager,
-                    "reset-permission",
-                    args,
-                    OutputFormat::Json,
-                )
-                .await?;
-            }
-        },
     }
 
     Ok(())
@@ -778,12 +838,12 @@ mod cli_tests {
         // Test component commands
         let args = vec!["wassette", "component", "list"];
         let cli = Cli::try_parse_from(args).unwrap();
-        matches!(cli.command, Commands::Component { .. });
+        matches!(cli.command, Some(Commands::Component { .. }));
 
         // Test policy commands
         let args = vec!["wassette", "policy", "get", "test-component"];
         let cli = Cli::try_parse_from(args).unwrap();
-        matches!(cli.command, Commands::Policy { .. });
+        matches!(cli.command, Some(Commands::Policy { .. }));
 
         // Test permission commands
         let args = vec![
@@ -797,12 +857,12 @@ mod cli_tests {
             "read",
         ];
         let cli = Cli::try_parse_from(args).unwrap();
-        matches!(cli.command, Commands::Permission { .. });
+        matches!(cli.command, Some(Commands::Permission { .. }));
 
         // Test serve command still works
         let args = vec!["wassette", "serve", "--sse"];
         let cli = Cli::try_parse_from(args).unwrap();
-        matches!(cli.command, Commands::Serve(_));
+        matches!(cli.command, Some(Commands::Serve(_)));
     }
 
     #[test]
@@ -819,7 +879,7 @@ mod cli_tests {
         ];
         let cli = Cli::try_parse_from(args).unwrap();
 
-        if let Commands::Permission {
+        if let Some(Commands::Permission {
             command:
                 PermissionCommands::Grant {
                     permission:
@@ -830,7 +890,7 @@ mod cli_tests {
                             ..
                         },
                 },
-        } = cli.command
+        }) = cli.command
         {
             assert_eq!(component_id, "test-component");
             assert_eq!(uri, "fs:///tmp/test");
@@ -852,7 +912,7 @@ mod cli_tests {
         ];
         let cli = Cli::try_parse_from(args).unwrap();
 
-        if let Commands::Permission {
+        if let Some(Commands::Permission {
             command:
                 PermissionCommands::Revoke {
                     permission:
@@ -860,7 +920,7 @@ mod cli_tests {
                             component_id, host, ..
                         },
                 },
-        } = cli.command
+        }) = cli.command
         {
             assert_eq!(component_id, "test-component");
             assert_eq!(host, "example.com");

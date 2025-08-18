@@ -11,10 +11,18 @@ use serde::{Deserialize, Serialize};
 use crate::format::OutputFormat;
 
 #[derive(Parser, Debug)]
-#[command(name = "wassette-mcp-server", about, long_about = None, version)]
+#[command(name = "wassette-mcp-server", about, long_about = None)]
 pub struct Cli {
+    /// Print version information
+    #[arg(long, short = 'V')]
+    pub version: bool,
+
+    /// Directory where plugins are stored (ignored when using --version)
+    #[arg(long)]
+    pub plugin_dir: Option<std::path::PathBuf>,
+
     #[command(subcommand)]
-    pub command: Commands,
+    pub command: Option<Commands>,
 }
 
 #[derive(Subcommand, Debug)]

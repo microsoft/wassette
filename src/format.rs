@@ -32,6 +32,31 @@ pub fn format_as_yaml(value: &Value) -> Result<String> {
 
 /// Format a JSON value as a table string
 pub fn format_as_table(value: &Value) -> Result<String> {
+    // Check if this is a component list output
+    if let Some(obj) = value.as_object() {
+        if let Some(components) = obj.get("components").and_then(|v| v.as_array()) {
+            let mut table = String::new();
+            table.push_str("ID                    | Tools Count\n");
+            table.push_str("----------------------|-------------\n");
+
+            for component in components {
+                if let Some(comp_obj) = component.as_object() {
+                    let id = comp_obj
+                        .get("id")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("unknown");
+                    let tools_count = comp_obj
+                        .get("tools_count")
+                        .and_then(|v| v.as_u64())
+                        .unwrap_or(0);
+                    table.push_str(&format!("{id:<21} | {tools_count}\n"));
+                }
+            }
+            return Ok(table);
+        }
+    }
+
+    // Default generic table format
     let mut table = String::new();
     table.push_str("Key                   | Value\n");
     table.push_str("----------------------|--------\n");

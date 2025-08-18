@@ -247,27 +247,32 @@ impl crate::LifecycleManager {
                     .get("uri")
                     .and_then(|v| v.as_str())
                     .ok_or_else(|| anyhow!("Missing 'uri' field for storage permission"))?;
-                let access = details
-                    .get("access")
-                    .and_then(|v| v.as_array())
-                    .ok_or_else(|| anyhow!("Missing 'access' field for storage permission"))?;
 
-                let access_types: Result<Vec<AccessType>> = access
-                    .iter()
-                    .map(|v| v.as_str().ok_or_else(|| anyhow!("Invalid access type")))
-                    .map(|s| match s? {
-                        "read" => Ok(AccessType::Read),
-                        "write" => Ok(AccessType::Write),
-                        other => Err(anyhow!("Invalid access type: {}", other)),
-                    })
-                    .collect();
+                // Handle both grant (with specific access types) and revoke (URI-only for all access)
+                let access_types =
+                    if let Some(access) = details.get("access").and_then(|v| v.as_array()) {
+                        // Specific access types provided (for grant operations)
+                        let access_types: Result<Vec<AccessType>> = access
+                            .iter()
+                            .map(|v| v.as_str().ok_or_else(|| anyhow!("Invalid access type")))
+                            .map(|s| match s? {
+                                "read" => Ok(AccessType::Read),
+                                "write" => Ok(AccessType::Write),
+                                other => Err(anyhow!("Invalid access type: {}", other)),
+                            })
+                            .collect();
+                        access_types?
+                    } else {
+                        // No access types specified - assume all access types (for revoke operations)
+                        vec![AccessType::Read, AccessType::Write]
+                    };
 
                 PermissionRule::Storage(StoragePermission {
                     uri: uri.to_string(),
-                    access: access_types?,
+                    access: access_types,
                 })
             }
-            "environment" => {
+            "environment" | "environment-variable" => {
                 let key = details
                     .get("key")
                     .and_then(|v| v.as_str())

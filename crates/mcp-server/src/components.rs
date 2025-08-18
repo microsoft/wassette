@@ -183,13 +183,17 @@ pub async fn handle_list_components(
 pub(crate) fn extract_args_from_request(
     req: &CallToolRequestParam,
 ) -> Result<serde_json::Map<String, Value>> {
-    let params_value = serde_json::to_value(&req.arguments)?;
-
-    match params_value {
-        Value::Object(map) => Ok(map),
-        _ => Err(anyhow::anyhow!(
-            "Parameters are not in expected object format"
-        )),
+    match &req.arguments {
+        Some(args) => {
+            let params_value = serde_json::to_value(args)?;
+            match params_value {
+                Value::Object(map) => Ok(map),
+                _ => Err(anyhow::anyhow!(
+                    "Parameters are not in expected object format"
+                )),
+            }
+        }
+        None => Ok(serde_json::Map::new()),
     }
 }
 

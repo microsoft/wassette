@@ -391,6 +391,15 @@ pub async fn handle_get_policy(
 
     info!("Getting policy for component {}", component_id);
 
+    // First check if the component exists
+    let component_exists = lifecycle_manager
+        .get_component(component_id)
+        .await
+        .is_some();
+    if !component_exists {
+        return Err(anyhow::anyhow!("Component not found: {}", component_id));
+    }
+
     let policy_info = lifecycle_manager.get_policy_info(component_id).await;
 
     let status_text = if let Some(info) = policy_info {
@@ -445,7 +454,7 @@ pub async fn handle_grant_storage_permission(
     match result {
         Ok(()) => {
             let status_text = serde_json::to_string(&json!({
-                "status": "permission granted",
+                "status": "permission granted successfully",
                 "component_id": component_id,
                 "permission_type": "storage",
                 "details": details
@@ -494,7 +503,7 @@ pub async fn handle_grant_network_permission(
     match result {
         Ok(()) => {
             let status_text = serde_json::to_string(&json!({
-                "status": "permission granted",
+                "status": "permission granted successfully",
                 "component_id": component_id,
                 "permission_type": "network",
                 "details": details
@@ -546,7 +555,7 @@ pub async fn handle_grant_environment_variable_permission(
     match result {
         Ok(()) => {
             let status_text = serde_json::to_string(&json!({
-                "status": "permission granted",
+                "status": "permission granted successfully",
                 "component_id": component_id,
                 "permission_type": "environment",
                 "details": details
@@ -603,7 +612,7 @@ pub async fn handle_revoke_storage_permission(
     match result {
         Ok(()) => {
             let status_text = serde_json::to_string(&json!({
-                "status": "storage permission revoked",
+                "status": "permission revoked successfully",
                 "component_id": component_id,
                 "uri": uri,
                 "message": "All access (read and write) to the specified URI has been revoked"
@@ -750,7 +759,7 @@ pub async fn handle_reset_permission(
     match result {
         Ok(()) => {
             let status_text = serde_json::to_string(&json!({
-                "status": "permissions reset",
+                "status": "permissions reset successfully",
                 "component_id": component_id
             }))?;
 
