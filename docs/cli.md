@@ -468,19 +468,6 @@ wassette component list -o table
 wassette policy get my-component -o yaml
 ```
 
-## Backward Compatibility
-
-The new CLI commands are fully backward compatible. Existing `wassette serve` usage continues to work unchanged:
-
-```bash
-# These continue to work as before
-wassette serve --stdio
-wassette serve --http
-wassette serve --sse
-```
-
-The CLI mode provides additional functionality without breaking existing integrations.
-
 ## See Also
 
 - [Main README](../README.md) - Installation and basic usage
