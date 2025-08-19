@@ -1,6 +1,6 @@
 # Authoring Wasm Components with Python
 
-This guide walks you through creating WebAssembly (Wasm) components using Python for the Wassette platform. Wassette allows you to run Python tools as secure, isolated Wasm components via the Model Context Protocol (MCP).
+This guide walks you through creating WebAssembly (Wasm) components using Python that can be used as Tools for AI Agents with Wassette. Wassette allows you to run Python tools as secure, isolated Wasm components via the Model Context Protocol (MCP).
 
 ## Overview
 
@@ -87,7 +87,7 @@ Create `pyproject.toml`:
 [project]
 name = "my-python-tool"
 version = "0.1.0"
-description = "A Python calculator tool for Wassette"
+description = "A Python calculator tool"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [

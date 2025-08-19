@@ -1,6 +1,6 @@
 # Authoring Wasm Components with Go
 
-This guide explains how to create WebAssembly (Wasm) components using Go and TinyGo that can be loaded and executed by Wassette.
+This guide explains how to create WebAssembly (Wasm) components using Go and TinyGo that can be used as Tools for AI Agents with Wassette.
 
 ## Prerequisites
 
