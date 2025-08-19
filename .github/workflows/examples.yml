@@ -101,6 +101,7 @@ jobs:
             echo "latest=false" >> $GITHUB_OUTPUT
           fi
       - name: Publish ${{ matrix.component.name }}
+        id: publish_versioned
         uses: bytecodealliance/wkg-github-action@10b3b04b9059ba46208cd7daf7d352af14bded0f # v5
         with:
           file: bin/${{ matrix.component.file }}
@@ -108,12 +109,13 @@ jobs:
           version: ${{ steps.meta.outputs.tag }}
       - name: Sign container image ${{ matrix.component.name }}:${{ steps.meta.outputs.tag }}
         run: |
-          cosign sign --yes ghcr.io/${{ github.repository_owner }}/${{ matrix.component.name }}:${{ steps.meta.outputs.tag }}
+          cosign sign --yes ghcr.io/${{ github.repository_owner }}/${{ matrix.component.name }}@${{ steps.publish_versioned.outputs.digest }}
       - name: Generate SBOM for ${{ matrix.component.name }}:${{ steps.meta.outputs.tag }}
         run: |
-          syft ghcr.io/${{ github.repository_owner }}/${{ matrix.component.name }}:${{ steps.meta.outputs.tag }} -o spdx-json > ${{ matrix.component.name }}-${{ steps.meta.outputs.tag }}.sbom.json
-          cosign attest --yes --predicate ${{ matrix.component.name }}-${{ steps.meta.outputs.tag }}.sbom.json ghcr.io/${{ github.repository_owner }}/${{ matrix.component.name }}:${{ steps.meta.outputs.tag }}
+          syft ghcr.io/${{ github.repository_owner }}/${{ matrix.component.name }}@${{ steps.publish_versioned.outputs.digest }} -o spdx-json > ${{ matrix.component.name }}-${{ steps.meta.outputs.tag }}.sbom.json
+          cosign attest --yes --predicate ${{ matrix.component.name }}-${{ steps.meta.outputs.tag }}.sbom.json ghcr.io/${{ github.repository_owner }}/${{ matrix.component.name }}@${{ steps.publish_versioned.outputs.digest }}
       - name: Publish ${{ matrix.component.name }} with tag ${{ steps.meta.outputs.release_tag || 'latest' }} (if specified)
+        id: publish_latest
         uses: bytecodealliance/wkg-github-action@10b3b04b9059ba46208cd7daf7d352af14bded0f # v5
         if: steps.meta.outputs.latest == 'true'
         with:
@@ -123,9 +125,9 @@ jobs:
       - name: Sign container image ${{ matrix.component.name }}:${{ steps.meta.outputs.release_tag || 'latest' }}
         if: steps.meta.outputs.latest == 'true'
         run: |
-          cosign sign --yes ghcr.io/${{ github.repository_owner }}/${{ matrix.component.name }}:${{ steps.meta.outputs.release_tag || 'latest' }}
+          cosign sign --yes ghcr.io/${{ github.repository_owner }}/${{ matrix.component.name }}@${{ steps.publish_latest.outputs.digest }}
       - name: Generate SBOM for ${{ matrix.component.name }}:${{ steps.meta.outputs.release_tag || 'latest' }}
         if: steps.meta.outputs.latest == 'true'
         run: |
-          syft ghcr.io/${{ github.repository_owner }}/${{ matrix.component.name }}:${{ steps.meta.outputs.release_tag || 'latest' }} -o spdx-json > ${{ matrix.component.name }}-${{ steps.meta.outputs.release_tag || 'latest' }}.sbom.json
-          cosign attest --yes --predicate ${{ matrix.component.name }}-${{ steps.meta.outputs.release_tag || 'latest' }}.sbom.json ghcr.io/${{ github.repository_owner }}/${{ matrix.component.name }}:${{ steps.meta.outputs.release_tag || 'latest' }}
+          syft ghcr.io/${{ github.repository_owner }}/${{ matrix.component.name }}@${{ steps.publish_latest.outputs.digest }} -o spdx-json > ${{ matrix.component.name }}-${{ steps.meta.outputs.release_tag || 'latest' }}.sbom.json
+          cosign attest --yes --predicate ${{ matrix.component.name }}-${{ steps.meta.outputs.release_tag || 'latest' }}.sbom.json ghcr.io/${{ github.repository_owner }}/${{ matrix.component.name }}@${{ steps.publish_latest.outputs.digest }}
