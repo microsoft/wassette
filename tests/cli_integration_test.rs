@@ -209,15 +209,12 @@ async fn test_cli_component_load_invalid_path() -> Result<()> {
 async fn test_cli_component_unload_invalid_id() -> Result<()> {
     let ctx = CliTestContext::new().await?;
 
-    let (stdout, stderr, exit_code) = ctx
+    let (_stdout, _stderr, exit_code) = ctx
         .run_command(&["component", "unload", "nonexistent-component"])
         .await?;
 
-    assert_ne!(exit_code, 0, "Command should have failed");
-    assert!(
-        stderr.contains("Failed to unload component")
-            || stdout.contains("Failed to unload component")
-    );
+    assert_eq!(exit_code, 0, "Command should succeed (idempotent behavior)");
+    // Unloading a non-existent component should succeed due to idempotent behavior
 
     Ok(())
 }
