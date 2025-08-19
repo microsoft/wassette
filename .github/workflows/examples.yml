@@ -37,13 +37,33 @@ jobs:
       shell: bash
     - uses: actions-rust-lang/setup-rust-toolchain@fb51252c7ba57d633bc668f941da052e410add48 # v1.13.0
     - run: rustup target add wasm32-wasip2
+    - name: Install cargo-binstall
+      uses: cargo-bins/cargo-binstall@v1.10.15
+    - name: Install auditable build tools
+      run: |
+        cargo binstall cargo-auditable --force
+        cargo binstall auditable2cdx --force
     - name: Build
       run: just build-examples
+    - name: Extract SBOM from Rust components
+      run: |
+        mkdir -p sboms
+        if [ -f examples/filesystem-rs/target/wasm32-wasip2/debug/filesystem.wasm ]; then
+          auditable2cdx examples/filesystem-rs/target/wasm32-wasip2/debug/filesystem.wasm > sboms/filesystem-rs.sbom.json
+        fi
+        if [ -f examples/fetch-rs/target/wasm32-wasip2/debug/fetch_rs.wasm ]; then
+          auditable2cdx examples/fetch-rs/target/wasm32-wasip2/debug/fetch_rs.wasm > sboms/fetch-rs.sbom.json
+        fi
     - name: Upload wasm
       uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
       with:
         name: examples
         path: bin
+    - name: Upload SBOMs
+      uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+      with:
+        name: sboms
+        path: sboms
   publish:
     runs-on: ubuntu-latest
     if: github.event_name != 'pull_request'
@@ -73,6 +93,13 @@ jobs:
         with:
           name: examples
           path: bin
+      - name: Download SBOMs
+        uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5.0.0
+        if: github.event_name != 'pull_request'
+        continue-on-error: true
+        with:
+          name: sboms
+          path: sboms
       - name: Log in to Container Registry
         uses: docker/login-action@184bdaa0721073962dff0199f1fb9940f07167d1 # v3.5.0
         with:
@@ -112,7 +139,17 @@ jobs:
           cosign sign --yes ghcr.io/${{ github.repository_owner }}/${{ matrix.component.name }}@${{ steps.publish_versioned.outputs.digest }}
       - name: Generate SBOM for ${{ matrix.component.name }}:${{ steps.meta.outputs.tag }}
         run: |
-          syft ghcr.io/${{ github.repository_owner }}/${{ matrix.component.name }}@${{ steps.publish_versioned.outputs.digest }} -o spdx-json > ${{ matrix.component.name }}-${{ steps.meta.outputs.tag }}.sbom.json
+          if [[ "${{ matrix.component.name }}" == "filesystem-rs" || "${{ matrix.component.name }}" == "fetch-rs" ]]; then
+            # Use pre-extracted SBOM for Rust components if available, otherwise fall back to Syft
+            if [ -f sboms/${{ matrix.component.name }}.sbom.json ]; then
+              cp sboms/${{ matrix.component.name }}.sbom.json ${{ matrix.component.name }}-${{ steps.meta.outputs.tag }}.sbom.json
+            else
+              syft ghcr.io/${{ github.repository_owner }}/${{ matrix.component.name }}@${{ steps.publish_versioned.outputs.digest }} -o spdx-json > ${{ matrix.component.name }}-${{ steps.meta.outputs.tag }}.sbom.json
+            fi
+          else
+            # Use Syft for other components
+            syft ghcr.io/${{ github.repository_owner }}/${{ matrix.component.name }}@${{ steps.publish_versioned.outputs.digest }} -o spdx-json > ${{ matrix.component.name }}-${{ steps.meta.outputs.tag }}.sbom.json
+          fi
           cosign attest --yes --predicate ${{ matrix.component.name }}-${{ steps.meta.outputs.tag }}.sbom.json ghcr.io/${{ github.repository_owner }}/${{ matrix.component.name }}@${{ steps.publish_versioned.outputs.digest }}
       - name: Publish ${{ matrix.component.name }} with tag ${{ steps.meta.outputs.release_tag || 'latest' }} (if specified)
         id: publish_latest
@@ -129,5 +166,15 @@ jobs:
       - name: Generate SBOM for ${{ matrix.component.name }}:${{ steps.meta.outputs.release_tag || 'latest' }}
         if: steps.meta.outputs.latest == 'true'
         run: |
-          syft ghcr.io/${{ github.repository_owner }}/${{ matrix.component.name }}@${{ steps.publish_latest.outputs.digest }} -o spdx-json > ${{ matrix.component.name }}-${{ steps.meta.outputs.release_tag || 'latest' }}.sbom.json
+          if [[ "${{ matrix.component.name }}" == "filesystem-rs" || "${{ matrix.component.name }}" == "fetch-rs" ]]; then
+            # Use pre-extracted SBOM for Rust components if available, otherwise fall back to Syft
+            if [ -f sboms/${{ matrix.component.name }}.sbom.json ]; then
+              cp sboms/${{ matrix.component.name }}.sbom.json ${{ matrix.component.name }}-${{ steps.meta.outputs.release_tag || 'latest' }}.sbom.json
+            else
+              syft ghcr.io/${{ github.repository_owner }}/${{ matrix.component.name }}@${{ steps.publish_latest.outputs.digest }} -o spdx-json > ${{ matrix.component.name }}-${{ steps.meta.outputs.release_tag || 'latest' }}.sbom.json
+            fi
+          else
+            # Use Syft for other components
+            syft ghcr.io/${{ github.repository_owner }}/${{ matrix.component.name }}@${{ steps.publish_latest.outputs.digest }} -o spdx-json > ${{ matrix.component.name }}-${{ steps.meta.outputs.release_tag || 'latest' }}.sbom.json
+          fi
           cosign attest --yes --predicate ${{ matrix.component.name }}-${{ steps.meta.outputs.release_tag || 'latest' }}.sbom.json ghcr.io/${{ github.repository_owner }}/${{ matrix.component.name }}@${{ steps.publish_latest.outputs.digest }}

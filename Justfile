@@ -9,8 +9,8 @@ build mode="debug":
     
 build-examples mode="debug":
     mkdir -p bin
-    (cd examples/fetch-rs && just build mode)
-    (cd examples/filesystem-rs && just build mode)
+    (cd examples/fetch-rs && just build-auditable mode)
+    (cd examples/filesystem-rs && just build-auditable mode)
     (cd examples/get-weather-js && just build)
     (cd examples/time-server-js && just build)
     (cd examples/eval-py && just build)
