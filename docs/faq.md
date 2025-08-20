@@ -41,7 +41,7 @@ The project includes examples in several popular languages:
 
 Wassette specifically requires WebAssembly **Components** (not just modules) that follow the Component Model. Existing Wasm modules would need to be adapted to use the Component Model's interface system.
 
-### How do I create a Wasm component for Wassette?
+### How do I create a Wasm component?
 
 1. **Define your interface** using WebAssembly Interface Types (WIT)
 2. **Implement the functionality** in your preferred supported language

@@ -45,3 +45,13 @@ run-get-weather RUST_LOG='info':
 run-fetch-rs RUST_LOG='info':
     RUST_LOG={{RUST_LOG}} cargo run --bin wassette serve --sse --plugin-dir ./examples/fetch-rs
 
+# Documentation commands
+docs-build:
+    cd docs && mdbook build
+
+docs-serve:
+    cd docs && mdbook serve --open
+
+docs-watch:
+    cd docs && mdbook serve
+

@@ -1,6 +1,6 @@
 # Authoring WebAssembly Components from JavaScript/TypeScript
 
-This guide provides detailed instructions on how to create WebAssembly (Wasm) Components using JavaScript or TypeScript for use with Wassette. WebAssembly Components are portable, secure, and language-agnostic modules that can be executed across different environments.
+This guide provides detailed instructions on how to create WebAssembly (Wasm) Components using JavaScript or TypeScript that can be used as Tools for AI Agents with Wassette. WebAssembly Components are portable, secure, and language-agnostic modules that can be executed across different environments.
 
 ## Table of Contents
 

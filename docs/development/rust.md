@@ -1,6 +1,6 @@
 # Writing Wasm Components in Rust
 
-This guide provides comprehensive instructions for creating WebAssembly (Wasm) components from Rust that can be used with Wassette. By the end of this guide, you'll understand how to structure, implement, build, and deploy Rust-based Wasm components.
+This guide provides comprehensive instructions for creating WebAssembly (Wasm) components from Rust that can be used as Tools for AI Agents with Wassette. By the end of this guide, you'll understand how to structure, implement, build, and deploy Rust-based Wasm components.
 
 ## Table of Contents
 

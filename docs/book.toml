@@ -1,0 +1,27 @@
+[book]
+authors = ["Microsoft"]
+description = "Documentation for Wassette - A security-oriented runtime that runs WebAssembly Components via MCP"
+language = "en"
+src = "src"
+title = "Wassette Documentation"
+
+[build]
+build-dir = "book"
+
+[output.html]
+additional-css = []
+additional-js = []
+smart-punctuation = true
+git-repository-url = "https://github.com/microsoft/wassette"
+edit-url-template = "https://github.com/microsoft/wassette/edit/main/docs/{path}"
+
+[output.html.search]
+enable = true
+limit-results = 30
+teaser-word-count = 30
+use-boolean-and = true
+boost-title = 2
+boost-hierarchy = 1
+boost-paragraph = 1
+expand = true
+heading-split-level = 3

@@ -6,15 +6,14 @@
     <img src="https://dcbadge.limes.pink/api/server/microsoft-open-source" alt="Discord" style="height: 25px;">
   </a> -->
 
-[Getting started][setup guide] | [FAQ] | [Releases] | [Contributing] | [Discord]
-
+[Getting started][setup guide] | [FAQ] | [Documentation] | [Releases] | [Contributing] | [Discord]
 </div>
 
 ## Why Wassette?
 
 - **Convenience**: Wassette makes it easy to extend AI agents with new tools,
   all without ever having to leave the chat window.
-- **Reusability**: Wasm Components built for Wassette are generic and reusable;
+- **Reusability**: Wasm Components are generic and reusable;
   there is nothing MCP-specific about them.
 - **Security**: Wassette is built on the Wasmtime security sandbox, providing
   browser-grade isolation of tools.
@@ -85,7 +84,7 @@ Congratulations! You've just run your first Wasm Component and taught your agent
 
 https://github.com/user-attachments/assets/8e5a371c-ac72-406d-859c-03833ee83963
 
-## Building for Wassette
+## Building WebAssembly Components
 
 Wasm Components provide fully typed interfaces defined using WebAssembly
 Interface Types (WIT). Wassette can take any Wasm Component and load it as an
@@ -103,7 +102,7 @@ world time-server {
 You'll notice that this interface doesn't mention MCP at all; it is just a
 regular library interface that exports a function. That means there is no such
 thing as a "Wassette-specific Wasm Component". Wassette is able to load any Wasm
-Component and expose its functions as MCP tools. Just like Components built for Wassette can be re-used by other Wasm runtimes.
+Component and expose its functions as MCP tools. Components can be re-used by other Wasm runtimes.
 
 See the [`examples/`](./examples/) directory for a complete list of examples. Here is a
 selection of examples written in different languages:
@@ -143,6 +142,7 @@ This project may contain trademarks or logos for projects, products, or services
 
 [setup guide]: https://github.com/microsoft/wassette/blob/main/docs/mcp-clients.md
 [FAQ]: docs/faq.md
+[Documentation]: https://microsoft.github.io/wassette
 [Contributing]: CONTRIBUTING.md
 [Releases]: https://github.com/microsoft/wassette/releases
 [Discord]: https://discord.gg/microsoft-open-source
