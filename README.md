@@ -84,6 +84,26 @@ Congratulations! You've just run your first Wasm Component and taught your agent
 
 https://github.com/user-attachments/assets/8e5a371c-ac72-406d-859c-03833ee83963
 
+## Built-in Tools
+
+Wassette comes with several built-in tools for managing components and their permissions. These tools are available immediately when you start the MCP server:
+
+| Tool | Description |
+|------|-------------|
+| `load-component` | Dynamically loads a new tool or component from either the filesystem or OCI registries |
+| `unload-component` | Unloads a tool or component |
+| `list-components` | Lists all currently loaded components or tools |
+| `get-policy` | Gets the policy information for a specific component |
+| `grant-storage-permission` | Grants storage access permission to a component, allowing it to read from and/or write to specific storage locations |
+| `grant-network-permission` | Grants network access permission to a component, allowing it to make network requests to specific hosts |
+| `grant-environment-variable-permission` | Grants environment variable access permission to a component, allowing it to access specific environment variables |
+| `revoke-storage-permission` | Revokes all storage access permissions from a component for the specified URI path, removing both read and write access to that location |
+| `revoke-network-permission` | Revokes network access permission from a component, removing its ability to make network requests to specific hosts |
+| `revoke-environment-variable-permission` | Revokes environment variable access permission from a component, removing its ability to access specific environment variables |
+| `reset-permission` | Resets all permissions for a component, removing all granted permissions and returning it to the default state |
+
+These tools enable you to dynamically manage components and their security permissions without needing to restart the server or modify configuration files directly.
+
 ## Building WebAssembly Components
 
 Wasm Components provide fully typed interfaces defined using WebAssembly
