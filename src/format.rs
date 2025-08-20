@@ -85,32 +85,34 @@ pub fn format_as_table(value: &Value) -> Result<String> {
 
 /// Print the result of a tool call with the specified format
 pub fn print_result(result: &CallToolResult, output_format: OutputFormat) -> Result<()> {
-    for content in &result.content {
-        // Convert content to text and print
-        if let Some(text) = content.as_text() {
-            // Try to parse as JSON first
-            if let Ok(json_value) = serde_json::from_str::<Value>(&text.text) {
-                match output_format {
-                    OutputFormat::Json => {
-                        // Always pretty-print JSON for better readability
-                        println!("{}", serde_json::to_string_pretty(&json_value)?);
+    if let Some(contents) = &result.content {
+        for content in contents {
+            // Check if we can get text content from the annotated content
+            if let Some(text_content) = content.as_text() {
+                // Try to parse as JSON first
+                if let Ok(json_value) = serde_json::from_str::<Value>(&text_content.text) {
+                    match output_format {
+                        OutputFormat::Json => {
+                            // Always pretty-print JSON for better readability
+                            println!("{}", serde_json::to_string_pretty(&json_value)?);
+                        }
+                        OutputFormat::Yaml => {
+                            // Convert JSON to YAML
+                            println!("{}", format_as_yaml(&json_value)?);
+                        }
+                        OutputFormat::Table => {
+                            // Format as table
+                            println!("{}", format_as_table(&json_value)?);
+                        }
                     }
-                    OutputFormat::Yaml => {
-                        // Convert JSON to YAML
-                        println!("{}", format_as_yaml(&json_value)?);
-                    }
-                    OutputFormat::Table => {
-                        // Format as table
-                        println!("{}", format_as_table(&json_value)?);
-                    }
+                } else {
+                    // If it's not JSON, just print the text
+                    println!("{}", text_content.text);
                 }
             } else {
-                // If it's not JSON, just print the text
-                println!("{}", text.text);
+                // Handle other content types by serializing to JSON
+                println!("Content: {}", serde_json::to_string_pretty(content)?);
             }
-        } else {
-            // Handle other content types
-            println!("Content: {}", serde_json::to_string_pretty(content)?);
         }
     }
 

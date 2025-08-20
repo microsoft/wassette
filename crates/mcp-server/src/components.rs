@@ -593,5 +593,4 @@ mod tests {
         });
         assert_eq!(input_schema_json, expected_input);
     }
-    }
 }
