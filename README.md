@@ -28,11 +28,11 @@ curl -fsSL https://raw.githubusercontent.com/microsoft/wassette/main/install.sh 
 
 This will detect your platform and install the latest `wassette` binary to your `$PATH`. 
 
-We provide a [Homebrew formula for macOS and Linux](./docs/homebrew.md).
+We provide a [Homebrew formula for macOS and Linux](./docs/src/homebrew.md).
 
-For Windows users, we provide a [WinGet package](./docs/winget.md).
+For Windows users, we provide a [WinGet package](./docs/src/winget.md).
 
-And [Nix flakes for reproducible environments](./docs/nix.md).
+And [Nix flakes for reproducible environments](./docs/src/nix.md).
 
 You can also download the latest release from the [GitHub Releases page][Releases] and add it to your `$PATH`.
 
@@ -361,7 +361,7 @@ This project is licensed under the <a href="LICENSE">MIT License</a>.
 
 This project may contain trademarks or logos for projects, products, or services. Authorized use of Microsoft trademarks or logos is subject to and must follow [Microsoft’s Trademark & Brand Guidelines](https://www.microsoft.com/en-us/legal/intellectualproperty/trademarks). Use of Microsoft trademarks or logos in modified versions of this project must not cause confusion or imply Microsoft sponsorship. Any use of third-party trademarks or logos are subject to those third-party’s policies.
 
-[setup guide]: https://github.com/microsoft/wassette/blob/main/docs/mcp-clients.md
+[setup guide]: https://github.com/microsoft/wassette/blob/main/docs/src/mcp-clients.md
 [FAQ]: docs/faq.md
 [Documentation]: https://microsoft.github.io/wassette
 [Contributing]: CONTRIBUTING.md
