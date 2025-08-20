@@ -245,7 +245,7 @@ async fn handle_tool_cli_command(
 /// Create LifecycleManager from plugin directory
 async fn create_lifecycle_manager(plugin_dir: Option<PathBuf>) -> Result<LifecycleManager> {
     let config = if let Some(dir) = plugin_dir {
-        config::Config { 
+        config::Config {
             plugin_dir: dir,
             environment_vars: std::collections::HashMap::new(),
         }
@@ -457,10 +457,12 @@ async fn main() -> Result<()> {
                     registry.with(tracing_subscriber::fmt::layer()).init();
                 }
 
-                let config = config::Config::from_serve(cfg).context("Failed to load configuration")?;
+                let config =
+                    config::Config::from_serve(cfg).context("Failed to load configuration")?;
 
                 let lifecycle_manager =
-                    LifecycleManager::new_with_env(&config.plugin_dir, config.environment_vars).await?;
+                    LifecycleManager::new_with_env(&config.plugin_dir, config.environment_vars)
+                        .await?;
 
                 let server = McpServer::new(lifecycle_manager);
 
