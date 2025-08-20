@@ -247,27 +247,42 @@ impl crate::LifecycleManager {
                     .get("uri")
                     .and_then(|v| v.as_str())
                     .ok_or_else(|| anyhow!("Missing 'uri' field for storage permission"))?;
-                let access = details
-                    .get("access")
-                    .and_then(|v| v.as_array())
-                    .ok_or_else(|| anyhow!("Missing 'access' field for storage permission"))?;
 
-                let access_types: Result<Vec<AccessType>> = access
-                    .iter()
-                    .map(|v| v.as_str().ok_or_else(|| anyhow!("Invalid access type")))
-                    .map(|s| match s? {
-                        "read" => Ok(AccessType::Read),
-                        "write" => Ok(AccessType::Write),
-                        other => Err(anyhow!("Invalid access type: {}", other)),
+                // Check if access field exists
+                if let Some(access) = details.get("access") {
+                    // Access field exists - parse it
+                    let access_array = access
+                        .as_array()
+                        .ok_or_else(|| anyhow!("'access' field must be an array"))?;
+
+                    // If access array is empty, this is an error for grant operations
+                    if access_array.is_empty() {
+                        return Err(anyhow!("Storage access cannot be empty"));
+                    }
+
+                    let access_types: Result<Vec<AccessType>> = access_array
+                        .iter()
+                        .map(|v| v.as_str().ok_or_else(|| anyhow!("Invalid access type")))
+                        .map(|s| match s? {
+                            "read" => Ok(AccessType::Read),
+                            "write" => Ok(AccessType::Write),
+                            other => Err(anyhow!("Invalid access type: {}", other)),
+                        })
+                        .collect();
+
+                    PermissionRule::Storage(StoragePermission {
+                        uri: uri.to_string(),
+                        access: access_types?,
                     })
-                    .collect();
-
-                PermissionRule::Storage(StoragePermission {
-                    uri: uri.to_string(),
-                    access: access_types?,
-                })
+                } else {
+                    // No access field provided - used for revocation, create empty access
+                    PermissionRule::Storage(StoragePermission {
+                        uri: uri.to_string(),
+                        access: Vec::new(),
+                    })
+                }
             }
-            "environment" => {
+            "environment" | "environment-variable" => {
                 let key = details
                     .get("key")
                     .and_then(|v| v.as_str())
@@ -443,9 +458,8 @@ impl crate::LifecycleManager {
                 if storage.uri.is_empty() {
                     return Err(anyhow!("Storage URI cannot be empty"));
                 }
-                if storage.access.is_empty() {
-                    return Err(anyhow!("Storage access cannot be empty"));
-                }
+                // Note: access can be empty for revocation operations, but not for grant operations
+                // The validation for non-empty access is now done during parsing
             }
             PermissionRule::Environment(env) => {
                 if env.key.is_empty() {
@@ -559,7 +573,8 @@ impl crate::LifecycleManager {
     ) -> Result<()> {
         if let Some(storage_perms) = &mut policy.permissions.storage {
             if let Some(allow_set) = &mut storage_perms.allow {
-                allow_set.retain(|perm| perm != &storage);
+                // Remove all permissions for the given URI, regardless of access type
+                allow_set.retain(|perm| perm.uri != storage.uri);
                 // Clean up empty structures
                 if allow_set.is_empty() {
                     storage_perms.allow = None;
