@@ -48,7 +48,7 @@ pub enum Commands {
 
 #[derive(Parser, Debug, Clone, Serialize, Deserialize)]
 pub struct Serve {
-    /// Directory where plugins are stored. Defaults to $XDG_DATA_HOME/wasette/components
+    /// Directory where plugins are stored. Defaults to $XDG_DATA_HOME/wassette/components
     #[arg(long)]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub plugin_dir: Option<PathBuf>,

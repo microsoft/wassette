@@ -12,7 +12,7 @@ use serde::{Deserialize, Serialize};
 /// Get the default component directory path based on the OS
 pub fn get_component_dir() -> Result<PathBuf, anyhow::Error> {
     let dir_strategy = etcetera::choose_base_strategy().context("Unable to get home directory")?;
-    Ok(dir_strategy.data_dir().join("wasette").join("components"))
+    Ok(dir_strategy.data_dir().join("wassette").join("components"))
 }
 
 fn default_plugin_dir() -> PathBuf {
@@ -38,7 +38,7 @@ impl Config {
     /// Returns a new [`Config`] instance by merging the configuration from the specified
     /// `cli_config` (any struct that is Serialize/Deserialize, but generally a Clap `Parser`) with
     /// the configuration file and environment variables. By default, the configuration file is
-    /// located at `$XDG_CONFIG_HOME/wasette/config.toml`. This can be overridden by setting
+    /// located at `$XDG_CONFIG_HOME/wassette/config.toml`. This can be overridden by setting
     /// the `WASETTE_CONFIG_FILE` environment variable.
     ///
     /// The order of precedence for configuration sources is as follows:
@@ -51,7 +51,7 @@ impl Config {
             None => etcetera::choose_base_strategy()
                 .context("Unable to get home directory")?
                 .config_dir()
-                .join("wasette")
+                .join("wassette")
                 .join("config.toml"),
         };
         Self::new_from_path(cli_config, config_file_path)
@@ -237,7 +237,7 @@ plugin_dir = "/config/plugin/dir"
     }
 
     #[test]
-    fn test_new_method_without_wasette_config_file_env() {
+    fn test_new_method_without_wassette_config_file_env() {
         // This test verifies that new() works when WASETTE_CONFIG_FILE is not set
         // It should try to use the default config location, which likely won't exist
         // but should still succeed with defaults
