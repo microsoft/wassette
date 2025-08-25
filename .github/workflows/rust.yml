@@ -151,14 +151,7 @@ jobs:
           
           const comment = `## 📊 Test Coverage Report
           
-          **Overall Coverage: ${coveragePercent}%** (${coveredLines}/${totalLines} lines)
-          
-          Coverage has been measured and reported. [Full coverage report available in artifacts](https://app.codecov.io/gh/${context.repo.owner}/${context.repo.repo}).
-          
-          ### Coverage by Module
-          The coverage report shows detailed coverage for each module - check the uploaded artifacts for a complete breakdown.
-          
-          📝 *Coverage is automatically calculated on every PR. To improve coverage, add tests for uncovered code paths.*`;
+          **Overall Coverage: ${coveragePercent}%** (${coveredLines}/${totalLines} lines)`;
           
           github.rest.issues.createComment({
             issue_number: context.issue.number,
