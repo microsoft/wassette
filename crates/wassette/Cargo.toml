@@ -9,7 +9,7 @@ anyhow = { workspace = true }
 component2json = { path = "../component2json" }
 futures = { workspace = true }
 http = "1.0"
-hyper = { version = "1.0", features = ["client"] }
+hyper = { version = "1.7", features = ["client"] }
 oci-client = { workspace = true }
 oci-wasm = { workspace = true }
 policy = { workspace = true }
