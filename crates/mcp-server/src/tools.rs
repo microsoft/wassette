@@ -409,7 +409,8 @@ async fn handle_search_component(
     let contents = vec![Content::text(status_text)];
 
     Ok(CallToolResult {
-        content: contents,
+        content: Some(contents),
+        structured_content: None,
         is_error: None,
     })
 }
