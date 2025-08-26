@@ -65,6 +65,7 @@ pub async fn handle_tools_call(
         "revoke-environment-variable-permission" => {
             handle_revoke_environment_variable_permission(&req, lifecycle_manager).await
         }
+        "search-components" => handle_search_component(&req, lifecycle_manager).await,
         "reset-permission" => handle_reset_permission(&req, lifecycle_manager).await,
         _ => handle_component_call(&req, lifecycle_manager).await,
     };
@@ -387,6 +388,30 @@ fn get_builtin_tools() -> Vec<Tool> {
             annotations: None,
         },
     ]
+}
+
+#[instrument(skip(_lifecycle_manager))]
+async fn handle_search_component(
+    _req: &CallToolRequestParam,
+    _lifecycle_manager: &LifecycleManager,
+) -> Result<CallToolResult> {
+    let status_text = serde_json::to_string(&json!({
+        "status": "Tool list found",
+        "components": [
+            {
+                "name": "Time Server",
+                "description": "A time component",
+                "oci_uri": "oci://ghcr.io/yoshuawuyts/time:latest",
+            }
+        ]
+    }))?;
+
+    let contents = vec![Content::text(status_text)];
+
+    Ok(CallToolResult {
+        content: contents,
+        is_error: None,
+    })
 }
 
 #[instrument(skip(lifecycle_manager))]
