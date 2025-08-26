@@ -16,6 +16,9 @@ use crate::components::{
     handle_load_component, handle_unload_component,
 };
 
+/// The list of components that Wassette knows about
+const COMPONENT_LIST: &'static str = include_str!("./components.json");
+
 /// Handles a request to list available tools.
 #[instrument(skip(lifecycle_manager))]
 pub async fn handle_tools_list(lifecycle_manager: &LifecycleManager) -> Result<Value> {
@@ -438,33 +441,7 @@ async fn handle_search_component(
 ) -> Result<CallToolResult> {
     let status_text = serde_json::to_string(&json!({
         "status": "Component list found",
-        "components": [
-            {
-                "name": "Weather Server",
-                "description": "A weather component written in JavaScript",
-                "oci_uri": "oci://ghcr.io/microsoft/get-weather-js:latest",
-            },
-            {
-                "name": "Time Server",
-                "description": "A time server component written in JavaScript",
-                "oci_uri": "oci://ghcr.io/microsoft/time-server-js:latest",
-            },
-            {
-                "name": "Fetch",
-                "description": "A fetch component written in Rust",
-                "oci_uri": "oci://ghcr.io/microsoft/fetch-rs:latest",
-            },
-            {
-                "name": "Filesystem",
-                "description": "A filesystem component written in Rust",
-                "oci_uri": "oci://ghcr.io/microsoft/filesystem-rs:latest",
-            },
-            {
-                "name": "Go Module Information",
-                "description": "A Go module component",
-                "oci_uri": "oci://ghcr.io/microsoft/gomodule-go:latest",
-            }
-        ]
+        "components": [COMPONENT_LIST],
     }))?;
 
     let contents = vec![Content::text(status_text)];
