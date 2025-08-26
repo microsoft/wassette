@@ -387,6 +387,47 @@ fn get_builtin_tools() -> Vec<Tool> {
             output_schema: None,
             annotations: None,
         },
+        Tool {
+            name: Cow::Borrowed("search-components"),
+            description: Some(Cow::Borrowed(
+                "Lists all known components that can be fetched and loaded",
+            )),
+            input_schema: Arc::new(
+                serde_json::from_value(json!({
+                    "type": "object",
+                    "properties": {
+                        "search_string": {
+                            "type": "string",
+                            "description": "A natural-language search string. If left empty, we will list all outputs. Right now the search string doesn't do anything, so feel free to leave it empty"
+                        },
+                    },
+                    "required": []
+                }))
+                .unwrap_or_default(),
+            ),
+            output_schema: Some(Arc::new(
+                serde_json::from_value(json!({
+                    "type": "object",
+                    "properties": {
+                        "name": {
+                            "type": "string",
+                            "description": "The human-readable name of the component"
+                        },
+                        "description": {
+                            "type": "string",
+                            "description": "Describes what the component does"
+                        },
+                        "oci_url": {
+                            "type": "string",
+                            "description": "The canonical OCI URL, including the leading `oci://` and `:version` suffix. This string can be directly passed to Wassette's `load component` tool call."
+                        },
+                    },
+                    "required": ["name", "description", "oci_url"]
+                }))
+                .unwrap_or_default(),
+            )),
+            annotations: None,
+        },
     ]
 }
 
@@ -396,12 +437,32 @@ async fn handle_search_component(
     _lifecycle_manager: &LifecycleManager,
 ) -> Result<CallToolResult> {
     let status_text = serde_json::to_string(&json!({
-        "status": "Tool list found",
+        "status": "Component list found",
         "components": [
             {
+                "name": "Weather Server",
+                "description": "A weather component written in JavaScript",
+                "oci_uri": "oci://ghcr.io/microsoft/get-weather-js:latest",
+            },
+            {
                 "name": "Time Server",
-                "description": "A time component",
-                "oci_uri": "oci://ghcr.io/yoshuawuyts/time:latest",
+                "description": "A time server component written in JavaScript",
+                "oci_uri": "oci://ghcr.io/microsoft/time-server-js:latest",
+            },
+            {
+                "name": "Fetch",
+                "description": "A fetch component written in Rust",
+                "oci_uri": "oci://ghcr.io/microsoft/fetch-rs:latest",
+            },
+            {
+                "name": "Filesystem",
+                "description": "A filesystem component written in Rust",
+                "oci_uri": "oci://ghcr.io/microsoft/filesystem-rs:latest",
+            },
+            {
+                "name": "Go Module Information",
+                "description": "A Go module component",
+                "oci_uri": "oci://ghcr.io/microsoft/gomodule-go:latest",
             }
         ]
     }))?;
