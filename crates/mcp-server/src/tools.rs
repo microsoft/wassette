@@ -17,7 +17,7 @@ use crate::components::{
 };
 
 /// The list of components that Wassette knows about
-const COMPONENT_LIST: &'static str = include_str!("./components.json");
+const COMPONENT_LIST: &'static str = include_str!("../../../component-registry.json");
 
 /// Handles a request to list available tools.
 #[instrument(skip(lifecycle_manager))]
