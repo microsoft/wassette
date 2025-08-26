@@ -115,8 +115,6 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      pull-requests: write
-      issues: write
     steps:
     - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
     - run: ./scripts/install-protobuf.sh
@@ -138,8 +136,7 @@ jobs:
       with:
         file: ./lcov.info
         fail_ci_if_error: false
-    - name: Coverage comment on PR
-      if: github.event_name == 'pull_request'
+    - name: Coverage summary
       uses: actions/github-script@60a0d83039c74a4aee543508d2ffcb1c3799cdea # v7.1.0
       with:
         script: |
@@ -149,16 +146,13 @@ jobs:
           const coveredLines = coverage.data[0].totals.lines.covered;
           const coveragePercent = ((coveredLines / totalLines) * 100).toFixed(2);
           
-          const comment = `## 📊 Test Coverage Report
+          const summary = `## 📊 Test Coverage Report
           
           **Overall Coverage: ${coveragePercent}%** (${coveredLines}/${totalLines} lines)`;
           
-          github.rest.issues.createComment({
-            issue_number: context.issue.number,
-            owner: context.repo.owner,
-            repo: context.repo.repo,
-            body: comment
-          });
+          await core.summary
+            .addRaw(summary)
+            .write();
     - name: Upload coverage artifacts  
       uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
       with:

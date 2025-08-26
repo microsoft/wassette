@@ -11,6 +11,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Fixed
 
+- Fixed test coverage CI failing on PRs from forked repositories by switching from PR comments to job summaries ([#237](https://github.com/microsoft/wassette/pull/237))
 - Fixed dependabot auto-merge workflow failing with "workflows permission" error by adding `workflows: write` permission ([#TBD](https://github.com/microsoft/wassette/pull/TBD))
 - Fixed inconsistent spelling of "wasette" to "wassette" in configuration paths and documentation comments ([#TBD](https://github.com/microsoft/wassette/pull/TBD))
 - Fixed broken links in README.md pointing to documentation files in wrong directory paths ([#TBD](https://github.com/microsoft/wassette/pull/TBD))
