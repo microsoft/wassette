@@ -17,7 +17,7 @@ use crate::components::{
 };
 
 /// The list of components that Wassette knows about
-const COMPONENT_LIST: &'static str = include_str!("../../../component-registry.json");
+const COMPONENT_LIST: &str = include_str!("../../../component-registry.json");
 
 /// Handles a request to list available tools.
 #[instrument(skip(lifecycle_manager))]
@@ -415,12 +415,12 @@ fn get_builtin_tools() -> Vec<Tool> {
                             "type": "string",
                             "description": "Describes what the component does"
                         },
-                        "oci_url": {
+                        "uri": {
                             "type": "string",
-                            "description": "The canonical OCI URL, including the leading `oci://` and `:version` suffix. This string can be directly passed to Wassette's `load component` tool call."
+                            "description": "The canonical OCI URI, including the leading `oci://` and `:version` suffix. This string can be directly passed to Wassette's `load component` tool call."
                         },
                     },
-                    "required": ["name", "description", "oci_url"]
+                    "required": ["name", "description", "uri"]
                 }))
                 .unwrap_or_default(),
             )),

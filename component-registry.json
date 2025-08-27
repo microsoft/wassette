@@ -7,21 +7,21 @@
     {
         "name": "Time Server",
         "description": "A time server component written in JavaScript",
-        "oci_uri": "oci://ghcr.io/microsoft/time-server-js:latest"
+        "uri": "oci://ghcr.io/microsoft/time-server-js:latest"
     },
     {
         "name": "Fetch",
         "description": "A fetch component written in Rust",
-        "oci_uri": "oci://ghcr.io/microsoft/fetch-rs:latest"
+        "uri": "oci://ghcr.io/microsoft/fetch-rs:latest"
     },
     {
         "name": "Filesystem",
         "description": "A filesystem component written in Rust",
-        "oci_uri": "oci://ghcr.io/microsoft/filesystem-rs:latest"
+        "uri": "oci://ghcr.io/microsoft/filesystem-rs:latest"
     },
     {
         "name": "Go Module Information",
         "description": "A Go module component",
-        "oci_uri": "oci://ghcr.io/microsoft/gomodule-go:latest"
+        "uri": "oci://ghcr.io/microsoft/gomodule-go:latest"
     }
 ]
