@@ -6,7 +6,7 @@
 - [Winget](./winget.md)
 - [MCP Clients](./mcp-clients.md)
 - [CLI](./cli.md)
-- [FAQ](./faq.md)
+- [FAQ](./FAQ.md)
 
 # Design & Architecture
 
