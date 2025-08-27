@@ -398,12 +398,7 @@ fn get_builtin_tools() -> Vec<Tool> {
             input_schema: Arc::new(
                 serde_json::from_value(json!({
                     "type": "object",
-                    "properties": {
-                        "search_string": {
-                            "type": "string",
-                            "description": "A natural-language search string. If left empty, we will list all outputs. Right now the search string doesn't do anything, so feel free to leave it empty"
-                        },
-                    },
+                    "properties": {},
                     "required": []
                 }))
                 .unwrap_or_default(),
