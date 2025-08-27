@@ -434,9 +434,10 @@ async fn handle_search_component(
     _req: &CallToolRequestParam,
     _lifecycle_manager: &LifecycleManager,
 ) -> Result<CallToolResult> {
+    let components_value: Value = serde_json::from_str(COMPONENT_LIST)?;
     let status_text = serde_json::to_string(&json!({
         "status": "Component list found",
-        "components": [COMPONENT_LIST],
+        "components": components_value,
     }))?;
 
     let contents = vec![Content::text(status_text)];
