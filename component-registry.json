@@ -2,7 +2,7 @@
     {
         "name": "Weather Server",
         "description": "A weather component written in JavaScript",
-        "oci_uri": "oci://ghcr.io/microsoft/get-weather-js:latest"
+        "uri": "oci://ghcr.io/microsoft/get-weather-js:latest"
     },
     {
         "name": "Time Server",
