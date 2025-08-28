@@ -93,6 +93,7 @@ Wassette comes with several built-in tools for managing components and their per
 | `load-component` | Dynamically loads a new tool or component from either the filesystem or OCI registries |
 | `unload-component` | Unloads a tool or component |
 | `list-components` | Lists all currently loaded components or tools |
+| `search-components` | Lists all known components that can be fetched and loaded from the component registry |
 | `get-policy` | Gets the policy information for a specific component |
 | `grant-storage-permission` | Grants storage access permission to a component, allowing it to read from and/or write to specific storage locations |
 | `grant-network-permission` | Grants network access permission to a component, allowing it to make network requests to specific hosts |
@@ -145,6 +146,28 @@ Wassette comes with several built-in tools for managing components and their per
     }
   ],
   "total": 1
+}
+```
+
+### search-components
+**Parameters:** None
+
+**Returns:**
+```json
+{
+  "status": "Component list found",
+  "components": [
+    {
+      "name": "Weather Server",
+      "description": "A weather component written in JavaScript",
+      "uri": "oci://ghcr.io/microsoft/get-weather-js:latest"
+    },
+    {
+      "name": "Time Server", 
+      "description": "A time server component written in JavaScript",
+      "uri": "oci://ghcr.io/microsoft/time-server-js:latest"
+    }
+  ]
 }
 ```
 

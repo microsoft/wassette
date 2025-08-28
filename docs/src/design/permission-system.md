@@ -123,6 +123,7 @@ Supported permission types:
 9. `load-component`: Load WebAssembly component
 10. `unload-component`: Unload component
 11. `list-components`: List loaded components
+12. `search-components`: Search available components from registry
 
 ## Permission Types and Structure
 

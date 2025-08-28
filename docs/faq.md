@@ -151,6 +151,7 @@ Wassette includes several built-in management tools:
 - `load-component`: Load WebAssembly components
 - `unload-component`: Unload components
 - `list-components`: List loaded components
+- `search-components`: Search available components from registry
 - `get-policy`: Get policy information
 - `grant-storage-permission`: Grant storage access
 - `grant-network-permission`: Grant network access

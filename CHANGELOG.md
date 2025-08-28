@@ -19,9 +19,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+- **Component Discovery**: Added `search-components` tool that lists all known components available for loading from the component registry, making it easier for users to discover and load new WebAssembly tools ([#236](https://github.com/microsoft/wassette/pull/236))
 - GitHub Actions workflow to automatically build and deploy mdBook documentation to GitHub Pages ([#196](https://github.com/microsoft/wassette/pull/196))
 - Dependabot automerge workflow for automated dependency updates when CI passes ([#TBD](https://github.com/microsoft/wassette/pull/TBD))
-- Documentation for built-in tools in README, listing all 11 available tools with descriptions for better discoverability ([#TBD](https://github.com/microsoft/wassette/pull/TBD))
+- Documentation for built-in tools in README, listing all 12 available tools with descriptions for better discoverability ([#TBD](https://github.com/microsoft/wassette/pull/TBD))
 - Dependabot automerge workflow for automated dependency updates when CI passes
 - **Major CLI UX Enhancement**: Expanded Wassette from a simple server launcher to a comprehensive CLI tool for managing WebAssembly components and permissions directly from the command line
 - **Component Management Commands**:
