@@ -35,7 +35,7 @@ jobs:
     - uses: bytecodealliance/actions/wasm-tools/setup@3b93676295fd6f7eaa7af2c2785539e052fa8349 # v1.1.1
     - run: ./scripts/install-protobuf.sh
       shell: bash
-    - uses: actions-rust-lang/setup-rust-toolchain@ab6845274e2ff01cd4462007e1a9d9df1ab49f42 # v1.14.0
+    - uses: actions-rust-lang/setup-rust-toolchain@ac90e63697ac2784f4ecfe2964e1a285c304003a # v1.14.1
     - run: rustup target add wasm32-wasip2
 
     - name: Build
