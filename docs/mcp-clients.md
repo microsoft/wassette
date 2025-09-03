@@ -29,6 +29,7 @@ You can list and configure MCP servers in VS Code by running the command `MCP: L
 Click the below button to use the [one-click installation](https://docs.cursor.com/en/context/mcp#one-click-installation) to add Wassette to Cursor.
 
 [![Install MCP Server](https://cursor.com/deeplink/mcp-install-light.svg)](https://cursor.com/install-mcp?name=wassette&config=JTdCJTIyY29tbWFuZCUyMiUzQSUyMndhc3NldHRlJTIwc2VydmUlMjAtLXN0ZGlvJTIyJTdE)
+
 ## Claude Code
 
 First, [install Claude Code](https://github.com/anthropics/claude-code?tab=readme-ov-file#get-started) (requires Node.js 18 or higher):
@@ -79,3 +80,30 @@ To add the Wassette MCP server to Gemini CLI, you need to configure it in your s
 Quit the Gemini CLI and reopen it.
 
 Open Gemini CLI and verify the installation by running `/mcp` inside of Gemini CLI.
+
+## OpenAI Codex CLI
+
+First, [install Codex CLI](https://github.com/openai/codex?tab=readme-ov-file#installing-and-running-codex-cli) (requires Node.js):
+
+```bash
+npm install -g @openai/codex
+```
+
+Or, if you use Homebrew:
+
+```bash
+brew install codex
+```
+
+To add the Wassette MCP server to Codex CLI, you need to configure it in your settings file at `~/.codex/config.toml`. Create or edit this file to include:
+
+```toml
+[mcp_servers.wassette]
+command = "wassette"
+args = ["serve", "--stdio"]
+```
+
+Run `codex` to start the CLI.
+
+Verify the installation by running `/mcp` inside of Codex CLI.
+
