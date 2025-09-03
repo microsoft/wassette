@@ -131,9 +131,7 @@ mod tests {
     fn create_test_cli_config() -> crate::Serve {
         crate::Serve {
             plugin_dir: Some(PathBuf::from("/test/plugin/dir")),
-            stdio: true,
-            sse: false,
-            streamable_http: false,
+            transport: Default::default(),
             env_vars: vec![],
             env_file: None,
         }
@@ -142,9 +140,7 @@ mod tests {
     fn empty_test_cli_config() -> crate::Serve {
         crate::Serve {
             plugin_dir: None,
-            stdio: false,
-            sse: false,
-            streamable_http: false,
+            transport: Default::default(),
             env_vars: vec![],
             env_file: None,
         }

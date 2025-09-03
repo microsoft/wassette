@@ -5,7 +5,7 @@
 
 use std::path::PathBuf;
 
-use clap::{Parser, Subcommand};
+use clap::{Args, Parser, Subcommand};
 use serde::{Deserialize, Serialize};
 
 use crate::format::OutputFormat;
@@ -58,20 +58,8 @@ pub struct Serve {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub plugin_dir: Option<PathBuf>,
 
-    /// Enable stdio transport
-    #[arg(long)]
-    #[serde(skip)]
-    pub stdio: bool,
-
-    /// Enable SSE transport
-    #[arg(long)]
-    #[serde(skip)]
-    pub sse: bool,
-
-    /// Enable streamable HTTP transport  
-    #[arg(long)]
-    #[serde(skip)]
-    pub streamable_http: bool,
+    #[command(flatten)]
+    pub transport: TransportFlags,
 
     /// Set environment variables (KEY=VALUE format). Can be specified multiple times.
     #[arg(long = "env", value_parser = crate::parse_env_var)]
@@ -82,6 +70,43 @@ pub struct Serve {
     #[arg(long = "env-file")]
     #[serde(skip)]
     pub env_file: Option<PathBuf>,
+}
+
+#[derive(Args, Debug, Clone, Serialize, Deserialize, Default)]
+#[group(required = false, multiple = false)]
+pub struct TransportFlags {
+    /// Enable SSE transport
+    #[arg(long)]
+    #[serde(skip)]
+    pub sse: bool,
+
+    /// Enable stdio transport
+    #[arg(long)]
+    #[serde(skip)]
+    pub stdio: bool,
+
+    /// Enable streamable HTTP transport  
+    #[arg(long)]
+    #[serde(skip)]
+    pub streamable_http: bool,
+}
+
+#[derive(Debug)]
+pub enum Transport {
+    Sse,
+    Stdio,
+    StreamableHttp,
+}
+
+impl From<&TransportFlags> for Transport {
+    fn from(f: &TransportFlags) -> Self {
+        match (f.sse, f.stdio, f.streamable_http) {
+            (true, false, false) => Transport::Sse,
+            (false, true, false) => Transport::Stdio,
+            (false, false, true) => Transport::StreamableHttp,
+            _ => Transport::Stdio, // Default case: use stdio transport
+        }
+    }
 }
 
 #[derive(Subcommand, Debug)]
