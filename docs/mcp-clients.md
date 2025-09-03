@@ -83,19 +83,19 @@ Open Gemini CLI and verify the installation by running `/mcp` inside of Gemini C
 
 ## OpenAI Codex CLI
 
-First, [install Codex CLI](https://github.com/openai/codex?tab=readme-ov-file#installing-and-running-codex-cli) (requires Node.js):
+First, [install Codex CLI](https://github.com/openai/codex?tab=readme-ov-file#installing-and-running-codex-cli) (requires Node.js) using either npm or Homebrew:
 
 ```bash
 npm install -g @openai/codex
 ```
 
-Or, if you use Homebrew:
+Or with Homebrew:
 
 ```bash
 brew install codex
 ```
 
-To add the Wassette MCP server to Codex CLI, you need to configure it in your settings file at `~/.codex/config.toml`. Create or edit this file to include:
+Then configure Wassette as an MCP server in Codex’s config. Codex reads TOML from `$CODEX_HOME/config.toml` (defaults to `~/.codex/config.toml`). Create or edit that file to include:
 
 ```toml
 [mcp_servers.wassette]
