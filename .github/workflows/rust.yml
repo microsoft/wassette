@@ -132,7 +132,7 @@ jobs:
         cargo llvm-cov --all-features --workspace --ignore-run-fail --lcov --output-path lcov.info
         cargo llvm-cov --all-features --workspace --ignore-run-fail --json --output-path coverage.json
     - name: Upload coverage to Codecov
-      uses: codecov/codecov-action@fdcc8476540edceab3de004e990f80d881c6cc00 # v6.1.0
+      uses: codecov/codecov-action@5a1091511ad55cbe89839c7260b706298ca349f7 # v6.1.0
       with:
         file: ./lcov.info
         fail_ci_if_error: false
