@@ -7,6 +7,10 @@
 ignore = [
     # paste crate is unmaintained but still widely used and safe
     { id = "RUSTSEC-2024-0436", reason = "paste crate is unmaintained but still widely used and safe" },
+    # fxhash crate is unmaintained but pulled in transitively by wasmtime via fxprof-processed-profile
+    # The crate is still safe and functional, and we cannot control this transitive dependency
+    # TODO: This can be removed after upgrading to wasmtime > 36.0.2 (fixed in https://github.com/bytecodealliance/wasmtime/issues/11633)
+    { id = "RUSTSEC-2025-0057", reason = "fxhash is transitively required by wasmtime and still safe despite being unmaintained" },
 ]
 
 # License checking configuration
