@@ -16,6 +16,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - Fixed inconsistent spelling of "wasette" to "wassette" in configuration paths and documentation comments ([#TBD](https://github.com/microsoft/wassette/pull/TBD))
 - Fixed broken links in README.md pointing to documentation files in wrong directory paths ([#TBD](https://github.com/microsoft/wassette/pull/TBD))
 - Add cargo audit configuration to acknowledge unmaintained `paste` dependency warning ([#169](https://github.com/microsoft/wassette/pull/169))
+- Environment variables allowed by policy were only stored as config variables and not visible to std::env::var inside components; they are now injected into the WASI environment at instantiation ([#261](https://github.com/microsoft/wassette/pull/261))
 
 ### Added
 
