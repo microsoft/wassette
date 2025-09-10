@@ -786,7 +786,7 @@ permissions:
     fn test_wasi_state_template_injects_env_vars() {
         let temp_dir = TempDir::new().unwrap();
         let plugin_dir = temp_dir.path();
-        
+
         // Create a simple policy with only environment permissions (no storage permissions)
         let yaml_content = r#"
 version: "1.0"
@@ -798,17 +798,21 @@ permissions:
       - key: "NONEXISTENT_VAR"
 "#;
         let policy = PolicyParser::parse_str(yaml_content).unwrap();
-        
+
         let mut env_vars = HashMap::new();
         env_vars.insert("TEST_VAR".to_string(), "test_value".to_string());
         env_vars.insert("ANOTHER_VAR".to_string(), "another_value".to_string());
 
-        let template = create_wasi_state_template_from_policy(&policy, plugin_dir, &env_vars).unwrap();
-        
+        let template =
+            create_wasi_state_template_from_policy(&policy, plugin_dir, &env_vars).unwrap();
+
         // Verify that config_vars contains the allowed environment variables
-        assert_eq!(template.config_vars.get("TEST_VAR"), Some(&"test_value".to_string()));
+        assert_eq!(
+            template.config_vars.get("TEST_VAR"),
+            Some(&"test_value".to_string())
+        );
         assert!(!template.config_vars.contains_key("ANOTHER_VAR")); // Not in policy allow list
-        
+
         // Test that the WASI state can be built successfully with injected env vars
         let wasi_state = template.build();
         match wasi_state {
@@ -816,7 +820,10 @@ permissions:
                 // Success - the environment variables were injected properly
             }
             Err(e) => {
-                panic!("WASI state should build successfully with environment variables: {:?}", e);
+                panic!(
+                    "WASI state should build successfully with environment variables: {:?}",
+                    e
+                );
             }
         }
     }
@@ -825,7 +832,7 @@ permissions:
     fn test_wasi_state_template_builds_with_empty_env_vars() {
         let temp_dir = TempDir::new().unwrap();
         let plugin_dir = temp_dir.path();
-        
+
         // Create a simple policy with only environment permissions (no storage)
         let yaml_content = r#"
 version: "1.0"
@@ -838,18 +845,22 @@ permissions:
         let policy = PolicyParser::parse_str(yaml_content).unwrap();
         let env_vars = HashMap::new(); // Empty environment
 
-        let template = create_wasi_state_template_from_policy(&policy, plugin_dir, &env_vars).unwrap();
+        let template =
+            create_wasi_state_template_from_policy(&policy, plugin_dir, &env_vars).unwrap();
         assert!(template.config_vars.is_empty());
-        
+
         let wasi_state = template.build();
-        assert!(wasi_state.is_ok(), "WASI state should build successfully with empty environment variables");
+        assert!(
+            wasi_state.is_ok(),
+            "WASI state should build successfully with empty environment variables"
+        );
     }
 
     #[test]
     fn test_wasi_state_template_builds_with_multiple_env_vars() {
         let temp_dir = TempDir::new().unwrap();
         let plugin_dir = temp_dir.path();
-        
+
         // Create a policy that allows multiple environment variables
         let yaml_content = r#"
 version: "1.0"
@@ -862,32 +873,51 @@ permissions:
       - key: "DEBUG_MODE"
 "#;
         let policy = PolicyParser::parse_str(yaml_content).unwrap();
-        
+
         let mut env_vars = HashMap::new();
         env_vars.insert("API_KEY".to_string(), "secret123".to_string());
-        env_vars.insert("DATABASE_URL".to_string(), "postgres://localhost:5432/db".to_string());
+        env_vars.insert(
+            "DATABASE_URL".to_string(),
+            "postgres://localhost:5432/db".to_string(),
+        );
         env_vars.insert("DEBUG_MODE".to_string(), "true".to_string());
-        env_vars.insert("UNAUTHORIZED_VAR".to_string(), "should_not_appear".to_string());
+        env_vars.insert(
+            "UNAUTHORIZED_VAR".to_string(),
+            "should_not_appear".to_string(),
+        );
 
-        let template = create_wasi_state_template_from_policy(&policy, plugin_dir, &env_vars).unwrap();
-        
+        let template =
+            create_wasi_state_template_from_policy(&policy, plugin_dir, &env_vars).unwrap();
+
         // Verify only allowed environment variables are in config_vars
         assert_eq!(template.config_vars.len(), 3);
-        assert_eq!(template.config_vars.get("API_KEY"), Some(&"secret123".to_string()));
-        assert_eq!(template.config_vars.get("DATABASE_URL"), Some(&"postgres://localhost:5432/db".to_string()));
-        assert_eq!(template.config_vars.get("DEBUG_MODE"), Some(&"true".to_string()));
+        assert_eq!(
+            template.config_vars.get("API_KEY"),
+            Some(&"secret123".to_string())
+        );
+        assert_eq!(
+            template.config_vars.get("DATABASE_URL"),
+            Some(&"postgres://localhost:5432/db".to_string())
+        );
+        assert_eq!(
+            template.config_vars.get("DEBUG_MODE"),
+            Some(&"true".to_string())
+        );
         assert!(!template.config_vars.contains_key("UNAUTHORIZED_VAR"));
-        
+
         // Test that the WASI state builds successfully
         let wasi_state = template.build();
-        assert!(wasi_state.is_ok(), "WASI state should build successfully with multiple environment variables");
+        assert!(
+            wasi_state.is_ok(),
+            "WASI state should build successfully with multiple environment variables"
+        );
     }
 
     #[test]
     fn test_wasi_state_template_handles_special_env_var_values() {
         let temp_dir = TempDir::new().unwrap();
         let plugin_dir = temp_dir.path();
-        
+
         let yaml_content = r#"
 version: "1.0"
 description: "Test policy for special environment variable values"
@@ -899,29 +929,45 @@ permissions:
       - key: "SPECIAL_CHARS"
 "#;
         let policy = PolicyParser::parse_str(yaml_content).unwrap();
-        
+
         let mut env_vars = HashMap::new();
         env_vars.insert("EMPTY_VAR".to_string(), "".to_string());
-        env_vars.insert("UNICODE_VAR".to_string(), "🚀 Rust WebAssembly 🦀".to_string());
-        env_vars.insert("SPECIAL_CHARS".to_string(), "key=value;path=/tmp:$HOME".to_string());
+        env_vars.insert(
+            "UNICODE_VAR".to_string(),
+            "🚀 Rust WebAssembly 🦀".to_string(),
+        );
+        env_vars.insert(
+            "SPECIAL_CHARS".to_string(),
+            "key=value;path=/tmp:$HOME".to_string(),
+        );
 
-        let template = create_wasi_state_template_from_policy(&policy, plugin_dir, &env_vars).unwrap();
-        
+        let template =
+            create_wasi_state_template_from_policy(&policy, plugin_dir, &env_vars).unwrap();
+
         // Verify special values are preserved
         assert_eq!(template.config_vars.get("EMPTY_VAR"), Some(&"".to_string()));
-        assert_eq!(template.config_vars.get("UNICODE_VAR"), Some(&"🚀 Rust WebAssembly 🦀".to_string()));
-        assert_eq!(template.config_vars.get("SPECIAL_CHARS"), Some(&"key=value;path=/tmp:$HOME".to_string()));
-        
+        assert_eq!(
+            template.config_vars.get("UNICODE_VAR"),
+            Some(&"🚀 Rust WebAssembly 🦀".to_string())
+        );
+        assert_eq!(
+            template.config_vars.get("SPECIAL_CHARS"),
+            Some(&"key=value;path=/tmp:$HOME".to_string())
+        );
+
         // Test that the WASI state builds successfully with special characters
         let wasi_state = template.build();
-        assert!(wasi_state.is_ok(), "WASI state should build successfully with special character values");
+        assert!(
+            wasi_state.is_ok(),
+            "WASI state should build successfully with special character values"
+        );
     }
 
     #[test]
     fn test_env_vars_injection_with_no_environment_permissions() {
         let temp_dir = TempDir::new().unwrap();
         let plugin_dir = temp_dir.path();
-        
+
         // Policy with no environment permissions
         let yaml_content = r#"
 version: "1.0"
@@ -932,25 +978,29 @@ permissions:
       - host: "example.com"
 "#;
         let policy = PolicyParser::parse_str(yaml_content).unwrap();
-        
+
         let mut env_vars = HashMap::new();
         env_vars.insert("SOME_VAR".to_string(), "some_value".to_string());
 
-        let template = create_wasi_state_template_from_policy(&policy, plugin_dir, &env_vars).unwrap();
-        
+        let template =
+            create_wasi_state_template_from_policy(&policy, plugin_dir, &env_vars).unwrap();
+
         // No environment variables should be in config_vars
         assert!(template.config_vars.is_empty());
-        
+
         // WASI state should still build successfully
         let wasi_state = template.build();
-        assert!(wasi_state.is_ok(), "WASI state should build successfully even without environment permissions");
+        assert!(
+            wasi_state.is_ok(),
+            "WASI state should build successfully even without environment permissions"
+        );
     }
 
-    #[test] 
+    #[test]
     fn test_config_vars_are_injected_as_wasi_env_vars() {
         let temp_dir = TempDir::new().unwrap();
         let plugin_dir = temp_dir.path();
-        
+
         // Create a simple policy with only environment permissions (no storage)
         let yaml_content = r#"
 version: "1.0"
@@ -961,19 +1011,26 @@ permissions:
       - key: "TEST_VAR"
 "#;
         let policy = PolicyParser::parse_str(yaml_content).unwrap();
-        
+
         let mut env_vars = HashMap::new();
         env_vars.insert("TEST_VAR".to_string(), "injected_value".to_string());
 
-        let template = create_wasi_state_template_from_policy(&policy, plugin_dir, &env_vars).unwrap();
-        
+        let template =
+            create_wasi_state_template_from_policy(&policy, plugin_dir, &env_vars).unwrap();
+
         // Verify that config_vars contains the allowed environment variable
-        assert_eq!(template.config_vars.get("TEST_VAR"), Some(&"injected_value".to_string()));
-        
+        assert_eq!(
+            template.config_vars.get("TEST_VAR"),
+            Some(&"injected_value".to_string())
+        );
+
         // Build the WASI state to verify env injection works
         let wasi_state = template.build();
-        assert!(wasi_state.is_ok(), "WASI state should build successfully with environment variable injection");
-        
+        assert!(
+            wasi_state.is_ok(),
+            "WASI state should build successfully with environment variable injection"
+        );
+
         // The actual environment variable injection happens in the build() method
         // when ctx_builder.env() is called for each config variable.
         // The fact that building succeeded means the environment variable injection
