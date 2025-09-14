@@ -7,7 +7,7 @@ use anyhow::Result;
 use tracing::{debug, warn};
 use url::Url;
 use wasmtime::component::{Resource, ResourceTable};
-use wasmtime_wasi::{WasiView, WasiCtxView};
+use wasmtime_wasi::{WasiCtxView, WasiView};
 use wasmtime_wasi_http::bindings::http::types;
 use wasmtime_wasi_http::types::{HostFutureIncomingResponse, OutgoingRequestConfig};
 use wasmtime_wasi_http::{HttpResult, WasiHttpView};

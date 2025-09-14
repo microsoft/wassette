@@ -760,9 +760,18 @@ fn json_to_val(value: &Value, ty: &Type) -> Result<Val, ValError> {
             _ => Err(ValError::ShapeError("flags", format!("{value:?}"))),
         },
         Type::Own(_) | Type::Borrow(_) => Err(ValError::ResourceError),
-        Type::Future(_) => Err(ValError::ShapeError("future", "Future types are not supported for input".to_string())),
-        Type::Stream(_) => Err(ValError::ShapeError("stream", "Stream types are not supported for input".to_string())),
-        Type::ErrorContext => Err(ValError::ShapeError("error-context", "ErrorContext types are not supported for input".to_string())),
+        Type::Future(_) => Err(ValError::ShapeError(
+            "future",
+            "Future types are not supported for input".to_string(),
+        )),
+        Type::Stream(_) => Err(ValError::ShapeError(
+            "stream",
+            "Stream types are not supported for input".to_string(),
+        )),
+        Type::ErrorContext => Err(ValError::ShapeError(
+            "error-context",
+            "ErrorContext types are not supported for input".to_string(),
+        )),
     }
 }
 
