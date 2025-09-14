@@ -176,14 +176,12 @@ mod tests {
 
     struct MockWasiState;
 
-    impl IoView for MockWasiState {
-        fn table(&mut self) -> &mut wasmtime_wasi::ResourceTable {
-            unimplemented!("Mock for testing")
-        }
-    }
-
     impl WasiHttpView for MockWasiState {
         fn ctx(&mut self) -> &mut wasmtime_wasi_http::WasiHttpCtx {
+            unimplemented!("Mock for testing")
+        }
+
+        fn table(&mut self) -> &mut ResourceTable {
             unimplemented!("Mock for testing")
         }
 
