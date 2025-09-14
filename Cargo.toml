@@ -37,10 +37,10 @@ tokio-util = "0.7.16"
 tracing = "0.1"
 tracing-subscriber = "0.3"
 tracing-test = "0.2"
-wasmtime = "33"
-wasmtime-wasi = "33"
-wasmtime-wasi-http = "33"
-wasmtime-wasi-config = "33"
+wasmtime = "36"
+wasmtime-wasi = "36"
+wasmtime-wasi-http = "36"
+wasmtime-wasi-config = "36"
 
 [dependencies]
 anyhow = { workspace = true }

@@ -5,7 +5,8 @@ use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
 use policy::{AccessType, PolicyDocument};
-use wasmtime_wasi::p2::WasiCtxBuilder;
+use wasmtime_wasi::{WasiCtxBuilder, WasiCtx, WasiCtxView};
+use wasmtime::component::ResourceTable;
 use wasmtime_wasi_config::WasiConfigVariables;
 use wasmtime_wasi_http::{WasiHttpCtx, WasiHttpView};
 
@@ -43,28 +44,29 @@ impl wasmtime::ResourceLimiter for CustomResourceLimiter {
 }
 
 pub struct WasiState {
-    pub ctx: wasmtime_wasi::p2::WasiCtx,
+    pub ctx: WasiCtx,
     pub table: wasmtime_wasi::ResourceTable,
     pub http: wasmtime_wasi_http::WasiHttpCtx,
     pub wasi_config_vars: WasiConfigVariables,
     pub resource_limiter: Option<CustomResourceLimiter>,
 }
 
-impl wasmtime_wasi::p2::IoView for WasiState {
-    fn table(&mut self) -> &mut wasmtime_wasi::ResourceTable {
-        &mut self.table
-    }
-}
-
-impl wasmtime_wasi::p2::WasiView for WasiState {
-    fn ctx(&mut self) -> &mut wasmtime_wasi::p2::WasiCtx {
-        &mut self.ctx
+impl wasmtime_wasi::WasiView for WasiState {
+    fn ctx(&mut self) -> WasiCtxView<'_> {
+        WasiCtxView {
+            ctx: &mut self.ctx,
+            table: &mut self.table,
+        }
     }
 }
 
 impl WasiHttpView for WasiState {
     fn ctx(&mut self) -> &mut WasiHttpCtx {
         &mut self.http
+    }
+
+    fn table(&mut self) -> &mut ResourceTable {
+        &mut self.table
     }
 }
 
