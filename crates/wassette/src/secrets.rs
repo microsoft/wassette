@@ -10,6 +10,7 @@
 //! - Integrated with component environment variable system
 
 use std::collections::HashMap;
+#[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
