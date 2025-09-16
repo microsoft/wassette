@@ -820,7 +820,7 @@ permissions:
         env_vars.insert("ANOTHER_VAR".to_string(), "another_value".to_string());
 
         let template =
-            create_wasi_state_template_from_policy(&policy, plugin_dir, &env_vars).unwrap();
+            create_wasi_state_template_from_policy(&policy, plugin_dir, &env_vars, None).unwrap();
 
         // Verify that config_vars contains the allowed environment variables
         assert_eq!(
@@ -862,7 +862,7 @@ permissions:
         let env_vars = HashMap::new(); // Empty environment
 
         let template =
-            create_wasi_state_template_from_policy(&policy, plugin_dir, &env_vars).unwrap();
+            create_wasi_state_template_from_policy(&policy, plugin_dir, &env_vars, None).unwrap();
         assert!(template.config_vars.is_empty());
 
         let wasi_state = template.build();
@@ -903,7 +903,7 @@ permissions:
         );
 
         let template =
-            create_wasi_state_template_from_policy(&policy, plugin_dir, &env_vars).unwrap();
+            create_wasi_state_template_from_policy(&policy, plugin_dir, &env_vars, None).unwrap();
 
         // Verify only allowed environment variables are in config_vars
         assert_eq!(template.config_vars.len(), 3);
@@ -958,7 +958,7 @@ permissions:
         );
 
         let template =
-            create_wasi_state_template_from_policy(&policy, plugin_dir, &env_vars).unwrap();
+            create_wasi_state_template_from_policy(&policy, plugin_dir, &env_vars, None).unwrap();
 
         // Verify special values are preserved
         assert_eq!(template.config_vars.get("EMPTY_VAR"), Some(&"".to_string()));
@@ -999,7 +999,7 @@ permissions:
         env_vars.insert("SOME_VAR".to_string(), "some_value".to_string());
 
         let template =
-            create_wasi_state_template_from_policy(&policy, plugin_dir, &env_vars).unwrap();
+            create_wasi_state_template_from_policy(&policy, plugin_dir, &env_vars, None).unwrap();
 
         // No environment variables should be in config_vars
         assert!(template.config_vars.is_empty());
@@ -1032,7 +1032,7 @@ permissions:
         env_vars.insert("TEST_VAR".to_string(), "injected_value".to_string());
 
         let template =
-            create_wasi_state_template_from_policy(&policy, plugin_dir, &env_vars).unwrap();
+            create_wasi_state_template_from_policy(&policy, plugin_dir, &env_vars, None).unwrap();
 
         // Verify that config_vars contains the allowed environment variable
         assert_eq!(
