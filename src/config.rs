@@ -15,10 +15,23 @@ pub fn get_component_dir() -> Result<PathBuf, anyhow::Error> {
     Ok(dir_strategy.data_dir().join("wassette").join("components"))
 }
 
+/// Get the default secrets directory path based on the OS
+pub fn get_secrets_dir() -> Result<PathBuf, anyhow::Error> {
+    let dir_strategy = etcetera::choose_base_strategy().context("Unable to get home directory")?;
+    Ok(dir_strategy.config_dir().join("wassette").join("secrets"))
+}
+
 fn default_plugin_dir() -> PathBuf {
     get_component_dir().unwrap_or_else(|_| {
         eprintln!("WARN: Unable to determine default component directory, using `components` directory in the current working directory");
         PathBuf::from("./components")
+    })
+}
+
+fn default_secrets_dir() -> PathBuf {
+    get_secrets_dir().unwrap_or_else(|_| {
+        eprintln!("WARN: Unable to determine default secrets directory, using `secrets` directory in the current working directory");
+        PathBuf::from("./secrets")
     })
 }
 
@@ -28,6 +41,10 @@ pub struct Config {
     /// Directory where plugins are stored
     #[serde(default = "default_plugin_dir")]
     pub plugin_dir: PathBuf,
+
+    /// Directory where secrets are stored
+    #[serde(default = "default_secrets_dir")]
+    pub secrets_dir: PathBuf,
 
     /// Environment variables to be made available to components
     #[serde(default)]
@@ -114,9 +131,7 @@ mod tests {
     fn create_test_cli_config() -> crate::Serve {
         crate::Serve {
             plugin_dir: Some(PathBuf::from("/test/plugin/dir")),
-            stdio: true,
-            sse: false,
-            streamable_http: false,
+            transport: Default::default(),
             env_vars: vec![],
             env_file: None,
         }
@@ -125,9 +140,7 @@ mod tests {
     fn empty_test_cli_config() -> crate::Serve {
         crate::Serve {
             plugin_dir: None,
-            stdio: false,
-            sse: false,
-            streamable_http: false,
+            transport: Default::default(),
             env_vars: vec![],
             env_file: None,
         }

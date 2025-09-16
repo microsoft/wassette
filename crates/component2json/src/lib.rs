@@ -349,6 +349,24 @@ fn type_to_json_schema(t: &Type) -> Value {
                 "description": format!("borrow'd resource: {:?}", r)
             })
         }
+        Type::Future(_) => {
+            json!({
+                "type": "object",
+                "description": "Future type (async operation)"
+            })
+        }
+        Type::Stream(_) => {
+            json!({
+                "type": "array",
+                "description": "Stream type (async iteration)"
+            })
+        }
+        Type::ErrorContext => {
+            json!({
+                "type": "object",
+                "description": "Error context type"
+            })
+        }
     }
 }
 
@@ -524,6 +542,9 @@ fn val_to_json(val: &Val) -> Value {
 
         Val::Flags(flags) => Value::Array(flags.iter().map(|f| Value::String(f.clone())).collect()),
         Val::Resource(res) => Value::String(format!("resource: {res:?}")),
+        Val::Future(_) => Value::String("future value".to_string()),
+        Val::Stream(_) => Value::String("stream value".to_string()),
+        Val::ErrorContext(_) => Value::String("error context".to_string()),
     }
 }
 
@@ -739,6 +760,18 @@ fn json_to_val(value: &Value, ty: &Type) -> Result<Val, ValError> {
             _ => Err(ValError::ShapeError("flags", format!("{value:?}"))),
         },
         Type::Own(_) | Type::Borrow(_) => Err(ValError::ResourceError),
+        Type::Future(_) => Err(ValError::ShapeError(
+            "future",
+            "Future types are not supported for input".to_string(),
+        )),
+        Type::Stream(_) => Err(ValError::ShapeError(
+            "stream",
+            "Stream types are not supported for input".to_string(),
+        )),
+        Type::ErrorContext => Err(ValError::ShapeError(
+            "error-context",
+            "ErrorContext types are not supported for input".to_string(),
+        )),
     }
 }
 
@@ -789,6 +822,15 @@ fn default_val_for_type(ty: &Type) -> Val {
         // Resources cannot be created from scratch. This indicates a problem.
         Type::Own(_) | Type::Borrow(_) => {
             panic!("Cannot create a placeholder for a resource type.")
+        }
+        Type::Future(_) => {
+            panic!("Cannot create a placeholder for a future type.")
+        }
+        Type::Stream(_) => {
+            panic!("Cannot create a placeholder for a stream type.")
+        }
+        Type::ErrorContext => {
+            panic!("Cannot create a placeholder for an error context type.")
         }
     }
 }

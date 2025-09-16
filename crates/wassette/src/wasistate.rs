@@ -5,7 +5,8 @@ use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
 use policy::{AccessType, PolicyDocument};
-use wasmtime_wasi::p2::WasiCtxBuilder;
+use wasmtime::component::ResourceTable;
+use wasmtime_wasi::{WasiCtx, WasiCtxBuilder, WasiCtxView};
 use wasmtime_wasi_config::WasiConfigVariables;
 use wasmtime_wasi_http::{WasiHttpCtx, WasiHttpView};
 
@@ -43,28 +44,29 @@ impl wasmtime::ResourceLimiter for CustomResourceLimiter {
 }
 
 pub struct WasiState {
-    pub ctx: wasmtime_wasi::p2::WasiCtx,
+    pub ctx: WasiCtx,
     pub table: wasmtime_wasi::ResourceTable,
     pub http: wasmtime_wasi_http::WasiHttpCtx,
     pub wasi_config_vars: WasiConfigVariables,
     pub resource_limiter: Option<CustomResourceLimiter>,
 }
 
-impl wasmtime_wasi::p2::IoView for WasiState {
-    fn table(&mut self) -> &mut wasmtime_wasi::ResourceTable {
-        &mut self.table
-    }
-}
-
-impl wasmtime_wasi::p2::WasiView for WasiState {
-    fn ctx(&mut self) -> &mut wasmtime_wasi::p2::WasiCtx {
-        &mut self.ctx
+impl wasmtime_wasi::WasiView for WasiState {
+    fn ctx(&mut self) -> WasiCtxView<'_> {
+        WasiCtxView {
+            ctx: &mut self.ctx,
+            table: &mut self.table,
+        }
     }
 }
 
 impl WasiHttpView for WasiState {
     fn ctx(&mut self) -> &mut WasiHttpCtx {
         &mut self.http
+    }
+
+    fn table(&mut self) -> &mut ResourceTable {
+        &mut self.table
     }
 }
 
@@ -183,8 +185,9 @@ pub fn create_wasi_state_template_from_policy(
     policy: &PolicyDocument,
     plugin_dir: &Path,
     environment_vars: &HashMap<String, String>,
+    secrets: Option<&HashMap<String, String>>,
 ) -> anyhow::Result<WasiStateTemplate> {
-    let env_vars = extract_env_vars(policy, environment_vars)?;
+    let env_vars = extract_env_vars(policy, environment_vars, secrets)?;
     let network_perms = extract_network_perms(policy);
     let preopened_dirs = extract_storage_permissions(policy, plugin_dir)?;
     let allowed_hosts = extract_allowed_hosts(policy);
@@ -214,8 +217,20 @@ pub fn create_wasi_state_template_from_policy(
 pub(crate) fn extract_env_vars(
     policy: &PolicyDocument,
     environment_vars: &HashMap<String, String>,
+    secrets: Option<&HashMap<String, String>>,
 ) -> anyhow::Result<HashMap<String, String>> {
     let mut env_vars = HashMap::new();
+
+    // Add secrets first (lowest precedence)
+    if let Some(secrets_map) = secrets {
+        env_vars.extend(secrets_map.clone());
+    }
+
+    // Add inherited environment vars (middle precedence)
+    // Note: This would require passing process environment, but for now
+    // we'll just add configured environment_vars which act as inherited
+
+    // Add policy-allowed environment variables (highest precedence)
     if let Some(env_perms) = &policy.permissions.environment {
         if let Some(env_allow_vec) = &env_perms.allow {
             for env_allow in env_allow_vec {
@@ -225,6 +240,7 @@ pub(crate) fn extract_env_vars(
             }
         }
     }
+
     Ok(env_vars)
 }
 
@@ -473,7 +489,7 @@ permissions:
             let mut env_vars = HashMap::new();
             env_vars.insert("TEST_VAR".to_string(), "isolated_value".to_string());
 
-            let extracted_vars = extract_env_vars(&policy, &env_vars).unwrap();
+            let extracted_vars = extract_env_vars(&policy, &env_vars, None).unwrap();
             assert_eq!(
                 extracted_vars.get("TEST_VAR"),
                 Some(&"isolated_value".to_string())
@@ -488,7 +504,7 @@ permissions:
 
         temp_env::with_vars(vec![("TEST_VAR", None::<&str>)], || {
             let env_vars = HashMap::new(); // Empty environment
-            let extracted_vars = extract_env_vars(&policy, &env_vars).unwrap();
+            let extracted_vars = extract_env_vars(&policy, &env_vars, None).unwrap();
             assert!(!extracted_vars.contains_key("TEST_VAR"));
         });
     }
@@ -497,7 +513,7 @@ permissions:
     fn test_extract_environment_variables_no_permissions() {
         let policy = create_zero_permission_policy();
         let env_vars = HashMap::new();
-        let extracted_vars = extract_env_vars(&policy, &env_vars).unwrap();
+        let extracted_vars = extract_env_vars(&policy, &env_vars, None).unwrap();
         assert!(extracted_vars.is_empty());
     }
 
@@ -512,7 +528,7 @@ permissions:
 "#;
         let policy = PolicyParser::parse_str(yaml_content).unwrap();
         let env_vars = HashMap::new();
-        let extracted_vars = extract_env_vars(&policy, &env_vars).unwrap();
+        let extracted_vars = extract_env_vars(&policy, &env_vars, None).unwrap();
         assert!(extracted_vars.is_empty());
     }
 
@@ -664,7 +680,7 @@ permissions:
         let env_vars = HashMap::new(); // Empty environment for test
 
         let template =
-            create_wasi_state_template_from_policy(&policy, plugin_dir, &env_vars).unwrap();
+            create_wasi_state_template_from_policy(&policy, plugin_dir, &env_vars, None).unwrap();
 
         assert!(template.network_perms.allow_tcp);
         assert!(template.network_perms.allow_udp);
@@ -680,7 +696,7 @@ permissions:
         let env_vars = HashMap::new(); // Empty environment for test
 
         let template =
-            create_wasi_state_template_from_policy(&policy, plugin_dir, &env_vars).unwrap();
+            create_wasi_state_template_from_policy(&policy, plugin_dir, &env_vars, None).unwrap();
 
         assert!(!template.network_perms.allow_tcp);
         assert!(!template.network_perms.allow_udp);
@@ -742,7 +758,7 @@ permissions:
         let policy = PolicyParser::parse_str(yaml_content).unwrap();
         let env_vars = HashMap::new(); // Empty environment for test
         let template =
-            create_wasi_state_template_from_policy(&policy, plugin_dir, &env_vars).unwrap();
+            create_wasi_state_template_from_policy(&policy, plugin_dir, &env_vars, None).unwrap();
 
         assert_eq!(template.memory_limit, Some(512 * 1024 * 1024));
         assert!(template.store_limits.is_some());
@@ -771,7 +787,7 @@ permissions:
         // Test that WASI state template is created with memory limit
         let env_vars = HashMap::new(); // Empty environment for test
         let template =
-            create_wasi_state_template_from_policy(&policy, plugin_dir, &env_vars).unwrap();
+            create_wasi_state_template_from_policy(&policy, plugin_dir, &env_vars, None).unwrap();
         assert_eq!(template.memory_limit, Some(1024 * 1024 * 1024));
         assert!(template.store_limits.is_some());
 

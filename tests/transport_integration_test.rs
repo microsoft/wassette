@@ -393,6 +393,69 @@ async fn test_load_component_invalid_reference() -> Result<()> {
 
     Ok(())
 }
+#[test(tokio::test)]
+async fn test_mixed_transport_fails() -> Result<()> {
+    // Create a temporary directory for this test to avoid loading existing components
+    let temp_dir = tempfile::tempdir()?;
+    let plugin_dir_arg = format!("--plugin-dir={}", temp_dir.path().display());
+
+    // Get the path to the built binary
+    let binary_path = std::env::current_dir()
+        .context("Failed to get current directory")?
+        .join("target/debug/wassette");
+
+    let combinations = [
+        ["--sse", "--stdio"],
+        ["--stdio", "--streamable-http"],
+        ["--sse", "--streamable-http"],
+    ];
+
+    for combo in combinations {
+        // Start the server with the current combination of transports (should fail)
+        let mut child = tokio::process::Command::new(&binary_path)
+            .args(["serve", &plugin_dir_arg])
+            .args(combo)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .context("Failed to start wassette with mixed transports")?;
+
+        let stderr = child.stderr.take().context("Failed to get stderr handle")?;
+        let mut stderr = BufReader::new(stderr);
+
+        // Give the server time to start
+        tokio::time::sleep(Duration::from_millis(1000)).await;
+
+        // Check if the process has exited
+        let status = child
+            .wait()
+            .await
+            .context("Failed to wait for wassette process")?;
+
+        assert!(
+            !status.success(),
+            "Process should have exited with error due to mixed transports"
+        );
+
+        // Read stderr output
+        let mut stderr_output = String::new();
+        let _ = stderr.read_line(&mut stderr_output).await;
+
+        let expected_error = format!(
+            "the argument '{}' cannot be used with '{}'",
+            combo[0], combo[1]
+        );
+
+        assert!(
+            stderr_output.contains(&expected_error),
+            "Expected error message about mixed transports, got: {}",
+            stderr_output
+        );
+    }
+
+    Ok(())
+}
 
 #[test(tokio::test)]
 async fn test_stdio_transport() -> Result<()> {

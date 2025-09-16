@@ -5,7 +5,7 @@
 
 use std::path::PathBuf;
 
-use clap::{Parser, Subcommand};
+use clap::{Args, Parser, Subcommand};
 use serde::{Deserialize, Serialize};
 
 use crate::format::OutputFormat;
@@ -44,6 +44,11 @@ pub enum Commands {
         #[command(subcommand)]
         command: PermissionCommands,
     },
+    /// Manage component secrets.
+    Secret {
+        #[command(subcommand)]
+        command: SecretCommands,
+    },
 }
 
 #[derive(Parser, Debug, Clone, Serialize, Deserialize)]
@@ -53,20 +58,8 @@ pub struct Serve {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub plugin_dir: Option<PathBuf>,
 
-    /// Enable stdio transport
-    #[arg(long)]
-    #[serde(skip)]
-    pub stdio: bool,
-
-    /// Enable SSE transport
-    #[arg(long)]
-    #[serde(skip)]
-    pub sse: bool,
-
-    /// Enable streamable HTTP transport  
-    #[arg(long)]
-    #[serde(skip)]
-    pub streamable_http: bool,
+    #[command(flatten)]
+    pub transport: TransportFlags,
 
     /// Set environment variables (KEY=VALUE format). Can be specified multiple times.
     #[arg(long = "env", value_parser = crate::parse_env_var)]
@@ -77,6 +70,43 @@ pub struct Serve {
     #[arg(long = "env-file")]
     #[serde(skip)]
     pub env_file: Option<PathBuf>,
+}
+
+#[derive(Args, Debug, Clone, Serialize, Deserialize, Default)]
+#[group(required = false, multiple = false)]
+pub struct TransportFlags {
+    /// Enable SSE transport
+    #[arg(long)]
+    #[serde(skip)]
+    pub sse: bool,
+
+    /// Enable stdio transport
+    #[arg(long)]
+    #[serde(skip)]
+    pub stdio: bool,
+
+    /// Enable streamable HTTP transport  
+    #[arg(long)]
+    #[serde(skip)]
+    pub streamable_http: bool,
+}
+
+#[derive(Debug)]
+pub enum Transport {
+    Sse,
+    Stdio,
+    StreamableHttp,
+}
+
+impl From<&TransportFlags> for Transport {
+    fn from(f: &TransportFlags) -> Self {
+        match (f.sse, f.stdio, f.streamable_http) {
+            (true, false, false) => Transport::Sse,
+            (false, true, false) => Transport::Stdio,
+            (false, false, true) => Transport::StreamableHttp,
+            _ => Transport::Stdio, // Default case: use stdio transport
+        }
+    }
 }
 
 #[derive(Subcommand, Debug)]
@@ -222,6 +252,48 @@ pub enum RevokePermissionCommands {
         component_id: String,
         /// Environment variable key
         key: String,
+        /// Directory where plugins are stored. Defaults to $XDG_DATA_HOME/wassette/components
+        #[arg(long)]
+        plugin_dir: Option<PathBuf>,
+    },
+}
+
+#[derive(Subcommand, Debug)]
+pub enum SecretCommands {
+    /// List secrets for a component.
+    List {
+        /// Component ID to list secrets for
+        component_id: String,
+        /// Show secret values (prompts for confirmation)
+        #[arg(long)]
+        show_values: bool,
+        /// Skip confirmation prompt when showing values
+        #[arg(long)]
+        yes: bool,
+        /// Directory where plugins are stored. Defaults to $XDG_DATA_HOME/wassette/components
+        #[arg(long)]
+        plugin_dir: Option<PathBuf>,
+        /// Output format
+        #[arg(short = 'o', long = "output-format", default_value = "json")]
+        output_format: OutputFormat,
+    },
+    /// Set secrets for a component.
+    Set {
+        /// Component ID to set secrets for
+        component_id: String,
+        /// Secrets in KEY=VALUE format. Can be specified multiple times.
+        #[arg(value_parser = crate::parse_env_var)]
+        secrets: Vec<(String, String)>,
+        /// Directory where plugins are stored. Defaults to $XDG_DATA_HOME/wassette/components
+        #[arg(long)]
+        plugin_dir: Option<PathBuf>,
+    },
+    /// Delete secrets for a component.
+    Delete {
+        /// Component ID to delete secrets from
+        component_id: String,
+        /// Secret keys to delete
+        keys: Vec<String>,
         /// Directory where plugins are stored. Defaults to $XDG_DATA_HOME/wassette/components
         #[arg(long)]
         plugin_dir: Option<PathBuf>,

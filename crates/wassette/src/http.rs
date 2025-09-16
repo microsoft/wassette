@@ -6,8 +6,8 @@ use std::collections::HashSet;
 use anyhow::Result;
 use tracing::{debug, warn};
 use url::Url;
-use wasmtime::component::Resource;
-use wasmtime_wasi::p2::{IoView, WasiView};
+use wasmtime::component::{Resource, ResourceTable};
+use wasmtime_wasi::{WasiCtxView, WasiView};
 use wasmtime_wasi_http::bindings::http::types;
 use wasmtime_wasi_http::types::{HostFutureIncomingResponse, OutgoingRequestConfig};
 use wasmtime_wasi_http::{HttpResult, WasiHttpView};
@@ -101,14 +101,8 @@ impl<T> WassetteWasiState<T> {
     }
 }
 
-impl<T: IoView> IoView for WassetteWasiState<T> {
-    fn table(&mut self) -> &mut wasmtime_wasi::ResourceTable {
-        self.inner.table()
-    }
-}
-
 impl<T: WasiView> WasiView for WassetteWasiState<T> {
-    fn ctx(&mut self) -> &mut wasmtime_wasi::p2::WasiCtx {
+    fn ctx(&mut self) -> WasiCtxView<'_> {
         self.inner.ctx()
     }
 }
@@ -116,6 +110,10 @@ impl<T: WasiView> WasiView for WassetteWasiState<T> {
 impl<T: WasiHttpView> WasiHttpView for WassetteWasiState<T> {
     fn ctx(&mut self) -> &mut wasmtime_wasi_http::WasiHttpCtx {
         self.inner.ctx()
+    }
+
+    fn table(&mut self) -> &mut ResourceTable {
+        self.inner.table()
     }
 
     fn new_response_outparam(
@@ -178,14 +176,12 @@ mod tests {
 
     struct MockWasiState;
 
-    impl IoView for MockWasiState {
-        fn table(&mut self) -> &mut wasmtime_wasi::ResourceTable {
-            unimplemented!("Mock for testing")
-        }
-    }
-
     impl WasiHttpView for MockWasiState {
         fn ctx(&mut self) -> &mut wasmtime_wasi_http::WasiHttpCtx {
+            unimplemented!("Mock for testing")
+        }
+
+        fn table(&mut self) -> &mut ResourceTable {
             unimplemented!("Mock for testing")
         }
 
