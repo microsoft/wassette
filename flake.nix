@@ -14,7 +14,7 @@
     };
   };
 
-  outputs = { self, nixpkgs, rust-overlay, flake-utils, crane, ... }:
+  outputs = { nixpkgs, rust-overlay, flake-utils, crane, ... }:
     flake-utils.lib.eachDefaultSystem (system:
       let
         overlays = [ (import rust-overlay) ];
@@ -34,7 +34,8 @@
             src = craneLib.path ./.;
             filter = path: type:
               (craneLib.filterCargoSources path type)
-              || (pkgs.lib.hasSuffix "README.md" path);
+              || (pkgs.lib.hasSuffix "README.md" path)
+              || (pkgs.lib.hasSuffix "component-registry.json" path);
           };
           strictDeps = true;
 
