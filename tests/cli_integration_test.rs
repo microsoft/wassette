@@ -1,6 +1,8 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT license.
+#![allow(clippy::uninlined_format_args)]
 
+use std::env;
 use std::path::PathBuf;
 use std::process::Command;
 use std::time::Duration;
@@ -28,27 +30,41 @@ impl CliTestContext {
         let plugin_dir = temp_dir.path().join("plugins");
         tokio::fs::create_dir_all(&plugin_dir).await?;
 
-        // Find the wassette binary
-        let wassette_bin = if let Ok(target_dir) = std::env::var("CARGO_TARGET_DIR") {
-            PathBuf::from(target_dir).join("debug").join("wassette")
-        } else {
-            let manifest_dir =
-                std::env::var("CARGO_MANIFEST_DIR").context("CARGO_MANIFEST_DIR not set")?;
-            PathBuf::from(manifest_dir)
-                .join("target")
-                .join("debug")
-                .join("wassette")
+        // Resolve the wassette binary path in a cross-platform friendly way.
+        let exe_name = format!("wassette{}", env::consts::EXE_SUFFIX);
+
+        let locate_binary = || -> Result<PathBuf> {
+            if let Some(path) = env::var_os("CARGO_BIN_EXE_wassette") {
+                return Ok(PathBuf::from(path));
+            }
+
+            let path = if let Ok(target_dir) = env::var("CARGO_TARGET_DIR") {
+                PathBuf::from(target_dir).join("debug").join(&exe_name)
+            } else {
+                let manifest_dir =
+                    env::var("CARGO_MANIFEST_DIR").context("CARGO_MANIFEST_DIR not set")?;
+                PathBuf::from(manifest_dir)
+                    .join("target")
+                    .join("debug")
+                    .join(&exe_name)
+            };
+
+            if !path.exists() {
+                // Build the binary on-demand so subsequent calls can reuse it.
+                let status = Command::new("cargo")
+                    .args(["build", "--bin", "wassette"])
+                    .status()
+                    .context("Failed to build wassette binary")?;
+
+                if !status.success() {
+                    anyhow::bail!("Failed to build wassette binary");
+                }
+            }
+
+            Ok(path)
         };
 
-        // Ensure the binary exists by building it first
-        let status = Command::new("cargo")
-            .args(["build", "--bin", "wassette"])
-            .status()
-            .context("Failed to build wassette binary")?;
-
-        if !status.success() {
-            anyhow::bail!("Failed to build wassette binary");
-        }
+        let wassette_bin = locate_binary()?;
 
         if !wassette_bin.exists() {
             anyhow::bail!("Wassette binary not found at {}", wassette_bin.display());
@@ -91,7 +107,7 @@ async fn test_cli_component_list_empty() -> Result<()> {
 
     let (stdout, stderr, exit_code) = ctx.run_command(&["component", "list"]).await?;
 
-    assert_eq!(exit_code, 0, "Command failed with stderr: {}", stderr);
+    assert_eq!(exit_code, 0, "Command failed with stderr: {stderr}");
 
     let output: Value = ctx.parse_json_output(&stdout)?;
     assert_eq!(output["components"].as_array().unwrap().len(), 0);
@@ -114,18 +130,19 @@ async fn test_cli_component_load_and_list() -> Result<()> {
         ])
         .await?;
 
-    assert_eq!(exit_code, 0, "Load command failed with stderr: {}", stderr);
+    assert_eq!(exit_code, 0, "Load command failed with stderr: {stderr}");
 
     let load_output: Value = ctx.parse_json_output(&stdout)?;
     assert_eq!(load_output["status"], "component loaded successfully");
     assert!(load_output["id"].is_string());
+    assert!(load_output["tools"].is_array());
 
     let component_id = load_output["id"].as_str().unwrap();
 
     // List components to verify it was loaded
     let (stdout, stderr, exit_code) = ctx.run_command(&["component", "list"]).await?;
 
-    assert_eq!(exit_code, 0, "List command failed with stderr: {}", stderr);
+    assert_eq!(exit_code, 0, "List command failed with stderr: {stderr}");
 
     let list_output: Value = ctx.parse_json_output(&stdout)?;
     assert_eq!(list_output["total"], 1);
@@ -154,21 +171,18 @@ async fn test_cli_component_load_unload() -> Result<()> {
         ])
         .await?;
 
-    assert_eq!(exit_code, 0, "Load command failed with stderr: {}", stderr);
+    assert_eq!(exit_code, 0, "Load command failed with stderr: {stderr}");
 
     let load_output: Value = ctx.parse_json_output(&stdout)?;
     let component_id = load_output["id"].as_str().unwrap();
+    assert!(load_output["tools"].is_array());
 
     // Unload the component
     let (stdout, stderr, exit_code) = ctx
         .run_command(&["component", "unload", component_id])
         .await?;
 
-    assert_eq!(
-        exit_code, 0,
-        "Unload command failed with stderr: {}",
-        stderr
-    );
+    assert_eq!(exit_code, 0, "Unload command failed with stderr: {stderr}");
 
     let unload_output: Value = ctx.parse_json_output(&stdout)?;
     assert_eq!(unload_output["status"], "component unloaded successfully");
@@ -179,8 +193,7 @@ async fn test_cli_component_load_unload() -> Result<()> {
 
     assert_eq!(
         exit_code, 0,
-        "List command after unload failed with stderr: {}",
-        stderr
+        "List command after unload failed with stderr: {stderr}"
     );
 
     let list_output: Value = ctx.parse_json_output(&stdout)?;
@@ -266,8 +279,7 @@ async fn test_cli_permission_grant_storage() -> Result<()> {
 
     assert_eq!(
         exit_code, 0,
-        "Grant storage permission failed with stderr: {}",
-        stderr
+        "Grant storage permission failed with stderr: {stderr}"
     );
 
     let permission_output: Value = ctx.parse_json_output(&stdout)?;
@@ -310,8 +322,7 @@ async fn test_cli_permission_grant_network() -> Result<()> {
 
     assert_eq!(
         exit_code, 0,
-        "Grant network permission failed with stderr: {}",
-        stderr
+        "Grant network permission failed with stderr: {stderr}"
     );
 
     let permission_output: Value = ctx.parse_json_output(&stdout)?;
@@ -354,8 +365,7 @@ async fn test_cli_permission_grant_environment_variable() -> Result<()> {
 
     assert_eq!(
         exit_code, 0,
-        "Grant env var permission failed with stderr: {}",
-        stderr
+        "Grant env var permission failed with stderr: {stderr}"
     );
 
     let permission_output: Value = ctx.parse_json_output(&stdout)?;
@@ -400,8 +410,7 @@ async fn test_cli_permission_revoke_and_reset() -> Result<()> {
 
     assert_eq!(
         exit_code, 0,
-        "Grant storage permission failed with stderr: {}",
-        stderr
+        "Grant storage permission failed with stderr: {stderr}"
     );
 
     // Revoke storage permission
@@ -417,8 +426,7 @@ async fn test_cli_permission_revoke_and_reset() -> Result<()> {
 
     assert_eq!(
         exit_code, 0,
-        "Revoke storage permission failed with stderr: {}",
-        stderr
+        "Revoke storage permission failed with stderr: {stderr}"
     );
 
     let revoke_output: Value = ctx.parse_json_output(&stdout)?;
@@ -431,8 +439,7 @@ async fn test_cli_permission_revoke_and_reset() -> Result<()> {
 
     assert_eq!(
         exit_code, 0,
-        "Reset permissions failed with stderr: {}",
-        stderr
+        "Reset permissions failed with stderr: {stderr}"
     );
 
     let reset_output: Value = ctx.parse_json_output(&stdout)?;
@@ -447,7 +454,7 @@ async fn test_cli_json_output_default() -> Result<()> {
 
     let (stdout, stderr, exit_code) = ctx.run_command(&["component", "list"]).await?;
 
-    assert_eq!(exit_code, 0, "Command failed with stderr: {}", stderr);
+    assert_eq!(exit_code, 0, "Command failed with stderr: {stderr}");
 
     // Verify the output is valid JSON and pretty-formatted (contains newlines and indentation)
     let _: Value = ctx.parse_json_output(&stdout)?;
@@ -471,7 +478,7 @@ async fn test_cli_output_format_json() -> Result<()> {
         .run_command(&["component", "list", "-o", "json"])
         .await?;
 
-    assert_eq!(exit_code, 0, "Command failed with stderr: {}", stderr);
+    assert_eq!(exit_code, 0, "Command failed with stderr: {stderr}");
 
     // Verify the output is valid JSON and pretty-formatted
     let _: Value = ctx.parse_json_output(&stdout)?;
@@ -492,7 +499,7 @@ async fn test_cli_output_format_yaml() -> Result<()> {
         .run_command(&["component", "list", "-o", "yaml"])
         .await?;
 
-    assert_eq!(exit_code, 0, "Command failed with stderr: {}", stderr);
+    assert_eq!(exit_code, 0, "Command failed with stderr: {stderr}");
 
     // YAML output should contain YAML formatting indicators
     assert!(
@@ -511,7 +518,7 @@ async fn test_cli_output_format_table() -> Result<()> {
         .run_command(&["component", "list", "-o", "table"])
         .await?;
 
-    assert_eq!(exit_code, 0, "Command failed with stderr: {}", stderr);
+    assert_eq!(exit_code, 0, "Command failed with stderr: {stderr}");
 
     // Table output should contain table headers
     assert!(
@@ -528,11 +535,7 @@ async fn test_cli_version_command() -> Result<()> {
 
     let (stdout, stderr, exit_code) = ctx.run_command(&["--version"]).await?;
 
-    assert_eq!(
-        exit_code, 0,
-        "Version command failed with stderr: {}",
-        stderr
-    );
+    assert_eq!(exit_code, 0, "Version command failed with stderr: {stderr}");
     assert!(
         stdout.contains("version.BuildInfo"),
         "Version output should contain build info"
@@ -551,7 +554,7 @@ async fn test_cli_help_command() -> Result<()> {
 
     let (stdout, stderr, exit_code) = ctx.run_command(&["--help"]).await?;
 
-    assert_eq!(exit_code, 0, "Help command failed with stderr: {}", stderr);
+    assert_eq!(exit_code, 0, "Help command failed with stderr: {stderr}");
     assert!(
         stdout.contains("component"),
         "Help should contain component subcommand"

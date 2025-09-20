@@ -118,9 +118,12 @@ Wassette comes with several built-in tools for managing components and their per
 ```json
 {
   "status": "component loaded successfully",
-  "id": "component-unique-id"
+  "id": "component-unique-id",
+  "tools": ["tool-one", "tool-two"]
 }
 ```
+When an existing component is replaced, the `status` value becomes
+`component reloaded successfully`.
 
 ### unload-component
 **Parameters:**

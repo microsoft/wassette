@@ -10,7 +10,7 @@ use rmcp::model::{CallToolRequestParam, CallToolResult, Content, Tool};
 use rmcp::{Peer, RoleServer};
 use serde_json::{json, Map, Value};
 use tracing::{debug, error, info, instrument};
-use wassette::LifecycleManager;
+use wassette::{ComponentLoadOutcome, LifecycleManager, LoadResult};
 
 #[instrument(skip(lifecycle_manager))]
 pub(crate) async fn get_component_tools(lifecycle_manager: &LifecycleManager) -> Result<Vec<Tool>> {
@@ -54,9 +54,9 @@ pub(crate) async fn handle_load_component(
     info!(path, "Loading component");
 
     match lifecycle_manager.load_component(path).await {
-        Ok((id, _load_result)) => {
-            handle_tool_list_notification(Some(server_peer), &id, "load").await;
-            create_component_success_result("load", &id)
+        Ok(outcome) => {
+            handle_tool_list_notification(Some(server_peer), &outcome.component_id, "load").await;
+            create_load_component_success_result(&outcome)
         }
         Err(e) => {
             error!(error = %e, path, "Failed to load component");
@@ -320,6 +320,27 @@ fn create_component_success_result(
     })
 }
 
+fn create_load_component_success_result(outcome: &ComponentLoadOutcome) -> Result<CallToolResult> {
+    let status = match outcome.status {
+        LoadResult::New => "component loaded successfully",
+        LoadResult::Replaced => "component reloaded successfully",
+    };
+
+    let status_text = serde_json::to_string(&json!({
+        "status": status,
+        "id": &outcome.component_id,
+        "tools": &outcome.tool_names,
+    }))?;
+
+    let contents = vec![Content::text(status_text)];
+
+    Ok(CallToolResult {
+        content: Some(contents),
+        structured_content: None,
+        is_error: None,
+    })
+}
+
 /// Create error result for component operations
 fn create_component_error_result(
     operation_name: &str,
@@ -379,9 +400,9 @@ pub async fn handle_load_component_cli(
     info!(path, "Loading component (CLI mode)");
 
     match lifecycle_manager.load_component(path).await {
-        Ok((id, _load_result)) => {
-            handle_tool_list_notification(None, &id, "load").await;
-            create_component_success_result("load", &id)
+        Ok(outcome) => {
+            handle_tool_list_notification(None, &outcome.component_id, "load").await;
+            create_load_component_success_result(&outcome)
         }
         Err(e) => {
             error!(error = %e, path, "Failed to load component");

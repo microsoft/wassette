@@ -8,14 +8,19 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use anyhow::{anyhow, Result};
+use oci_wasm::WasmClient;
 use policy::{
     AccessType, EnvironmentPermission, NetworkHostPermission, NetworkPermission, PolicyDocument,
     PolicyParser, StoragePermission,
 };
+use reqwest::Client;
 use serde::{Deserialize, Serialize};
-use tracing::{info, instrument};
+use tokio::sync::RwLock;
+use tracing::{info, instrument, warn};
 
-use crate::WasiStateTemplate;
+use crate::component_storage::ComponentStorage;
+use crate::loader::{self, PolicyResource};
+use crate::{SecretsManager, WasiStateTemplate};
 
 /// Granular permission rule types
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -52,6 +57,16 @@ pub(crate) struct PolicyRegistry {
     pub(crate) component_policies: HashMap<String, Arc<WasiStateTemplate>>,
 }
 
+#[derive(Clone)]
+pub(crate) struct PolicyManager {
+    registry: Arc<RwLock<PolicyRegistry>>,
+    storage: ComponentStorage,
+    secrets: Arc<SecretsManager>,
+    environment_vars: Arc<HashMap<String, String>>,
+    oci_client: Arc<WasmClient>,
+    http_client: Client,
+}
+
 /// Information about a policy attached to a component
 #[derive(Debug, Clone)]
 pub struct PolicyInfo {
@@ -67,20 +82,90 @@ pub struct PolicyInfo {
     pub created_at: std::time::SystemTime,
 }
 
-impl crate::LifecycleManager {
-    /// Attaches a policy to a component. The policy can be a local file or a URL.
-    /// This function will download the policy from the given URI and store it
-    /// in the plugin directory specified by the `plugin_dir`, co-located with
-    /// the component. The component_id must be the ID of a component that is
-    /// already loaded.
-    pub async fn attach_policy(&self, component_id: &str, policy_uri: &str) -> Result<()> {
-        info!(component_id, policy_uri, "Attaching policy to component");
+impl PolicyManager {
+    pub(crate) fn new(
+        storage: ComponentStorage,
+        secrets: Arc<SecretsManager>,
+        environment_vars: Arc<HashMap<String, String>>,
+        oci_client: Arc<WasmClient>,
+        http_client: Client,
+    ) -> Self {
+        Self {
+            registry: Arc::new(RwLock::new(PolicyRegistry::default())),
+            storage,
+            secrets,
+            environment_vars,
+            oci_client,
+            http_client,
+        }
+    }
 
-        if !self.components.read().await.contains_key(component_id) {
-            return Err(anyhow!("Component not found: {}", component_id));
+    pub(crate) fn policy_path(&self, component_id: &str) -> PathBuf {
+        self.storage.policy_path(component_id)
+    }
+
+    pub(crate) fn metadata_path(&self, component_id: &str) -> PathBuf {
+        self.storage.policy_metadata_path(component_id)
+    }
+
+    pub(crate) async fn cleanup(&self, component_id: &str) {
+        self.registry
+            .write()
+            .await
+            .component_policies
+            .remove(component_id);
+    }
+
+    pub(crate) async fn store_template(
+        &self,
+        component_id: &str,
+        template: Arc<WasiStateTemplate>,
+    ) {
+        self.registry
+            .write()
+            .await
+            .component_policies
+            .insert(component_id.to_string(), template);
+    }
+
+    pub(crate) async fn template_for_component(
+        &self,
+        component_id: &str,
+    ) -> Arc<WasiStateTemplate> {
+        if let Some(existing) = self
+            .registry
+            .read()
+            .await
+            .component_policies
+            .get(component_id)
+            .cloned()
+        {
+            return existing;
         }
 
-        let downloaded_policy = crate::loader::load_resource::<crate::PolicyResource>(
+        self.build_default_template(component_id).await
+    }
+
+    async fn build_default_template(&self, component_id: &str) -> Arc<WasiStateTemplate> {
+        let mut config_vars = self.environment_vars.as_ref().clone();
+
+        if let Ok(secrets) = self.secrets.load_component_secrets(component_id).await {
+            for (key, value) in secrets {
+                config_vars.insert(key, value);
+            }
+        }
+
+        let template = WasiStateTemplate {
+            config_vars,
+            ..WasiStateTemplate::default()
+        };
+        Arc::new(template)
+    }
+
+    pub(crate) async fn attach_policy(&self, component_id: &str, policy_uri: &str) -> Result<()> {
+        info!(component_id, policy_uri, "Attaching policy to component");
+
+        let downloaded_policy = loader::load_resource::<PolicyResource>(
             policy_uri,
             &self.oci_client,
             &self.http_client,
@@ -89,73 +174,61 @@ impl crate::LifecycleManager {
 
         let policy = PolicyParser::parse_file(downloaded_policy.as_ref())?;
 
-        let policy_path = self.get_component_policy_path(component_id);
+        let policy_path = self.policy_path(component_id);
         tokio::fs::copy(downloaded_policy.as_ref(), &policy_path).await?;
 
-        // Store metadata about the policy source
         let metadata = serde_json::json!({
             "source_uri": policy_uri,
-            "attached_at": std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs()
+            "attached_at": std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_secs()
         });
-        let metadata_path = self.get_component_metadata_path(component_id);
+        let metadata_path = self.metadata_path(component_id);
         tokio::fs::write(&metadata_path, serde_json::to_string_pretty(&metadata)?).await?;
 
-        // Load secrets for the component
-        let secrets = self
-            .secrets_manager
-            .load_component_secrets(component_id)
-            .await
-            .ok();
+        let secrets = self.secrets.load_component_secrets(component_id).await.ok();
 
         let wasi_template = crate::create_wasi_state_template_from_policy(
             &policy,
-            &self.plugin_dir,
-            &self.environment_vars,
+            self.storage.root(),
+            self.environment_vars.as_ref(),
             secrets.as_ref(),
         )?;
-        self.policy_registry
-            .write()
-            .await
-            .component_policies
-            .insert(component_id.to_string(), Arc::new(wasi_template));
+
+        self.store_template(component_id, Arc::new(wasi_template))
+            .await;
 
         info!(component_id, policy_uri, "Policy attached successfully");
         Ok(())
     }
 
-    /// Detaches a policy from a component. This will remove the policy from the
-    /// component and remove the policy file from the plugin directory.
-    pub async fn detach_policy(&self, component_id: &str) -> Result<()> {
+    pub(crate) async fn detach_policy(&self, component_id: &str) -> Result<()> {
         info!(component_id, "Detaching policy from component");
 
-        // Remove files first, then clean up memory on success
-        let policy_path = self.get_component_policy_path(component_id);
-        self.remove_file_if_exists(&policy_path, "policy file", component_id)
+        let policy_path = self.policy_path(component_id);
+        self.storage
+            .remove_if_exists(&policy_path, "policy file", component_id)
             .await?;
 
-        let metadata_path = self.get_component_metadata_path(component_id);
-        self.remove_file_if_exists(&metadata_path, "policy metadata file", component_id)
+        let metadata_path = self.metadata_path(component_id);
+        self.storage
+            .remove_if_exists(&metadata_path, "policy metadata file", component_id)
             .await?;
 
-        // Only cleanup memory after all files are successfully removed
-        self.cleanup_policy_registry(component_id).await;
+        self.cleanup(component_id).await;
 
         info!(component_id, "Policy detached successfully");
         Ok(())
     }
 
-    /// Returns information about the policy attached to a component.
-    /// Returns `None` if no policy is attached to the component.
-    ///
-    /// The information contains the policy ID, source URI, local path, component ID,
-    /// and creation time.
-    pub async fn get_policy_info(&self, component_id: &str) -> Option<PolicyInfo> {
-        let policy_path = self.get_component_policy_path(component_id);
+    pub(crate) async fn get_policy_info(&self, component_id: &str) -> Option<PolicyInfo> {
+        let policy_path = self.policy_path(component_id);
         if !tokio::fs::try_exists(&policy_path).await.unwrap_or(false) {
             return None;
         }
 
-        let metadata_path = self.get_component_metadata_path(component_id);
+        let metadata_path = self.metadata_path(component_id);
         let source_uri =
             if let Ok(metadata_content) = tokio::fs::read_to_string(&metadata_path).await {
                 if let Ok(metadata) = serde_json::from_str::<serde_json::Value>(&metadata_content) {
@@ -185,26 +258,75 @@ impl crate::LifecycleManager {
         })
     }
 
-    pub(crate) fn get_component_policy_path(&self, component_id: &str) -> PathBuf {
-        self.plugin_dir.join(format!("{component_id}.policy.yaml"))
+    pub(crate) async fn update_policy_registry(
+        &self,
+        component_id: &str,
+        policy: &PolicyDocument,
+    ) -> Result<()> {
+        let secrets = self.secrets.load_component_secrets(component_id).await.ok();
+
+        let wasi_template = crate::create_wasi_state_template_from_policy(
+            policy,
+            self.storage.root(),
+            self.environment_vars.as_ref(),
+            secrets.as_ref(),
+        )?;
+
+        self.store_template(component_id, Arc::new(wasi_template))
+            .await;
+        Ok(())
     }
 
-    pub(crate) fn get_component_metadata_path(&self, component_id: &str) -> PathBuf {
-        self.plugin_dir
-            .join(format!("{component_id}.policy.meta.json"))
+    pub(crate) async fn restore_from_disk(&self, component_id: &str) -> Result<()> {
+        let policy_path = self.policy_path(component_id);
+        if !policy_path.exists() {
+            return Ok(());
+        }
+
+        let secrets = self.secrets.load_component_secrets(component_id).await.ok();
+
+        match tokio::fs::read_to_string(&policy_path).await {
+            Ok(policy_content) => match PolicyParser::parse_str(&policy_content) {
+                Ok(policy) => match crate::create_wasi_state_template_from_policy(
+                    &policy,
+                    self.storage.root(),
+                    self.environment_vars.as_ref(),
+                    secrets.as_ref(),
+                ) {
+                    Ok(wasi_template) => {
+                        self.store_template(component_id, Arc::new(wasi_template))
+                            .await;
+                        info!(component_id = %component_id, "Restored policy association from co-located file");
+                    }
+                    Err(e) => {
+                        warn!(component_id = %component_id, error = %e, "Failed to create WASI template from policy");
+                    }
+                },
+                Err(e) => {
+                    warn!(component_id = %component_id, error = %e, "Failed to parse co-located policy file");
+                }
+            },
+            Err(e) => {
+                warn!(component_id = %component_id, error = %e, "Failed to read co-located policy file");
+            }
+        }
+
+        Ok(())
     }
 
-    pub(crate) fn create_default_policy_template() -> Arc<WasiStateTemplate> {
-        Arc::new(WasiStateTemplate::default())
-    }
-
-    /// Helper function to clean up policy registry for a component
-    pub(crate) async fn cleanup_policy_registry(&self, component_id: &str) {
-        self.policy_registry
-            .write()
-            .await
-            .component_policies
-            .remove(component_id);
+    pub(crate) async fn revoke_storage_permission_by_uri(
+        &self,
+        component_id: &str,
+        uri: &str,
+    ) -> Result<()> {
+        if uri.is_empty() {
+            return Err(anyhow!("Storage URI cannot be empty"));
+        }
+        let mut policy = self.load_or_create_component_policy(component_id).await?;
+        self.remove_storage_permission_by_uri_from_policy(&mut policy, uri)?;
+        self.save_component_policy(component_id, &policy).await?;
+        self.update_policy_registry(component_id, &policy).await?;
+        Ok(())
     }
 
     /// Grant a specific permission rule to a component
@@ -219,10 +341,6 @@ impl crate::LifecycleManager {
             component_id,
             permission_type, "Granting permission to component"
         );
-        if !self.components.read().await.contains_key(component_id) {
-            return Err(anyhow!("Component not found: {}", component_id));
-        }
-
         let permission_rule = self.parse_permission_rule(permission_type, details)?;
         self.validate_permission_rule(&permission_rule)?;
         let mut policy = self.load_or_create_component_policy(component_id).await?;
@@ -349,7 +467,7 @@ impl crate::LifecycleManager {
         &self,
         component_id: &str,
     ) -> Result<policy::PolicyDocument> {
-        let policy_path = self.get_component_policy_path(component_id);
+        let policy_path = self.policy_path(component_id);
 
         if policy_path.exists() {
             let policy_content = tokio::fs::read_to_string(&policy_path).await?;
@@ -447,6 +565,22 @@ impl crate::LifecycleManager {
         Ok(())
     }
 
+    fn remove_storage_permission_by_uri_from_policy(
+        &self,
+        policy: &mut PolicyDocument,
+        uri: &str,
+    ) -> Result<()> {
+        if let Some(storage_perms) = &mut policy.permissions.storage {
+            if let Some(allow_set) = &mut storage_perms.allow {
+                allow_set.retain(|perm| perm.uri != uri);
+                if allow_set.is_empty() {
+                    storage_perms.allow = None;
+                }
+            }
+        }
+        Ok(())
+    }
+
     /// Add environment permission to policy
     fn add_environment_permission_to_policy(
         &self,
@@ -519,36 +653,9 @@ impl crate::LifecycleManager {
         component_id: &str,
         policy: &PolicyDocument,
     ) -> Result<()> {
-        let policy_path = self.get_component_policy_path(component_id);
+        let policy_path = self.policy_path(component_id);
         let policy_yaml = serde_yaml::to_string(policy)?;
         tokio::fs::write(&policy_path, policy_yaml).await?;
-        Ok(())
-    }
-
-    /// Update policy registry with new policy
-    pub(crate) async fn update_policy_registry(
-        &self,
-        component_id: &str,
-        policy: &PolicyDocument,
-    ) -> Result<()> {
-        // Load secrets for the component
-        let secrets = self
-            .secrets_manager
-            .load_component_secrets(component_id)
-            .await
-            .ok();
-
-        let wasi_template = crate::create_wasi_state_template_from_policy(
-            policy,
-            &self.plugin_dir,
-            &self.environment_vars,
-            secrets.as_ref(),
-        )?;
-        self.policy_registry
-            .write()
-            .await
-            .component_policies
-            .insert(component_id.to_string(), Arc::new(wasi_template));
         Ok(())
     }
 
@@ -590,10 +697,6 @@ impl crate::LifecycleManager {
             component_id,
             permission_type, "Revoking permission from component"
         );
-        if !self.components.read().await.contains_key(component_id) {
-            return Err(anyhow!("Component not found: {}", component_id));
-        }
-
         let permission_rule = self.parse_permission_rule(permission_type, details)?;
         self.validate_permission_rule(&permission_rule)?;
         let mut policy = self.load_or_create_component_policy(component_id).await?;
@@ -612,21 +715,19 @@ impl crate::LifecycleManager {
     #[instrument(skip(self))]
     pub async fn reset_permission(&self, component_id: &str) -> Result<()> {
         info!(component_id, "Resetting all permissions for component");
-        if !self.components.read().await.contains_key(component_id) {
-            return Err(anyhow!("Component not found: {}", component_id));
-        }
-
         // Remove policy files
-        let policy_path = self.get_component_policy_path(component_id);
-        self.remove_file_if_exists(&policy_path, "policy file", component_id)
+        let policy_path = self.policy_path(component_id);
+        self.storage
+            .remove_if_exists(&policy_path, "policy file", component_id)
             .await?;
 
-        let metadata_path = self.get_component_metadata_path(component_id);
-        self.remove_file_if_exists(&metadata_path, "policy metadata file", component_id)
+        let metadata_path = self.metadata_path(component_id);
+        self.storage
+            .remove_if_exists(&metadata_path, "policy metadata file", component_id)
             .await?;
 
         // Remove from policy registry
-        self.cleanup_policy_registry(component_id).await;
+        self.cleanup(component_id).await;
 
         info!(component_id, "All permissions reset successfully");
         Ok(())
@@ -762,7 +863,7 @@ permissions:
     allow:
       - key: "TEST_VAR"
 "#;
-        let policy_path = manager.plugin_dir.join("test-policy.yaml");
+        let policy_path = manager.plugin_root().join("test-policy.yaml");
         tokio::fs::write(&policy_path, policy_content).await?;
 
         let policy_uri = format!("file://{}", policy_path.display());
@@ -805,7 +906,7 @@ version: "1.0"
 description: "Test policy"
 permissions: {}
 "#;
-        let policy_path = manager.plugin_dir.join("test-policy.yaml");
+        let policy_path = manager.plugin_root().join("test-policy.yaml");
         tokio::fs::write(&policy_path, policy_content).await?;
 
         let policy_uri = format!("file://{}", policy_path.display());
@@ -1152,7 +1253,7 @@ permissions:
     allow:
       - host: "initial.example.com"
 "#;
-        let policy_path = manager.plugin_dir.join("initial-policy.yaml");
+        let policy_path = manager.plugin_root().join("initial-policy.yaml");
         tokio::fs::write(&policy_path, policy_content).await?;
 
         let policy_uri = format!("file://{}", policy_path.display());
@@ -1266,6 +1367,7 @@ permissions:
 
         manager
             .manager
+            .policy_manager
             .add_resource_permission_to_policy(&mut policy, resource_details)?;
 
         // Verify the policy has the resource permission
@@ -1322,6 +1424,7 @@ permissions:
 
         manager
             .manager
+            .policy_manager
             .add_resource_permission_to_policy(&mut policy, resource_details.clone())?;
 
         // Verify memory limit was added
@@ -1342,6 +1445,7 @@ permissions:
         // Now test removing the memory resource permission
         manager
             .manager
+            .policy_manager
             .remove_resource_permission_from_policy(&mut policy, resource_details)?;
 
         // Verify memory limit was removed
@@ -1362,7 +1466,10 @@ permissions:
         let memory_details = serde_json::json!({"memory": "1Gi"});
 
         // Test that we can parse the memory resource permission rule
-        let permission_rule = manager.parse_permission_rule("resource", &memory_details)?;
+        let permission_rule = manager
+            .manager
+            .policy_manager
+            .parse_permission_rule("resource", &memory_details)?;
 
         // Verify it creates a Custom permission rule for resource type
         match &permission_rule {
@@ -1379,7 +1486,10 @@ permissions:
         }
 
         // Test validation doesn't fail for resource permissions
-        manager.validate_permission_rule(&permission_rule)?;
+        manager
+            .manager
+            .policy_manager
+            .validate_permission_rule(&permission_rule)?;
 
         Ok(())
     }

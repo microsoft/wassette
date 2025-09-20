@@ -39,9 +39,10 @@ async fn test_grant_permission_storage_basic() -> Result<()> {
     let (manager, _tempdir) = setup_lifecycle_manager().await?;
     let component_path = build_fetch_component().await?;
 
-    let (component_id, _) = manager
+    let component_id = manager
         .load_component(&format!("file://{}", component_path.to_str().unwrap()))
-        .await?;
+        .await?
+        .component_id;
 
     // Test granting storage permission
     let result = manager
@@ -75,9 +76,10 @@ async fn test_grant_permission_multiple_permissions() -> Result<()> {
     let (manager, _tempdir) = setup_lifecycle_manager().await?;
     let component_path = build_fetch_component().await?;
 
-    let (component_id, _) = manager
+    let component_id = manager
         .load_component(&format!("file://{}", component_path.to_str().unwrap()))
-        .await?;
+        .await?
+        .component_id;
 
     // Grant multiple different permissions
     let network_result = manager
@@ -119,9 +121,10 @@ async fn test_grant_permission_duplicate_prevention() -> Result<()> {
     let (manager, _tempdir) = setup_lifecycle_manager().await?;
     let component_path = build_fetch_component().await?;
 
-    let (component_id, _) = manager
+    let component_id = manager
         .load_component(&format!("file://{}", component_path.to_str().unwrap()))
-        .await?;
+        .await?
+        .component_id;
 
     // Grant the same network permission twice
     let details = serde_json::json!({"host": "api.example.com"});
@@ -154,9 +157,10 @@ async fn test_grant_permission_storage_access_merging() -> Result<()> {
     let (manager, _tempdir) = setup_lifecycle_manager().await?;
     let component_path = build_fetch_component().await?;
 
-    let (component_id, _) = manager
+    let component_id = manager
         .load_component(&format!("file://{}", component_path.to_str().unwrap()))
-        .await?;
+        .await?
+        .component_id;
 
     // Grant read access first
     let read_result = manager
@@ -223,9 +227,10 @@ async fn test_grant_permission_missing_required_fields() -> Result<()> {
     let (manager, _tempdir) = setup_lifecycle_manager().await?;
     let component_path = build_fetch_component().await?;
 
-    let (component_id, _) = manager
+    let component_id = manager
         .load_component(&format!("file://{}", component_path.to_str().unwrap()))
-        .await?;
+        .await?
+        .component_id;
 
     // Test network permission without host field
     let network_result = manager
@@ -262,9 +267,10 @@ async fn test_grant_permission_validation_errors() -> Result<()> {
     let (manager, _tempdir) = setup_lifecycle_manager().await?;
     let component_path = build_fetch_component().await?;
 
-    let (component_id, _) = manager
+    let component_id = manager
         .load_component(&format!("file://{}", component_path.to_str().unwrap()))
-        .await?;
+        .await?
+        .component_id;
 
     // Test empty host
     let empty_host_result = manager
@@ -301,9 +307,10 @@ async fn test_grant_permission_to_existing_policy() -> Result<()> {
     let (manager, _tempdir) = setup_lifecycle_manager().await?;
     let component_path = build_fetch_component().await?;
 
-    let (component_id, _) = manager
+    let component_id = manager
         .load_component(&format!("file://{}", component_path.to_str().unwrap()))
-        .await?;
+        .await?
+        .component_id;
 
     // First, create and attach a policy using the existing system
     let policy_content = r#"
@@ -349,9 +356,10 @@ async fn test_grant_permission_policy_persistence() -> Result<()> {
     let (manager, _tempdir) = setup_lifecycle_manager().await?;
     let component_path = build_fetch_component().await?;
 
-    let (component_id, _) = manager
+    let component_id = manager
         .load_component(&format!("file://{}", component_path.to_str().unwrap()))
-        .await?;
+        .await?
+        .component_id;
 
     // Grant a permission
     let grant_result = manager
@@ -372,9 +380,10 @@ async fn test_grant_permission_policy_persistence() -> Result<()> {
     let new_manager = wassette::LifecycleManager::new(_tempdir.path()).await?;
 
     // Load the same component
-    let (new_component_id, _) = new_manager
+    let new_component_id = new_manager
         .load_component(&format!("file://{}", component_path.to_str().unwrap()))
-        .await?;
+        .await?
+        .component_id;
 
     // Verify the policy is still there and accessible
     let policy_info = new_manager.get_policy_info(&new_component_id).await;
@@ -389,9 +398,10 @@ async fn test_grant_permission_policy_registry_update() -> Result<()> {
     let (manager, _tempdir) = setup_lifecycle_manager().await?;
     let component_path = build_fetch_component().await?;
 
-    let (component_id, _) = manager
+    let component_id = manager
         .load_component(&format!("file://{}", component_path.to_str().unwrap()))
-        .await?;
+        .await?
+        .component_id;
 
     // Grant a permission
     let grant_result = manager
@@ -417,9 +427,10 @@ async fn test_grant_permission_multiple_hosts() -> Result<()> {
     let (manager, _tempdir) = setup_lifecycle_manager().await?;
     let component_path = build_fetch_component().await?;
 
-    let (component_id, _) = manager
+    let component_id = manager
         .load_component(&format!("file://{}", component_path.to_str().unwrap()))
-        .await?;
+        .await?
+        .component_id;
 
     // Grant multiple network permissions
     let hosts = vec!["api.example.com", "backup.example.com", "cdn.example.com"];
@@ -450,9 +461,10 @@ async fn test_grant_permission_complex_storage_permissions() -> Result<()> {
     let (manager, _tempdir) = setup_lifecycle_manager().await?;
     let component_path = build_fetch_component().await?;
 
-    let (component_id, _) = manager
+    let component_id = manager
         .load_component(&format!("file://{}", component_path.to_str().unwrap()))
-        .await?;
+        .await?
+        .component_id;
 
     // Grant different storage permissions
     let storage_configs = vec![
@@ -494,9 +506,10 @@ async fn test_grant_permission_invalid_storage_access_type() -> Result<()> {
     let (manager, _tempdir) = setup_lifecycle_manager().await?;
     let component_path = build_fetch_component().await?;
 
-    let (component_id, _) = manager
+    let component_id = manager
         .load_component(&format!("file://{}", component_path.to_str().unwrap()))
-        .await?;
+        .await?
+        .component_id;
 
     // Test invalid access type
     let result = manager
@@ -522,9 +535,10 @@ async fn test_grant_permission_component_execution_with_permissions() -> Result<
     let (manager, _tempdir) = setup_lifecycle_manager().await?;
     let component_path = build_fetch_component().await?;
 
-    let (component_id, _) = manager
+    let component_id = manager
         .load_component(&format!("file://{}", component_path.to_str().unwrap()))
-        .await?;
+        .await?
+        .component_id;
 
     // Grant network permission for the component to access example.com
     let grant_result = manager
@@ -556,9 +570,10 @@ async fn test_grant_permission_schema_validation() -> Result<()> {
     let (manager, _tempdir) = setup_lifecycle_manager().await?;
     let component_path = build_fetch_component().await?;
 
-    let (component_id, _) = manager
+    let component_id = manager
         .load_component(&format!("file://{}", component_path.to_str().unwrap()))
-        .await?;
+        .await?
+        .component_id;
 
     // Test with malformed details (not an object)
     let malformed_result = manager
@@ -580,9 +595,10 @@ async fn test_grant_permission_sequential_grants() -> Result<()> {
     let (manager, _tempdir) = setup_lifecycle_manager().await?;
     let component_path = build_fetch_component().await?;
 
-    let (component_id, _) = manager
+    let component_id = manager
         .load_component(&format!("file://{}", component_path.to_str().unwrap()))
-        .await?;
+        .await?
+        .component_id;
 
     // Grant multiple permissions one by one to avoid race conditions
     let api1_details = serde_json::json!({"host": "api1.example.com"});
@@ -617,9 +633,10 @@ async fn test_grant_permission_environment_variable_basic() -> Result<()> {
     let (manager, _tempdir) = setup_lifecycle_manager().await?;
     let component_path = build_fetch_component().await?;
 
-    let (component_id, _) = manager
+    let component_id = manager
         .load_component(&format!("file://{}", component_path.to_str().unwrap()))
-        .await?;
+        .await?
+        .component_id;
 
     // Test granting environment variable permission
     let result = manager
@@ -651,9 +668,10 @@ async fn test_grant_permission_environment_variable_multiple() -> Result<()> {
     let (manager, _tempdir) = setup_lifecycle_manager().await?;
     let component_path = build_fetch_component().await?;
 
-    let (component_id, _) = manager
+    let component_id = manager
         .load_component(&format!("file://{}", component_path.to_str().unwrap()))
-        .await?;
+        .await?
+        .component_id;
 
     // Grant multiple environment variable permissions
     let api_key_result = manager
@@ -694,9 +712,10 @@ async fn test_grant_permission_environment_variable_duplicate_prevention() -> Re
     let (manager, _tempdir) = setup_lifecycle_manager().await?;
     let component_path = build_fetch_component().await?;
 
-    let (component_id, _) = manager
+    let component_id = manager
         .load_component(&format!("file://{}", component_path.to_str().unwrap()))
-        .await?;
+        .await?
+        .component_id;
 
     // Grant the same environment variable permission twice
     let details = serde_json::json!({"key": "API_KEY"});

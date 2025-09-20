@@ -1,5 +1,6 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT license.
+#![allow(clippy::uninlined_format_args)]
 
 //! Unit tests for OCI digest verification with mocking
 //!
@@ -209,8 +210,7 @@ mod digest_verification_tests {
             let verified_digests = client.layer_digests_verified.lock().await;
             assert!(
                 verified_digests.contains(&expected_digest.to_string()),
-                "Layer digest {} should be tracked as verified",
-                expected_digest
+                "Layer digest {expected_digest} should be tracked as verified"
             );
         }
     }
@@ -286,8 +286,7 @@ mod digest_verification_tests {
         let verified_count = client.layer_digests_verified.lock().await.len();
         assert!(
             verified_count >= 2,
-            "At least 2 layers (WASM and policy) should be verified, got {}",
-            verified_count
+            "At least 2 layers (WASM and policy) should be verified, got {verified_count}"
         );
     }
 

@@ -836,10 +836,7 @@ permissions:
                 // Success - the environment variables were injected properly
             }
             Err(e) => {
-                panic!(
-                    "WASI state should build successfully with environment variables: {:?}",
-                    e
-                );
+                panic!("WASI state should build successfully with environment variables: {e:?}");
             }
         }
     }

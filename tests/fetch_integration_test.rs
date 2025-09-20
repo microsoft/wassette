@@ -19,9 +19,10 @@ async fn test_fetch_with_network_policy_enforcement() -> Result<()> {
     let (manager, _tempdir) = setup_lifecycle_manager().await?;
     let component_path = build_fetch_component().await?;
 
-    let (component_id, _) = manager
+    let component_id = manager
         .load_component(&format!("file://{}", component_path.to_str().unwrap()))
-        .await?;
+        .await?
+        .component_id;
 
     let target_url = "https://example.com/";
 
@@ -103,9 +104,10 @@ async fn test_fetch_with_different_host_still_denied() -> Result<()> {
     let (manager, _tempdir) = setup_lifecycle_manager().await?;
     let component_path = build_fetch_component().await?;
 
-    let (component_id, _) = manager
+    let component_id = manager
         .load_component(&format!("file://{}", component_path.to_str().unwrap()))
-        .await?;
+        .await?
+        .component_id;
 
     // Grant permission for example.com
     manager
@@ -147,9 +149,10 @@ async fn test_fetch_with_scheme_specific_permissions() -> Result<()> {
     let (manager, _tempdir) = setup_lifecycle_manager().await?;
     let component_path = build_fetch_component().await?;
 
-    let (component_id, _) = manager
+    let component_id = manager
         .load_component(&format!("file://{}", component_path.to_str().unwrap()))
-        .await?;
+        .await?
+        .component_id;
 
     // Grant permission for HTTPS example.com specifically
     manager

@@ -90,10 +90,10 @@ impl DownloadedResource {
 
                 // Also check for and copy any co-located policy file
                 let wasm_stem = file.file_stem().and_then(|s| s.to_str()).unwrap_or("");
-                let policy_path = tempdir.path().join(format!("{}.policy.yaml", wasm_stem));
+                let policy_path = tempdir.path().join(format!("{wasm_stem}.policy.yaml"));
 
                 if policy_path.exists() {
-                    let policy_dest = dest_dir.join(format!("{}.policy.yaml", wasm_stem));
+                    let policy_dest = dest_dir.join(format!("{wasm_stem}.policy.yaml"));
                     debug!(
                         "Copying co-located policy file from {:?} to {:?}",
                         policy_path, policy_dest
@@ -249,9 +249,8 @@ impl Loadable for ComponentResource {
                         if let DownloadedResource::Temp((ref tempdir, ref _wasm_path)) =
                             downloaded_resource
                         {
-                            let policy_path = tempdir
-                                .path()
-                                .join(format!("{}.policy.yaml", component_name));
+                            let policy_path =
+                                tempdir.path().join(format!("{component_name}.policy.yaml"));
                             tokio::fs::write(&policy_path, &policy_data)
                                 .await
                                 .context("Failed to save policy file")?;

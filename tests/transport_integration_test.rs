@@ -1,5 +1,6 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT license.
+#![allow(clippy::uninlined_format_args)]
 
 use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
 use std::process::Stdio;
@@ -82,17 +83,16 @@ async fn setup_lifecycle_manager_with_client(
     let tempdir = tempfile::tempdir()?;
 
     let manager = Arc::new(
-        LifecycleManager::new_with_clients(
-            &tempdir,
-            std::collections::HashMap::new(), // Empty environment variables for test
-            oci_client::Client::new(oci_client::client::ClientConfig {
+        LifecycleManager::builder(tempdir.path())
+            .with_environment_vars(std::collections::HashMap::new())
+            .with_oci_client(oci_client::Client::new(oci_client::client::ClientConfig {
                 protocol: oci_client::client::ClientProtocol::Http,
                 ..Default::default()
-            }),
-            http_client,
-        )
-        .await
-        .context("Failed to create LifecycleManager")?,
+            }))
+            .with_http_client(http_client)
+            .build()
+            .await
+            .context("Failed to create LifecycleManager")?,
     );
 
     cleanup_components(&manager).await?;
@@ -113,9 +113,10 @@ async fn test_fetch_component_workflow() -> Result<()> {
 
     let component_path = build_fetch_component().await?;
 
-    let (id, _) = manager
+    let id = manager
         .load_component(&format!("file://{}", component_path.to_str().unwrap()))
-        .await?;
+        .await?
+        .component_id;
 
     let components_after_load = manager.list_components().await;
     assert_eq!(components_after_load.len(), 1);
@@ -257,7 +258,8 @@ async fn test_load_component_from_https() -> Result<()> {
 
     // Load from HTTPS
     let https_url = format!("https://{addr}/fetch_rs.wasm");
-    let (id, _) = manager.load_component(&https_url).await?;
+    let outcome = manager.load_component(&https_url).await?;
+    let id = outcome.component_id.clone();
 
     // Verify component was loaded
     let components = manager.list_components().await;
@@ -449,8 +451,7 @@ async fn test_mixed_transport_fails() -> Result<()> {
 
         assert!(
             stderr_output.contains(&expected_error),
-            "Expected error message about mixed transports, got: {}",
-            stderr_output
+            "Expected error message about mixed transports, got: {stderr_output}"
         );
     }
 
@@ -973,9 +974,10 @@ async fn test_grant_permission_network_basic() -> Result<()> {
     let (manager, _tempdir) = setup_lifecycle_manager().await?;
     let component_path = build_fetch_component().await?;
 
-    let (component_id, _) = manager
+    let component_id = manager
         .load_component(&format!("file://{}", component_path.to_str().unwrap()))
-        .await?;
+        .await?
+        .component_id;
 
     // Test granting network permission
     let result = manager

@@ -276,14 +276,20 @@ async fn create_lifecycle_manager(plugin_dir: Option<PathBuf>) -> Result<Lifecyc
     };
 
     // Use unloaded manager for fast CLI startup, but preserve custom secrets dir
-    LifecycleManager::new_unloaded_with_config(
-        &config.plugin_dir,
-        config.environment_vars,
-        &config.secrets_dir,
-        oci_client::Client::default(),
-        reqwest::Client::default(),
-    )
-    .await
+    let config::Config {
+        plugin_dir,
+        secrets_dir,
+        environment_vars,
+    } = config;
+
+    LifecycleManager::builder(plugin_dir)
+        .with_environment_vars(environment_vars)
+        .with_secrets_dir(secrets_dir)
+        .with_oci_client(oci_client::Client::default())
+        .with_http_client(reqwest::Client::default())
+        .with_eager_loading(false)
+        .build()
+        .await
 }
 
 impl McpServer {
@@ -498,14 +504,20 @@ async fn main() -> Result<()> {
 
                 // Build the lifecycle manager without eagerly loading components so the
                 // background loader is the single source of tool registration.
-                let lifecycle_manager = LifecycleManager::new_unloaded_with_config(
-                    &config.plugin_dir,
-                    config.environment_vars,
-                    &config.secrets_dir,
-                    oci_client::Client::default(),
-                    reqwest::Client::default(),
-                )
-                .await?;
+                let config::Config {
+                    plugin_dir,
+                    secrets_dir,
+                    environment_vars,
+                } = config;
+
+                let lifecycle_manager = LifecycleManager::builder(plugin_dir)
+                    .with_environment_vars(environment_vars)
+                    .with_secrets_dir(secrets_dir)
+                    .with_oci_client(oci_client::Client::default())
+                    .with_http_client(reqwest::Client::default())
+                    .with_eager_loading(false)
+                    .build()
+                    .await?;
 
                 let server = McpServer::new(lifecycle_manager.clone());
 

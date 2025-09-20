@@ -31,10 +31,11 @@ async fn test_component_lifecycle_with_policies() -> Result<()> {
     let component_path = build_fetch_component().await?;
 
     // Load component
-    let (component_id, _) = manager
+    let component_outcome = manager
         .load_component(&format!("file://{}", component_path.display()))
         .await
         .context("Failed to load component")?;
+    let component_id = component_outcome.component_id;
 
     // Verify component is loaded
     let components = manager.list_components().await;
@@ -122,15 +123,17 @@ async fn test_multiple_component_management() -> Result<()> {
     let component_path = build_fetch_component().await?;
 
     // Load the same component multiple times to test reloading
-    let (component_id_1, _) = manager
+    let component_id_1 = manager
         .load_component(&format!("file://{}", component_path.display()))
         .await
-        .context("Failed to load component first time")?;
+        .context("Failed to load component first time")?
+        .component_id;
 
-    let (component_id_2, _) = manager
+    let component_id_2 = manager
         .load_component(&format!("file://{}", component_path.display()))
         .await
-        .context("Failed to load component second time")?;
+        .context("Failed to load component second time")?
+        .component_id;
 
     // Should be the same component ID (reloaded)
     assert_eq!(component_id_1, component_id_2);
@@ -203,8 +206,8 @@ async fn test_concurrent_component_operations() -> Result<()> {
 
     let (result_1, result_2) = tokio::try_join!(load_task_1, load_task_2)?;
 
-    let (component_id_1, _) = result_1?;
-    let (component_id_2, _) = result_2?;
+    let component_id_1 = result_1?.component_id;
+    let component_id_2 = result_2?.component_id;
 
     // Should be the same component ID
     assert_eq!(component_id_1, component_id_2);
@@ -277,9 +280,10 @@ async fn test_tools_listing_integration() -> Result<()> {
     assert!(tools.is_empty());
 
     // Load component
-    let (component_id, _) = manager
+    let component_id = manager
         .load_component(&format!("file://{}", component_path.display()))
-        .await?;
+        .await?
+        .component_id;
 
     // Now should have tools
     let tools = manager.list_tools().await;

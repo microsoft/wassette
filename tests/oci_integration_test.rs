@@ -1,5 +1,6 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT license.
+#![allow(clippy::uninlined_format_args)]
 
 //! Integration tests for OCI registry functionality
 //!
@@ -16,9 +17,9 @@ const QR_GENERATOR_OCI_URI: &str = "oci://registry.mcpsearchtool.com/test/qr-gen
 
 /// Check if the registry is operational by hitting its v2 endpoint
 async fn is_registry_operational(registry_url: &str) -> bool {
-    let health_check_url = format!("{}/v2/", registry_url);
+    let health_check_url = format!("{registry_url}/v2/");
 
-    println!("🔍 Checking registry health at: {}", health_check_url);
+    println!("🔍 Checking registry health at: {health_check_url}");
 
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(5))
@@ -33,15 +34,15 @@ async fn is_registry_operational(registry_url: &str) -> bool {
             let is_healthy = status.is_success() || status == reqwest::StatusCode::UNAUTHORIZED;
 
             if is_healthy {
-                println!("✅ Registry is operational (status: {})", status);
+                println!("✅ Registry is operational (status: {status})");
             } else {
-                println!("⚠️  Registry returned unexpected status: {}", status);
+                println!("⚠️  Registry returned unexpected status: {status}");
             }
 
             is_healthy
         }
         Err(e) => {
-            println!("❌ Registry is not reachable: {}", e);
+            println!("❌ Registry is not reachable: {e}");
             false
         }
     }
@@ -83,28 +84,30 @@ mod multi_layer_oci_tests {
         for component_uri in &tags_to_try {
             match manager.load_component(component_uri).await {
                 Ok(result) => {
-                    println!("✅ Successfully loaded component from: {}", component_uri);
+                    println!("✅ Successfully loaded component from: {component_uri}");
                     load_result = Some(result);
                     break;
                 }
                 Err(e) => {
-                    println!("⚠️  Failed to load from {}: {}", component_uri, e);
+                    println!("⚠️  Failed to load from {component_uri}: {e}");
                     last_error = Some(e);
                 }
             }
         }
 
         // If no tag worked, skip the test with an informative message
-        let (component_id, _load_result) = match load_result {
+        let outcome = match load_result {
             Some(result) => result,
             None => {
                 eprintln!("⚠️  Skipping test: Could not load component from registry.");
                 eprintln!("   Last error: {:?}", last_error);
                 eprintln!("   This may be expected if the registry is not accessible or components are not pushed.");
-                eprintln!("   Tried tags: {:?}", tags_to_try);
+                eprintln!("   Tried tags: {tags_to_try:?}");
                 return Ok(());
             }
         };
+
+        let component_id = outcome.component_id.clone();
 
         // Verify the component was loaded
         assert!(!component_id.is_empty(), "Component ID should not be empty");
@@ -158,24 +161,24 @@ mod multi_layer_oci_tests {
         let mut last_error = None;
 
         for component_uri in &tags_to_try {
-            println!("🔍 Attempting to load: {}", component_uri);
+            println!("🔍 Attempting to load: {component_uri}");
 
             match manager.load_component(component_uri).await {
                 Ok(result) => {
-                    println!("✅ Successfully loaded component from: {}", component_uri);
+                    println!("✅ Successfully loaded component from: {component_uri}");
                     load_result = Some(result);
                     break;
                 }
                 Err(e) => {
-                    println!("⚠️  Failed to load from {}: {}", component_uri, e);
+                    println!("⚠️  Failed to load from {component_uri}: {e}");
                     last_error = Some(e);
                 }
             }
         }
 
         // If no tag worked, check if it's a known issue or network problem
-        let result: Result<(String, wassette::LoadResult)> = match load_result {
-            Some(result) => Ok(result),
+        let outcome = match load_result {
+            Some(result) => result,
             None => {
                 // Check if the error is about incompatible media types (expected until fix is implemented)
                 if let Some(ref err) = last_error {
@@ -183,55 +186,55 @@ mod multi_layer_oci_tests {
                     if err_str.contains("Incompatible layer media type")
                         || err_str.contains("application/vnd.wasm.policy.v1+yaml")
                     {
-                        eprintln!(
-                            "⚠️  Test encountered expected error (not yet fixed): {}",
-                            err_str
-                        );
+                        eprintln!("⚠️  Test encountered expected error (not yet fixed): {err_str}");
                         eprintln!("   This is expected until multi-layer OCI support is fully implemented.");
                         return Ok(());
                     }
                 }
 
                 eprintln!("⚠️  Skipping test: Could not load component from registry.");
-                eprintln!("   Last error: {:?}", last_error);
+                eprintln!("   Last error: {last_error:?}");
                 eprintln!("   This may be expected if the registry is not accessible or components are not pushed.");
-                eprintln!("   Tried tags: {:?}", tags_to_try);
+                eprintln!("   Tried tags: {tags_to_try:?}");
                 return Ok(());
             }
         };
 
-        // After fix: Should succeed
+        let component_id = outcome.component_id.clone();
+        let load_state = outcome.status;
+
         assert!(
-            result.is_ok(),
+            matches!(
+                load_state,
+                wassette::LoadResult::New | wassette::LoadResult::Replaced
+            ),
             "Should handle multi-layer OCI artifacts with policies"
         );
 
-        if let Ok((component_id, _)) = result {
-            // The policy should be automatically extracted and attached
-            let policy_info = manager.get_policy_info(&component_id).await;
-            assert!(
-                policy_info.is_some(),
-                "Policy should be extracted and attached from OCI layers"
-            );
+        // The policy should be automatically extracted and attached
+        let policy_info = manager.get_policy_info(&component_id).await;
+        assert!(
+            policy_info.is_some(),
+            "Policy should be extracted and attached from OCI layers"
+        );
 
-            // The component should be loaded successfully
-            let component_ids = manager.list_components().await;
-            assert!(
-                component_ids.contains(&component_id),
-                "Component should be loaded"
-            );
+        // The component should be loaded successfully
+        let component_ids = manager.list_components().await;
+        assert!(
+            component_ids.contains(&component_id),
+            "Component should be loaded"
+        );
 
-            // Check what files were saved
-            println!("\n📁 Checking saved files in temp directory:");
-            for entry in std::fs::read_dir(temp_dir.path()).unwrap() {
-                let entry = entry.unwrap();
-                let metadata = entry.metadata().unwrap();
-                println!(
-                    "  - {} ({} bytes)",
-                    entry.file_name().to_string_lossy(),
-                    metadata.len()
-                );
-            }
+        // Check what files were saved
+        println!("\n📁 Checking saved files in temp directory:");
+        for entry in std::fs::read_dir(temp_dir.path()).unwrap() {
+            let entry = entry.unwrap();
+            let metadata = entry.metadata().unwrap();
+            println!(
+                "  - {} ({} bytes)",
+                entry.file_name().to_string_lossy(),
+                metadata.len()
+            );
         }
 
         Ok(())
@@ -284,14 +287,14 @@ mod qr_generator_component_tests {
         let manager = LifecycleManager::new(temp_dir.path()).await?;
 
         // Load the component
-        let (component_id, load_result) = manager.load_component(QR_GENERATOR_OCI_URI).await?;
+        let outcome = manager.load_component(QR_GENERATOR_OCI_URI).await?;
 
-        assert_eq!(component_id, "test_qr-generator");
-        assert!(matches!(load_result, wassette::LoadResult::New));
+        assert_eq!(outcome.component_id, "test_qr-generator");
+        assert!(matches!(outcome.status, wassette::LoadResult::New));
 
         // Verify component is in the list
         let components = manager.list_components().await;
-        assert!(components.contains(&component_id));
+        assert!(components.contains(&outcome.component_id));
 
         Ok(())
     }
@@ -301,7 +304,7 @@ mod qr_generator_component_tests {
         let temp_dir = tempfile::tempdir()?;
         let manager = LifecycleManager::new(temp_dir.path()).await?;
 
-        let (_component_id, _) = manager.load_component(QR_GENERATOR_OCI_URI).await?;
+        manager.load_component(QR_GENERATOR_OCI_URI).await?;
 
         // Check available tools
         let tools = manager.list_tools().await;
@@ -323,13 +326,14 @@ mod qr_generator_component_tests {
         let temp_dir = tempfile::tempdir()?;
         let manager = LifecycleManager::new(temp_dir.path()).await?;
 
-        let (component_id, _) = manager.load_component(QR_GENERATOR_OCI_URI).await?;
+        let component_id = manager
+            .load_component(QR_GENERATOR_OCI_URI)
+            .await?
+            .component_id;
 
         // Check that policy file was saved alongside WASM
-        let wasm_path = temp_dir.path().join(format!("{}.wasm", component_id));
-        let policy_path = temp_dir
-            .path()
-            .join(format!("{}.policy.yaml", component_id));
+        let wasm_path = temp_dir.path().join(format!("{component_id}.wasm"));
+        let policy_path = temp_dir.path().join(format!("{component_id}.policy.yaml"));
 
         assert!(wasm_path.exists(), "WASM file should exist");
         assert!(policy_path.exists(), "Policy file should exist");
@@ -348,7 +352,10 @@ mod qr_generator_component_tests {
         let temp_dir = tempfile::tempdir()?;
         let manager = LifecycleManager::new(temp_dir.path()).await?;
 
-        let (component_id, _) = manager.load_component(QR_GENERATOR_OCI_URI).await?;
+        let component_id = manager
+            .load_component(QR_GENERATOR_OCI_URI)
+            .await?
+            .component_id;
 
         // Check that policy is attached to the component
         let policy_info = manager.get_policy_info(&component_id).await;
@@ -365,7 +372,10 @@ mod qr_generator_component_tests {
         let temp_dir = tempfile::tempdir()?;
         let manager = LifecycleManager::new(temp_dir.path()).await?;
 
-        let (component_id, _) = manager.load_component(QR_GENERATOR_OCI_URI).await?;
+        let component_id = manager
+            .load_component(QR_GENERATOR_OCI_URI)
+            .await?
+            .component_id;
 
         // Test with missing required field
         let invalid_input = json!({
@@ -434,8 +444,7 @@ mod backwards_compatibility_tests {
         let temp_dir = tempfile::tempdir()?;
 
         println!(
-            "🧪 Testing backwards compatibility with single-layer WASM component: {}",
-            component_uri
+            "🧪 Testing backwards compatibility with single-layer WASM component: {component_uri}"
         );
 
         // Initialize the lifecycle manager with authentication environment
@@ -449,11 +458,9 @@ mod backwards_compatibility_tests {
         .await;
 
         match load_result {
-            Ok(Ok((component_id, _load_result))) => {
-                println!(
-                    "✅ Successfully loaded single-layer component: {}",
-                    component_id
-                );
+            Ok(Ok(outcome)) => {
+                let component_id = outcome.component_id;
+                println!("✅ Successfully loaded single-layer component: {component_id}");
 
                 // Verify component ID is not empty
                 assert!(!component_id.is_empty(), "Component ID should not be empty");
@@ -482,20 +489,20 @@ mod backwards_compatibility_tests {
             }
             Ok(Err(e)) => {
                 // More specific error handling
-                let error_msg = format!("{}", e);
+                let error_msg = format!("{e}");
                 if error_msg.contains("authentication") || error_msg.contains("unauthorized") {
                     eprintln!("❌ Authentication failed for ghcr.io");
-                    eprintln!("   Error: {}", e);
+                    eprintln!("   Error: {e}");
                     eprintln!(
                         "   Please check your GITHUB_TOKEN is valid and has read permissions"
                     );
                     return Err(e);
                 } else if error_msg.contains("network") || error_msg.contains("timeout") {
                     println!("⚠️  Network error accessing ghcr.io - test may be unstable");
-                    println!("   Error: {}", e);
+                    println!("   Error: {e}");
                     return Ok(()); // Gracefully skip on network issues
                 } else {
-                    eprintln!("❌ Failed to load component: {}", e);
+                    eprintln!("❌ Failed to load component: {e}");
                     return Err(e);
                 }
             }

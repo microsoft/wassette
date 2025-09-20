@@ -190,12 +190,12 @@ pub async fn pull_multi_layer_artifact(
         client
             .pull_blob(reference, expected_digest.as_str(), &mut blob_data)
             .await
-            .context(format!("Failed to pull layer {}", index))?;
+            .context(format!("Failed to pull layer {index}"))?;
 
         // Verify the layer digest
         debug!("Verifying digest for layer {}", index);
         verify_digest(&blob_data, expected_digest)
-            .context(format!("Layer {} digest verification failed", index))?;
+            .context(format!("Layer {index} digest verification failed"))?;
         info!("Layer {} digest verified successfully", index);
 
         // Categorize the layer based on media type

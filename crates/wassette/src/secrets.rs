@@ -54,7 +54,7 @@ impl SecretsManager {
     /// Get the path to a component's secrets file
     pub fn get_component_secrets_path(&self, component_id: &str) -> PathBuf {
         let sanitized_id = sanitize_component_id(component_id);
-        self.secrets_dir.join(format!("{}.yaml", sanitized_id))
+        self.secrets_dir.join(format!("{sanitized_id}.yaml"))
     }
 
     /// Ensure the secrets directory exists with proper permissions

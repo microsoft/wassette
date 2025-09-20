@@ -1,5 +1,6 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT license.
+#![allow(clippy::uninlined_format_args)]
 
 use std::process::Stdio;
 use std::sync::Arc;
@@ -377,9 +378,10 @@ async fn test_filesystem_component_lifecycle_manager() -> Result<()> {
 
     let component_path = build_filesystem_component().await?;
 
-    let (id, _) = manager
+    let id = manager
         .load_component(&format!("file://{}", component_path.to_str().unwrap()))
-        .await?;
+        .await?
+        .component_id;
 
     let components_after_load = manager.list_components().await;
     assert_eq!(components_after_load.len(), 1);
