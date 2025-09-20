@@ -95,15 +95,12 @@ Or with Homebrew:
 brew install codex
 ```
 
-Then configure Wassette as an MCP server in Codex’s config. Codex reads TOML from `$CODEX_HOME/config.toml` (defaults to `~/.codex/config.toml`). Create or edit that file to include:
+Add the Wassette MCP server to Codex CLI using the following command:
 
-```toml
-[mcp_servers.wassette]
-command = "wassette"
-args = ["serve", "--stdio"]
+```bash
+codex mcp add wassette wassette serve --stdio
 ```
 
 Run `codex` to start the CLI.
 
 Verify the installation by running `/mcp` inside of Codex CLI.
-
