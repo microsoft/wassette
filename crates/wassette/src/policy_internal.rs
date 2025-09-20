@@ -146,6 +146,8 @@ impl PolicyManager {
         self.build_default_template(component_id).await
     }
 
+    /// Construct a default WASI template enriched with configured environment
+    /// variables and any stored secrets for the component.
     async fn build_default_template(&self, component_id: &str) -> Arc<WasiStateTemplate> {
         let mut config_vars = self.environment_vars.as_ref().clone();
 
@@ -277,6 +279,8 @@ impl PolicyManager {
         Ok(())
     }
 
+    /// Rehydrate policy templates from a co-located policy file on disk, if
+    /// one exists for the component.
     pub(crate) async fn restore_from_disk(&self, component_id: &str) -> Result<()> {
         let policy_path = self.policy_path(component_id);
         if !policy_path.exists() {

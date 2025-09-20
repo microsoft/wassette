@@ -1,3 +1,9 @@
+// Copyright (c) Microsoft Corporation.
+// Licensed under the MIT license.
+
+//! Support utilities for sharing Wasmtime engine and linker state across lifecycle
+//! manager instances.
+
 use std::sync::Arc;
 
 use anyhow::Result;
@@ -42,17 +48,18 @@ impl RuntimeContext {
         Arc::clone(&self.engine)
     }
 
-    /// Lightweight reference to the engine.
+    /// Borrow the underlying engine reference.
     pub fn engine(&self) -> &Engine {
         self.engine.as_ref()
     }
 
-    /// Accessor for the linker handle.
+    /// Accessor for the linker handle as a shareable pointer.
     pub fn linker_handle(&self) -> Arc<Linker<WassetteWasiState<WasiState>>> {
         Arc::clone(&self.linker)
     }
 
-    /// Produce a cached instance-pre handle for the provided component.
+    /// Produce a cached `InstancePre` handle for the provided component using
+    /// the shared linker configuration.
     pub fn instantiate_pre(
         &self,
         component: &Component,

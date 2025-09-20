@@ -300,7 +300,8 @@ pub struct ComponentInstance {
 }
 
 impl LifecycleManager {
-    /// Begin constructing a lifecycle manager with a fluent builder.
+    /// Begin constructing a lifecycle manager with a fluent builder that
+    /// validates configuration and applies sensible defaults.
     pub fn builder(plugin_dir: impl Into<PathBuf>) -> LifecycleBuilder {
         LifecycleBuilder::new(plugin_dir.into())
     }
@@ -508,7 +509,8 @@ impl LifecycleManager {
     /// Loads a new component from the given URI. This URI can be a file path, an OCI reference, or a URL.
     ///
     /// If a component with the given id already exists, it will be updated with the new component.
-    /// Returns the new ID and whether or not this component was replaced.
+    /// Returns rich [`ComponentLoadOutcome`] information describing the loaded
+    /// component and whether it replaced an existing instance.
     #[instrument(skip(self))]
     pub async fn load_component(&self, uri: &str) -> Result<ComponentLoadOutcome> {
         debug!(uri, "Loading component");

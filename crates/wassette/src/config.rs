@@ -1,3 +1,9 @@
+// Copyright (c) Microsoft Corporation.
+// Licensed under the MIT license.
+
+//! Builder and configuration helpers for constructing
+//! [`LifecycleManager`](crate::LifecycleManager).
+
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
@@ -83,6 +89,8 @@ pub struct LifecycleBuilder {
 }
 
 impl LifecycleBuilder {
+    /// Create a builder with sensible defaults for the provided plugin
+    /// directory.
     pub(crate) fn new(plugin_dir: PathBuf) -> Self {
         Self {
             plugin_dir,
@@ -163,7 +171,12 @@ impl LifecycleBuilder {
         })
     }
 
-    /// Construct a [`LifecycleManager`], optionally performing eager loading.
+    /// Construct a [`LifecycleManager`] using the current builder settings.
+    ///
+    /// If eager loading is enabled the plugin directory is scanned
+    /// immediately; otherwise the caller can defer loading until a later
+    /// [`LifecycleManager::load_all_components`](crate::LifecycleManager::load_all_components)
+    /// invocation.
     pub async fn build(self) -> Result<LifecycleManager> {
         let config = self.build_config()?;
         let eager = config.eager_load();
@@ -175,6 +188,7 @@ impl LifecycleBuilder {
     }
 }
 
+/// Create the default HTTP client used when none is supplied.
 fn default_http_client() -> Result<reqwest::Client> {
     let http_timeout = std::env::var("HTTP_TIMEOUT_SECS")
         .ok()
@@ -187,6 +201,7 @@ fn default_http_client() -> Result<reqwest::Client> {
         .context("Failed to create default HTTP client")
 }
 
+/// Create the default OCI client used when none is supplied.
 fn default_oci_client() -> Result<oci_client::Client> {
     let oci_timeout = std::env::var("OCI_TIMEOUT_SECS")
         .ok()
@@ -213,6 +228,8 @@ impl LifecycleConfig {
     }
 }
 
+/// Internal helper that exposes the decomposed configuration values to the
+/// lifecycle manager for initialization.
 pub(crate) struct LifecycleConfigParts {
     pub plugin_dir: PathBuf,
     pub secrets_dir: PathBuf,

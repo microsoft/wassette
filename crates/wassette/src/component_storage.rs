@@ -1,3 +1,9 @@
+// Copyright (c) Microsoft Corporation.
+// Licensed under the MIT license.
+
+//! Filesystem helpers that manage component artifacts, metadata, and cache
+//! layout for the lifecycle manager.
+
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -158,7 +164,11 @@ impl ComponentStorage {
         Ok(())
     }
 
-    /// Create a validation stamp for a file.
+    /// Create a validation stamp for a component artifact to track stale data on disk.
+    ///
+    /// When `include_hash` is `true` the SHA-256 hash of the file is
+    /// recorded in addition to size and modification time so changes can be
+    /// detected even when timestamps are unreliable.
     pub async fn create_validation_stamp(
         path: &Path,
         include_hash: bool,
