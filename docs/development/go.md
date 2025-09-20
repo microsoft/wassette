@@ -404,7 +404,7 @@ func processWithResources(input string) MyResult {
 
 ## Real-World Example
 
-The [gomodule-go example](../../examples/gomodule-go/) in this repository demonstrates:
+The [gomodule-go example](https://github.com/microsoft/wassette/tree/main/examples/gomodule-go) in this repository demonstrates:
 - HTTP requests to external APIs
 - JSON data processing
 - Error handling

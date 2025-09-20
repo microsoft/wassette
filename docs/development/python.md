@@ -473,12 +473,12 @@ class DataAnalyzer(wit_world.DataAnalyzer):
 - [ComponentModel Documentation](https://component-model.bytecodealliance.org/language-support/python.html)
 - [WIT Specification](https://github.com/WebAssembly/component-model/blob/main/design/mvp/WIT.md)
 - [componentize-py Repository](https://github.com/bytecodealliance/componentize-py)
-- [Wassette Examples](../../examples/)
+- [Wassette Examples](https://github.com/microsoft/wassette/tree/main/examples)
 - [MCP Protocol Documentation](https://github.com/modelcontextprotocol/specification)
 
 ## Next Steps
 
-1. Review the [eval-py example](../../examples/eval-py/) for a working implementation
+1. Review the [eval-py example](https://github.com/microsoft/wassette/tree/main/examples/eval-py) for a working implementation
 2. Experiment with different WIT interface designs
 3. Explore policy configurations for different use cases
 4. Consider contributing your component to the Wassette examples

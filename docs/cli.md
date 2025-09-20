@@ -13,7 +13,7 @@ The CLI mode allows you to perform administrative tasks without requiring a runn
 
 ## Installation
 
-For installation instructions, see the main [README](../README.md#installation). Once installed, the `wassette` command will be available in your PATH.
+For installation instructions, see the main [README](https://github.com/microsoft/wassette/blob/main/README.md#installation). Once installed, the `wassette` command will be available in your PATH.
 
 ## Quick Start
 
@@ -484,7 +484,7 @@ wassette policy get my-component -o yaml
 
 ## See Also
 
-- [Main README](../README.md) - Installation and basic usage
+- [Main README](https://github.com/microsoft/wassette/blob/main/README.md) - Installation and basic usage
 - [MCP Client Setup](./mcp-clients.md) - Configuring MCP clients
 - [Architecture Overview](./overview.md) - Understanding Wassette's design
-- [Examples](../examples/) - Sample WebAssembly components
+- [Examples](https://github.com/microsoft/wassette/tree/main/examples) - Sample WebAssembly components

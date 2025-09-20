@@ -36,10 +36,10 @@ WebAssembly Components are a standardized way to build portable, secure, and int
 Wassette supports tools written in any language that can compile to WebAssembly Components. For current language support, see the [WebAssembly Language Support Guide](https://developer.fermyon.com/wasm-languages/webassembly-language-support).
 
 The project includes examples in several popular languages:
-- **JavaScript** ([time-server-js](../examples/time-server-js/), [get-weather-js](../examples/get-weather-js/))
-- **Python** ([eval-py](../examples/eval-py/))
-- **Rust** ([fetch-rs](../examples/fetch-rs/), [filesystem-rs](../examples/filesystem-rs/))
-- **Go** ([gomodule-go](../examples/gomodule-go/))
+- **JavaScript** ([time-server-js](https://github.com/microsoft/wassette/tree/main/examples/time-server-js), [get-weather-js](https://github.com/microsoft/wassette/tree/main/examples/get-weather-js))
+- **Python** ([eval-py](https://github.com/microsoft/wassette/tree/main/examples/eval-py))
+- **Rust** ([fetch-rs](https://github.com/microsoft/wassette/tree/main/examples/fetch-rs), [filesystem-rs](https://github.com/microsoft/wassette/tree/main/examples/filesystem-rs))
+- **Go** ([gomodule-go](https://github.com/microsoft/wassette/tree/main/examples/gomodule-go))
 
 ### Can I use existing WebAssembly modules with Wassette?
 
@@ -52,7 +52,7 @@ Wassette specifically requires WebAssembly **Components** (not just modules) tha
 3. **Compile to a Component** using appropriate tooling for your language
 4. **Test with Wassette** by loading the component
 
-See the [examples directory](../examples/) for complete working examples in different languages.
+See the [examples directory](https://github.com/microsoft/wassette/tree/main/examples) for complete working examples in different languages.
 
 ### Do I need to rewrite existing MCP servers?
 
@@ -218,12 +218,12 @@ Wassette is actively developed and used by Microsoft. However, as with any softw
 
 - **GitHub Issues**: [Report bugs or request features](https://github.com/microsoft/wassette/issues)
 - **Discord**: Join the `#wassette` channel on [Microsoft Open Source Discord](https://discord.gg/microsoft-open-source)
-- **Documentation**: Check the [docs directory](../docs/) for detailed guides
-- **Examples**: Review [working examples](../examples/) for common patterns
+- **Documentation**: Browse the [docs directory](https://github.com/microsoft/wassette/tree/main/docs) for detailed guides
+- **Examples**: Review [working examples](https://github.com/microsoft/wassette/tree/main/examples) for common patterns
 
 ### How can I contribute to Wassette?
 
-See the [Contributing Guide](../CONTRIBUTING.md) for information on:
+See the [Contributing Guide](https://github.com/microsoft/wassette/blob/main/CONTRIBUTING.md) for information on:
 - Setting up the development environment
 - Submitting bug reports and feature requests
 - Contributing code and documentation
@@ -231,10 +231,10 @@ See the [Contributing Guide](../CONTRIBUTING.md) for information on:
 
 ### Where can I find more examples?
 
-The [examples directory](../examples/) contains working examples in multiple languages:
-- [Time server (JavaScript)](../examples/time-server-js/)
-- [Weather API (JavaScript)](../examples/get-weather-js/)
-- [File system operations (Rust)](../examples/filesystem-rs/)
-- [HTTP client (Rust)](../examples/fetch-rs/)
-- [Code execution (Python)](../examples/eval-py/)
-- [Go module info (Go)](../examples/gomodule-go/)
+The [examples directory](https://github.com/microsoft/wassette/tree/main/examples) contains working examples in multiple languages:
+- [Time server (JavaScript)](https://github.com/microsoft/wassette/tree/main/examples/time-server-js)
+- [Weather API (JavaScript)](https://github.com/microsoft/wassette/tree/main/examples/get-weather-js)
+- [File system operations (Rust)](https://github.com/microsoft/wassette/tree/main/examples/filesystem-rs)
+- [HTTP client (Rust)](https://github.com/microsoft/wassette/tree/main/examples/fetch-rs)
+- [Code execution (Python)](https://github.com/microsoft/wassette/tree/main/examples/eval-py)
+- [Go module info (Go)](https://github.com/microsoft/wassette/tree/main/examples/gomodule-go)

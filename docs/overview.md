@@ -78,4 +78,4 @@ We are exploring AI tools that make porting existing MCP servers to Wasm easier,
 
 Wassette supports tools written in any language that can compile to WebAssembly Components. For current language support, see the [WebAssembly Language Support Guide](https://developer.fermyon.com/wasm-languages/webassembly-language-support).
 
-Wassette provides examples in JavaScript and Python, which are the most popular languages for MCP server development, see [examples](../examples/).
+Wassette provides examples in JavaScript and Python, which are the most popular languages for MCP server development; explore the [examples](https://github.com/microsoft/wassette/tree/main/examples).

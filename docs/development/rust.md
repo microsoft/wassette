@@ -870,8 +870,8 @@ impl Guest for Component {
 
 ### Examples in This Repository
 
-- [`examples/fetch-rs/`](../../examples/fetch-rs/) - HTTP client component with HTML/JSON processing
-- [`examples/filesystem-rs/`](../../examples/filesystem-rs/) - File system operations component
+- [`examples/fetch-rs/`](https://github.com/microsoft/wassette/tree/main/examples/fetch-rs) - HTTP client component with HTML/JSON processing
+- [`examples/filesystem-rs/`](https://github.com/microsoft/wassette/tree/main/examples/filesystem-rs) - File system operations component
 
 ### Community Resources
 
