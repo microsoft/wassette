@@ -1639,7 +1639,7 @@ dependencies = [
  "rustls 0.23.31",
  "rustls-pki-types",
  "tokio",
- "tokio-rustls 0.26.2",
+ "tokio-rustls 0.26.3",
  "tower-service",
 ]
 
@@ -3961,9 +3961,9 @@ dependencies = [
 
 [[package]]
 name = "tokio-rustls"
-version = "0.26.2"
+version = "0.26.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8e727b36a1a0e8b74c376ac2211e40c2c8af09fb4013c60d910495810f008e9b"
+checksum = "05f63835928ca123f1bef57abbcd23bb2ba0ac9ae1235f1e65bda0d06e7786bd"
 dependencies = [
  "rustls 0.23.31",
  "tokio",
@@ -5006,7 +5006,7 @@ dependencies = [
  "test-log",
  "testcontainers",
  "tokio",
- "tokio-rustls 0.26.2",
+ "tokio-rustls 0.26.3",
  "tokio-test",
  "tracing",
  "tracing-subscriber",
