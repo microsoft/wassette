@@ -56,7 +56,7 @@ impl LifecycleConfig {
         self.eager_load
     }
 
-    fn into_parts(
+    pub(crate) fn into_parts(
         self,
     ) -> (
         PathBuf,
@@ -212,28 +212,4 @@ fn default_oci_client() -> Result<oci_client::Client> {
         read_timeout: Some(Duration::from_secs(oci_timeout)),
         ..Default::default()
     }))
-}
-
-impl LifecycleConfig {
-    pub(crate) fn destructure(self) -> LifecycleConfigParts {
-        let (plugin_dir, secrets_dir, environment_vars, http_client, oci_client, _eager_load) =
-            self.into_parts();
-        LifecycleConfigParts {
-            plugin_dir,
-            secrets_dir,
-            environment_vars,
-            http_client,
-            oci_client,
-        }
-    }
-}
-
-/// Internal helper that exposes the decomposed configuration values to the
-/// lifecycle manager for initialization.
-pub(crate) struct LifecycleConfigParts {
-    pub plugin_dir: PathBuf,
-    pub secrets_dir: PathBuf,
-    pub environment_vars: HashMap<String, String>,
-    pub http_client: reqwest::Client,
-    pub oci_client: oci_client::Client,
 }

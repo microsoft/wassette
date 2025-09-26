@@ -43,21 +43,6 @@ impl RuntimeContext {
         })
     }
 
-    /// Accessor for the underlying engine as a shared pointer.
-    pub fn engine_handle(&self) -> Arc<Engine> {
-        Arc::clone(&self.engine)
-    }
-
-    /// Borrow the underlying engine reference.
-    pub fn engine(&self) -> &Engine {
-        self.engine.as_ref()
-    }
-
-    /// Accessor for the linker handle as a shareable pointer.
-    pub fn linker_handle(&self) -> Arc<Linker<WassetteWasiState<WasiState>>> {
-        Arc::clone(&self.linker)
-    }
-
     /// Produce a cached `InstancePre` handle for the provided component using
     /// the shared linker configuration.
     pub fn instantiate_pre(
@@ -65,5 +50,25 @@ impl RuntimeContext {
         component: &Component,
     ) -> wasmtime::Result<InstancePre<WassetteWasiState<WasiState>>> {
         self.linker.instantiate_pre(component)
+    }
+}
+
+impl AsRef<Engine> for RuntimeContext {
+    fn as_ref(&self) -> &Engine {
+        self.engine.as_ref()
+    }
+}
+
+impl AsRef<Linker<WassetteWasiState<WasiState>>> for RuntimeContext {
+    fn as_ref(&self) -> &Linker<WassetteWasiState<WasiState>> {
+        self.linker.as_ref()
+    }
+}
+
+impl std::ops::Deref for RuntimeContext {
+    type Target = Engine;
+
+    fn deref(&self) -> &Self::Target {
+        self.engine.as_ref()
     }
 }

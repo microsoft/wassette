@@ -1,7 +1,5 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT license.
-#![allow(clippy::uninlined_format_args)]
-
 use std::env;
 use std::path::PathBuf;
 use std::process::Command;

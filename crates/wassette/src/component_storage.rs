@@ -4,13 +4,16 @@
 //! Filesystem helpers that manage component artifacts, metadata, and cache
 //! layout for the lifecycle manager.
 
+use std::io::{BufReader, Read};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use anyhow::{anyhow, Context, Result};
-use sha2::Digest;
-use tokio::sync::Semaphore;
+use sha2::{Digest, Sha256};
+use tokio::sync::{OwnedSemaphorePermit, Semaphore};
+use tokio::task::spawn_blocking;
 
+use crate::loader::DownloadedResource;
 use crate::{ComponentMetadata, ValidationStamp};
 
 /// Handles filesystem layout and metadata persistence for components.
@@ -23,34 +26,28 @@ pub struct ComponentStorage {
 
 impl ComponentStorage {
     /// Create a new storage manager rooted at the plugin directory.
-    pub fn new(root: PathBuf, max_concurrent_downloads: usize) -> Self {
+    pub async fn new(root: impl Into<PathBuf>, max_concurrent_downloads: usize) -> Result<Self> {
+        let root = root.into();
         let downloads_dir = root.join(crate::DOWNLOADS_DIR);
-        Self {
-            root,
-            downloads_dir,
-            downloads_semaphore: Arc::new(Semaphore::new(max_concurrent_downloads.max(1))),
-        }
-    }
 
-    /// Ensure the directory structure exists on disk.
-    pub async fn ensure_layout(&self) -> Result<()> {
-        tokio::fs::create_dir_all(&self.root)
+        tokio::fs::create_dir_all(&root)
             .await
-            .with_context(|| {
-                format!(
-                    "Failed to create plugin directory at {}",
-                    self.root.display()
-                )
-            })?;
-        tokio::fs::create_dir_all(&self.downloads_dir)
+            .with_context(|| format!("Failed to create plugin directory at {}", root.display()))?;
+
+        tokio::fs::create_dir_all(&downloads_dir)
             .await
             .with_context(|| {
                 format!(
                     "Failed to create downloads directory at {}",
-                    self.downloads_dir.display()
+                    downloads_dir.display()
                 )
             })?;
-        Ok(())
+
+        Ok(Self {
+            root,
+            downloads_dir,
+            downloads_semaphore: Arc::new(Semaphore::new(max_concurrent_downloads.max(1))),
+        })
     }
 
     /// Root plugin directory containing components.
@@ -62,15 +59,6 @@ impl ComponentStorage {
     #[allow(dead_code)]
     pub fn downloads_dir(&self) -> &Path {
         &self.downloads_dir
-    }
-
-    /// Acquire a permit for filesystem-bound downloads.
-    pub async fn acquire_download_permit(&self) -> tokio::sync::OwnedSemaphorePermit {
-        self.downloads_semaphore
-            .clone()
-            .acquire_owned()
-            .await
-            .expect("Semaphore closed")
     }
 
     /// Absolute path to the component `.wasm` file.
@@ -100,6 +88,49 @@ impl ComponentStorage {
         self.root.join(format!("{component_id}.policy.meta.json"))
     }
 
+    /// Stage a downloaded component artifact into storage, replacing any existing files.
+    pub async fn install_component_artifact(
+        &self,
+        component_id: &str,
+        resource: DownloadedResource,
+    ) -> Result<PathBuf> {
+        let _permit = self.acquire_download_permit().await;
+
+        self.remove_component_artifacts(component_id).await?;
+
+        resource.copy_to(self.root()).await.with_context(|| {
+            format!(
+                "Failed to copy component to destination: {}",
+                self.root.display()
+            )
+        })?;
+
+        Ok(self.component_path(component_id))
+    }
+
+    /// Remove persisted component artifacts (wasm, metadata, cache) if they exist.
+    pub async fn remove_component_artifacts(&self, component_id: &str) -> Result<()> {
+        self.remove_if_exists(
+            &self.component_path(component_id),
+            "component file",
+            component_id,
+        )
+        .await?;
+        self.remove_if_exists(
+            &self.metadata_path(component_id),
+            "component metadata file",
+            component_id,
+        )
+        .await?;
+        self.remove_if_exists(
+            &self.precompiled_path(component_id),
+            "precompiled component file",
+            component_id,
+        )
+        .await?;
+        Ok(())
+    }
+
     /// Persist component metadata to disk.
     pub async fn write_metadata(&self, metadata: &ComponentMetadata) -> Result<()> {
         let path = self.metadata_path(&metadata.component_id);
@@ -117,13 +148,17 @@ impl ComponentStorage {
             return Ok(None);
         }
 
-        let contents = tokio::fs::read_to_string(&path).await.with_context(|| {
-            format!("Failed to read component metadata from {}", path.display())
-        })?;
+        let file = tokio::fs::File::open(&path)
+            .await
+            .with_context(|| format!("Failed to open component metadata at {}", path.display()))?;
 
-        let metadata = serde_json::from_str(&contents).with_context(|| {
-            format!("Failed to parse component metadata from {}", path.display())
-        })?;
+        let file = file.into_std().await;
+
+        let metadata = spawn_blocking(move || {
+            let reader = BufReader::new(file);
+            serde_json::from_reader(reader).context("Failed to deserialize component metadata")
+        })
+        .await??;
         Ok(Some(metadata))
     }
 
@@ -170,6 +205,7 @@ impl ComponentStorage {
     /// recorded in addition to size and modification time so changes can be
     /// detected even when timestamps are unreliable.
     pub async fn create_validation_stamp(
+        &self,
         path: &Path,
         include_hash: bool,
     ) -> Result<ValidationStamp> {
@@ -188,12 +224,7 @@ impl ComponentStorage {
             .as_secs();
 
         let content_hash = if include_hash {
-            let bytes = tokio::fs::read(path)
-                .await
-                .with_context(|| format!("Failed to read {} for hashing", path.display()))?;
-            let mut hasher = sha2::Sha256::new();
-            hasher.update(&bytes);
-            Some(format!("{:x}", hasher.finalize()))
+            Some(compute_file_hash(path).await?)
         } else {
             None
         };
@@ -207,15 +238,23 @@ impl ComponentStorage {
 
     /// Check if the validation stamp matches the current file on disk.
     pub async fn validate_stamp(path: &Path, stamp: &ValidationStamp) -> bool {
-        let Ok(metadata) = tokio::fs::metadata(path).await else {
-            return false;
+        let metadata = match tokio::fs::metadata(path).await {
+            Ok(metadata) => metadata,
+            Err(_) => return false,
         };
 
         if metadata.len() != stamp.file_size {
             return false;
         }
 
-        let Ok(mtime) = metadata
+        if let Some(expected_hash) = &stamp.content_hash {
+            match compute_file_hash(path).await {
+                Ok(actual_hash) => return actual_hash == *expected_hash,
+                Err(_) => return false,
+            }
+        }
+
+        let mtime = match metadata
             .modified()
             .map_err(|_| std::io::Error::from(std::io::ErrorKind::Other))
             .and_then(|t| {
@@ -223,26 +262,52 @@ impl ComponentStorage {
                     .map_err(|_| std::io::Error::from(std::io::ErrorKind::Other))
             })
             .map(|d| d.as_secs())
-        else {
-            return false;
+        {
+            Ok(mtime) => mtime,
+            Err(_) => return false,
         };
 
         if mtime != stamp.mtime {
             return false;
         }
 
-        if let Some(expected_hash) = &stamp.content_hash {
-            let Ok(content) = tokio::fs::read(path).await else {
-                return false;
-            };
-            let mut hasher = sha2::Sha256::new();
-            hasher.update(&content);
-            let actual_hash = format!("{:x}", hasher.finalize());
-            if &actual_hash != expected_hash {
-                return false;
+        true
+    }
+}
+
+async fn compute_file_hash(path: &Path) -> Result<String> {
+    let file = tokio::fs::File::open(path)
+        .await
+        .with_context(|| format!("Failed to open {} for hashing", path.display()))?;
+
+    let file = file.into_std().await;
+
+    let path = path.to_path_buf();
+    spawn_blocking(move || -> Result<String> {
+        let mut reader = BufReader::new(file);
+        let mut hasher = Sha256::new();
+        let mut buffer = [0u8; 16 * 1024];
+
+        loop {
+            let read = reader.read(&mut buffer)?;
+            if read == 0 {
+                break;
             }
+            hasher.update(&buffer[..read]);
         }
 
-        true
+        Ok(format!("{:x}", hasher.finalize()))
+    })
+    .await?
+    .with_context(|| format!("Failed to hash file {}", path.display()))
+}
+
+impl ComponentStorage {
+    async fn acquire_download_permit(&self) -> OwnedSemaphorePermit {
+        self.downloads_semaphore
+            .clone()
+            .acquire_owned()
+            .await
+            .expect("Semaphore closed")
     }
 }

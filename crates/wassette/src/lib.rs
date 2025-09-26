@@ -47,8 +47,6 @@ pub use wasistate::{
     create_wasi_state_template_from_policy, CustomResourceLimiter, WasiStateTemplate,
 };
 
-use crate::config::LifecycleConfigParts;
-
 const DOWNLOADS_DIR: &str = "downloads";
 const PRECOMPILED_EXT: &str = "cwasm";
 const METADATA_EXT: &str = "metadata.json";
@@ -163,8 +161,11 @@ impl ComponentRegistry {
     }
 
     async fn contains_component(&self, component_id: &str) -> bool {
-        let state = self.state.read().await;
-        state.components.contains_key(component_id)
+        self.state
+            .read()
+            .await
+            .components
+            .contains_key(component_id)
     }
 
     async fn list_components(&self) -> Vec<String> {
@@ -302,22 +303,20 @@ pub struct ComponentInstance {
 impl LifecycleManager {
     /// Begin constructing a lifecycle manager with a fluent builder that
     /// validates configuration and applies sensible defaults.
-    pub fn builder(plugin_dir: impl Into<PathBuf>) -> LifecycleBuilder {
-        LifecycleBuilder::new(plugin_dir.into())
+    pub fn builder(plugin_dir: impl AsRef<Path>) -> LifecycleBuilder {
+        LifecycleBuilder::new(plugin_dir.as_ref().to_path_buf())
     }
 
     /// Creates a lifecycle manager with default configuration and eager loading.
     #[instrument(skip_all, fields(plugin_dir = %plugin_dir.as_ref().display()))]
     pub async fn new(plugin_dir: impl AsRef<Path>) -> Result<Self> {
-        Self::builder(plugin_dir.as_ref().to_path_buf())
-            .build()
-            .await
+        Self::builder(plugin_dir).build().await
     }
 
     /// Creates an unloaded lifecycle manager; components remain unloaded until requested.
     #[instrument(skip_all, fields(plugin_dir = %plugin_dir.as_ref().display()))]
     pub async fn new_unloaded(plugin_dir: impl AsRef<Path>) -> Result<Self> {
-        Self::builder(plugin_dir.as_ref().to_path_buf())
+        Self::builder(plugin_dir)
             .with_eager_loading(false)
             .build()
             .await
@@ -326,17 +325,11 @@ impl LifecycleManager {
     /// Construct a lifecycle manager from an explicit configuration without loading components.
     #[instrument(skip_all, fields(plugin_dir = %config.plugin_dir().display()))]
     pub async fn from_config(config: LifecycleConfig) -> Result<Self> {
-        let LifecycleConfigParts {
-            plugin_dir,
-            secrets_dir,
-            environment_vars,
-            http_client,
-            oci_client,
-            ..
-        } = config.destructure();
+        let (plugin_dir, secrets_dir, environment_vars, http_client, oci_client, _) =
+            config.into_parts();
 
-        let storage = ComponentStorage::new(plugin_dir.clone(), DEFAULT_DOWNLOAD_CONCURRENCY);
-        storage.ensure_layout().await?;
+        let storage =
+            ComponentStorage::new(plugin_dir.clone(), DEFAULT_DOWNLOAD_CONCURRENCY).await?;
 
         let runtime = Arc::new(RuntimeContext::initialize()?);
 
@@ -376,7 +369,7 @@ impl LifecycleManager {
         for (component_instance, name) in loaded_components {
             let tool_metadata = component_exports_to_tools(
                 &component_instance.component,
-                self.runtime.engine(),
+                self.runtime.as_ref(),
                 true,
             );
 
@@ -385,7 +378,7 @@ impl LifecycleManager {
                 .upsert_component(name.clone(), component_instance, tool_metadata)
                 .await
             {
-                warn!(component_id = %name, %error, "Failed to register component in registry");
+                warn!(%name, %error, "Failed to register component in registry");
                 continue;
             }
 
@@ -394,11 +387,11 @@ impl LifecycleManager {
 
         for component_id in registered_ids {
             if let Err(error) = self.restore_policy_attachment(&component_id).await {
-                warn!(component_id = %component_id, %error, "Failed to restore policy attachment");
+                warn!(%component_id, %error, "Failed to restore policy attachment");
             }
         }
 
-        info!("LifecycleManager eagerly loaded components");
+        info!("LifecycleManager finished loading components");
         Ok(())
     }
 
@@ -423,32 +416,9 @@ impl LifecycleManager {
         match resource {
             DownloadedResource::Local(path) if path == target_path => Ok(target_path),
             other => {
-                let _permit = self.storage.acquire_download_permit().await;
-                // Remove any stale component to avoid partial states when copying
                 self.storage
-                    .remove_if_exists(&target_path, "component file", component_id)
-                    .await?;
-                self.storage
-                    .remove_if_exists(
-                        &self.storage.metadata_path(component_id),
-                        "component metadata file",
-                        component_id,
-                    )
-                    .await?;
-                self.storage
-                    .remove_if_exists(
-                        &self.storage.precompiled_path(component_id),
-                        "precompiled component file",
-                        component_id,
-                    )
-                    .await?;
-                other.copy_to(self.storage.root()).await.with_context(|| {
-                    format!(
-                        "Failed to copy component to destination: {}",
-                        self.storage.root().display()
-                    )
-                })?;
-                Ok(target_path)
+                    .install_component_artifact(component_id, other)
+                    .await
             }
         }
     }
@@ -473,20 +443,18 @@ impl LifecycleManager {
         };
 
         let tool_metadata =
-            component_exports_to_tools(&component_instance.component, self.runtime.engine(), true);
+            component_exports_to_tools(&component_instance.component, self.runtime.as_ref(), true);
         let tool_names: Vec<String> = tool_metadata
             .iter()
             .map(|tool| tool.normalized_name.clone())
             .collect();
 
-        if let Ok(validation_stamp) =
-            ComponentStorage::create_validation_stamp(wasm_path, false).await
-        {
+        if let Ok(validation_stamp) = self.storage.create_validation_stamp(wasm_path, false).await {
             if let Err(e) = self
                 .save_component_metadata(component_id, &tool_metadata, validation_stamp)
                 .await
             {
-                warn!(component_id = %component_id, error = %e, "Failed to save component metadata");
+                warn!(%component_id, error = %e, "Failed to save component metadata");
             }
         }
 
@@ -496,7 +464,7 @@ impl LifecycleManager {
             .await?;
 
         if let Err(error) = self.policy_manager.restore_from_disk(component_id).await {
-            warn!(component_id = %component_id, %error, "Failed to restore policy attachment");
+            warn!(%component_id, %error, "Failed to restore policy attachment");
         }
 
         Ok(ComponentLoadOutcome {
@@ -545,10 +513,7 @@ impl LifecycleManager {
         debug!("Unloading component and removing files from disk");
 
         // Remove files first, then clean up memory on success
-        let component_file = self.component_path(id);
-        self.storage
-            .remove_if_exists(&component_file, "component file", id)
-            .await?;
+        self.storage.remove_component_artifacts(id).await?;
 
         let policy_path = self.get_component_policy_path(id);
         self.storage
@@ -558,17 +523,6 @@ impl LifecycleManager {
         let metadata_path = self.get_component_metadata_path(id);
         self.storage
             .remove_if_exists(&metadata_path, "policy metadata file", id)
-            .await?;
-
-        // Remove new cache files
-        let component_metadata_path = self.component_metadata_path(id);
-        self.storage
-            .remove_if_exists(&component_metadata_path, "component metadata file", id)
-            .await?;
-
-        let precompiled_path = self.component_precompiled_path(id);
-        self.storage
-            .remove_if_exists(&precompiled_path, "precompiled component file", id)
             .await?;
 
         // Only cleanup memory after all files are successfully removed
@@ -686,7 +640,7 @@ impl LifecycleManager {
         if let Some(component_instance) = self.get_component(component_id).await {
             return Some(component_exports_to_json_schema(
                 &component_instance.component,
-                self.runtime.engine(),
+                self.runtime.as_ref(),
                 true,
             ));
         }
@@ -702,11 +656,6 @@ impl LifecycleManager {
 
     fn component_path(&self, component_id: &str) -> PathBuf {
         self.storage.component_path(component_id)
-    }
-
-    /// Get the path to component metadata file
-    fn component_metadata_path(&self, component_id: &str) -> PathBuf {
-        self.storage.metadata_path(component_id)
     }
 
     /// Get the path to precompiled component file
@@ -873,7 +822,6 @@ impl LifecycleManager {
     ) -> Result<()> {
         let precompiled_data = self
             .runtime
-            .engine()
             .precompile_component(wasm_bytes)
             .context("Failed to precompile component")?;
 
@@ -895,7 +843,7 @@ impl LifecycleManager {
 
         // Try to load from precompiled cache first
         if precompiled_path.exists() {
-            match unsafe { Component::deserialize_file(self.runtime.engine(), &precompiled_path) } {
+            match unsafe { Component::deserialize_file(self.runtime.as_ref(), &precompiled_path) } {
                 Ok(component) => {
                     debug!(component_id = %component_id, "Loaded component from precompiled cache");
                     // Still need the wasm bytes for metadata/validation
@@ -905,7 +853,7 @@ impl LifecycleManager {
                     return Ok((component, wasm_bytes));
                 }
                 Err(e) => {
-                    warn!(component_id = %component_id, error = %e, "Failed to load precompiled component, falling back to compilation");
+                    warn!(%component_id, error = %e, "Failed to load precompiled component, falling back to compilation");
                 }
             }
         }
@@ -915,7 +863,7 @@ impl LifecycleManager {
             .await
             .context("Failed to read wasm file")?;
 
-        let component = Component::new(self.runtime.engine(), &wasm_bytes)
+        let component = Component::new(self.runtime.as_ref(), &wasm_bytes)
             .context("Failed to compile component")?;
 
         // Save precompiled version for next time (async, don't block on this)
@@ -923,7 +871,7 @@ impl LifecycleManager {
             .save_precompiled_component(component_id, &wasm_bytes)
             .await
         {
-            warn!(component_id = %component_id, error = %e, "Failed to save precompiled component");
+            warn!(%component_id, error = %e, "Failed to save precompiled component");
         }
 
         debug!(component_id = %component_id, "Compiled component and saved to cache");
@@ -962,7 +910,7 @@ impl LifecycleManager {
 
         let (state, resource_limiter) = self.get_wasi_state_for_component(component_id).await?;
 
-        let mut store = Store::new(self.runtime.engine(), state);
+        let mut store = Store::new(self.runtime.as_ref(), state);
 
         // Apply memory limits if configured in the policy by setting up a limiter closure
         // that extracts the resource limiter from the WasiState
@@ -1145,7 +1093,7 @@ impl LifecycleManager {
                             continue;
                         }
                         Err(e) => {
-                            warn!(component_id = %component_id, error = %e, "Failed to register tools from metadata");
+                            warn!(%component_id, error = %e, "Failed to register tools from metadata");
                             continue;
                         }
                     }
@@ -1310,10 +1258,11 @@ async fn load_component_from_entry(
         return Ok(None);
     }
     let entry_path = entry.path();
-    let engine = runtime.engine_handle();
-    let linker = runtime.linker_handle();
-    let component =
-        tokio::task::spawn_blocking(move || Component::from_file(&engine, entry_path)).await??;
+    let runtime_for_component = Arc::clone(&runtime);
+    let component = tokio::task::spawn_blocking(move || {
+        Component::from_file(runtime_for_component.as_ref(), entry_path)
+    })
+    .await??;
     let name = entry
         .path()
         .file_stem()
@@ -1321,7 +1270,7 @@ async fn load_component_from_entry(
         .map(String::from)
         .context("wasm file didn't have a valid file name")?;
     info!(component_id = %name, elapsed = ?start_time.elapsed(), "component loaded");
-    let instance_pre = linker.instantiate_pre(&component)?;
+    let instance_pre = runtime.instantiate_pre(&component)?;
     Ok(Some((
         ComponentInstance {
             component: Arc::new(component),
