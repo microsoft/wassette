@@ -1,0 +1,40 @@
+package local:context7@0.1.0;
+
+interface context7 {
+    record library-result {
+        id: string,
+        name: string,
+        description: string,
+        code-snippets: u32,
+        trust-score: u32,
+        versions: list<string>,
+    }
+
+    record search-response {
+        success: bool,
+        results: list<library-result>,
+        error: option<string>,
+    }
+
+    record docs-response {
+        success: bool,
+        content: option<string>,
+        error: option<string>,
+    }
+
+    /// Resolves a library name to Context7-compatible library IDs
+    resolve-library-id: func(library-name: string) -> search-response;
+
+    /// Fetches documentation for a library using Context7-compatible library ID
+    get-library-docs: func(
+        context7-compatible-library-id: string,
+        topic: option<string>,
+        tokens: option<u32>
+    ) -> docs-response;
+}
+
+world context7-component {
+    import wasi:http/outgoing-handler@0.2.1;
+    import wasi:cli/environment@0.2.1;
+    export context7;
+}

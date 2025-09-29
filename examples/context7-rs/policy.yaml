@@ -1,0 +1,9 @@
+version: "1.0"
+description: "Permission policy for context7 component"
+permissions:
+  network:
+    allow:
+      - host: "context7.com"
+  environment:
+    allow:
+      - key: "CONTEXT7_API_KEY"

@@ -1,0 +1,5 @@
+install-wasi-target:
+    rustup target add wasm32-wasip2
+
+build mode="debug": install-wasi-target
+    cargo component build -p context7 --target wasm32-wasip2 {{ if mode == "release" { "--release" } else { "" } }}
