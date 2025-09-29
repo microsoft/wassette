@@ -1,3 +1,6 @@
+// Copyright (c) Microsoft Corporation.
+// Licensed under the MIT license.
+
 //! Helpers for canonicalizing tool output schemas and aligning structured results.
 
 use serde_json::{Map, Value};
