@@ -31,6 +31,7 @@ mod loader;
 pub mod oci_multi_layer;
 mod policy_internal;
 mod runtime_context;
+pub mod schema;
 mod secrets;
 mod wasistate;
 
@@ -657,9 +658,16 @@ impl LifecycleManager {
 
         // Fallback to metadata-based schema without compiling the component
         match self.load_component_metadata(component_id).await {
-            Ok(Some(metadata)) => Some(serde_json::json!({
-                "tools": metadata.tool_schemas
-            })),
+            Ok(Some(metadata)) => {
+                let tools: Vec<Value> = metadata
+                    .tool_schemas
+                    .into_iter()
+                    .map(|schema| schema::canonicalize_output_schema(&schema))
+                    .collect();
+                Some(serde_json::json!({
+                    "tools": tools
+                }))
+            }
             _ => None,
         }
     }
@@ -1081,10 +1089,13 @@ impl LifecycleManager {
                         .into_iter()
                         .zip(metadata.tool_schemas)
                         .zip(metadata.tool_names)
-                        .map(|((identifier, schema), normalized_name)| ToolMetadata {
-                            identifier,
-                            schema,
-                            normalized_name,
+                        .map(|((identifier, schema), normalized_name)| {
+                            let canonical = schema::canonicalize_output_schema(&schema);
+                            ToolMetadata {
+                                identifier,
+                                schema: canonical,
+                                normalized_name,
+                            }
                         })
                         .collect();
 

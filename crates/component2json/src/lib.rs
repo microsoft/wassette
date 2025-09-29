@@ -161,13 +161,20 @@ pub fn component_exports_to_json_schema(
 pub fn vals_to_json(vals: &[Val]) -> Value {
     match vals.len() {
         0 => Value::Null,
-        1 => val_to_json(&vals[0]),
+        1 => {
+            let mut wrapper = Map::new();
+            wrapper.insert("result".to_string(), val_to_json(&vals[0]));
+            Value::Object(wrapper)
+        }
         _ => {
-            let mut map = Map::new();
+            let mut tuple_map = Map::new();
             for (i, v) in vals.iter().enumerate() {
-                map.insert(format!("val{i}"), val_to_json(v));
+                tuple_map.insert(format!("val{i}"), val_to_json(v));
             }
-            Value::Object(map)
+
+            let mut wrapper = Map::new();
+            wrapper.insert("result".to_string(), Value::Object(tuple_map));
+            Value::Object(wrapper)
         }
     }
 }
@@ -394,23 +401,53 @@ fn component_func_to_schema(name: &str, func: &ComponentFunc, output: bool) -> s
     tool_obj.insert("inputSchema".to_string(), input_schema);
 
     if output {
-        let mut results_iter = func.results();
-        let output_schema = match results_iter.len() {
-            0 => None,
-            1 => Some(type_to_json_schema(&results_iter.next().unwrap())),
-            _ => {
-                let schemas: Vec<_> = results_iter.map(|ty| type_to_json_schema(&ty)).collect();
-                Some(json!({
-                    "type": "array",
-                    "items": schemas
-                }))
-            }
-        };
-        if let Some(o) = output_schema {
+        let results: Vec<_> = func.results().collect();
+        if let Some(o) = canonical_output_schema_for_results(&results) {
             tool_obj.insert("outputSchema".to_string(), o);
         }
     }
     json!(tool_obj)
+}
+
+fn canonical_output_schema_for_results(results: &[Type]) -> Option<Value> {
+    if results.is_empty() {
+        return None;
+    }
+
+    let result_schema = if results.len() == 1 {
+        type_to_json_schema(&results[0])
+    } else {
+        let mut props = Map::new();
+        let mut required = Vec::new();
+
+        for (idx, ty) in results.iter().enumerate() {
+            let key = format!("val{idx}");
+            props.insert(key.clone(), type_to_json_schema(ty));
+            required.push(Value::String(key));
+        }
+
+        let mut tuple_schema = Map::new();
+        tuple_schema.insert("type".to_string(), Value::String("object".to_string()));
+        tuple_schema.insert("properties".to_string(), Value::Object(props));
+        tuple_schema.insert("required".to_string(), Value::Array(required));
+        Value::Object(tuple_schema)
+    };
+
+    Some(build_result_wrapper(result_schema))
+}
+
+fn build_result_wrapper(result_schema: Value) -> Value {
+    let mut props = Map::new();
+    props.insert("result".to_string(), result_schema);
+
+    let mut wrapper = Map::new();
+    wrapper.insert("type".to_string(), Value::String("object".to_string()));
+    wrapper.insert("properties".to_string(), Value::Object(props));
+    wrapper.insert(
+        "required".to_string(),
+        Value::Array(vec![Value::String("result".to_string())]),
+    );
+    Value::Object(wrapper)
 }
 
 fn gather_exported_functions_with_metadata(
@@ -842,6 +879,13 @@ mod tests {
 
     use super::*;
 
+    fn result_schema<'a>(schema: &'a Value) -> &'a Value {
+        schema
+            .get("properties")
+            .and_then(|props| props.get("result"))
+            .unwrap_or(schema)
+    }
+
     #[test]
     fn test_vals_to_json_empty() {
         let json_val = vals_to_json(&[]);
@@ -852,17 +896,54 @@ mod tests {
     fn test_vals_to_json_single() {
         let val = Val::Bool(true);
         let json_val = vals_to_json(std::slice::from_ref(&val));
-        assert_eq!(json_val, val_to_json(&val));
+        assert_eq!(json_val, json!({"result": true}));
+    }
+
+    #[test]
+    fn test_canonical_output_schema_single_scalar() {
+        let schema = canonical_output_schema_for_results(&[Type::String]).unwrap();
+        assert_eq!(
+            schema,
+            json!({
+                "type": "object",
+                "properties": {
+                    "result": { "type": "string" }
+                },
+                "required": ["result"]
+            })
+        );
+    }
+
+    #[test]
+    fn test_canonical_output_schema_multi_result() {
+        let schema = canonical_output_schema_for_results(&[Type::String, Type::S64]).unwrap();
+        assert_eq!(
+            schema,
+            json!({
+                "type": "object",
+                "properties": {
+                    "result": {
+                        "type": "object",
+                        "properties": {
+                            "val0": { "type": "string" },
+                            "val1": { "type": "number" }
+                        },
+                        "required": ["val0", "val1"]
+                    }
+                },
+                "required": ["result"]
+            })
+        );
     }
 
     #[test]
     fn test_vals_to_json_multiple_values() {
         let wit_vals = vec![Val::String("example".to_string()), Val::S64(42)];
         let json_result = vals_to_json(&wit_vals);
-
-        let obj = json_result.as_object().unwrap();
-        assert_eq!(obj.get("val0").unwrap(), &json!("example"));
-        assert_eq!(obj.get("val1").unwrap(), &json!(42));
+        assert_eq!(
+            json_result,
+            json!({"result": {"val0": "example", "val1": 42}})
+        );
     }
 
     #[test]
@@ -1053,9 +1134,10 @@ mod tests {
             }
 
             let output_schema = tool.get("outputSchema").unwrap();
+            let result_schema_ref = result_schema(output_schema);
             if expected_exports[i] == "list-directory" {
                 assert!(
-                    output_schema.get("oneOf").unwrap().as_array().unwrap()[0]
+                    result_schema_ref.get("oneOf").unwrap().as_array().unwrap()[0]
                         .get("properties")
                         .unwrap()
                         .get("ok")
@@ -1066,7 +1148,7 @@ mod tests {
                 );
             } else {
                 assert!(
-                    output_schema.get("oneOf").unwrap().as_array().unwrap()[0]
+                    result_schema_ref.get("oneOf").unwrap().as_array().unwrap()[0]
                         .get("properties")
                         .unwrap()
                         .get("ok")
@@ -1113,7 +1195,7 @@ mod tests {
         assert!(properties.contains_key("wit"));
 
         let output_schema = generate_tool.get("outputSchema").unwrap();
-        assert!(output_schema.get("oneOf").is_some());
+        assert!(result_schema(output_schema).get("oneOf").is_some());
     }
 
     #[test]
@@ -1293,14 +1375,15 @@ mod tests {
         assert!(properties.contains_key("c"));
         assert!(properties.contains_key("d"));
         let output_schema = root_b.get("outputSchema").unwrap();
-        assert_eq!(output_schema.get("type").unwrap(), "string");
+        assert_eq!(result_schema(output_schema).get("type").unwrap(), "string");
 
         let root_c = find_tool(tools, "c").unwrap();
         let output_schema = root_c.get("outputSchema").unwrap();
-        assert_eq!(output_schema.get("type").unwrap(), "array");
-        assert_eq!(output_schema.get("minItems").unwrap(), 4);
-        assert_eq!(output_schema.get("maxItems").unwrap(), 4);
-        let prefix_items = output_schema
+        let result_schema_ref = result_schema(output_schema);
+        assert_eq!(result_schema_ref.get("type").unwrap(), "array");
+        assert_eq!(result_schema_ref.get("minItems").unwrap(), 4);
+        assert_eq!(result_schema_ref.get("maxItems").unwrap(), 4);
+        let prefix_items = result_schema_ref
             .get("prefixItems")
             .unwrap()
             .as_array()
@@ -1333,7 +1416,11 @@ mod tests {
             assert!(input_props.contains_key("x")); // string
 
             let output_schema = foo_b.get("outputSchema").unwrap();
-            let cases = output_schema.get("oneOf").unwrap().as_array().unwrap();
+            let cases = result_schema(output_schema)
+                .get("oneOf")
+                .unwrap()
+                .as_array()
+                .unwrap();
             assert_eq!(cases.len(), 3);
 
             let case_a = &cases[0];
@@ -1406,7 +1493,7 @@ mod tests {
             assert!(input_props.contains_key("x")); // variant type
 
             let output_schema = foo_c.get("outputSchema").unwrap();
-            assert_eq!(output_schema.get("type").unwrap(), "string");
+            assert_eq!(result_schema(output_schema).get("type").unwrap(), "string");
         }
     }
 
@@ -1448,10 +1535,10 @@ mod tests {
     fn test_vals_to_json_multiple() {
         let wit_vals = vec![Val::String("example".to_string()), Val::S64(42)];
         let json_result = vals_to_json(&wit_vals);
-
-        let obj = json_result.as_object().unwrap();
-        assert_eq!(obj.get("val0").unwrap(), &json!("example"));
-        assert_eq!(obj.get("val1").unwrap(), &json!(42));
+        assert_eq!(
+            json_result,
+            json!({"result": {"val0": "example", "val1": 42}})
+        );
     }
 
     #[test]

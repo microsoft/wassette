@@ -38,6 +38,7 @@ let wit_vals = json_to_vals(&json_args, &func_param_types)?;
 
 // Convert WIT values back to JSON
 let json_result = vals_to_json(&wit_vals);
+assert_eq!(json_result, serde_json::json!({"result": {"val0": "example", "val1": 42}}));
 
 // Create placeholder results for function call results
 // This is useful when you need to prepare storage for function return values
@@ -46,6 +47,15 @@ let placeholder_results = create_placeholder_results(&result_types);
 # Ok(())
 # }
 ```
+
+## Structured Result Wrapper
+
+All function return values produced by `component_exports_to_json_schema` and `vals_to_json` are wrapped in an object with a required `result` property.
+
+- Single return values appear as `{ "result": VALUE }`.
+- Multiple return values appear as `{ "result": { "val0": VALUE0, "val1": VALUE1, ... } }`.
+
+The generated `outputSchema` for each tool mirrors this shape, ensuring downstream consumers can always access the payload through the `result` key.
 
 ## Type Conversion Specification
 

@@ -177,14 +177,19 @@ async fn test_structured_output_integration() -> Result<()> {
         &fetch_tool["outputSchema"]
     };
 
+    let result_schema = output_schema
+        .get("properties")
+        .and_then(|props| props.get("result"))
+        .unwrap_or(output_schema);
+
     println!(
         "✓ fetch tool has output_schema field: {}",
-        serde_json::to_string_pretty(output_schema).unwrap()
+        serde_json::to_string_pretty(result_schema).unwrap()
     );
 
     // Verify the output schema structure makes sense for fetch (should be Result<String, String>)
     // The schema should reflect a Result type with ok/err variants
-    if let Some(one_of) = output_schema.get("oneOf").and_then(|v| v.as_array()) {
+    if let Some(one_of) = result_schema.get("oneOf").and_then(|v| v.as_array()) {
         println!(
             "✓ output_schema has oneOf structure with {} variants",
             one_of.len()
@@ -212,7 +217,7 @@ async fn test_structured_output_integration() -> Result<()> {
         // Alternative schema structure might be used
         println!(
             "Note: output_schema uses alternative structure: {}",
-            serde_json::to_string_pretty(output_schema).unwrap()
+            serde_json::to_string_pretty(result_schema).unwrap()
         );
     }
 
@@ -256,9 +261,13 @@ async fn test_structured_output_integration() -> Result<()> {
         );
 
         let structured = structured.unwrap();
+        assert!(structured.is_object());
         assert!(
-            structured.is_object(),
-            "structured_content should carry the structured result object: {}",
+            structured
+                .get("result")
+                .map(|v| v.is_object() || v.is_string() || v.is_array())
+                .unwrap_or(false),
+            "structured_content.result missing or malformed: {}",
             serde_json::to_string_pretty(structured).unwrap()
         );
 

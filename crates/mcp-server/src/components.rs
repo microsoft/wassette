@@ -8,8 +8,9 @@ use anyhow::Result;
 use futures::stream::{self, StreamExt};
 use rmcp::model::{CallToolRequestParam, CallToolResult, Content, Tool};
 use rmcp::{Peer, RoleServer};
-use serde_json::{json, Map, Value};
+use serde_json::{json, Value};
 use tracing::{debug, error, info, instrument};
+use wassette::schema::{canonicalize_output_schema, ensure_structured_result};
 use wassette::{ComponentLoadOutcome, LifecycleManager, LoadResult};
 
 #[instrument(skip(lifecycle_manager))]
@@ -175,32 +176,10 @@ fn align_structured_result_with_schema(
     output_schema: Option<&Value>,
     structured_value: Value,
 ) -> Value {
-    if let Some(schema) = output_schema {
-        if schema.get("type").and_then(|v| v.as_str()) == Some("object") {
-            if let Some(properties) = schema.get("properties").and_then(|v| v.as_object()) {
-                if properties.contains_key("result") {
-                    return match structured_value {
-                        Value::Object(obj) => {
-                            if obj.contains_key("result") {
-                                Value::Object(obj)
-                            } else {
-                                let mut wrapper = Map::new();
-                                wrapper.insert("result".to_string(), Value::Object(obj));
-                                Value::Object(wrapper)
-                            }
-                        }
-                        other => {
-                            let mut wrapper = Map::new();
-                            wrapper.insert("result".to_string(), other);
-                            Value::Object(wrapper)
-                        }
-                    };
-                }
-            }
-        }
+    match output_schema {
+        Some(schema) => ensure_structured_result(schema, structured_value),
+        None => structured_value,
     }
-
-    structured_value
 }
 
 fn normalize_output_schema(schema: &Value) -> Option<Value> {
@@ -208,30 +187,7 @@ fn normalize_output_schema(schema: &Value) -> Option<Value> {
         return None;
     }
 
-    match schema {
-        Value::Object(map) => {
-            if map.get("type").and_then(|v| v.as_str()) == Some("object") {
-                Some(Value::Object(map.clone()))
-            } else {
-                Some(wrap_schema_in_result(schema.clone()))
-            }
-        }
-        _ => Some(wrap_schema_in_result(schema.clone())),
-    }
-}
-
-fn wrap_schema_in_result(schema: Value) -> Value {
-    let mut props = Map::new();
-    props.insert("result".to_string(), schema);
-
-    let mut wrapped = Map::new();
-    wrapped.insert("type".to_string(), Value::String("object".to_string()));
-    wrapped.insert("properties".to_string(), Value::Object(props));
-    wrapped.insert(
-        "required".to_string(),
-        Value::Array(vec![Value::String("result".to_string())]),
-    );
-    Value::Object(wrapped)
+    Some(canonicalize_output_schema(schema))
 }
 
 #[instrument(skip(lifecycle_manager))]
@@ -589,6 +545,36 @@ mod tests {
     }
 
     #[test]
+    fn test_normalize_output_schema_converts_tuple_array() {
+        let legacy = json!({
+            "type": "object",
+            "properties": {
+                "result": {
+                    "type": "array",
+                    "items": [
+                        {"type": "string"},
+                        {"type": "number"}
+                    ]
+                }
+            },
+            "required": ["result"]
+        });
+
+        let normalized = normalize_output_schema(&legacy).unwrap();
+        assert_eq!(
+            normalized.get("properties").unwrap().get("result").unwrap(),
+            &json!({
+                "type": "object",
+                "properties": {
+                    "val0": {"type": "string"},
+                    "val1": {"type": "number"}
+                },
+                "required": ["val0", "val1"]
+            })
+        );
+    }
+
+    #[test]
     fn test_align_structured_result_with_schema_wraps_missing_result() {
         let schema = json!({
             "type": "object",
@@ -616,6 +602,33 @@ mod tests {
         let original = json!({"result": {"ok": "16"}});
         let aligned = align_structured_result_with_schema(Some(&schema), original.clone());
         assert_eq!(aligned, original);
+    }
+
+    #[test]
+    fn test_align_structured_result_normalizes_tuple_array() {
+        let schema = json!({
+            "type": "object",
+            "properties": {
+                "result": {
+                    "type": "object",
+                    "properties": {
+                        "val0": {"type": "string"},
+                        "val1": {"type": "number"}
+                    },
+                    "required": ["val0", "val1"]
+                }
+            },
+            "required": ["result"]
+        });
+
+        let aligned = align_structured_result_with_schema(Some(&schema), json!("legacy"));
+        assert_eq!(aligned, json!({"result": {"val0": "legacy"}}));
+
+        let aligned_array = align_structured_result_with_schema(Some(&schema), json!(["hello", 7]));
+        assert_eq!(
+            aligned_array,
+            json!({"result": {"val0": "hello", "val1": 7}})
+        );
     }
 
     #[test]
@@ -665,10 +678,16 @@ mod tests {
         let expected_output = json!({
             "type": "object",
             "properties": {
-                "temperature": {"type": "number"},
-                "conditions": {"type": "string"}
+                "result": {
+                    "type": "object",
+                    "properties": {
+                        "temperature": {"type": "number"},
+                        "conditions": {"type": "string"}
+                    },
+                    "required": ["temperature", "conditions"]
+                }
             },
-            "required": ["temperature", "conditions"]
+            "required": ["result"]
         });
         assert_eq!(output_schema_json, expected_output);
 
