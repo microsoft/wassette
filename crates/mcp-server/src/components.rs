@@ -132,7 +132,7 @@ pub(crate) async fn handle_component_call(
             let normalized_schema = tool_schema
                 .as_ref()
                 .and_then(|schema| schema.get("outputSchema"))
-                .and_then(|raw_schema| normalize_output_schema(raw_schema));
+                .and_then(normalize_output_schema);
 
             let structured_content = normalized_schema.as_ref().map(|schema| {
                 align_structured_result_with_schema(Some(schema), parsed_value.clone())
