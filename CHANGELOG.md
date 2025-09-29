@@ -38,6 +38,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - **CLI Documentation**: Comprehensive CLI reference documentation in `docs/cli.md`
 - Support for MCP Tool structured output as defined in the MCP specification ([#181](https://github.com/microsoft/wassette/pull/181))
 - End-to-end integration test for MCP structured output feature verification ([#181](https://github.com/microsoft/wassette/pull/181))
+- Zero code duplication by reusing existing MCP tool handler functions
+- CLI-specific wrapper functions (`handle_load_component_cli`, `handle_unload_component_cli`) that work without MCP server peer notifications
 
 ### Changed
 
@@ -92,14 +94,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - Component loading across different filesystems (EXDEV error handling) ([#109](https://github.com/microsoft/wassette/pull/109))
 - Component names in README files for consistency ([#115](https://github.com/microsoft/wassette/pull/115))
 - Installation instructions for Linux and Windows in README ([#120](https://github.com/microsoft/wassette/pull/120))
-
-### Technical Details
-
-- Zero code duplication by reusing existing MCP tool handler functions
-- CLI-specific wrapper functions (`handle_load_component_cli`, `handle_unload_component_cli`) that work without MCP server peer notifications
-- Maintains full backward compatibility with existing `serve` command
 - Proper error handling with clear error messages for non-existent components
-- Follows common CLI patterns and conventions for intuitive user experience
+- CLI patterns and conventions for intuitive user experience
+
+
 
 ## [v0.2.0] - 2025-08-05
 
