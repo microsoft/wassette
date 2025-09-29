@@ -4,7 +4,7 @@
 //! Filesystem helpers that manage component artifacts, metadata, and cache
 //! layout for the lifecycle manager.
 
-use std::io::{BufReader, Read};
+use std::io::BufReader;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -59,6 +59,14 @@ impl ComponentStorage {
     #[allow(dead_code)]
     pub fn downloads_dir(&self) -> &Path {
         &self.downloads_dir
+    }
+
+    async fn acquire_download_permit(&self) -> OwnedSemaphorePermit {
+        self.downloads_semaphore
+            .clone()
+            .acquire_owned()
+            .await
+            .expect("Semaphore closed")
     }
 
     /// Absolute path to the component `.wasm` file.
@@ -286,28 +294,11 @@ async fn compute_file_hash(path: &Path) -> Result<String> {
     spawn_blocking(move || -> Result<String> {
         let mut reader = BufReader::new(file);
         let mut hasher = Sha256::new();
-        let mut buffer = [0u8; 16 * 1024];
 
-        loop {
-            let read = reader.read(&mut buffer)?;
-            if read == 0 {
-                break;
-            }
-            hasher.update(&buffer[..read]);
-        }
+        std::io::copy(&mut reader, &mut hasher)?;
 
         Ok(format!("{:x}", hasher.finalize()))
     })
     .await?
     .with_context(|| format!("Failed to hash file {}", path.display()))
-}
-
-impl ComponentStorage {
-    async fn acquire_download_permit(&self) -> OwnedSemaphorePermit {
-        self.downloads_semaphore
-            .clone()
-            .acquire_owned()
-            .await
-            .expect("Semaphore closed")
-    }
 }

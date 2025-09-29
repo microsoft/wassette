@@ -115,6 +115,16 @@ struct ComponentRegistryState {
     component_map: HashMap<String, Vec<String>>,
 }
 
+impl std::fmt::Debug for ComponentRegistryState {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ComponentRegistryState")
+            .field("components_len", &self.components.len())
+            .field("tool_map", &self.tool_map)
+            .field("component_map", &self.component_map)
+            .finish()
+    }
+}
+
 /// The returned status when loading a component
 #[derive(Debug, PartialEq, Clone)]
 pub enum LoadResult {
