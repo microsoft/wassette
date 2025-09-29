@@ -4,23 +4,6 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
-### Changed
-
-- Updated Wasmtime dependencies from version 33 to 36 ([#265](https://github.com/microsoft/wassette/pull/265))
-- Updated documentation to clarify Wassette as a runtime rather than a platform, with improved wording for creating WebAssembly components that can be used as Tools for AI Agents with Wassette ([#TBD](https://github.com/microsoft/wassette/pull/TBD))
-- Disabled the security audit job from GitHub Actions workflow to reduce CI noise ([#TBD](https://github.com/microsoft/wassette/pull/TBD))
-
-### Fixed
-
-- Fixed test coverage CI failing on PRs from forked repositories by switching from PR comments to job summaries ([#237](https://github.com/microsoft/wassette/pull/237))
-- Fixed dependabot auto-merge workflow failing with "workflows permission" error by adding `workflows: write` permission ([#TBD](https://github.com/microsoft/wassette/pull/TBD))
-- Fixed inconsistent spelling of "wasette" to "wassette" in configuration paths and documentation comments ([#TBD](https://github.com/microsoft/wassette/pull/TBD))
-- Fixed broken links in README.md pointing to documentation files in wrong directory paths ([#TBD](https://github.com/microsoft/wassette/pull/TBD))
-- Add cargo audit configuration to acknowledge unmaintained `paste` dependency warning ([#169](https://github.com/microsoft/wassette/pull/169))
-- Environment variables allowed by policy were only stored as config variables and not visible to std::env::var inside components; they are now injected into the WASI environment at instantiation ([#261](https://github.com/microsoft/wassette/pull/261))
-- Fixed security audit issue by adding RUSTSEC-2025-0057 to ignore list for unmaintained fxhash crate that is transitively required by wasmtime ([#TBD](https://github.com/microsoft/wassette/pull/TBD))
-
-
 ### Added
 
 - **Component Discovery**: Added `search-components` tool that lists all known components available for loading from the component registry, making it easier for users to discover and load new WebAssembly tools ([#236](https://github.com/microsoft/wassette/pull/236))
@@ -32,9 +15,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
   - No server restart required, persists across runs
   - Automatic component ID sanitization for safe filenames
 - GitHub Actions workflow to automatically build and deploy mdBook documentation to GitHub Pages ([#196](https://github.com/microsoft/wassette/pull/196))
-- Dependabot automerge workflow for automated dependency updates when CI passes ([#TBD](https://github.com/microsoft/wassette/pull/TBD))
-- Documentation for built-in tools in README, listing all 12 available tools with descriptions for better discoverability ([#TBD](https://github.com/microsoft/wassette/pull/TBD))
 - Dependabot automerge workflow for automated dependency updates when CI passes
+- Documentation for built-in tools in README, listing all 12 available tools with descriptions for better discoverability
 - **Major CLI UX Enhancement**: Expanded Wassette from a simple server launcher to a comprehensive CLI tool for managing WebAssembly components and permissions directly from the command line
 - **Component Management Commands**:
   - `wassette component load <path>` - Load WebAssembly components from file paths or OCI registries
@@ -57,10 +39,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - Support for MCP Tool structured output as defined in the MCP specification ([#181](https://github.com/microsoft/wassette/pull/181))
 - End-to-end integration test for MCP structured output feature verification ([#181](https://github.com/microsoft/wassette/pull/181))
 
-### Changed  
+### Changed
 
+- Updated Wasmtime dependencies from version 33 to 36 ([#265](https://github.com/microsoft/wassette/pull/265))
+- Updated documentation to clarify Wassette as a runtime rather than a platform, with improved wording for creating WebAssembly components that can be used as Tools for AI Agents with Wassette
+- Disabled the security audit job from GitHub Actions workflow to reduce CI noise
 - **BREAKING CHANGE**: Upgraded rmcp dependency from v0.2 to v0.5.0 to enable native structured output support ([#181](https://github.com/microsoft/wassette/pull/181))
-- Copyright header instructions to Rust development guidelines ([#TBD](https://github.com/microsoft/wassette/pull/TBD))
+- Copyright header instructions to Rust development guidelines
 - Enhanced environment variable CLI experience with `--env` and `--env-file` options for better configuration management
 - Memory resource granting functionality for components with k8s-style memory limits ([#171](https://github.com/microsoft/wassette/pull/171))
 - Memory resource revocation functionality allowing removal of memory limits from component policies ([#171](https://github.com/microsoft/wassette/pull/171))
@@ -69,27 +54,6 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - Detailed documentation for authoring WebAssembly Components from JavaScript/TypeScript ([#159](https://github.com/microsoft/wassette/pull/159))
 - Comprehensive documentation for authoring Wasm Components from Rust ([#157](https://github.com/microsoft/wassette/pull/157))
 - Support for Streamable HTTP transport in addition to existing SSE transport ([#100](https://github.com/microsoft/wassette/pull/100))
-
-### Fixed
-
-- Fixed permission parsing to support "environment-variable" permission type alias for environment permissions
-- Fixed storage permission revocation to work with URI-only specification (removes all access types for the given URI)
-- Revoke commands and reset permission functionality with simplified storage revocation ([#87](https://github.com/microsoft/wassette/pull/87))
-- Enhanced `--version` command to display detailed build information with cleaner clap integration ([#119](https://github.com/microsoft/wassette/pull/119))
-- Parallel component loading for improved performance ([#123](https://github.com/microsoft/wassette/pull/123))
-- Configuration file management for CLI settings ([#94](https://github.com/microsoft/wassette/pull/94))
-- LTO (Link Time Optimization) to release builds for 27% size improvement ([#106](https://github.com/microsoft/wassette/pull/106))
-- EXDEV-safe fallback for component loading across different filesystems ([#109](https://github.com/microsoft/wassette/pull/109))
-- Nix flake support for reproducible builds ([#105](https://github.com/microsoft/wassette/pull/105))
-- WinGet support for Windows installation ([#108](https://github.com/microsoft/wassette/pull/108))
-- CI improvements including caching for Rust builds ([#98](https://github.com/microsoft/wassette/pull/98))
-- Spell check, link checker, and unused dependency checker to CI workflow ([#116](https://github.com/microsoft/wassette/pull/116))
-- Kubernetes-style resource limits in policy specification with `resources.limits` section supporting CPU ("500m", "1") and memory ("512Mi", "1Gi") formats ([#166](https://github.com/microsoft/wassette/pull/166))
-
-### Fixed
-- Memory resource limiter implementation by properly applying limits to Wasmtime store using the correct `limiter()` API ([#171](https://github.com/microsoft/wassette/pull/171))
-
-### Changed
 - CLI now supports both server mode (`wassette serve`) and direct management mode for component operations
 - Component load/unload operations can now work independently without requiring a running MCP server
 - Enhanced help text and command structure with logical grouping of related functionality
@@ -103,13 +67,34 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Fixed
 
+- Fixed test coverage CI failing on PRs from forked repositories by switching from PR comments to job summaries ([#237](https://github.com/microsoft/wassette/pull/237))
+- Fixed dependabot auto-merge workflow failing with "workflows permission" error by adding `workflows: write` permission
+- Fixed inconsistent spelling of "wasette" to "wassette" in configuration paths and documentation comments
+- Fixed broken links in README.md pointing to documentation files in wrong directory paths
 - Add cargo audit configuration to acknowledge unmaintained `paste` dependency warning ([#169](https://github.com/microsoft/wassette/pull/169))
+- Environment variables allowed by policy were only stored as config variables and not visible to std::env::var inside components; they are now injected into the WASI environment at instantiation ([#261](https://github.com/microsoft/wassette/pull/261))
+- Fixed security audit issue by adding RUSTSEC-2025-0057 to ignore list for unmaintained fxhash crate that is transitively required by wasmtime
+- Fixed permission parsing to support "environment-variable" permission type alias for environment permissions
+- Fixed storage permission revocation to work with URI-only specification (removes all access types for the given URI)
+- Revoke commands and reset permission functionality with simplified storage revocation ([#87](https://github.com/microsoft/wassette/pull/87))
+- Enhanced `--version` command to display detailed build information with cleaner clap integration ([#119](https://github.com/microsoft/wassette/pull/119))
+- Parallel component loading for improved performance ([#123](https://github.com/microsoft/wassette/pull/123))
+- Configuration file management for CLI settings ([#94](https://github.com/microsoft/wassette/pull/94))
+- LTO (Link Time Optimization) to release builds for 27% size improvement ([#106](https://github.com/microsoft/wassette/pull/106))
+- EXDEV-safe fallback for component loading across different filesystems ([#109](https://github.com/microsoft/wassette/pull/109))
+- Nix flake support for reproducible builds ([#105](https://github.com/microsoft/wassette/pull/105))
+- WinGet support for Windows installation ([#108](https://github.com/microsoft/wassette/pull/108))
+- CI improvements including caching for Rust builds ([#98](https://github.com/microsoft/wassette/pull/98))
+- Spell check, link checker, and unused dependency checker to CI workflow ([#116](https://github.com/microsoft/wassette/pull/116))
+- Kubernetes-style resource limits in policy specification with `resources.limits` section supporting CPU ("500m", "1") and memory ("512Mi", "1Gi") formats ([#166](https://github.com/microsoft/wassette/pull/166))
+- Memory resource limiter implementation by properly applying limits to Wasmtime store using the correct `limiter()` API ([#171](https://github.com/microsoft/wassette/pull/171))
 - Memory resource limits now properly applied to component execution using Wasmtime's ResourceLimiter ([#171](https://github.com/microsoft/wassette/pull/171))
 - Component loading across different filesystems (EXDEV error handling) ([#109](https://github.com/microsoft/wassette/pull/109))
 - Component names in README files for consistency ([#115](https://github.com/microsoft/wassette/pull/115))
 - Installation instructions for Linux and Windows in README ([#120](https://github.com/microsoft/wassette/pull/120))
 
 ### Technical Details
+
 - Zero code duplication by reusing existing MCP tool handler functions
 - CLI-specific wrapper functions (`handle_load_component_cli`, `handle_unload_component_cli`) that work without MCP server peer notifications
 - Maintains full backward compatibility with existing `serve` command
