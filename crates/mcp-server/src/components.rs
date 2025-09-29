@@ -125,41 +125,26 @@ pub(crate) async fn handle_component_call(
         Ok(result_str) => {
             debug!("Component call successful");
 
-            if let Some(raw_schema) = tool_schema
+            let parsed_value = parse_structured_result(&result_str);
+            let display_value = unwrap_result_wrapper(&parsed_value);
+            let response_text = value_to_text(&display_value)?;
+
+            let normalized_schema = tool_schema
                 .as_ref()
                 .and_then(|schema| schema.get("outputSchema"))
-            {
-                if let Some(normalized_schema) = normalize_output_schema(raw_schema) {
-                    let structured_value = parse_structured_result(&result_str);
-                    let structured_value = align_structured_result_with_schema(
-                        Some(&normalized_schema),
-                        structured_value,
-                    );
-                    let contents = vec![Content::text(result_str)];
+                .and_then(|raw_schema| normalize_output_schema(raw_schema));
 
-                    Ok(CallToolResult {
-                        content: Some(contents),
-                        structured_content: Some(structured_value),
-                        is_error: Some(false),
-                    })
-                } else {
-                    let contents = vec![Content::text(result_str)];
+            let structured_content = normalized_schema.as_ref().map(|schema| {
+                align_structured_result_with_schema(Some(schema), parsed_value.clone())
+            });
 
-                    Ok(CallToolResult {
-                        content: Some(contents),
-                        structured_content: None,
-                        is_error: Some(false),
-                    })
-                }
-            } else {
-                let contents = vec![Content::text(result_str)];
+            let contents = vec![Content::text(response_text)];
 
-                Ok(CallToolResult {
-                    content: Some(contents),
-                    structured_content: None,
-                    is_error: Some(false),
-                })
-            }
+            Ok(CallToolResult {
+                content: Some(contents),
+                structured_content,
+                is_error: Some(false),
+            })
         }
         Err(e) => {
             error!(error = %e, "Component call failed");
@@ -188,6 +173,24 @@ fn normalize_output_schema(schema: &Value) -> Option<Value> {
     }
 
     Some(canonicalize_output_schema(schema))
+}
+
+fn unwrap_result_wrapper(value: &Value) -> Value {
+    if let Value::Object(map) = value {
+        if map.len() == 1 {
+            if let Some(inner) = map.get("result") {
+                return inner.clone();
+            }
+        }
+    }
+    value.clone()
+}
+
+fn value_to_text(value: &Value) -> Result<String> {
+    match value {
+        Value::String(text) => Ok(text.clone()),
+        _ => Ok(serde_json::to_string(value)?),
+    }
 }
 
 #[instrument(skip(lifecycle_manager))]
