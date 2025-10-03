@@ -51,6 +51,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Changed
 
+- Reorganized documentation structure by moving CLI reference to a new `reference` section in the mdBook for better organization
 - Updated Wasmtime dependencies from version 33 to 36 ([#265](https://github.com/microsoft/wassette/pull/265))
 - Updated documentation to clarify Wassette as a runtime rather than a platform, with improved wording for creating WebAssembly components that can be used as Tools for AI Agents with Wassette
 - Disabled the security audit job from GitHub Actions workflow to reduce CI noise
