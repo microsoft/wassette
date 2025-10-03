@@ -9,8 +9,8 @@ title = "Wassette Documentation"
 build-dir = "book"
 
 [output.html]
-additional-css = []
-additional-js = []
+additional-css = ["theme/version-picker.css"]
+additional-js = ["theme/version-picker.js"]
 smart-punctuation = true
 git-repository-url = "https://github.com/microsoft/wassette"
 edit-url-template = "https://github.com/microsoft/wassette/edit/main/docs/{path}"

@@ -6,6 +6,8 @@ on:
     paths:
       - 'docs/**'
       - '.github/workflows/docs.yml'
+    tags:
+      - 'v*'
   pull_request:
     branches: [ "main" ]
     paths:
@@ -42,15 +44,114 @@ jobs:
         id: pages
         uses: actions/configure-pages@983d7736d9b0ae728b81ab479565c72886d7745b # v5.0.0
 
+      - name: Determine version
+        id: version
+        run: |
+          if [[ "${{ github.ref }}" == refs/tags/v* ]]; then
+            VERSION="${{ github.ref_name }}"
+          else
+            VERSION="latest"
+          fi
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "Building documentation for version: $VERSION"
+
       - name: Build with mdBook
         run: |
           cd docs
           mdbook build
 
+      - name: Download existing GitHub Pages content
+        run: |
+          # IMPORTANT: GitHub Pages deployments completely replace the entire site with
+          # the uploaded artifact. Without this preservation step, deploying a new version
+          # (e.g., v0.4.0) would delete all previously published versions (e.g., v0.3.0, latest).
+          # We fetch content from the gh-pages branch and merge it with the new version
+          # to maintain a complete multi-version documentation site.
+          echo "Attempting to download existing site content..."
+          mkdir -p public
+          
+          # Save current commit for returning later
+          CURRENT_COMMIT=$(git rev-parse HEAD)
+          
+          # Try to download existing site as a tarball from gh-pages branch
+          if git ls-remote --heads origin gh-pages >/dev/null 2>&1; then
+            echo "gh-pages branch exists, fetching existing content..."
+            git fetch origin gh-pages:gh-pages || true
+            git checkout gh-pages -- . 2>/dev/null || echo "No existing gh-pages content"
+            # Move existing content to public if it exists
+            if [ -d "wassette" ]; then
+              cp -r wassette public/ || true
+            fi
+            # Return to original commit
+            git checkout $CURRENT_COMMIT || echo "Could not return to original commit"
+          else
+            echo "gh-pages branch does not exist yet, starting fresh"
+          fi
+
+      - name: Prepare versioned output
+        run: |
+          # Create directory structure for this version
+          mkdir -p public/wassette/${{ steps.version.outputs.version }}
+          
+          # Copy newly built docs to the version directory
+          cp -r docs/book/* public/wassette/${{ steps.version.outputs.version }}/
+          
+          # Copy root redirect page
+          cp docs/index.html public/wassette/index.html
+          
+          # Load or create versions.json
+          if [ -f "public/wassette/versions.json" ]; then
+            echo "Using existing versions.json"
+            cp public/wassette/versions.json versions.json.tmp
+          else
+            echo "Creating new versions.json"
+            cp docs/versions.json versions.json.tmp
+          fi
+          
+          # Update versions.json with current version
+          python3 << 'EOF'
+          import json
+          
+          version = "${{ steps.version.outputs.version }}"
+          
+          try:
+              with open("versions.json.tmp", "r") as f:
+                  data = json.load(f)
+          except:
+              data = {"versions": ["latest"], "latest": "latest"}
+          
+          # Add current version if it's not already in the list
+          if version not in data["versions"]:
+              # Insert version after "latest" if it's a tag
+              if version.startswith("v"):
+                  if "latest" in data["versions"]:
+                      idx = data["versions"].index("latest") + 1
+                      data["versions"].insert(idx, version)
+                  else:
+                      data["versions"].insert(0, version)
+              else:
+                  # Ensure "latest" is first
+                  if "latest" not in data["versions"]:
+                      data["versions"].insert(0, "latest")
+          
+          with open("public/wassette/versions.json", "w") as f:
+              json.dump(data, f, indent=2)
+          
+          print(f"Updated versions.json with version: {version}")
+          print(f"All versions: {data['versions']}")
+          EOF
+          
+          echo "Current versions.json:"
+          cat public/wassette/versions.json
+          
+          echo ""
+          echo "Directory structure:"
+          ls -la public/wassette/
+
       - name: Upload artifact
         uses: actions/upload-pages-artifact@7b1f4a764d45c48632c6b24a0339c27f5614fb0b # v4.0.0
         with:
-          path: docs/book
+          path: public
 
   # Deployment job
   deploy:
@@ -59,7 +160,7 @@ jobs:
       url: ${{ steps.deployment.outputs.page_url }}
     runs-on: ubuntu-latest
     needs: build
-    if: github.ref == 'refs/heads/main'
+    if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')
     steps:
       - name: Deploy to GitHub Pages
         id: deployment
