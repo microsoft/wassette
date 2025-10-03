@@ -69,6 +69,10 @@ jobs:
           # to maintain a complete multi-version documentation site.
           echo "Attempting to download existing site content..."
           mkdir -p public
+          
+          # Save current commit for returning later
+          CURRENT_COMMIT=$(git rev-parse HEAD)
+          
           # Try to download existing site as a tarball from gh-pages branch
           if git ls-remote --heads origin gh-pages >/dev/null 2>&1; then
             echo "gh-pages branch exists, fetching existing content..."
@@ -78,8 +82,8 @@ jobs:
             if [ -d "wassette" ]; then
               cp -r wassette public/ || true
             fi
-            # Return to working branch
-            git checkout ${{ github.ref_name }} || git checkout -
+            # Return to original commit
+            git checkout $CURRENT_COMMIT || echo "Could not return to original commit"
           else
             echo "gh-pages branch does not exist yet, starting fresh"
           fi
