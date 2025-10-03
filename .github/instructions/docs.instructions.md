@@ -21,6 +21,20 @@ mdbook serve        # Serve with live reload
 mdbook build        # Build static HTML
 ```
 
+### Important: Local vs. Production URL Structure
+
+The documentation uses a multi-version setup for production deployment on GitHub Pages, but `mdbook serve` doesn't support this structure locally.
+
+**Local development** (with `mdbook serve`):
+- Navigate directly to `http://localhost:3000/overview.html` or any specific page
+- The version picker dropdown will not work locally (it's designed for the multi-version production site)
+- Root `http://localhost:3000/` may show a redirect page - this is expected
+
+**Production** (GitHub Pages):
+- Full URL: `https://microsoft.github.io/wassette/latest/overview.html`
+- Root redirect: `https://microsoft.github.io/wassette/` → `https://microsoft.github.io/wassette/latest/`
+- Version picker works correctly across `/latest/`, `/v0.3.0/`, etc.
+
 ## Using Playwright for Documentation
 
 - Use `playwright-browser_navigate` to load the documentation page
