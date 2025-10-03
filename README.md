@@ -88,6 +88,14 @@ Congratulations! You've just run your first Wasm Component and taught your agent
 
 https://github.com/user-attachments/assets/8e5a371c-ac72-406d-859c-03833ee83963
 
+## Documentation
+
+The [Wassette documentation][Documentation] supports multiple versions:
+- **[/latest/][Documentation]** - Built from the `main` branch (latest development)
+- **/vX.Y/** - Built from release tags (e.g., [v0.3.0](https://microsoft.github.io/wassette/v0.3.0/))
+
+Use the version dropdown in the docs header to switch between versions while staying on the same page.
+
 ## Built-in Tools
 
 Wassette comes with several built-in tools for managing components and their permissions. These tools are available immediately when you start the MCP server:
