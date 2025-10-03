@@ -6,7 +6,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+- Automated release preparation workflow (`prepare-release.yml`) that creates PRs to bump versions in Cargo.toml and Cargo.lock ([#TBD](https://github.com/microsoft/wassette/pull/TBD))
+- Automated package manifest update workflow (`update-package-manifests.yml`) that updates Homebrew and WinGet manifests after releases ([#TBD](https://github.com/microsoft/wassette/pull/TBD))
+
 ### Changed
+
+- Release process is now largely automated through GitHub Actions workflows, eliminating manual version bump PRs ([#TBD](https://github.com/microsoft/wassette/pull/TBD))
+- Updated RELEASE.md documentation to reflect the new automated release process ([#TBD](https://github.com/microsoft/wassette/pull/TBD))
 
 ### Fixed
 
