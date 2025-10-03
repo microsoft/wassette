@@ -1233,8 +1233,9 @@ impl LifecycleManager {
         component_id: &str,
         secrets: &[(String, String)],
     ) -> Result<()> {
-        // Check if component exists
-        if !self.registry.contains_component(component_id).await {
+        // Check if component exists in the plugin directory
+        let component_path = self.component_path(component_id);
+        if !component_path.exists() {
             bail!("Component not found: {}", component_id);
         }
 
