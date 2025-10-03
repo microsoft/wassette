@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+- Cookbook section in documentation with language-specific guides for building Wasm components in JavaScript/TypeScript, Python, Rust, and Go ([#PR_NUMBER](https://github.com/microsoft/wassette/pull/PR_NUMBER))
+
 ### Changed
 
 - Reorganized documentation structure by moving CLI reference to a new `reference` section in the mdBook for better organization

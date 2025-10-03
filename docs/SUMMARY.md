@@ -7,6 +7,14 @@
 - [MCP Clients](./mcp-clients.md)
 - [FAQ](./faq.md)
 
+# Cookbook
+
+- [Building Wasm Components](./cookbook/README.md)
+  - [JavaScript/TypeScript](./cookbook/javascript.md)
+  - [Python](./cookbook/python.md)
+  - [Rust](./cookbook/rust.md)
+  - [Go](./cookbook/go.md)
+
 # Reference
 
 - [CLI](./reference/cli.md)
