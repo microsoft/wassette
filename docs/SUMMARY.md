@@ -7,7 +7,6 @@
 - [MCP Clients](./mcp-clients.md)
 - [CLI](./cli.md)
 - [FAQ](./faq.md)
-- [Versioned Documentation](./versioned-docs.md)
 
 # Design & Architecture
 

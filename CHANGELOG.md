@@ -6,10 +6,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
-- Multi-version documentation support with version dropdown in docs header, allowing users to switch between documentation versions while maintaining relative paths
-- Versioned documentation hosting: `/wassette/latest/` for main branch, `/wassette/vX.Y/` for tagged releases
-- Root redirect from `/wassette/` to `/wassette/latest/` for better navigation
-- Automatic version tracking via `versions.json` file updated on each documentation deployment
+- Multi-version documentation support with version dropdown, hosting at `/wassette/latest/` (main) and `/wassette/vX.Y/` (tags)
 - **Component Discovery**: Added `search-components` tool that lists all known components available for loading from the component registry, making it easier for users to discover and load new WebAssembly tools ([#236](https://github.com/microsoft/wassette/pull/236))
 - Simple per-component secret management system with CLI commands `wassette secret list|set|delete <component-id>` ([#199](https://github.com/microsoft/wassette/pull/199))
   - Stores secrets in OS-appropriate directories with proper permissions (0700/user-only)
