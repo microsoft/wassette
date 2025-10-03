@@ -485,6 +485,6 @@ wassette policy get my-component -o yaml
 ## See Also
 
 - [Main README](https://github.com/microsoft/wassette/blob/main/README.md) - Installation and basic usage
-- [MCP Client Setup](./mcp-clients.md) - Configuring MCP clients
-- [Architecture Overview](./overview.md) - Understanding Wassette's design
+- [MCP Client Setup](../mcp-clients.md) - Configuring MCP clients
+- [Architecture Overview](../overview.md) - Understanding Wassette's design
 - [Examples](https://github.com/microsoft/wassette/tree/main/examples) - Sample WebAssembly components

@@ -7,6 +7,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ### Added
 
 - Multi-version documentation support with version dropdown, hosting at `/wassette/latest/` (main) and `/wassette/vX.Y/` (tags)
+
+### Changed
+
+- Reorganized documentation structure by moving CLI reference to a new `reference` section in the mdBook for better organization
+
+### Fixed
+
+- `wassette secret set` now returns a clear error message when the component ID is not found, preventing silent failures and providing better user feedback
+- Fixed invalid `workflows` permission in dependabot-automerge workflow file that caused GitHub Actions validation error
+
+## [v0.3.0] - 2025-10-03
+
+### Added
+
 - **Component Discovery**: Added `search-components` tool that lists all known components available for loading from the component registry, making it easier for users to discover and load new WebAssembly tools ([#236](https://github.com/microsoft/wassette/pull/236))
 - Simple per-component secret management system with CLI commands `wassette secret list|set|delete <component-id>` ([#199](https://github.com/microsoft/wassette/pull/199))
   - Stores secrets in OS-appropriate directories with proper permissions (0700/user-only)
@@ -71,7 +85,6 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ### Fixed
 
 - Fixed test coverage CI failing on PRs from forked repositories by switching from PR comments to job summaries ([#237](https://github.com/microsoft/wassette/pull/237))
-- Fixed dependabot auto-merge workflow failing with "workflows permission" error by adding `workflows: write` permission
 - Fixed inconsistent spelling of "wasette" to "wassette" in configuration paths and documentation comments
 - Fixed broken links in README.md pointing to documentation files in wrong directory paths
 - Add cargo audit configuration to acknowledge unmaintained `paste` dependency warning ([#169](https://github.com/microsoft/wassette/pull/169))
@@ -131,6 +144,7 @@ Initial release of Wassette - A security-oriented runtime that runs WebAssembly 
 - Built-in examples and CLI interface
 - Installation support and documentation
 
-[Unreleased]: https://github.com/microsoft/wassette/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/microsoft/wassette/compare/v0.3.0...HEAD
+[v0.3.0]: https://github.com/microsoft/wassette/compare/v0.2.0...v0.3.0
 [v0.2.0]: https://github.com/microsoft/wassette/compare/v0.1.0...v0.2.0
 [v0.1.0]: https://github.com/microsoft/wassette/releases/tag/v0.1.0

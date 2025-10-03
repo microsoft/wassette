@@ -1233,6 +1233,12 @@ impl LifecycleManager {
         component_id: &str,
         secrets: &[(String, String)],
     ) -> Result<()> {
+        // Check if component exists in the plugin directory
+        let component_path = self.component_path(component_id);
+        if !component_path.exists() {
+            bail!("Component not found: {}", component_id);
+        }
+
         self.secrets_manager
             .set_component_secrets(component_id, secrets)
             .await
@@ -1838,6 +1844,25 @@ permissions:
 
         let policy_content = tokio::fs::read_to_string(&policy_path).await?;
         assert!(policy_content.contains("api.example.com"));
+
+        Ok(())
+    }
+
+    #[test(tokio::test)]
+    async fn test_set_secrets_component_not_found() -> Result<()> {
+        let manager = create_test_manager().await?;
+
+        // Try to set secrets for non-existent component
+        let secrets = vec![("KEY".to_string(), "value".to_string())];
+        let result = manager
+            .set_component_secrets("non-existent-component", &secrets)
+            .await;
+
+        assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("Component not found"));
 
         Ok(())
     }
