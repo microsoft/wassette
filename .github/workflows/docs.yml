@@ -60,27 +60,53 @@ jobs:
           cd docs
           mdbook build
 
+      - name: Download existing GitHub Pages content
+        run: |
+          echo "Attempting to download existing site content..."
+          mkdir -p public
+          # Try to download existing site as a tarball from gh-pages branch
+          if git ls-remote --heads origin gh-pages >/dev/null 2>&1; then
+            echo "gh-pages branch exists, fetching existing content..."
+            git fetch origin gh-pages:gh-pages || true
+            git checkout gh-pages -- . 2>/dev/null || echo "No existing gh-pages content"
+            # Move existing content to public if it exists
+            if [ -d "wassette" ]; then
+              cp -r wassette public/ || true
+            fi
+            # Return to working branch
+            git checkout ${{ github.ref_name }} || git checkout -
+          else
+            echo "gh-pages branch does not exist yet, starting fresh"
+          fi
+
       - name: Prepare versioned output
         run: |
+          # Create directory structure for this version
           mkdir -p public/wassette/${{ steps.version.outputs.version }}
+          
+          # Copy newly built docs to the version directory
           cp -r docs/book/* public/wassette/${{ steps.version.outputs.version }}/
           
           # Copy root redirect page
           cp docs/index.html public/wassette/index.html
           
-          # Download existing versions.json from gh-pages if it exists, or use the default
-          echo "Fetching existing versions.json..."
-          curl -f https://microsoft.github.io/wassette/versions.json -o public/wassette/versions.json || cp docs/versions.json public/wassette/versions.json
+          # Load or create versions.json
+          if [ -f "public/wassette/versions.json" ]; then
+            echo "Using existing versions.json"
+            cp public/wassette/versions.json versions.json.tmp
+          else
+            echo "Creating new versions.json"
+            cp docs/versions.json versions.json.tmp
+          fi
           
           # Update versions.json with current version
           python3 << 'EOF'
           import json
-          import sys
           
           version = "${{ steps.version.outputs.version }}"
           
           try:
-              with open("public/wassette/versions.json", "r") as f:
+              with open("versions.json.tmp", "r") as f:
                   data = json.load(f)
           except:
               data = {"versions": ["latest"], "latest": "latest"}
@@ -103,10 +129,15 @@ jobs:
               json.dump(data, f, indent=2)
           
           print(f"Updated versions.json with version: {version}")
+          print(f"All versions: {data['versions']}")
           EOF
           
           echo "Current versions.json:"
           cat public/wassette/versions.json
+          
+          echo ""
+          echo "Directory structure:"
+          ls -la public/wassette/
 
       - name: Upload artifact
         uses: actions/upload-pages-artifact@7b1f4a764d45c48632c6b24a0339c27f5614fb0b # v4.0.0
