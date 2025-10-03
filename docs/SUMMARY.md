@@ -7,6 +7,10 @@
 - [MCP Clients](./mcp-clients.md)
 - [FAQ](./faq.md)
 
+# Using Wassette
+
+- [Permissions](./using/permissions.md)
+
 # Reference
 
 - [CLI](./reference/cli.md)
