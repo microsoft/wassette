@@ -1,0 +1,36 @@
+/* Version picker styling */
+.version-picker-container {
+    display: flex;
+    align-items: center;
+    margin-right: 10px;
+}
+
+.version-picker {
+    padding: 4px 8px;
+    border: 1px solid var(--theme-popup-border, #ccc);
+    background: var(--theme-popup-bg, #fff);
+    color: var(--theme-popup-fg, #000);
+    border-radius: 4px;
+    font-size: 0.9em;
+    cursor: pointer;
+    outline: none;
+    transition: border-color 0.2s ease;
+}
+
+.version-picker:hover {
+    border-color: var(--links, #4183c4);
+}
+
+.version-picker:focus {
+    border-color: var(--links, #4183c4);
+    box-shadow: 0 0 0 2px rgba(65, 131, 196, 0.2);
+}
+
+/* Dark mode support */
+.coal .version-picker,
+.navy .version-picker,
+.ayu .version-picker {
+    border-color: var(--theme-popup-border, #555);
+    background: var(--theme-popup-bg, #3b3b3b);
+    color: var(--theme-popup-fg, #fff);
+}

@@ -7,6 +7,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ### Added
 
 - Comprehensive installation guide page consolidating all installation methods (one-liner script, Homebrew, Nix, WinGet) organized by platform (Linux, macOS, Windows) with verification steps and troubleshooting sections
+- Multi-version documentation support with version dropdown, hosting at `/wassette/latest/` (main) and `/wassette/vX.Y/` (tags)
 - Automated release preparation and package manifest update workflows to eliminate manual version bump PRs ([#320](https://github.com/microsoft/wassette/pull/320))
 
 ### Changed
@@ -20,6 +21,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - `wassette secret set` now returns a clear error message when the component ID is not found, preventing silent failures and providing better user feedback
 - Fixed invalid `workflows` permission in dependabot-automerge workflow file that caused GitHub Actions validation error
+- Fixed Mermaid sequence diagram rendering in documentation by adding mdbook-mermaid preprocessor configuration
 
 ## [v0.3.0] - 2025-10-03
 
