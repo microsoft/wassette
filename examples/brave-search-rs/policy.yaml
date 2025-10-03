@@ -1,0 +1,6 @@
+version: "1.0"
+description: "Permission policy for brave-search-rs example in wassette"
+permissions:
+  network:
+    allow:
+      - host: "https://api.search.brave.com/"
