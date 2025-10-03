@@ -620,7 +620,9 @@ async fn test_cli_secret_set_and_list() -> Result<()> {
 
     assert_eq!(exit_code, 0);
     let load_output: Value = ctx.parse_json_output(&stdout)?;
-    let component_id = load_output["id"].as_str().unwrap();
+    let component_id = load_output["id"]
+        .as_str()
+        .expect("Load output should contain 'id' field");
 
     // Set secrets for the component
     let (stdout, stderr, exit_code) = ctx
@@ -654,11 +656,16 @@ async fn test_cli_secret_set_and_list() -> Result<()> {
 
     let list_output: Value = ctx.parse_json_output(&stdout)?;
     assert_eq!(list_output["component_id"], component_id);
-    let secrets = list_output["secrets"].as_array().unwrap();
+    let secrets = list_output["secrets"]
+        .as_array()
+        .expect("List output should contain 'secrets' array");
     assert_eq!(secrets.len(), 2);
 
     // Verify the keys are present (values should not be shown without --show-values)
-    let keys: Vec<&str> = secrets.iter().map(|s| s["key"].as_str().unwrap()).collect();
+    let keys: Vec<&str> = secrets
+        .iter()
+        .map(|s| s["key"].as_str().expect("Secret should have 'key' field"))
+        .collect();
     assert!(keys.contains(&"API_KEY"));
     assert!(keys.contains(&"REGION"));
 
