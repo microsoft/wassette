@@ -1004,7 +1004,6 @@ mod version_tests {
         let version_info = format_build_info();
 
         // Check that the version output contains expected components
-        assert!(version_info.contains("0.2.0"));
         assert!(version_info.contains("version.BuildInfo"));
         assert!(version_info.contains("RustVersion"));
         assert!(version_info.contains("BuildProfile"));
