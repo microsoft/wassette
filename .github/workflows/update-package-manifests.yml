@@ -68,18 +68,11 @@ jobs:
           # Update version
           sed -i "s/version \".*\"/version \"$VERSION\"/" Formula/wassette.rb
 
-          # Update checksums
-          sed -i "s|sha256 \".*\" # darwin_amd64|sha256 \"${{ steps.checksums.outputs.darwin_amd64_checksum }}\" # darwin_amd64|" Formula/wassette.rb || \
-            sed -i "/darwin_amd64\.tar\.gz\"/{ n; s/sha256 \".*\"/sha256 \"${{ steps.checksums.outputs.darwin_amd64_checksum }}\"/; }" Formula/wassette.rb
-
-          sed -i "s|sha256 \".*\" # darwin_arm64|sha256 \"${{ steps.checksums.outputs.darwin_arm64_checksum }}\" # darwin_arm64|" Formula/wassette.rb || \
-            sed -i "/darwin_arm64\.tar\.gz\"/{ n; s/sha256 \".*\"/sha256 \"${{ steps.checksums.outputs.darwin_arm64_checksum }}\"/; }" Formula/wassette.rb
-
-          sed -i "s|sha256 \".*\" # linux_amd64|sha256 \"${{ steps.checksums.outputs.linux_amd64_checksum }}\" # linux_amd64|" Formula/wassette.rb || \
-            sed -i "/linux_amd64\.tar\.gz\"/{ n; s/sha256 \".*\"/sha256 \"${{ steps.checksums.outputs.linux_amd64_checksum }}\"/; }" Formula/wassette.rb
-
-          sed -i "s|sha256 \".*\" # linux_arm64|sha256 \"${{ steps.checksums.outputs.linux_arm64_checksum }}\" # linux_arm64|" Formula/wassette.rb || \
-            sed -i "/linux_arm64\.tar\.gz\"/{ n; s/sha256 \".*\"/sha256 \"${{ steps.checksums.outputs.linux_arm64_checksum }}\"/; }" Formula/wassette.rb
+          # Update checksums - find the line after the url and replace sha256
+          sed -i "/darwin_amd64\.tar\.gz\"/{ n; s/sha256 \".*\"/sha256 \"${{ steps.checksums.outputs.darwin_amd64_checksum }}\"/; }" Formula/wassette.rb
+          sed -i "/darwin_arm64\.tar\.gz\"/{ n; s/sha256 \".*\"/sha256 \"${{ steps.checksums.outputs.darwin_arm64_checksum }}\"/; }" Formula/wassette.rb
+          sed -i "/linux_amd64\.tar\.gz\"/{ n; s/sha256 \".*\"/sha256 \"${{ steps.checksums.outputs.linux_amd64_checksum }}\"/; }" Formula/wassette.rb
+          sed -i "/linux_arm64\.tar\.gz\"/{ n; s/sha256 \".*\"/sha256 \"${{ steps.checksums.outputs.linux_arm64_checksum }}\"/; }" Formula/wassette.rb
 
           echo "Updated Homebrew Formula"
 
