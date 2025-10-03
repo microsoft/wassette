@@ -7,3 +7,5 @@
 
 # mdbook output
 /docs/book
+mdbook
+mdbook-mermaid

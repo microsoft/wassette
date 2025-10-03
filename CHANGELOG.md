@@ -16,6 +16,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - `wassette secret set` now returns a clear error message when the component ID is not found, preventing silent failures and providing better user feedback
 - Fixed invalid `workflows` permission in dependabot-automerge workflow file that caused GitHub Actions validation error
+- Fixed Mermaid sequence diagram rendering in documentation by adding mdbook-mermaid preprocessor configuration ([#TBD](https://github.com/microsoft/wassette/pull/TBD))
 
 ## [v0.3.0] - 2025-10-03
 
