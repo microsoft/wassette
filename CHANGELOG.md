@@ -7,6 +7,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ### Added
 
 - Automated release preparation and package manifest update workflows to eliminate manual version bump PRs ([#320](https://github.com/microsoft/wassette/pull/320))
+- Added `$schema` field to all policy YAML files referencing the policy-mcp schema for better IDE support and validation
 
 ### Changed
 
