@@ -10,6 +10,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Fixed
 
+- `wassette secret set` now returns a clear error message when the component ID is not found, preventing silent failures and providing better user feedback
+
 ## [v0.3.0] - 2025-10-03
 
 ### Added

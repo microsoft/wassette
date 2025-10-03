@@ -580,3 +580,26 @@ async fn test_cli_invalid_command() -> Result<()> {
 
     Ok(())
 }
+
+#[test(tokio::test)]
+async fn test_cli_secret_set_component_not_found() -> Result<()> {
+    let ctx = CliTestContext::new().await?;
+
+    // Try to set secrets for a non-existent component
+    let (stdout, stderr, exit_code) = ctx
+        .run_command(&["secret", "set", "non-existent-component", "KEY=value"])
+        .await?;
+
+    assert_ne!(
+        exit_code, 0,
+        "Command should fail for non-existent component"
+    );
+    assert!(
+        stderr.contains("Component not found") || stdout.contains("Component not found"),
+        "Error message should indicate component not found. stdout: {}, stderr: {}",
+        stdout,
+        stderr
+    );
+
+    Ok(())
+}
