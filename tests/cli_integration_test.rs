@@ -603,3 +603,64 @@ async fn test_cli_secret_set_component_not_found() -> Result<()> {
 
     Ok(())
 }
+
+#[test(tokio::test)]
+async fn test_cli_secret_set_and_list() -> Result<()> {
+    let ctx = CliTestContext::new().await?;
+    let component_path = build_fetch_component().await?;
+
+    // Load the component first
+    let (stdout, _, exit_code) = ctx
+        .run_command(&[
+            "component",
+            "load",
+            &format!("file://{}", component_path.display()),
+        ])
+        .await?;
+
+    assert_eq!(exit_code, 0);
+    let load_output: Value = ctx.parse_json_output(&stdout)?;
+    let component_id = load_output["id"].as_str().unwrap();
+
+    // Set secrets for the component
+    let (stdout, stderr, exit_code) = ctx
+        .run_command(&[
+            "secret",
+            "set",
+            component_id,
+            "API_KEY=secret123",
+            "REGION=us-west-2",
+        ])
+        .await?;
+
+    assert_eq!(
+        exit_code, 0,
+        "Secret set should succeed for existing component. stderr: {}",
+        stderr
+    );
+
+    let secret_output: Value = ctx.parse_json_output(&stdout)?;
+    assert_eq!(secret_output["status"], "success");
+    assert_eq!(secret_output["component_id"], component_id);
+
+    // List secrets to verify they were set
+    let (stdout, stderr, exit_code) = ctx.run_command(&["secret", "list", component_id]).await?;
+
+    assert_eq!(
+        exit_code, 0,
+        "Secret list should succeed. stderr: {}",
+        stderr
+    );
+
+    let list_output: Value = ctx.parse_json_output(&stdout)?;
+    assert_eq!(list_output["component_id"], component_id);
+    let secrets = list_output["secrets"].as_array().unwrap();
+    assert_eq!(secrets.len(), 2);
+
+    // Verify the keys are present (values should not be shown without --show-values)
+    let keys: Vec<&str> = secrets.iter().map(|s| s["key"].as_str().unwrap()).collect();
+    assert!(keys.contains(&"API_KEY"));
+    assert!(keys.contains(&"REGION"));
+
+    Ok(())
+}
