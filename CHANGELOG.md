@@ -6,9 +6,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+- Comprehensive installation guide page consolidating all installation methods (one-liner script, Homebrew, Nix, WinGet) organized by platform (Linux, macOS, Windows) with verification steps and troubleshooting sections
+
 ### Changed
 
 - Reorganized documentation structure by moving CLI reference to a new `reference` section in the mdBook for better organization
+- Updated README.md to reference the new dedicated installation guide for complete installation instructions
 
 ### Fixed
 
