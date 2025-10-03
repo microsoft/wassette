@@ -84,7 +84,8 @@ class Calculator(wit_world.Calculator):
     def calculate(self, expression: str) -> str:
         """Evaluate a mathematical expression and return JSON result"""
         try:
-            # Simple evaluation - in production use safer parsing
+            # WARNING: eval() is unsafe for untrusted input
+            # In production, use ast.literal_eval() or a proper expression parser
             result = eval(expression)
             return json.dumps({"result": result})
         except Exception as e:
@@ -263,6 +264,7 @@ def process_people(people: List[Person]) -> str:
 3. **Document your code** - Use docstrings to explain functionality
 4. **Test thoroughly** - Validate edge cases and error conditions
 5. **Keep it simple** - Avoid complex dependencies that might not work in Wasm
+6. **Avoid `eval()` for untrusted input** - Use `ast.literal_eval()` or proper parsers instead of `eval()` to prevent code injection
 
 ## Common Patterns
 
