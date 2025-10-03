@@ -1,5 +1,4 @@
 {
-  "_comment": "This file is automatically updated by the CI workflow in .github/workflows/docs.yml",
   "versions": [
     "latest",
     "v0.3.0"
