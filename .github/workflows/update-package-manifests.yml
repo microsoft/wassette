@@ -74,7 +74,17 @@ jobs:
           sed -i "/linux_amd64\.tar\.gz\"/{ n; s/sha256 \".*\"/sha256 \"${{ steps.checksums.outputs.linux_amd64_checksum }}\"/; }" Formula/wassette.rb
           sed -i "/linux_arm64\.tar\.gz\"/{ n; s/sha256 \".*\"/sha256 \"${{ steps.checksums.outputs.linux_arm64_checksum }}\"/; }" Formula/wassette.rb
 
-          echo "Updated Homebrew Formula"
+          # Verify updates
+          if ! grep -q "version \"$VERSION\"" Formula/wassette.rb; then
+            echo "Error: Failed to update version in Formula"
+            exit 1
+          fi
+          if ! grep -q "${{ steps.checksums.outputs.darwin_amd64_checksum }}" Formula/wassette.rb; then
+            echo "Error: Failed to update darwin_amd64 checksum"
+            exit 1
+          fi
+
+          echo "Updated Homebrew Formula successfully"
 
       - name: Update WinGet Manifest
         run: |
@@ -97,7 +107,17 @@ jobs:
             s|InstallerSha256: .*|InstallerSha256: ${{ steps.checksums.outputs.windows_arm64_checksum }}|
           }" winget/Microsoft.Wassette.yaml
 
-          echo "Updated WinGet Manifest"
+          # Verify updates
+          if ! grep -q "PackageVersion: $VERSION" winget/Microsoft.Wassette.yaml; then
+            echo "Error: Failed to update PackageVersion"
+            exit 1
+          fi
+          if ! grep -q "${{ steps.checksums.outputs.windows_amd64_checksum }}" winget/Microsoft.Wassette.yaml; then
+            echo "Error: Failed to update windows_amd64 checksum"
+            exit 1
+          fi
+
+          echo "Updated WinGet Manifest successfully"
 
       - name: Create Pull Request
         uses: peter-evans/create-pull-request@5e914681df9dc83aa4e4905692ca88beb2f9e91f # v7.0.5
