@@ -10,6 +10,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Fixed
 
+- Fixed invalid `workflows` permission in dependabot-automerge workflow file that caused GitHub Actions validation error
+
 ## [v0.3.0] - 2025-10-03
 
 ### Added
@@ -78,7 +80,6 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ### Fixed
 
 - Fixed test coverage CI failing on PRs from forked repositories by switching from PR comments to job summaries ([#237](https://github.com/microsoft/wassette/pull/237))
-- Fixed dependabot auto-merge workflow failing with "workflows permission" error by adding `workflows: write` permission
 - Fixed inconsistent spelling of "wasette" to "wassette" in configuration paths and documentation comments
 - Fixed broken links in README.md pointing to documentation files in wrong directory paths
 - Add cargo audit configuration to acknowledge unmaintained `paste` dependency warning ([#169](https://github.com/microsoft/wassette/pull/169))
