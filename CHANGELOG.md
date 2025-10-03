@@ -6,6 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+### Changed
+
+### Fixed
+
+## [v0.3.0] - 2025-10-03
+
+### Added
+
 - **Component Discovery**: Added `search-components` tool that lists all known components available for loading from the component registry, making it easier for users to discover and load new WebAssembly tools ([#236](https://github.com/microsoft/wassette/pull/236))
 - Simple per-component secret management system with CLI commands `wassette secret list|set|delete <component-id>` ([#199](https://github.com/microsoft/wassette/pull/199))
   - Stores secrets in OS-appropriate directories with proper permissions (0700/user-only)
@@ -130,6 +138,7 @@ Initial release of Wassette - A security-oriented runtime that runs WebAssembly 
 - Built-in examples and CLI interface
 - Installation support and documentation
 
-[Unreleased]: https://github.com/microsoft/wassette/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/microsoft/wassette/compare/v0.3.0...HEAD
+[v0.3.0]: https://github.com/microsoft/wassette/compare/v0.2.0...v0.3.0
 [v0.2.0]: https://github.com/microsoft/wassette/compare/v0.1.0...v0.2.0
 [v0.1.0]: https://github.com/microsoft/wassette/releases/tag/v0.1.0
