@@ -51,43 +51,38 @@ Set memory limits for components (future capability).
 
 ## Granting Permissions
 
-You can grant permissions in two ways:
+The recommended way to grant permissions is through your AI agent when running Wassette as an MCP server. You can also use CLI commands for direct management, or define permissions in policy files.
 
-### Using Policy Files
+### Using MCP Built-in Tools (Recommended)
 
-Create a `policy.yaml` file alongside your component:
+When running Wassette as an MCP server, simply ask your AI agent to grant permissions in natural language:
 
-```yaml
-version: "1.0"
-description: "Weather tool permissions"
-permissions:
-  storage:
-    allow:
-      - uri: "fs://workspace/**"
-        access: ["read", "write"]
-      - uri: "fs://config/app.yaml"
-        access: ["read"]
-  network:
-    allow:
-      - host: "api.weather.com"
-      - host: "api.openweathermap.org"
-  environment:
-    allow:
-      - key: "API_KEY"
-      - key: "WEATHER_API_TOKEN"
+```text
+Please grant storage read and write permissions to the weather-tool for fs://workspace/
 ```
 
-**Policy file structure:**
-- `version`: Policy format version (currently "1.0")
-- `description`: Human-readable description
-- `permissions`: Permission declarations organized by type
-  - `storage.allow`: List of file system URIs and access types
-  - `network.allow`: List of allowed hosts
-  - `environment.allow`: List of environment variable keys
+The agent will automatically use the appropriate built-in tool to apply the permission.
+
+**More examples:**
+
+```text
+Grant network access to api.weather.com for the weather-tool component
+```
+
+```text
+Allow the weather-tool to access the API_KEY environment variable
+```
+
+**Available MCP tools:**
+- `grant-storage-permission`: Grant file system access
+- `grant-network-permission`: Grant network access
+- `grant-environment-variable-permission`: Grant environment variable access
+
+The agent understands permission requests and selects the right tool, so you don't need to worry about command syntax.
 
 ### Using CLI Commands
 
-Grant permissions at runtime using the `wassette permission grant` command:
+For direct management or scripting, use the `wassette permission grant` command:
 
 **Grant storage access:**
 ```bash
@@ -120,20 +115,39 @@ wassette permission grant environment-variable weather-tool HOME
 wassette permission grant environment-variable weather-tool PATH
 ```
 
-### Using MCP Built-in Tools
+### Using Policy Files
 
-When running Wassette as an MCP server, you can grant permissions through your AI agent:
+You can define permissions in a `policy.yaml` file alongside your component for pre-configured permissions:
 
-```text
-Please grant storage read and write permissions to the weather-tool for fs://workspace/
+```yaml
+version: "1.0"
+description: "Weather tool permissions"
+permissions:
+  storage:
+    allow:
+      - uri: "fs://workspace/**"
+        access: ["read", "write"]
+      - uri: "fs://config/app.yaml"
+        access: ["read"]
+  network:
+    allow:
+      - host: "api.weather.com"
+      - host: "api.openweathermap.org"
+  environment:
+    allow:
+      - key: "API_KEY"
+      - key: "WEATHER_API_TOKEN"
 ```
 
-The agent will use the built-in `grant-storage-permission` tool to apply the permission.
+**Policy file structure:**
+- `version`: Policy format version (currently "1.0")
+- `description`: Human-readable description
+- `permissions`: Permission declarations organized by type
+  - `storage.allow`: List of file system URIs and access types
+  - `network.allow`: List of allowed hosts
+  - `environment.allow`: List of environment variable keys
 
-**Available MCP tools:**
-- `grant-storage-permission`: Grant file system access
-- `grant-network-permission`: Grant network access
-- `grant-environment-variable-permission`: Grant environment variable access
+Policy files are useful for distributing components with predefined permissions, but for most use cases, granting permissions through the AI agent is simpler and more flexible.
 
 ## Revoking Permissions
 
