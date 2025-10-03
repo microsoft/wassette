@@ -1,0 +1,155 @@
+name: Update Package Manifests
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  update-manifests:
+    name: Update Homebrew and WinGet Manifests
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+
+      - name: Extract version from tag
+        id: version
+        run: |
+          VERSION="${{ github.event.release.tag_name }}"
+          VERSION="${VERSION#v}"  # Remove 'v' prefix
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "Extracted version: $VERSION"
+
+      - name: Download release assets and compute checksums
+        id: checksums
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          REPO="${{ github.repository }}"
+
+          # Create temp directory for downloads
+          mkdir -p /tmp/release-assets
+          cd /tmp/release-assets
+
+          # Define all assets we need
+          declare -A ASSETS=(
+            ["darwin_amd64"]="wassette_${VERSION}_darwin_amd64.tar.gz"
+            ["darwin_arm64"]="wassette_${VERSION}_darwin_arm64.tar.gz"
+            ["linux_amd64"]="wassette_${VERSION}_linux_amd64.tar.gz"
+            ["linux_arm64"]="wassette_${VERSION}_linux_arm64.tar.gz"
+            ["windows_amd64"]="wassette_${VERSION}_windows_amd64.zip"
+            ["windows_arm64"]="wassette_${VERSION}_windows_arm64.zip"
+          )
+
+          # Download and compute checksums
+          for arch in "${!ASSETS[@]}"; do
+            asset="${ASSETS[$arch]}"
+            url="https://github.com/${REPO}/releases/download/v${VERSION}/${asset}"
+            echo "Downloading $asset from $url"
+
+            if curl -fsSL -o "$asset" "$url"; then
+              checksum=$(sha256sum "$asset" | awk '{print $1}')
+              echo "${arch}_checksum=$checksum" >> $GITHUB_OUTPUT
+              echo "✓ $arch: $checksum"
+            else
+              echo "✗ Failed to download $asset"
+              exit 1
+            fi
+          done
+
+      - name: Update Homebrew Formula
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+
+          # Update version
+          sed -i "s/version \".*\"/version \"$VERSION\"/" Formula/wassette.rb
+
+          # Update checksums - find the line after the url and replace sha256
+          sed -i "/darwin_amd64\.tar\.gz\"/{ n; s/sha256 \".*\"/sha256 \"${{ steps.checksums.outputs.darwin_amd64_checksum }}\"/; }" Formula/wassette.rb
+          sed -i "/darwin_arm64\.tar\.gz\"/{ n; s/sha256 \".*\"/sha256 \"${{ steps.checksums.outputs.darwin_arm64_checksum }}\"/; }" Formula/wassette.rb
+          sed -i "/linux_amd64\.tar\.gz\"/{ n; s/sha256 \".*\"/sha256 \"${{ steps.checksums.outputs.linux_amd64_checksum }}\"/; }" Formula/wassette.rb
+          sed -i "/linux_arm64\.tar\.gz\"/{ n; s/sha256 \".*\"/sha256 \"${{ steps.checksums.outputs.linux_arm64_checksum }}\"/; }" Formula/wassette.rb
+
+          # Verify updates
+          if ! grep -q "version \"$VERSION\"" Formula/wassette.rb; then
+            echo "Error: Failed to update version in Formula"
+            exit 1
+          fi
+          if ! grep -q "${{ steps.checksums.outputs.darwin_amd64_checksum }}" Formula/wassette.rb; then
+            echo "Error: Failed to update darwin_amd64 checksum"
+            exit 1
+          fi
+
+          echo "Updated Homebrew Formula successfully"
+
+      - name: Update WinGet Manifest
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          RELEASE_DATE=$(date -u +%Y-%m-%d)
+
+          # Update version and release date
+          sed -i "s/PackageVersion: .*/PackageVersion: $VERSION/" winget/Microsoft.Wassette.yaml
+          sed -i "s/ReleaseDate: .*/ReleaseDate: $RELEASE_DATE/" winget/Microsoft.Wassette.yaml
+
+          # Update Windows x64 installer
+          sed -i "/Architecture: x64/,/InstallerSha256:/ {
+            s|InstallerUrl: .*|InstallerUrl: https://github.com/${{ github.repository }}/releases/download/v${VERSION}/wassette_${VERSION}_windows_amd64.zip|
+            s|InstallerSha256: .*|InstallerSha256: ${{ steps.checksums.outputs.windows_amd64_checksum }}|
+          }" winget/Microsoft.Wassette.yaml
+
+          # Update Windows ARM64 installer
+          sed -i "/Architecture: arm64/,/InstallerSha256:/ {
+            s|InstallerUrl: .*|InstallerUrl: https://github.com/${{ github.repository }}/releases/download/v${VERSION}/wassette_${VERSION}_windows_arm64.zip|
+            s|InstallerSha256: .*|InstallerSha256: ${{ steps.checksums.outputs.windows_arm64_checksum }}|
+          }" winget/Microsoft.Wassette.yaml
+
+          # Verify updates
+          if ! grep -q "PackageVersion: $VERSION" winget/Microsoft.Wassette.yaml; then
+            echo "Error: Failed to update PackageVersion"
+            exit 1
+          fi
+          if ! grep -q "${{ steps.checksums.outputs.windows_amd64_checksum }}" winget/Microsoft.Wassette.yaml; then
+            echo "Error: Failed to update windows_amd64 checksum"
+            exit 1
+          fi
+
+          echo "Updated WinGet Manifest successfully"
+
+      - name: Create Pull Request
+        uses: peter-evans/create-pull-request@5e914681df9dc83aa4e4905692ca88beb2f9e91f # v7.0.5
+        with:
+          commit-message: "chore: update winget and homebrew for v${{ steps.version.outputs.version }}"
+          branch: release/v${{ steps.version.outputs.version }}-post
+          delete-branch: true
+          title: "chore: update winget and homebrew for v${{ steps.version.outputs.version }}"
+          body: |
+            This pull request updates the Wassette package to version ${{ steps.version.outputs.version }} across both Homebrew and WinGet manifests. The changes ensure that installation scripts and metadata reference the latest release and its corresponding checksums.
+
+            ## Version and release updates
+
+            * Updated the Wassette version to `${{ steps.version.outputs.version }}` in both `Formula/wassette.rb` and `winget/Microsoft.Wassette.yaml`
+            * Changed the `ReleaseDate` in the WinGet manifest to reflect the new release
+
+            ## Installer and checksum updates
+
+            * Updated all installer URLs and SHA256 checksums in both Homebrew and WinGet manifests to match the new Wassette ${{ steps.version.outputs.version }} release files for all supported platforms
+
+            ### Checksums
+
+            - **macOS AMD64**: `${{ steps.checksums.outputs.darwin_amd64_checksum }}`
+            - **macOS ARM64**: `${{ steps.checksums.outputs.darwin_arm64_checksum }}`
+            - **Linux AMD64**: `${{ steps.checksums.outputs.linux_amd64_checksum }}`
+            - **Linux ARM64**: `${{ steps.checksums.outputs.linux_arm64_checksum }}`
+            - **Windows AMD64**: `${{ steps.checksums.outputs.windows_amd64_checksum }}`
+            - **Windows ARM64**: `${{ steps.checksums.outputs.windows_arm64_checksum }}`
+
+            ---
+
+            *This PR was automatically created by the update-package-manifests workflow.*
+          labels: |
+            release
+            automated
