@@ -1,190 +1,407 @@
-# typos
+<div align="center">
+  <h1 align="center">Wassette</h1>
+  <p><b>A security-oriented runtime that runs WebAssembly Components via MCP</b></p>
+  
+  <!-- <a href="https://discord.gg/microsoft-open-source">
+    <img src="https://dcbadge.limes.pink/api/server/microsoft-open-source" alt="Discord" style="height: 25px;">
+  </a> -->
 
-> **Source code spell checker**
+[Getting started][setup guide] | [FAQ] | [Documentation] | [Releases] | [Contributing] | [Discord]
+</div>
 
-Finds and corrects spelling mistakes among source code:
-- Fast enough to run on monorepos
-- Low false positives so you can run on PRs
+## Why Wassette?
 
-![Screenshot](./docs/screenshot.png)
+- **Convenience**: Wassette makes it easy to extend AI agents with new tools,
+  all without ever having to leave the chat window.
+- **Reusability**: Wasm Components are generic and reusable;
+  there is nothing MCP-specific about them.
+- **Security**: Wassette is built on the Wasmtime security sandbox, providing
+  browser-grade isolation of tools.
 
+## Architecture
 
-[![Downloads](https://img.shields.io/github/downloads/crate-ci/typos/total.svg)](https://github.com/crate-ci/typos/releases)
-[![codecov](https://codecov.io/gh/crate-ci/typos/branch/master/graph/badge.svg)](https://codecov.io/gh/crate-ci/typos)
-[![Documentation](https://img.shields.io/badge/docs-master-blue.svg)][Documentation]
-![License](https://img.shields.io/crates/l/typos.svg)
-[![Crates Status](https://img.shields.io/crates/v/typos.svg)][Crates.io]
+![An architecture diagram showing the relationship between Wassette, MCP Clients, and Wasm Components](./assets/architecture.png)
 
-Dual-licensed under [MIT](LICENSE-MIT) or [Apache 2.0](LICENSE-APACHE)
+## Installation
 
-## Documentation
+For Linux (including Windows Subsystem for Linux) and macOS, you can install Wassette using the provided install script:
 
-- [Installation](#install)
-- [Getting Started](#getting-started)
-  - [False Positives](#false-positives)
-  - [Integrations](#integrations)
-    - [GitHub Action](docs/github-action.md)
-    - [pre-commit](docs/pre-commit.md)
-    - [Custom](#custom)
-  - [Debugging](#debugging)
-- [Reference](docs/reference.md)
-- [FAQ](#faq)
-- [Comparison with other spell checkers](docs/comparison.md)
-- [Projects using typos](https://github.com/crate-ci/typos/wiki)
-- [Benchmarks](benchsuite/runs)
-- [Design](docs/design.md)
-- [Contribute](CONTRIBUTING.md)
-- [CHANGELOG](CHANGELOG.md)
-
-## Install
-
-[Download](https://github.com/crate-ci/typos/releases) a pre-built binary
-(installable via [gh-install](https://github.com/crate-ci/gh-install)).
-
-Or use rust to install:
-```console
-$ cargo install typos-cli --locked
+```bash
+curl -fsSL https://raw.githubusercontent.com/microsoft/wassette/main/install.sh | bash
 ```
 
-Or use [Homebrew](https://brew.sh/) to install:
-```console
-$ brew install typos-cli
+This will detect your platform and install the latest `wassette` binary to your `$PATH`. 
+
+We provide a [Homebrew formula for macOS and Linux](./docs/homebrew.md).
+
+For Windows users, we provide a [WinGet package](./docs/winget.md).
+
+And [Nix flakes for reproducible environments](./docs/nix.md).
+
+You can also download the latest release from the [GitHub Releases page][Releases] and add it to your `$PATH`.
+
+## Using Wassette
+
+With Wassette installed, the next step is to register it with your agent of
+choice. We have a complete [complete setup guide][setup guide] for all agents
+here, including Cursor, Claude Code, and Gemini CLI. 
+
+Add the Wassette MCP Server to GitHub Copilot in Visual Studio Code by clicking the **Install in VS Code** or **Install in VS Code Insiders** badge below:
+
+[![Install in VS Code](https://img.shields.io/badge/VS_Code-Install_Server-0098FF?style=flat-square&logo=visualstudiocode&logoColor=white)](https://vscode.dev/redirect?url=vscode:mcp/install?%7B%22name%22%3A%22wassette%22%2C%22gallery%22%3Afalse%2C%22command%22%3A%22wassette%22%2C%22args%22%3A%5B%22serve%22%2C%22--stdio%22%5D%7D) [![Install in VS Code Insiders](https://img.shields.io/badge/VS_Code_Insiders-Install_Server-24bfa5?style=flat-square&logo=visualstudiocode&logoColor=white)](https://vscode.dev/redirect?url=vscode-insiders:mcp/install?%7B%22name%22%3A%22wassette%22%2C%22gallery%22%3Afalse%2C%22command%22%3A%22wassette%22%2C%22args%22%3A%5B%22serve%22%2C%22--stdio%22%5D%7D)
+
+Alternatively, you can add the Wassete MCP server to VS Code from the command line using the `code` command in a bash/zsh or PowerShell terminal:
+
+### bash/zsh
+
+```bash
+code --add-mcp '{"name":"Wassette","command":"wassette","args":["serve","--stdio"]}'
 ```
 
-Or use [Conda](https://conda.io/) to install:
-```console
-$ conda install typos
+### PowerShell
+
+```powershell
+ code --% --add-mcp "{\"name\":\"wassette\",\"command\":\"wassette\",\"args\":[\"serve\",\"--stdio\"]}"
 ```
 
-Or use [Pacman](https://wiki.archlinux.org/title/pacman) to install:
-```console
-$ sudo pacman -S typos
+Now that your agent knows about Wassette, we are ready to load Wasm Components. To teach your agent to tell the time, we can ask it to load a time component:
+
+```text
+Please load the time component from oci://ghcr.io/yoshuawuyts/time:latest
 ```
 
-## Getting Started
+Now that the time component is loaded, we can ask your agent to tell you the current time:
 
-Most commonly, you'll either want to see what typos are available with
-```console
-$ typos
+```text
+What is the current time?
 ```
 
-Or have them fixed
-```console
-$ typos --write-changes
-$ typos -w
-```
-If there is any ambiguity (multiple possible corrections), `typos` will just report it to the user and move on.
+The agent will respond with the current time, which is fetched from the time component running in a secure WebAssembly sandbox:
 
-### False Positives
-
-Sometimes, what looks like a typo is intentional, like with people's names, acronyms, or localized content.
-
-To mark a word or an identifier (grouping of words) as valid, add it to your [`_typos.toml`](docs/reference.md) by declaring itself as the valid spelling:
-```toml
-[default]
-extend-ignore-identifiers-re = [
-    # *sigh* this just isn't worth the cost of fixing
-    "AttributeID.*Supress.*",
-]
-
-[default.extend-identifiers]
-# *sigh* this just isn't worth the cost of fixing
-AttributeIDSupressMenu = "AttributeIDSupressMenu"
-
-[default.extend-words]
-# Don't correct the surname "Teh"
-teh = "teh"
-```
-For more ways to ignore or extend the dictionary with examples, see the [config reference](docs/reference.md).
-
-For cases like localized content, you can disable spell checking of file contents while still checking the file name:
-```toml
-[type.po]
-extend-glob = ["*.po"]
-check-file = false
-```
-(run `typos --type-list` to see configured file types)
-
-If you need some more flexibility, you can completely exclude some files from consideration:
-```toml
-[files]
-extend-exclude = ["localized/*.po"]
+```output
+The current time July 31, 2025 at 10:30 AM UTC
 ```
 
-### Integrations
+Congratulations! You've just run your first Wasm Component and taught your agent how to tell time!
 
-- [GitHub Actions](docs/github-action.md)
-- [pre-commit](docs/pre-commit.md)
-- [🐊Putout Processor](https://github.com/putoutjs/putout-processor-typos)
-- [Visual Studio Code](https://github.com/tekumara/typos-vscode)
-- [typos-lsp (Language Server Protocol server)](https://github.com/tekumara/typos-vscode)
+## Demo
 
-#### Custom
+https://github.com/user-attachments/assets/8e5a371c-ac72-406d-859c-03833ee83963
 
-`typos` provides several building blocks for custom native integrations
-- `-` reads from `stdin`, `--write-changes` will be written to `stdout`
-- `--diff` to provide a diff
-- `--format json` to get jsonlines with exit code 0 on no errors, code 2 on typos, anything else is an error.
+## Built-in Tools
 
-Examples:
-```console
-$ # Read file from stdin, write corrected version to stdout
-$ typos - --write-changes
-$ # Creates a diff of what would change
-$ typos dir/file --diff
-$ # Fully programmatic control
-$ typos dir/file --format json
+Wassette comes with several built-in tools for managing components and their permissions. These tools are available immediately when you start the MCP server:
+
+| Tool | Description |
+|------|-------------|
+| `load-component` | Dynamically loads a new tool or component from either the filesystem or OCI registries |
+| `unload-component` | Unloads a tool or component |
+| `list-components` | Lists all currently loaded components or tools |
+| `search-components` | Lists all known components that can be fetched and loaded from the component registry |
+| `get-policy` | Gets the policy information for a specific component |
+| `grant-storage-permission` | Grants storage access permission to a component, allowing it to read from and/or write to specific storage locations |
+| `grant-network-permission` | Grants network access permission to a component, allowing it to make network requests to specific hosts |
+| `grant-environment-variable-permission` | Grants environment variable access permission to a component, allowing it to access specific environment variables |
+| `revoke-storage-permission` | Revokes all storage access permissions from a component for the specified URI path, removing both read and write access to that location |
+| `revoke-network-permission` | Revokes network access permission from a component, removing its ability to make network requests to specific hosts |
+| `revoke-environment-variable-permission` | Revokes environment variable access permission from a component, removing its ability to access specific environment variables |
+| `reset-permission` | Resets all permissions for a component, removing all granted permissions and returning it to the default state |
+
+<details>
+<summary><strong>Component Management Tools</strong></summary>
+
+### load-component
+**Parameters:**
+- `path` (string, required): Path to the component from either filesystem or OCI registries (e.g., `oci://ghcr.io/yoshuawuyts/time:latest` or `/path/to/component.wasm`)
+
+**Returns:**
+```json
+{
+  "status": "component loaded successfully",
+  "id": "component-unique-id",
+  "tools": ["tool-one", "tool-two"]
+}
+```
+When an existing component is replaced, the `status` value becomes
+`component reloaded successfully`.
+
+### unload-component
+**Parameters:**
+- `id` (string, required): Unique identifier of the component to unload
+
+**Returns:**
+```json
+{
+  "status": "component unloaded successfully",
+  "id": "component-unique-id"
+}
 ```
 
-### Debugging
+### list-components
+**Parameters:** None
 
-You can see what the effective config looks like by running
-```console
-$ typos --dump-config -
+**Returns:**
+```json
+{
+  "components": [
+    {
+      "id": "component-id",
+      "tools_count": 2,
+      "schema": {
+        "tools": [...]
+      }
+    }
+  ],
+  "total": 1
+}
 ```
 
-You can then see how typos is processing your project with
-```console
-$ typos --files
-$ typos --identifiers
-$ typos --words
+### search-components
+**Parameters:** None
+
+**Returns:**
+```json
+{
+  "status": "Component list found",
+  "components": [
+    {
+      "name": "Weather Server",
+      "description": "A weather component written in JavaScript",
+      "uri": "oci://ghcr.io/microsoft/get-weather-js:latest"
+    },
+    {
+      "name": "Time Server", 
+      "description": "A time server component written in JavaScript",
+      "uri": "oci://ghcr.io/microsoft/time-server-js:latest"
+    }
+  ]
+}
 ```
 
-If you need to dig in more, you can enable debug logging with `-v`
+</details>
 
-## FAQ
+<details>
+<summary><strong>Policy Management Tools</strong></summary>
 
-### Why was ... not corrected?
+### get-policy
+**Parameters:**
+- `component_id` (string, required): ID of the component to get policy information for
 
-**Does the file show up in `typos --files`?**
-If not, check your config with `typos --dump-config -`.
-The `[files]` table controls how we walk files.
-If you are using `files.extend-exclude`,
-are you running into [#593](https://github.com/crate-ci/typos/issues/593)?
-If you are using `files.ignore-vcs = true`,
-is the file in your `.gitignore` but git tracks it anyways?
-Prefer allowing the file explicitly (see [#909](https://github.com/crate-ci/typos/issues/909)).
+**Returns:**
+```json
+{
+  "status": "policy found",
+  "component_id": "component-id",
+  "policy_info": {
+    "policy_id": "policy-uuid",
+    "source_uri": "oci://registry.example.com/component:tag",
+    "local_path": "/path/to/cached/component",
+    "created_at": 1640995200
+  }
+}
+```
 
-**Does the identifier show up in `typos --identifiers` or the word show up in `typos --words`?**
-If not, it might be subject to one of typos' heuristics for
-detecting non-words (like hashes) or
-unambiguous words (like words after a `\` escape).
+</details>
 
-If it is showing up, likely `typos` doesn't know about it yet.
+<details>
+<summary><strong>Permission Grant Tools</strong></summary>
 
-`typos` maintains a list of known typo corrections to keep the false positive
-count low so it can safely run unassisted.
+### grant-storage-permission
+**Parameters:**
+- `component_id` (string, required): ID of the component to grant storage permission to
+- `details` (object, required):
+  - `uri` (string, required): URI of the storage resource (e.g., `fs:///tmp/test`)
+  - `access` (array, required): Array of access types, must be `["read"]`, `["write"]`, or `["read", "write"]`
 
-This is in contrast to most spell checking UIs people use where there is a
-known list of valid words.  In this case, the spell checker tries to guess your
-intent by finding the closest-looking word.  It then has a gauge for when a
-word isn't close enough and assumes you know best.  The user has the
-opportunity to verify these corrections and explicitly allow or reject them.
+**Returns:**
+```json
+{
+  "status": "permission granted successfully",
+  "component_id": "component-id",
+  "permission_type": "storage",
+  "details": {
+    "uri": "fs:///tmp/test",
+    "access": ["read", "write"]
+  }
+}
+```
 
-For more on the trade offs of these approaches, see [Design](docs/design.md).
+### grant-network-permission
+**Parameters:**
+- `component_id` (string, required): ID of the component to grant network permission to
+- `details` (object, required):
+  - `host` (string, required): Host to grant network access to (e.g., `api.example.com`)
 
-- To correct it locally, see also our [False Positives documentation](#false-positives).
-- To contribute your correction, see [Contribute](CONTRIBUTING.md)
+**Returns:**
+```json
+{
+  "status": "permission granted successfully",
+  "component_id": "component-id",
+  "permission_type": "network",
+  "details": {
+    "host": "api.example.com"
+  }
+}
+```
 
-[Crates.io]: https://crates.io/crates/typos-cli
-[Documentation]: https://docs.rs/typos
+### grant-environment-variable-permission
+**Parameters:**
+- `component_id` (string, required): ID of the component to grant environment variable permission to
+- `details` (object, required):
+  - `key` (string, required): Environment variable key to grant access to (e.g., `API_KEY`)
+
+**Returns:**
+```json
+{
+  "status": "permission granted successfully",
+  "component_id": "component-id",
+  "permission_type": "environment",
+  "details": {
+    "key": "API_KEY"
+  }
+}
+```
+
+</details>
+
+<details>
+<summary><strong>Permission Revoke Tools</strong></summary>
+
+### revoke-storage-permission
+**Parameters:**
+- `component_id` (string, required): ID of the component to revoke storage permission from
+- `details` (object, required):
+  - `uri` (string, required): URI of the storage resource to revoke access from (e.g., `fs:///tmp/test`)
+
+**Returns:**
+```json
+{
+  "status": "permission revoked successfully",
+  "component_id": "component-id",
+  "uri": "fs:///tmp/test",
+  "message": "All access (read and write) to the specified URI has been revoked"
+}
+```
+
+### revoke-network-permission
+**Parameters:**
+- `component_id` (string, required): ID of the component to revoke network permission from
+- `details` (object, required):
+  - `host` (string, required): Host to revoke network access from (e.g., `api.example.com`)
+
+**Returns:**
+```json
+{
+  "status": "permission revoked",
+  "component_id": "component-id",
+  "permission_type": "network",
+  "details": {
+    "host": "api.example.com"
+  }
+}
+```
+
+### revoke-environment-variable-permission
+**Parameters:**
+- `component_id` (string, required): ID of the component to revoke environment variable permission from
+- `details` (object, required):
+  - `key` (string, required): Environment variable key to revoke access from (e.g., `API_KEY`)
+
+**Returns:**
+```json
+{
+  "status": "permission revoked",
+  "component_id": "component-id",
+  "permission_type": "environment",
+  "details": {
+    "key": "API_KEY"
+  }
+}
+```
+
+### reset-permission
+**Parameters:**
+- `component_id` (string, required): ID of the component to reset permissions for
+
+**Returns:**
+```json
+{
+  "status": "permissions reset successfully",
+  "component_id": "component-id"
+}
+```
+
+</details>
+
+These tools enable you to dynamically manage components and their security permissions without needing to restart the server or modify configuration files directly.
+
+## Building WebAssembly Components
+
+Wasm Components provide fully typed interfaces defined using WebAssembly
+Interface Types (WIT). Wassette can take any Wasm Component and load it as an
+MCP tool by inspecting the types it exposes. Take for example the following WIT
+definition for a time server:
+
+```wit
+package local:time-server;
+
+world time-server {
+    export get-current-time: func() -> string;
+}
+```
+
+You'll notice that this interface doesn't mention MCP at all; it is just a
+regular library interface that exports a function. That means there is no such
+thing as a "Wassette-specific Wasm Component". Wassette is able to load any Wasm
+Component and expose its functions as MCP tools. Components can be re-used by other Wasm runtimes.
+
+See the [`examples/`](./examples/) directory for a complete list of examples. Here is a
+selection of examples written in different languages:
+
+| Example                                    | Description                                            |
+| ------------------------------------------ | ------------------------------------------------------ |
+| [eval-py](examples/eval-py/)               | Python code execution sandbox                          |
+| [fetch-rs](examples/fetch-rs/)             | HTTP API client for fetching and converting web content |
+| [filesystem-rs](examples/filesystem-rs/)   | File system operations (read, write, list directories) |
+| [get-weather-js](examples/get-weather-js/) | Weather API client for fetching weather data           |
+| [gomodule-go](examples/gomodule-go/)       | Go module information tool                             |
+| [time-server-js](examples/time-server-js/) | JavaScript-based time server component                |
+
+## Community Components
+
+The Wassette community has built amazing components that you can use in your projects:
+
+- **[QR Code Generator](https://github.com/attackordie/qr-code-webassembly)** - Generate QR codes from text using a WebAssembly component by @attackordie
+
+## Discord
+
+You can join us via the `#wassette` channel on the [Microsoft Open Source Discord](https://discord.gg/microsoft-open-source):
+
+[![Microsoft Open Source Discord](https://dcbadge.limes.pink/api/server/microsoft-open-source)](https://discord.gg/microsoft-open-source)
+
+## Contributing
+
+Please see [CONTRIBUTING.md][Contributing] for more information on how to contribute to this project.
+
+## License
+
+This project is licensed under the <a href="LICENSE">MIT License</a>.
+
+## Trademarks
+
+This project may contain trademarks or logos for projects, products, or services. Authorized use of Microsoft trademarks or logos is subject to and must follow [Microsoft’s Trademark & Brand Guidelines](https://www.microsoft.com/en-us/legal/intellectualproperty/trademarks). Use of Microsoft trademarks or logos in modified versions of this project must not cause confusion or imply Microsoft sponsorship. Any use of third-party trademarks or logos are subject to those third-party’s policies.
+
+[setup guide]: https://github.com/microsoft/wassette/blob/main/docs/mcp-clients.md
+[FAQ]: https://microsoft.github.io/wassette/faq.html
+[Documentation]: https://microsoft.github.io/wassette
+[Contributing]: CONTRIBUTING.md
+[Releases]: https://github.com/microsoft/wassette/releases
+[Discord]: https://discord.gg/microsoft-open-source
+
+## Contributors
+
+Thanks to all contributors who are helping shape Wassette into something great.
+
+<a href="https://github.com/microsoft/wassette/graphs/contributors">
+  <img src="https://contrib.rocks/image?repo=microsoft/wassette" />
+</a>
