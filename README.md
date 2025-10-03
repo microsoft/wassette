@@ -34,9 +34,9 @@ curl -fsSL https://raw.githubusercontent.com/microsoft/wassette/main/install.sh 
 
 Available installation methods:
 - **[One-liner script](./docs/installation.md#linux-including-wsl)** for Linux and macOS
-- **[Homebrew](./docs/homebrew.md)** for macOS and Linux
-- **[WinGet](./docs/winget.md)** for Windows
-- **[Nix flakes](./docs/nix.md)** for reproducible environments
+- **[Homebrew](./docs/installation.md#homebrew)** for macOS and Linux
+- **[WinGet](./docs/installation.md#windows)** for Windows
+- **[Nix flakes](./docs/installation.md#nix-all-platforms)** for reproducible environments
 - **[Manual download](https://github.com/microsoft/wassette/releases)** from GitHub Releases
 
 ## Using Wassette

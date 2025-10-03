@@ -38,8 +38,6 @@ brew tap microsoft/wassette https://github.com/microsoft/wassette
 brew install wassette
 ```
 
-For more details, see the [Homebrew installation guide](./homebrew.md).
-
 #### Manual Download
 
 You can also download the latest Linux release manually from the [GitHub Releases page](https://github.com/microsoft/wassette/releases) and add it to your `$PATH`.
@@ -55,7 +53,7 @@ brew tap microsoft/wassette https://github.com/microsoft/wassette
 brew install wassette
 ```
 
-This method works for both Intel and Apple Silicon Macs. For more details, see the [Homebrew installation guide](./homebrew.md).
+This method works for both Intel and Apple Silicon Macs.
 
 #### Quick Install Script
 
@@ -91,7 +89,11 @@ If the installation fails, you may need to enable local manifest files:
 winget settings --enable LocalManifestFiles
 ```
 
-For more details, including uninstallation instructions, see the [WinGet installation guide](./winget.md).
+To uninstall Wassette:
+
+```powershell
+winget uninstall Wassette
+```
 
 #### Manual Download
 
@@ -112,7 +114,7 @@ nix profile install github:microsoft/wassette
 nix develop github:microsoft/wassette
 ```
 
-This provides a reproducible environment for using and developing Wassette. For more details, see the [Nix installation guide](./nix.md).
+This provides a reproducible environment for using and developing Wassette.
 
 ## Verifying the Installation
 

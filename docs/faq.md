@@ -128,19 +128,11 @@ Wassette supports:
 
 ### How do I install Wassette?
 
-**Linux/macOS:**
-```bash
-curl -fsSL https://raw.githubusercontent.com/microsoft/wassette/main/install.sh | bash
-```
-
-**macOS (Homebrew):**
-See the [Homebrew installation guide](./homebrew.md)
-
-**Windows (WinGet):**
-See the [WinGet installation guide](./winget.md)
-
-**Nix:**
-See the [Nix installation guide](./nix.md)
+See the [Installation guide](./installation.md) for complete instructions for all platforms including:
+- Linux/macOS one-liner install script
+- Homebrew for macOS and Linux
+- WinGet for Windows
+- Nix flakes for reproducible environments
 
 ### How do I configure Wassette with my AI agent?
 

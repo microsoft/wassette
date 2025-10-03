@@ -2,9 +2,6 @@
 
 - [Overview](./overview.md)
 - [Installation](./installation.md)
-- [Homebrew](./homebrew.md)
-- [Nix](./nix.md)
-- [Winget](./winget.md)
 - [MCP Clients](./mcp-clients.md)
 - [FAQ](./faq.md)
 
