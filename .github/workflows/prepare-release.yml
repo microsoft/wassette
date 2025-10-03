@@ -1,0 +1,67 @@
+name: Prepare Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'New version (without v prefix, e.g., 0.4.0)'
+        required: true
+        type: string
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  prepare-release:
+    name: Prepare Release PR
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+
+      - name: Validate version format
+        run: |
+          VERSION="${{ inputs.version }}"
+          if ! [[ $VERSION =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Error: Version must be in format X.Y.Z (e.g., 0.4.0)"
+            exit 1
+          fi
+          echo "Valid version format: $VERSION"
+
+      - name: Update Cargo.toml
+        run: |
+          VERSION="${{ inputs.version }}"
+          sed -i "s/^version = \".*\"/version = \"$VERSION\"/" Cargo.toml
+          echo "Updated Cargo.toml to version $VERSION"
+
+      - name: Update Cargo.lock
+        run: |
+          # Update lockfile to reflect version change
+          cargo update -p wassette-mcp-server --precise ${{ inputs.version }}
+          echo "Updated Cargo.lock"
+
+      - name: Create Pull Request
+        uses: peter-evans/create-pull-request@5e914681df9dc83aa4e4905692ca88beb2f9e91f # v7.0.5
+        with:
+          commit-message: "chore(release): bump version to ${{ inputs.version }}"
+          branch: release/v${{ inputs.version }}
+          delete-branch: true
+          title: "chore(release): bump version to ${{ inputs.version }}"
+          body: |
+            This pull request prepares for the ${{ inputs.version }} release by updating the version in `Cargo.toml` and `Cargo.lock`.
+
+            ## Changes
+            - Updated version in `Cargo.toml` to `${{ inputs.version }}`
+            - Updated `Cargo.lock` to reflect the version change
+
+            ## Next Steps
+            1. Review and merge this PR
+            2. After merge, create and push a new tag: `git tag -s v${{ inputs.version }} -m "Release v${{ inputs.version }}"`
+            3. Push the tag: `git push origin v${{ inputs.version }}`
+            4. The release workflow will automatically trigger and create the GitHub release
+            5. The update-package-manifests workflow will automatically create a PR to update Homebrew and WinGet manifests
+          labels: |
+            release
+            automated
