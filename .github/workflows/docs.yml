@@ -6,6 +6,8 @@ on:
     paths:
       - 'docs/**'
       - '.github/workflows/docs.yml'
+    tags:
+      - 'v*'
   pull_request:
     branches: [ "main" ]
     paths:
@@ -42,15 +44,74 @@ jobs:
         id: pages
         uses: actions/configure-pages@983d7736d9b0ae728b81ab479565c72886d7745b # v5.0.0
 
+      - name: Determine version
+        id: version
+        run: |
+          if [[ "${{ github.ref }}" == refs/tags/v* ]]; then
+            VERSION="${{ github.ref_name }}"
+          else
+            VERSION="latest"
+          fi
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "Building documentation for version: $VERSION"
+
       - name: Build with mdBook
         run: |
           cd docs
           mdbook build
 
+      - name: Prepare versioned output
+        run: |
+          mkdir -p public/wassette/${{ steps.version.outputs.version }}
+          cp -r docs/book/* public/wassette/${{ steps.version.outputs.version }}/
+          
+          # Copy root redirect page
+          cp docs/index.html public/wassette/index.html
+          
+          # Download existing versions.json from gh-pages if it exists, or use the default
+          echo "Fetching existing versions.json..."
+          curl -f https://microsoft.github.io/wassette/versions.json -o public/wassette/versions.json || cp docs/versions.json public/wassette/versions.json
+          
+          # Update versions.json with current version
+          python3 << 'EOF'
+          import json
+          import sys
+          
+          version = "${{ steps.version.outputs.version }}"
+          
+          try:
+              with open("public/wassette/versions.json", "r") as f:
+                  data = json.load(f)
+          except:
+              data = {"versions": ["latest"], "latest": "latest"}
+          
+          # Add current version if it's not already in the list
+          if version not in data["versions"]:
+              # Insert version after "latest" if it's a tag
+              if version.startswith("v"):
+                  if "latest" in data["versions"]:
+                      idx = data["versions"].index("latest") + 1
+                      data["versions"].insert(idx, version)
+                  else:
+                      data["versions"].insert(0, version)
+              else:
+                  # Ensure "latest" is first
+                  if "latest" not in data["versions"]:
+                      data["versions"].insert(0, "latest")
+          
+          with open("public/wassette/versions.json", "w") as f:
+              json.dump(data, f, indent=2)
+          
+          print(f"Updated versions.json with version: {version}")
+          EOF
+          
+          echo "Current versions.json:"
+          cat public/wassette/versions.json
+
       - name: Upload artifact
         uses: actions/upload-pages-artifact@7b1f4a764d45c48632c6b24a0339c27f5614fb0b # v4.0.0
         with:
-          path: docs/book
+          path: public
 
   # Deployment job
   deploy:
@@ -59,7 +120,7 @@ jobs:
       url: ${{ steps.deployment.outputs.page_url }}
     runs-on: ubuntu-latest
     needs: build
-    if: github.ref == 'refs/heads/main'
+    if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')
     steps:
       - name: Deploy to GitHub Pages
         id: deployment
