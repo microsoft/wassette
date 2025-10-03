@@ -19,51 +19,70 @@ Wassette uses semantic versioning. All releases follow the format `vX.Y.Z`, wher
 
 ## Steps to Cut a Release
 
-1. **Update the version**: Before creating a release, ensure that the version number in the `Cargo.toml` file is updated to reflect the new release version. This should follow semantic versioning.
+The release process is now largely automated through GitHub Actions workflows. Follow these steps:
 
-   For example, if the current version is `0.1.0` and you are releasing a patch, update it to `0.1.1`.
+1. **Prepare the release**: Trigger the `prepare-release` workflow to create a PR that bumps the version.
 
-   ```toml
-   [package]
-   name = "wassette"
-   version = "0.1.1" # Update this line
-   ```
+   1. Go to the [Actions tab](https://github.com/microsoft/wassette/actions/workflows/prepare-release.yml)
+   1. Click "Run workflow"
+   1. Enter the new version number (without `v` prefix, e.g., `0.4.0`)
+   1. Click "Run workflow"
 
-   ```bash
-   # commit the version change
-   git add Cargo.toml
-   git commit -m "Bump version to 0.1.1"
-   ```
+   This will automatically:
+   - Update the version in `Cargo.toml`
+   - Update `Cargo.lock`
+   - Create a pull request with these changes
 
-   ```bash
-   # push the changes to the release branch
-   git push origin <branch_name>
-   ```
+1. **Review and merge the version bump PR**: The workflow will create a pull request with the version changes. Review and merge this PR into the main branch.
 
-1. **Open a Pull Request to main**: Create a pull request to merge the changes into the main branch. This allows for code review and ensures that the version bump is properly documented.
-
-1. **Create a new tag**: Once the pull request is merged, create a new tag for the release. The tag should follow the semantic versioning format and be prefixed with `v`.
+1. **Create and push a release tag**: Once the version bump PR is merged:
 
    ```bash
    # Checkout the main branch and pull the latest changes
    git checkout main
    git pull origin main
 
-   # Create a new tag
-   git tag -s <tag_name> -m "Release <tag_name>" # e.g., v0.1.0
-   git push origin <tag_name> # e.g., v0.1.0
+   # Create a new tag (e.g., v0.4.0)
+   git tag -s v<version> -m "Release v<version>"
+   
+   # Push the tag
+   git push origin v<version>
    ```
 
-1. **Trigger the release workflow**: Once the tag is pushed, the `release.yml` workflow will be triggered automatically. You can monitor the progress of the workflow in the "Actions" tab of the GitHub repository. After the workflow completes successfully, the compiled binaries for each platform will be available for download in the "[Releases](https://github.com/microsoft/wassette/releases)" section of the GitHub repository.
+1. **Monitor the release workflow**: Once the tag is pushed, the `release.yml` workflow will be triggered automatically:
+   - Builds binaries for all platforms (Linux, macOS, Windows; AMD64 and ARM64)
+   - Creates a GitHub release with all compiled binaries
+   - Monitor the workflow progress in the [Actions tab](https://github.com/microsoft/wassette/actions)
 
-1. **Update package manifests**: After all release assets are published, refresh the downstream package managers so they point at the new version.
+1. **Package manifests are updated automatically**: After the release is published, the `update-package-manifests` workflow will automatically:
+   - Download all release assets
+   - Compute SHA256 checksums
+   - Update `Formula/wassette.rb` (Homebrew)
+   - Update `winget/Microsoft.Wassette.yaml` (WinGet)
+   - Create a pull request with these updates
 
-   - **WinGet**:
-     1. Open the GitHub release for the new tag and use the asset menu to copy the download URL and SHA-256 value for each Windows zip (`wassette_<version>_windows_amd64.zip` and `wassette_<version>_windows_arm64.zip`).
-     1. Edit `winget/Microsoft.Wassette.yaml` and update `PackageVersion`, `ReleaseDate`, `InstallerUrl`, and `InstallerSha256` for each architecture using the copied values.
-     1. Submit the manifest changes in a pull request.
+   Simply review and merge the automatically created PR to complete the release process.
 
-   - **Homebrew**:
-     1. From the same GitHub release, copy the SHA-256 values for each tarball referenced in `Formula/wassette.rb` (`wassette_<version>_darwin_amd64.tar.gz`, `wassette_<version>_linux_amd64.tar.gz`, etc.).
-     1. Update the `version` field and the `sha256` values in `Formula/wassette.rb` to match the new release assets.
-     1. Open a pull request with the Formula update.
+### Manual Release Process (If Automation Fails)
+
+If the automated workflows fail, you can follow the manual process:
+
+1. **Update the version manually**:
+   ```bash
+   # Update Cargo.toml
+   sed -i 's/version = "OLD_VERSION"/version = "NEW_VERSION"/' Cargo.toml
+   
+   # Update Cargo.lock
+   cargo update -p wassette-mcp-server
+   
+   # Commit and push
+   git add Cargo.toml Cargo.lock
+   git commit -m "chore(release): bump version to NEW_VERSION"
+   git push origin <branch_name>
+   ```
+
+1. **After release is published, update package manifests manually**:
+   - Download checksums from the GitHub release page
+   - Update `Formula/wassette.rb` with new version and checksums
+   - Update `winget/Microsoft.Wassette.yaml` with new version, release date, and checksums
+   - Create a PR with these changes
