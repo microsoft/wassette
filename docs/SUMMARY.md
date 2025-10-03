@@ -5,8 +5,11 @@
 - [Nix](./nix.md)
 - [Winget](./winget.md)
 - [MCP Clients](./mcp-clients.md)
-- [CLI](./cli.md)
 - [FAQ](./faq.md)
+
+# Reference
+
+- [CLI](./reference/cli.md)
 
 # Design & Architecture
 
