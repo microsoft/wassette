@@ -62,9 +62,11 @@ jobs:
 
       - name: Download existing GitHub Pages content
         run: |
-          # GitHub Pages deployments replace the entire site, so we need to preserve
-          # existing versions by fetching content from the gh-pages branch before deployment.
-          # This ensures that when we deploy v0.4.0, we don't lose v0.3.0 and latest.
+          # IMPORTANT: GitHub Pages deployments completely replace the entire site with
+          # the uploaded artifact. Without this preservation step, deploying a new version
+          # (e.g., v0.4.0) would delete all previously published versions (e.g., v0.3.0, latest).
+          # We fetch content from the gh-pages branch and merge it with the new version
+          # to maintain a complete multi-version documentation site.
           echo "Attempting to download existing site content..."
           mkdir -p public
           # Try to download existing site as a tarball from gh-pages branch
