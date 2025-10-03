@@ -13,9 +13,10 @@ For the fastest installation experience, we recommend:
 
 ## Installation by Platform
 
-### Linux (including WSL)
+{{#tabs global="os" }}
+{{#tab name="Linux" }}
 
-#### Quick Install Script (Recommended)
+### Quick Install Script (Recommended)
 
 The easiest way to install Wassette on Linux is using our automated install script:
 
@@ -29,7 +30,7 @@ This script will:
 - Install the binary to `~/.local/bin`
 - Configure your shell PATH for immediate access
 
-#### Homebrew
+### Homebrew
 
 If you prefer using Homebrew on Linux:
 
@@ -38,13 +39,14 @@ brew tap microsoft/wassette https://github.com/microsoft/wassette
 brew install wassette
 ```
 
-#### Manual Download
+### Manual Download
 
 You can also download the latest Linux release manually from the [GitHub Releases page](https://github.com/microsoft/wassette/releases) and add it to your `$PATH`.
 
-### macOS
+{{#endtab }}
+{{#tab name="macOS" }}
 
-#### Homebrew (Recommended)
+### Homebrew (Recommended)
 
 The recommended way to install Wassette on macOS is using Homebrew:
 
@@ -55,7 +57,7 @@ brew install wassette
 
 This method works for both Intel and Apple Silicon Macs.
 
-#### Quick Install Script
+### Quick Install Script
 
 Alternatively, you can use our one-liner install script:
 
@@ -65,13 +67,14 @@ curl -fsSL https://raw.githubusercontent.com/microsoft/wassette/main/install.sh 
 
 This script automatically detects whether you're running Intel or Apple Silicon and installs the appropriate binary.
 
-#### Manual Download
+### Manual Download
 
 You can also download the latest macOS release manually from the [GitHub Releases page](https://github.com/microsoft/wassette/releases) and add it to your `$PATH`.
 
-### Windows
+{{#endtab }}
+{{#tab name="Windows" }}
 
-#### WinGet (Recommended)
+### WinGet (Recommended)
 
 For Windows users, we recommend installing Wassette using WinGet:
 
@@ -89,19 +92,22 @@ If the installation fails, you may need to enable local manifest files:
 winget settings --enable LocalManifestFiles
 ```
 
+### Uninstall
+
 To uninstall Wassette:
 
 ```powershell
 winget uninstall Wassette
 ```
 
-#### Manual Download
+### Manual Download
 
 You can also download the latest Windows release manually from the [GitHub Releases page](https://github.com/microsoft/wassette/releases) and add it to your `%PATH%`.
 
-### Nix (All Platforms)
+{{#endtab }}
+{{#tab name="Nix" }}
 
-For users who prefer Nix for reproducible environments:
+For users who prefer Nix for reproducible environments (works on all platforms):
 
 ```bash
 # Run directly without installation
@@ -115,6 +121,9 @@ nix develop github:microsoft/wassette
 ```
 
 This provides a reproducible environment for using and developing Wassette.
+
+{{#endtab }}
+{{#endtabs }}
 
 ## Verifying the Installation
 

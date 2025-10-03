@@ -32,11 +32,21 @@ jobs:
       - name: Checkout
         uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
 
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@be73d7920c329f220ce78e0234b8f96b7ae60248 # stable
+        with:
+          toolchain: stable
+
       - name: Install mdBook
         run: |
           mkdir bin
           curl -sSL https://github.com/rust-lang/mdBook/releases/download/v0.4.40/mdbook-v0.4.40-x86_64-unknown-linux-gnu.tar.gz | tar -xz --directory=bin
           echo "$GITHUB_WORKSPACE/bin" >> $GITHUB_PATH
+      
+      - name: Install mdBook Tabs
+        run: |
+          cargo install mdbook-tabs
+          echo "$HOME/.cargo/bin" >> $GITHUB_PATH
 
       - name: Setup Pages
         id: pages

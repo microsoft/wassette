@@ -8,6 +8,8 @@ title = "Wassette Documentation"
 [build]
 build-dir = "book"
 
+[preprocessor.tabs]
+
 [output.html]
 additional-css = []
 additional-js = []
