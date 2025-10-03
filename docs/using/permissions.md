@@ -80,6 +80,10 @@ Allow the weather-tool to access the API_KEY environment variable
 
 The agent understands permission requests and selects the right tool, so you don't need to worry about command syntax.
 
+> **Note**: After granting environment variable permissions, the server must be able to see those environment variables. You can provide them by:
+> - Using `wassette secret set <component-id> <key> <value>` to inject secrets
+> - Running the server with the necessary environment variables already set
+
 ### Using CLI Commands
 
 For direct management or scripting, use the `wassette permission grant` command:
@@ -117,7 +121,9 @@ wassette permission grant environment-variable weather-tool PATH
 
 ### Using Policy Files
 
-You can define permissions in a `policy.yaml` file alongside your component for pre-configured permissions:
+Policy files store permissions for components in YAML format. These files are typically managed automatically by Wassette when you use the built-in tools or CLI commands rather than being manually written.
+
+When you grant permissions through MCP built-in tools or CLI commands, Wassette creates and updates a `policy.yaml` file alongside your component:
 
 ```yaml
 version: "1.0"
@@ -147,7 +153,7 @@ permissions:
   - `network.allow`: List of allowed hosts
   - `environment.allow`: List of environment variable keys
 
-Policy files are useful for distributing components with predefined permissions, but for most use cases, granting permissions through the AI agent is simpler and more flexible.
+While you can manually create or edit policy files for distributing components with predefined permissions, for most use cases, granting permissions through the AI agent or CLI commands is simpler and less error-prone.
 
 ## Revoking Permissions
 
