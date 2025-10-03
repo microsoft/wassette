@@ -1,3 +1,4 @@
+$schema: https://raw.githubusercontent.com/microsoft/policy-mcp/main/schema/policy-v1.0.schema.json
 # file system access policy for wassette project
 # https://github.com/microsoft/policy-mcp-rs
 version: "1.0"
