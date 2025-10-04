@@ -5,11 +5,17 @@ edition = "2021"
 license = "MIT"
 
 [dependencies]
+base64 = "0.22.1"
+brotli = "3.4.0"
+flate2 = { version = "1.0.34", default-features = false, features = ["rust_backend"] }
+mime = "0.3.17"
+http = "0.2.12"
+serde = { version = "1.0.215", features = ["derive"] }
 serde_json = "1.0.137"
 spin-executor = "3.0.1"
 spin-sdk = "3.0.1"
+url = "2.5.4"
 wit-bindgen-rt = { version = "0.26.0", features = ["bitflags"] }
-scraper = "0.18.1"
 
 [lib]
 crate-type = ["cdylib"]
