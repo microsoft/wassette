@@ -120,7 +120,7 @@ jobs:
           echo "Updated WinGet Manifest successfully"
 
       - name: Create Pull Request
-        uses: peter-evans/create-pull-request@5e914681df9dc83aa4e4905692ca88beb2f9e91f # v7.0.5
+        uses: peter-evans/create-pull-request@271a8d0340265f705b14b6d32b9829c1cb33d45e # v7.0.8
         with:
           commit-message: "chore: update winget and homebrew for v${{ steps.version.outputs.version }}"
           branch: release/v${{ steps.version.outputs.version }}-post
