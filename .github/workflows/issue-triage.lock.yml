@@ -266,7 +266,7 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v5
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
           node-version: '22'
       - name: Install GitHub Copilot CLI
@@ -2318,7 +2318,7 @@ jobs:
           mkdir -p /tmp/threat-detection
           touch /tmp/threat-detection/detection.log
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
           node-version: '22'
       - name: Install GitHub Copilot CLI
