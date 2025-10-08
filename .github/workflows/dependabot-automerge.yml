@@ -23,6 +23,7 @@ jobs:
       - name: Enable auto-merge for patch and minor updates
         # Auto-merge patch and minor updates, but require manual review for major updates
         if: ${{ steps.metadata.outputs.update-type != 'version-update:semver-major' }}
+        continue-on-error: true
         run: |
           echo "Enabling auto-merge for ${{ steps.metadata.outputs.update-type }} update"
           gh pr merge --auto --squash "$PR_URL"
