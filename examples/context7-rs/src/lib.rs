@@ -78,7 +78,11 @@ impl Guest for Context7 {
 
         let mut parameters = vec![format!("tokens={token_count}"), "type=txt".to_string()];
 
-        if let Some(topic_value) = topic.as_ref().map(|value| value.trim()).filter(|v| !v.is_empty()) {
+        if let Some(topic_value) = topic
+            .as_ref()
+            .map(|value| value.trim())
+            .filter(|v| !v.is_empty())
+        {
             parameters.push(format!("topic={}", encode(topic_value)));
         }
 
@@ -86,7 +90,7 @@ impl Guest for Context7 {
         match make_request(Method::Get, &endpoint, None, get_api_key().as_deref()) {
             Ok(body) => {
                 let body_trimmed = body.trim();
-                if body_trimmed.is_empty() || NO_CONTENT_MESSAGES.iter().any(|msg| body_trimmed == *msg) {
+                if body_trimmed.is_empty() || NO_CONTENT_MESSAGES.contains(&body_trimmed) {
                     DocsResponse {
                         success: false,
                         content: None,
@@ -128,6 +132,7 @@ fn make_request(
         .set_authority(Some(CONTEXT7_HOST))
         .map_err(|_| "Failed to set authority".to_string())?;
 
+    // Reserve space for the base path, endpoint, and an optional joining slash.
     let mut path = String::with_capacity(BASE_PATH.len() + endpoint.len() + 1);
     path.push_str(BASE_PATH);
     if endpoint.starts_with('/') {
@@ -154,7 +159,7 @@ fn make_request(
     let status = response.status();
 
     let body = read_response_body(response)?;
-    if (200..300).contains(&status) {
+    if status >= 200 && status < 300 {
         Ok(body)
     } else {
         Err(if body.trim().is_empty() {
@@ -190,9 +195,8 @@ fn create_headers(api_key: Option<&str>, has_body: bool) -> Result<Fields, Strin
 
 fn append_header(headers: &Fields, key: &str, value: &str) -> Result<(), String> {
     let normalized_key = key.to_ascii_lowercase();
-    let values = vec![value.as_bytes().to_vec()];
     headers
-        .set(&normalized_key, &values)
+        .set(&normalized_key, &[value.as_bytes().to_vec()])
         .map_err(|error| format!("Failed to set header {normalized_key}: {:?}", error))
 }
 
