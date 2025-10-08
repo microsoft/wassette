@@ -6,17 +6,26 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+- Comprehensive installation guide page consolidating all installation methods (one-liner script, Homebrew, Nix, WinGet) organized by platform (Linux, macOS, Windows) with verification steps and troubleshooting sections
+- Cookbook section in documentation with language-specific guides for building Wasm components in JavaScript/TypeScript, Python, Rust, and Go ([#328](https://github.com/microsoft/wassette/pull/328))
+- Multi-version documentation support with version dropdown, hosting at `/wassette/latest/` (main) and `/wassette/vX.Y/` (tags)
 - Automated release preparation and package manifest update workflows to eliminate manual version bump PRs ([#320](https://github.com/microsoft/wassette/pull/320))
 - User-focused permissions documentation under new "Using Wassette" section, providing practical how-to guides for managing permissions
+- Added `$schema` field to all policy YAML files referencing the policy-mcp schema for better IDE support and validation
 
 ### Changed
 
 - Reorganized documentation structure by moving CLI reference to a new `reference` section in the mdBook for better organization
+- Updated README.md to reference the new dedicated installation guide for complete installation instructions
+- Removed separate homebrew.md, nix.md, and winget.md pages to eliminate duplication; all installation content is now consolidated in installation.md
+- Added tabbed interface for installation instructions organized by platform (Linux, macOS, Windows, Nix) using mdbook-tabs preprocessor
 
 ### Fixed
 
 - `wassette secret set` now returns a clear error message when the component ID is not found, preventing silent failures and providing better user feedback
 - Fixed invalid `workflows` permission in dependabot-automerge workflow file that caused GitHub Actions validation error
+- Fixed Mermaid sequence diagram rendering in documentation by adding mdbook-mermaid preprocessor configuration
+- Copyright check script now skips auto-generated `bindings.rs` files containing wit-bindgen markers, preventing incorrect license header additions to generated code while still checking custom bindings.rs files
 
 ## [v0.3.0] - 2025-10-03
 

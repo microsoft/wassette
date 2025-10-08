@@ -2,6 +2,8 @@
 extend-exclude = [
     "**/*.wit",
     "**/*.wit.go",
+    "**/mermaid.min.js",
+    "**/mermaid-init.js",
 ]
 
 [default.extend-words]

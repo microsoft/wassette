@@ -1,15 +1,21 @@
 # Summary
 
 - [Overview](./overview.md)
-- [Homebrew](./homebrew.md)
-- [Nix](./nix.md)
-- [Winget](./winget.md)
+- [Installation](./installation.md)
 - [MCP Clients](./mcp-clients.md)
 - [FAQ](./faq.md)
 
 # Using Wassette
 
 - [Permissions](./using/permissions.md)
+
+# Cookbook
+
+- [Building Wasm Components](./cookbook/README.md)
+  - [JavaScript/TypeScript](./cookbook/javascript.md)
+  - [Python](./cookbook/python.md)
+  - [Rust](./cookbook/rust.md)
+  - [Go](./cookbook/go.md)
 
 # Reference
 

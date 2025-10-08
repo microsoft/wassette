@@ -8,9 +8,11 @@ title = "Wassette Documentation"
 [build]
 build-dir = "book"
 
+[preprocessor.tabs]
+
 [output.html]
-additional-css = []
-additional-js = []
+additional-js = ["mermaid.min.js", "mermaid-init.js", "theme/version-picker.js"]
+additional-css = ["theme/version-picker.css"]
 smart-punctuation = true
 git-repository-url = "https://github.com/microsoft/wassette"
 edit-url-template = "https://github.com/microsoft/wassette/edit/main/docs/{path}"
@@ -25,3 +27,8 @@ boost-hierarchy = 1
 boost-paragraph = 1
 expand = true
 heading-split-level = 3
+
+[preprocessor]
+
+[preprocessor.mermaid]
+command = "mdbook-mermaid"

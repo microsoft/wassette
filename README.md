@@ -24,21 +24,20 @@
 
 ## Installation
 
-For Linux (including Windows Subsystem for Linux) and macOS, you can install Wassette using the provided install script:
+**Quick start:** For Linux/macOS, use our one-liner install script:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/microsoft/wassette/main/install.sh | bash
 ```
 
-This will detect your platform and install the latest `wassette` binary to your `$PATH`. 
+**For complete installation instructions** for all platforms (including Windows, Homebrew, Nix, and more), see our **[dedicated Installation Guide](./docs/installation.md)**.
 
-We provide a [Homebrew formula for macOS and Linux](./docs/homebrew.md).
-
-For Windows users, we provide a [WinGet package](./docs/winget.md).
-
-And [Nix flakes for reproducible environments](./docs/nix.md).
-
-You can also download the latest release from the [GitHub Releases page][Releases] and add it to your `$PATH`.
+Available installation methods:
+- **[One-liner script](./docs/installation.md#linux-including-wsl)** for Linux and macOS
+- **[Homebrew](./docs/installation.md#homebrew)** for macOS and Linux
+- **[WinGet](./docs/installation.md#windows)** for Windows
+- **[Nix flakes](./docs/installation.md#nix-all-platforms)** for reproducible environments
+- **[Manual download](https://github.com/microsoft/wassette/releases)** from GitHub Releases
 
 ## Using Wassette
 
@@ -87,6 +86,14 @@ Congratulations! You've just run your first Wasm Component and taught your agent
 ## Demo
 
 https://github.com/user-attachments/assets/8e5a371c-ac72-406d-859c-03833ee83963
+
+## Documentation
+
+The [Wassette documentation][Documentation] supports multiple versions:
+- **[/latest/][Documentation]** - Built from the `main` branch (latest development)
+- **/vX.Y/** - Built from release tags (e.g., [v0.3.0](https://microsoft.github.io/wassette/v0.3.0/))
+
+Use the version dropdown in the docs header to switch between versions while staying on the same page.
 
 ## Built-in Tools
 
