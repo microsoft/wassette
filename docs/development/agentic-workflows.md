@@ -47,6 +47,24 @@ The Scout agent will:
 - Provide actionable recommendations
 - Cite sources with links
 
+### CI Doctor
+
+**File:** `.github/workflows/ci-doctor.md`
+
+An AI-powered CI failure investigator that automatically diagnoses test and build failures.
+
+**Trigger:** Automatically runs when the Rust workflow completes on the main branch
+
+**What it does:**
+- Analyzes failed CI workflow runs
+- Extracts error messages and logs
+- Identifies root causes (compilation errors, test failures, linting issues, etc.)
+- Checks for similar past failures
+- Provides actionable recommendations with specific commands and file locations
+- Comments on the workflow run with diagnostic reports
+
+The CI Doctor helps maintainers quickly understand and fix CI failures without manually digging through logs.
+
 ## Creating Your Own Agentic Workflows
 
 ### Basic Structure
