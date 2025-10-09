@@ -1,16 +1,26 @@
-name: Copilot Setup Steps
+name: "Copilot Setup Steps"
 
-# This workflow provides reusable setup steps for GitHub Copilot coding agents
-# to prepare a development environment for the Wassette project.
-# It can be referenced by other workflows or used as a template for agent setup.
-
-"on":
-  workflow_call:
+# Automatically run the setup steps when they are changed to allow for easy validation, and
+# allow manual testing through the repository's "Actions" tab
+on:
   workflow_dispatch:
+  push:
+    paths:
+      - .github/workflows/copilot-setup-steps.yml
+  pull_request:
+    paths:
+      - .github/workflows/copilot-setup-steps.yml
 
 jobs:
-  setup:
+  # The job MUST be called `copilot-setup-steps` or it will not be picked up by Copilot.
+  copilot-setup-steps:
     runs-on: ubuntu-latest
+
+    # Set the permissions to the lowest permissions possible needed for your steps.
+    # Copilot will be given its own token for its operations.
+    permissions:
+      # If you want to clone the repository as part of your setup steps, for example to install dependencies, you'll need the `contents: read` permission. If you don't clone the repository in your setup steps, Copilot will do this for you automatically after the steps complete.
+      contents: read
     
     steps:
     # Checkout the repository
