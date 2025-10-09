@@ -1700,6 +1700,40 @@ permissions:
         Ok(())
     }
 
+    #[test(tokio::test)]
+    async fn test_wasi_state_template_with_defaults() -> Result<()> {
+        // Test that WasiStateTemplate correctly expands default domains
+        let policy_content = r#"
+version: "1.0"
+description: "Test policy with default network permissions"
+permissions:
+  network:
+    allow:
+      - defaults: true
+      - host: "custom.internal.com"
+"#;
+        let policy = PolicyParser::parse_str(policy_content)?;
+
+        let temp_dir = tempfile::tempdir()?;
+        let env_vars = HashMap::new(); // Empty environment for test
+        let template =
+            create_wasi_state_template_from_policy(&policy, temp_dir.path(), &env_vars, None)?;
+
+        // Should have 75+ default domains plus 1 custom host
+        assert!(template.allowed_hosts.len() > 70, "Expected 70+ hosts, got {}", template.allowed_hosts.len());
+        
+        // Check that default domains are included
+        assert!(template.allowed_hosts.contains("registry.npmjs.org"));
+        assert!(template.allowed_hosts.contains("pypi.org"));
+        assert!(template.allowed_hosts.contains("github.com"));
+        assert!(template.allowed_hosts.contains("api.openai.com"));
+        
+        // Check that custom host is also included
+        assert!(template.allowed_hosts.contains("custom.internal.com"));
+
+        Ok(())
+    }
+
     // Revoke permission system tests
 
     #[test(tokio::test)]
