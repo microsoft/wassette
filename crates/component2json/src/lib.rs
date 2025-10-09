@@ -2121,7 +2121,9 @@ mod tests {
     #[test]
     fn test_extract_package_docs_with_docs() {
         // Test component with package-docs embedded
-        let wasm_bytes = std::fs::read("../../examples/fetch-rs/target/wasm32-wasip2/release/fetch_rs.wasm").unwrap();
+        let wasm_bytes =
+            std::fs::read("../../examples/fetch-rs/target/wasm32-wasip2/release/fetch_rs.wasm")
+                .unwrap();
         let docs = extract_package_docs(&wasm_bytes);
 
         assert!(docs.is_some());
@@ -2208,7 +2210,9 @@ mod tests {
         config.wasm_component_model(true);
         let engine = Engine::new(&config).unwrap();
 
-        let wasm_bytes = std::fs::read("../../examples/fetch-rs/target/wasm32-wasip2/release/fetch_rs.wasm").unwrap();
+        let wasm_bytes =
+            std::fs::read("../../examples/fetch-rs/target/wasm32-wasip2/release/fetch_rs.wasm")
+                .unwrap();
         let component = Component::new(&engine, &wasm_bytes).unwrap();
         let package_docs = extract_package_docs(&wasm_bytes).unwrap();
 
