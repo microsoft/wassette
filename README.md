@@ -57,7 +57,7 @@ docker run -i --rm \
   wassette:latest
 ```
 
-See the **[Docker deployment guide](./docs/deployment/docker.md)** for comprehensive documentation on running Wassette in containers, including security best practices, component mounting, and production deployment patterns.
+See the **[Docker deployment guide](./docs/deployment/docker.md)** for detailed documentation on running Wassette in containers, including security best practices, component mounting, and production deployment patterns.
 
 ## Using Wassette
 
