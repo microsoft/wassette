@@ -1002,3 +1002,162 @@ async fn test_grant_permission_network_basic() -> Result<()> {
 
     Ok(())
 }
+
+#[test(tokio::test)]
+async fn test_disable_builtin_tools() -> Result<()> {
+    // Create a temporary directory for this test to avoid loading existing components
+    let temp_dir = tempfile::tempdir()?;
+    let plugin_dir_arg = format!("--plugin-dir={}", temp_dir.path().display());
+
+    // Get the path to the built binary
+    let binary_path = std::env::current_dir()
+        .context("Failed to get current directory")?
+        .join("target/debug/wassette");
+
+    // Start the server with stdio transport and disable-builtin-tools flag
+    let mut child = tokio::process::Command::new(&binary_path)
+        .args(["serve", &plugin_dir_arg, "--disable-builtin-tools"])
+        .env("RUST_LOG", "off")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .context("Failed to start wassette with disabled builtin tools")?;
+
+    let stdin = child.stdin.take().context("Failed to get stdin handle")?;
+    let stdout = child.stdout.take().context("Failed to get stdout handle")?;
+    let stderr = child.stderr.take().context("Failed to get stderr handle")?;
+
+    let mut stdin = stdin;
+    let mut stdout = BufReader::new(stdout);
+    let mut stderr = BufReader::new(stderr);
+
+    // Give the server time to start
+    tokio::time::sleep(Duration::from_millis(1000)).await;
+
+    // Check if the process is still running
+    if let Ok(Some(status)) = child.try_wait() {
+        let mut stderr_output = String::new();
+        let _ = stderr.read_line(&mut stderr_output).await;
+        return Err(anyhow::anyhow!(
+            "Server process exited with status: {:?}, stderr: {}",
+            status,
+            stderr_output
+        ));
+    }
+
+    // Send MCP initialize request
+    let initialize_request = r#"{"jsonrpc": "2.0", "method": "initialize", "params": {"protocolVersion": "2024-11-05", "capabilities": {}, "clientInfo": {"name": "test-client", "version": "1.0.0"}}, "id": 1}
+"#;
+
+    stdin.write_all(initialize_request.as_bytes()).await?;
+    stdin.flush().await?;
+
+    // Read and verify response
+    let mut response_line = String::new();
+    tokio::time::timeout(Duration::from_secs(10), stdout.read_line(&mut response_line))
+        .await
+        .context("Timeout waiting for initialize response")?
+        .context("Failed to read initialize response")?;
+
+    let response: serde_json::Value =
+        serde_json::from_str(&response_line).context("Failed to parse initialize response")?;
+
+    assert_eq!(response["jsonrpc"], "2.0");
+    assert_eq!(response["id"], 1);
+    assert!(response["result"].is_object());
+
+    // Send initialized notification
+    let initialized_notification = r#"{"jsonrpc": "2.0", "method": "notifications/initialized", "params": {}}
+"#;
+
+    stdin.write_all(initialized_notification.as_bytes()).await?;
+    stdin.flush().await?;
+
+    // Send list_tools request
+    let list_tools_request = r#"{"jsonrpc": "2.0", "method": "tools/list", "params": {}, "id": 2}
+"#;
+
+    stdin.write_all(list_tools_request.as_bytes()).await?;
+    stdin.flush().await?;
+
+    // Read and verify tools list response
+    let mut tools_response_line = String::new();
+    tokio::time::timeout(
+        Duration::from_secs(10),
+        stdout.read_line(&mut tools_response_line),
+    )
+    .await
+    .context("Timeout waiting for tools/list response")?
+    .context("Failed to read tools/list response")?;
+
+    let tools_response: serde_json::Value = serde_json::from_str(&tools_response_line)
+        .context("Failed to parse tools/list response")?;
+
+    // Verify the tools response structure
+    assert_eq!(tools_response["jsonrpc"], "2.0");
+    assert_eq!(tools_response["id"], 2);
+    assert!(tools_response["result"].is_object());
+    assert!(tools_response["result"]["tools"].is_array());
+
+    // Verify that built-in tools are NOT present when disabled
+    let tools = &tools_response["result"]["tools"].as_array().unwrap();
+    let tool_names: Vec<String> = tools
+        .iter()
+        .map(|tool| tool["name"].as_str().unwrap_or("").to_string())
+        .collect();
+
+    assert!(
+        !tool_names.contains(&"load-component".to_string()),
+        "load-component should not be present when builtin tools are disabled"
+    );
+    assert!(
+        !tool_names.contains(&"unload-component".to_string()),
+        "unload-component should not be present when builtin tools are disabled"
+    );
+    assert!(
+        !tool_names.contains(&"list-components".to_string()),
+        "list-components should not be present when builtin tools are disabled"
+    );
+    assert!(
+        !tool_names.contains(&"get-policy".to_string()),
+        "get-policy should not be present when builtin tools are disabled"
+    );
+
+    // Try to call a builtin tool and verify it fails
+    let call_tool_request =
+        r#"{"jsonrpc": "2.0", "method": "tools/call", "params": {"name": "list-components", "arguments": {}}, "id": 3}
+"#;
+
+    stdin.write_all(call_tool_request.as_bytes()).await?;
+    stdin.flush().await?;
+
+    // Read and verify call tool response
+    let mut call_response_line = String::new();
+    tokio::time::timeout(
+        Duration::from_secs(10),
+        stdout.read_line(&mut call_response_line),
+    )
+    .await
+    .context("Timeout waiting for tools/call response")?
+    .context("Failed to read tools/call response")?;
+
+    let call_response: serde_json::Value = serde_json::from_str(&call_response_line)
+        .context("Failed to parse tools/call response")?;
+
+    // Verify that the tool call failed
+    assert_eq!(call_response["jsonrpc"], "2.0");
+    assert_eq!(call_response["id"], 3);
+    assert!(call_response["result"].is_object());
+    let result = &call_response["result"];
+    assert_eq!(
+        result["isError"].as_bool().unwrap_or(false),
+        true,
+        "Tool call should have failed"
+    );
+
+    // Clean up
+    child.kill().await.ok();
+
+    Ok(())
+}
