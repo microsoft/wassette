@@ -27,7 +27,6 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Fixed
 
-- Fixed typos in codebase: "capabiltiies" → "capabilities" in wasistate.rs and "blcoked" → "blocked" in faq.md
 - `wassette secret set` now returns a clear error message when the component ID is not found, preventing silent failures and providing better user feedback
 - Fixed invalid `workflows` permission in dependabot-automerge workflow file that caused GitHub Actions validation error
 - Fixed Mermaid sequence diagram rendering in documentation by adding mdbook-mermaid preprocessor configuration
