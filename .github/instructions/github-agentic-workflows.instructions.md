@@ -16,11 +16,10 @@ on:
     types: [opened]
 permissions:
   issues: write
-tools:
-  github:
-    allowed: [add_issue_comment]
 engine: claude
 timeout_minutes: 10
+safe-outputs:
+  create-issue:
 ---
 
 # Workflow Title
@@ -61,21 +60,23 @@ The YAML frontmatter supports these fields:
 ### Agentic Workflow Specific Fields
 
 - **`engine:`** - AI processor configuration
-  - String format: `"claude"` (default), `"codex"`, `"copilot"`, `"custom"` (⚠️ experimental)
+  - String format: `"copilot"` (default), `"claude"`, `"codex"`, `"custom"` (⚠️ experimental)
   - Object format for extended configuration:
     ```yaml
     engine:
-      id: claude                        # Required: coding agent identifier (claude, codex, copilot, custom)
+      id: copilot                       # Required: coding agent identifier (copilot, claude, codex, custom)
       version: beta                     # Optional: version of the action (has sensible default)
-      model: claude-3-5-sonnet-20241022 # Optional: LLM model to use (has sensible default)
+      model: gpt-5                      # Optional: LLM model to use (has sensible default)
       max-turns: 5                      # Optional: maximum chat iterations per run (has sensible default)
+      max-concurrency: 3                # Optional: max concurrent workflows across all workflows (default: 3)
     ```
-  - **Note**: The `version`, `model`, and `max-turns` fields have sensible defaults and can typically be omitted unless you need specific customization.
+  - **Note**: The `version`, `model`, `max-turns`, and `max-concurrency` fields have sensible defaults and can typically be omitted unless you need specific customization.
   - **Custom engine format** (⚠️ experimental):
     ```yaml
     engine:
       id: custom                        # Required: custom engine identifier
       max-turns: 10                     # Optional: maximum iterations (for consistency)
+      max-concurrency: 5                # Optional: max concurrent workflows (for consistency)
       steps:                            # Required: array of custom GitHub Actions steps
         - name: Setup Node.js
           uses: actions/setup-node@v4
@@ -127,7 +128,7 @@ The YAML frontmatter supports these fields:
   - `playwright:` - Browser automation tools
   - Custom tool names for MCP servers
 
-- **`safe-outputs:`** - Safe output processing configuration
+- **`safe-outputs:`** - Safe output processing configuration (preferred way to handle GitHub API write operations)
   - `create-issue:` - Safe GitHub issue creation
     ```yaml
     safe-outputs:
@@ -316,6 +317,23 @@ on:
 
 This automatically creates conditions to match `/my-bot` mentions in issue bodies and comments.
 
+You can restrict where commands are active using the `events:` field:
+
+```yaml
+on:
+  command:
+    name: my-bot
+    events: [issues, issue_comment]  # Only in issue bodies and issue comments
+```
+
+**Supported event identifiers:**
+- `issues` - Issue bodies (opened, edited, reopened)
+- `issue_comment` - Comments on issues only (excludes PR comments)
+- `pull_request_comment` - Comments on pull requests only (excludes issue comments)
+- `pull_request` - Pull request bodies (opened, edited, reopened)
+- `pull_request_review_comment` - Pull request review comments
+- `*` - All comment-related events (default)
+
 ### Semi-Active Agent Pattern
 ```yaml
 on:
@@ -440,16 +458,6 @@ Deploy to environment: "${{ github.event.inputs.environment }}"
 ```
 
 ## Tool Configuration
-
-### GitHub Tools
-```yaml
-tools:
-  github:
-    allowed: 
-      - add_issue_comment
-      - update_issue
-      - create_issue
-```
 
 ### General Tools
 ```yaml
@@ -746,12 +754,14 @@ permissions:
   issues: write
   contents: read
 tools:
-  github:
-    allowed: [create_issue, list_issues, list_commits]
   web-fetch:
   web-search:
   edit:
   bash: ["echo", "ls"]
+safe-outputs:
+  create-issue:
+    title-prefix: "[research] "
+    labels: [weekly, research]
 timeout_minutes: 15
 ---
 
@@ -771,14 +781,13 @@ on:
     name: helper-bot
 permissions:
   issues: write
-tools:
-  github:
-    allowed: [add_issue_comment]
+safe-outputs:
+  add-comment:
 ---
 
 # Helper Bot
 
-Respond to /helper-bot mentions with helpful information.
+Respond to /helper-bot mentions with helpful information realted to ${{ github.repository }}. THe request is "${{ needs.activation.outputs.text }}".
 ```
 
 ## Workflow Monitoring and Analysis
@@ -955,7 +964,7 @@ The workflow frontmatter is validated against JSON Schema during compilation. Co
 
 - **Invalid field names** - Only fields in the schema are allowed
 - **Wrong field types** - e.g., `timeout_minutes` must be integer
-- **Invalid enum values** - e.g., `engine` must be "claude", "codex", "copilot" or "custom"
+- **Invalid enum values** - e.g., `engine` must be "copilot", "claude", "codex" or "custom"
 - **Missing required fields** - Some triggers require specific configuration
 
 Use `gh aw compile --verbose` to see detailed validation messages, or `gh aw compile <workflow-id> --verbose` to validate a specific workflow.
