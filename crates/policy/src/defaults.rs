@@ -103,5 +103,3 @@ static DEFAULT_DOMAINS: &[&str] = &[
 pub fn get_default_domains() -> &'static [&'static str] {
     DEFAULT_DOMAINS
 }
-
-
