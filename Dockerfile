@@ -2,7 +2,7 @@
 # This Dockerfile provides a containerized runtime for Wassette with additional security isolation
 
 # Stage 1: Build the Wassette binary
-FROM rust:1.83-bookworm AS builder
+FROM rust:1.90-bookworm AS builder
 
 # Install ca-certificates for HTTPS support during build
 RUN apt-get update && \
@@ -53,6 +53,6 @@ WORKDIR /home/wassette
 # Expose the default HTTP port (when using --http or --sse)
 EXPOSE 9001
 
-# Default command: start Wassette with stdio transport
+# Default command: start Wassette with streamable-http transport
 # Override this in docker run or docker-compose for different transports
-CMD ["wassette", "serve", "--stdio"]
+CMD ["wassette", "serve", "--streamable-http"]

@@ -2,6 +2,7 @@
 
 - [Overview](./overview.md)
 - [Installation](./installation.md)
+  - [Docker](./deployment/docker.md)
 - [MCP Clients](./mcp-clients.md)
 - [FAQ](./faq.md)
 
@@ -18,10 +19,6 @@
 
 - [CLI](./reference/cli.md)
 - [Permissions](./reference/permissions.md)
-
-# Deployment
-
-- [Docker](./deployment/docker.md)
 
 # Design & Architecture
 
