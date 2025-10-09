@@ -26,6 +26,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - Updated README.md to reference the new dedicated installation guide for complete installation instructions
 - Removed separate homebrew.md, nix.md, and winget.md pages to eliminate duplication; all installation content is now consolidated in installation.md
 - Added tabbed interface for installation instructions organized by platform (Linux, macOS, Windows, Nix) using mdbook-tabs preprocessor
+- Updated README.md, docs/faq.md, and RELEASE.md to include all 9 examples in the examples directory: brave-search-rs, context7-rs, eval-py, fetch-rs, filesystem-rs, get-open-meteo-weather-js, get-weather-js, gomodule-go, and time-server-js
 
 ### Fixed
 

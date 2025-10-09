@@ -365,14 +365,17 @@ Component and expose its functions as MCP tools. Components can be re-used by ot
 See the [`examples/`](./examples/) directory for a complete list of examples. Here is a
 selection of examples written in different languages:
 
-| Example                                    | Description                                            |
-| ------------------------------------------ | ------------------------------------------------------ |
-| [eval-py](examples/eval-py/)               | Python code execution sandbox                          |
-| [fetch-rs](examples/fetch-rs/)             | HTTP API client for fetching and converting web content |
-| [filesystem-rs](examples/filesystem-rs/)   | File system operations (read, write, list directories) |
-| [get-weather-js](examples/get-weather-js/) | Weather API client for fetching weather data           |
-| [gomodule-go](examples/gomodule-go/)       | Go module information tool                             |
-| [time-server-js](examples/time-server-js/) | JavaScript-based time server component                |
+| Example                                                        | Description                                            |
+| -------------------------------------------------------------- | ------------------------------------------------------ |
+| [brave-search-rs](examples/brave-search-rs/)                  | Web search using Brave Search API                      |
+| [context7-rs](examples/context7-rs/)                           | Search libraries and fetch documentation via Context7 API |
+| [eval-py](examples/eval-py/)                                   | Python code execution sandbox                          |
+| [fetch-rs](examples/fetch-rs/)                                 | HTTP API client for fetching and converting web content |
+| [filesystem-rs](examples/filesystem-rs/)                       | File system operations (read, write, list directories) |
+| [get-open-meteo-weather-js](examples/get-open-meteo-weather-js/) | Weather data via Open-Meteo API (no API key required) |
+| [get-weather-js](examples/get-weather-js/)                     | Weather API client using OpenWeather API               |
+| [gomodule-go](examples/gomodule-go/)                           | Go module information tool                             |
+| [time-server-js](examples/time-server-js/)                     | JavaScript-based time server component                 |
 
 ## Community Components
 
