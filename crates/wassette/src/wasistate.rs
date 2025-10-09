@@ -269,7 +269,8 @@ pub(crate) fn extract_allowed_hosts(policy: &PolicyDocument) -> HashSet<String> 
                 if let Ok(json_value) = serde_json::to_value(allow_entry) {
                     // Check for defaults field
                     if let Some(defaults_value) = json_value.get("defaults") {
-                        if defaults_value.as_bool().unwrap_or(false) {
+                        let is_defaults_enabled = defaults_value.as_bool().unwrap_or(false);
+                        if is_defaults_enabled {
                             // Add all default domains
                             let default_domains = policy::get_default_domains();
                             for domain in default_domains {

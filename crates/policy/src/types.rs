@@ -510,7 +510,7 @@ impl Permissions {
                     match perm {
                         NetworkPermission::Defaults(_) => {
                             // Defaults should not be used in deny lists
-                            bail!("'defaults' cannot be used in deny lists");
+                            bail!("'defaults: true' is not allowed in network deny lists - defaults can only be used in allow lists");
                         }
                         NetworkPermission::Host(host_perm) => {
                             Self::validate_network_host(&host_perm.host)?;
