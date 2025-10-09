@@ -6,8 +6,12 @@ clean-test-components:
 # Pre-build test components to avoid building during test execution
 build-test-components:
     just clean-test-components
+    just ensure-wit-docs-inject
     (cd examples/fetch-rs && cargo build --release --target wasm32-wasip2)
     (cd examples/filesystem-rs && cargo build --release --target wasm32-wasip2)
+    # Inject docs for test components
+    just inject-docs examples/fetch-rs/target/wasm32-wasip2/release/fetch_rs.wasm examples/fetch-rs/wit
+    just inject-docs examples/filesystem-rs/target/wasm32-wasip2/release/filesystem.wasm examples/filesystem-rs/wit
 
 test:
     just build-test-components
@@ -18,15 +22,42 @@ build mode="debug":
     mkdir -p bin
     cargo build --workspace {{ if mode == "release" { "--release" } else { "" } }}
     cp target/{{ mode }}/wassette bin/
-    
+
+# Check if wit-docs-inject is installed, if not install it
+ensure-wit-docs-inject:
+    #!/usr/bin/env bash
+    if ! command -v wit-docs-inject &> /dev/null; then
+        echo "wit-docs-inject not found, installing from https://github.com/Mossaka/wit-docs-inject"
+        cargo install --git https://github.com/Mossaka/wit-docs-inject
+    else
+        echo "wit-docs-inject is already installed"
+    fi
+
+# Inject docs into a wasm component
+inject-docs wasm_path wit_dir:
+    @echo "Injecting docs into {{ wasm_path }}"
+    wit-docs-inject --component {{ wasm_path }} --wit-dir {{ wit_dir }} --inplace
+
 build-examples mode="debug":
     mkdir -p bin
+    just ensure-wit-docs-inject
     (cd examples/fetch-rs && just build mode)
     (cd examples/filesystem-rs && just build mode)
     (cd examples/get-weather-js && just build)
     (cd examples/time-server-js && just build)
     (cd examples/eval-py && just build)
     (cd examples/gomodule-go && just build)
+    # Inject docs for Rust examples
+    just inject-docs examples/fetch-rs/target/wasm32-wasip2/{{ mode }}/fetch_rs.wasm examples/fetch-rs/wit
+    just inject-docs examples/filesystem-rs/target/wasm32-wasip2/{{ mode }}/filesystem.wasm examples/filesystem-rs/wit
+    # Inject docs for JS examples
+    just inject-docs examples/get-weather-js/weather.wasm examples/get-weather-js/wit
+    just inject-docs examples/time-server-js/time.wasm examples/time-server-js/wit
+    # Inject docs for Python examples
+    just inject-docs examples/eval-py/eval.wasm examples/eval-py/wit
+    # Inject docs for Go examples
+    just inject-docs examples/gomodule-go/gomodule.wasm examples/gomodule-go/wit
+    # Copy to bin directory
     cp examples/fetch-rs/target/wasm32-wasip2/{{ mode }}/fetch_rs.wasm bin/fetch-rs.wasm
     cp examples/filesystem-rs/target/wasm32-wasip2/{{ mode }}/filesystem.wasm bin/filesystem.wasm
     cp examples/get-weather-js/weather.wasm bin/get-weather-js.wasm
