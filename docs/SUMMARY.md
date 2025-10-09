@@ -17,10 +17,6 @@
   - [Rust](./cookbook/rust.md)
   - [Go](./cookbook/go.md)
 
-# Development
-
-- [Agentic Workflows](./development/agentic-workflows.md)
-
 # Reference
 
 - [CLI](./reference/cli.md)
@@ -30,3 +26,4 @@
 - [Architecture](./design/architecture.md)
 - [Permission System](./design/permission-system.md)
 - [Component Schemas & Structured Output](./design/component2json-structured-output.md)
+- [Agentic Workflows](./design/agentic-workflows.md)

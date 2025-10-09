@@ -19,20 +19,6 @@ Create a markdown file in `.github/workflows/` with YAML frontmatter (triggers, 
 
 Compile with `gh aw compile` to generate the `.lock.yml` file that GitHub Actions executes.
 
-## Best Practices
-
-- **Security:** Use minimal permissions and `safe-outputs` for write operations
-- **Instructions:** Write specific, actionable steps with examples
-- **Context:** Use `${{ needs.activation.outputs.text }}` for sanitized content
-- **Testing:** Test with `workflow_dispatch` first, monitor with `gh aw logs`
-
-## Advanced Features
-
-- **Safe Outputs:** Separate permissions with `safe-outputs` (create-issue, add-comment, etc.)
-- **Memory Caching:** Enable persistent memory with `cache-memory` tool
-- **Network Permissions:** Control network access with `network.allowed` list
-- **Include Directives:** Reuse configuration with `@include` statements
-
 ## Monitoring and Debugging
 
 - **View Logs:** `gh aw logs [workflow-name]` with optional filters (`--engine`, `--start-date`)
