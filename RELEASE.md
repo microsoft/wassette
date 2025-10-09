@@ -86,3 +86,92 @@ If the automated workflows fail, you can follow the manual process:
    - Update `Formula/wassette.rb` with new version and checksums
    - Update `winget/Microsoft.Wassette.yaml` with new version, release date, and checksums
    - Create a PR with these changes
+
+## Releasing Example Component Images
+
+Example WebAssembly components are automatically published to the GitHub Container Registry (GHCR) as OCI artifacts. This allows users to load examples directly from `oci://ghcr.io/microsoft/<example-name>:latest`.
+
+### Automatic Publishing on Main Branch
+
+The [`examples.yml`](.github/workflows/examples.yml) workflow automatically publishes example components when:
+- Changes to files in the `examples/**` directory are pushed to the `main` branch
+- A pull request targeting the `main` branch modifies files in the `examples/**` directory (build only, no publish)
+
+**Published examples include:**
+- `fetch-rs` - HTTP fetch example in Rust
+- `filesystem-rs` - Filesystem operations in Rust
+- `get-weather-js` - Weather API example in JavaScript
+- `time-server-js` - Time server example in JavaScript
+- `eval-py` - Python expression evaluator
+- `gomodule-go` - Go module information tool
+
+**What the workflow does:**
+1. Builds all example components using `just build-examples`
+2. Publishes each component to `ghcr.io/microsoft/<component-name>`
+3. Tags each component with both:
+   - The commit SHA (e.g., `abc1234`)
+   - The `latest` tag for main branch pushes
+4. Signs all published images using Cosign
+
+### Manual Release of Example Components
+
+To manually publish examples with a specific version tag:
+
+1. **Navigate to the Actions tab**:
+   - Go to [Publish Examples workflow](https://github.com/microsoft/wassette/actions/workflows/examples.yml)
+   - Click "Run workflow"
+
+2. **Configure the workflow run**:
+   - Select the branch (typically `main`)
+   - Enter a custom tag (e.g., `v0.4.0`) or leave as default `latest`
+   - Click "Run workflow"
+
+3. **Monitor the workflow**:
+   - The workflow will build all examples
+   - Publish them to GHCR with both the commit SHA and your specified tag
+   - Sign all published images
+
+### Using Published Examples
+
+Users can load published examples using the Wassette CLI:
+
+```bash
+# Load the latest version
+wassette component load oci://ghcr.io/microsoft/fetch-rs:latest
+
+# Load a specific version
+wassette component load oci://ghcr.io/microsoft/fetch-rs:v0.4.0
+```
+
+### Building Examples Locally
+
+To build examples locally for testing before release:
+
+```bash
+# Build all examples in debug mode
+just build-examples
+
+# Build all examples in release mode
+just build-examples release
+
+# Build a specific example (e.g., fetch-rs)
+cd examples/fetch-rs && just build release
+```
+
+Each example directory contains:
+- A `Justfile` with build commands
+- A `README.md` with usage instructions
+- Source code and WIT interface definitions
+
+### Adding New Examples
+
+When adding a new example to be published:
+
+1. Create the example in the `examples/` directory
+2. Add build instructions to the root `Justfile` in the `build-examples` recipe
+3. Add the component to the matrix in `.github/workflows/examples.yml`:
+   ```yaml
+   - name: my-new-example
+     file: my-new-example.wasm
+   ```
+4. Update this documentation to include the new example in the published list

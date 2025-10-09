@@ -1,0 +1,8 @@
+package component:brave-search-rs;
+
+/// An example world for the component to target.
+world brave-search {
+    /// Search using Brave Search API and return the results as a formatted string
+    /// Reads BRAVE_SEARCH_API_KEY from environment variables
+    export search: func(query: string) -> result<string, string>;
+}
