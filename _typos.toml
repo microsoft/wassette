@@ -4,6 +4,7 @@ extend-exclude = [
     "**/*.wit.go",
     "**/mermaid.min.js",
     "**/mermaid-init.js",
+    "**/bindings.rs",
 ]
 
 [default.extend-words]
