@@ -217,16 +217,20 @@ pub fn component_exports_to_tools_with_docs(
 ) -> Vec<ToolMetadata> {
     let mut tools = Vec::new();
 
+    let context = GatherMetadataContext {
+        engine,
+        output,
+        package_docs: Some(package_docs),
+    };
+
     for (export_name, export_item) in component.component_type().exports(engine) {
         gather_exported_functions_with_metadata_internal(
             export_name,
             None,
             None,
             &export_item,
-            engine,
             &mut tools,
-            output,
-            Some(package_docs),
+            &context,
         );
     }
 
@@ -552,6 +556,12 @@ fn build_result_wrapper(result_schema: Value) -> Value {
     Value::Object(wrapper)
 }
 
+struct GatherMetadataContext<'a> {
+    engine: &'a Engine,
+    output: bool,
+    package_docs: Option<&'a Value>,
+}
+
 fn gather_exported_functions_with_metadata(
     export_name: &str,
     previous_name: Option<String>,
@@ -561,15 +571,18 @@ fn gather_exported_functions_with_metadata(
     results: &mut Vec<ToolMetadata>,
     output: bool,
 ) {
+    let context = GatherMetadataContext {
+        engine,
+        output,
+        package_docs: None,
+    };
     gather_exported_functions_with_metadata_internal(
         export_name,
         previous_name,
         package_name,
         item,
-        engine,
         results,
-        output,
-        None,
+        &context,
     );
 }
 
@@ -578,10 +591,8 @@ fn gather_exported_functions_with_metadata_internal(
     previous_name: Option<String>,
     package_name: Option<String>,
     item: &ComponentItem,
-    engine: &Engine,
     results: &mut Vec<ToolMetadata>,
-    output: bool,
-    package_docs: Option<&Value>,
+    context: &GatherMetadataContext,
 ) {
     match item {
         ComponentItem::ComponentFunc(func) => {
@@ -595,9 +606,9 @@ fn gather_exported_functions_with_metadata_internal(
             let schema = component_func_to_schema_with_docs(
                 &normalized_name,
                 func,
-                output,
+                context.output,
                 Some(&function_id),
-                package_docs,
+                context.package_docs,
             );
 
             results.push(ToolMetadata {
@@ -608,31 +619,27 @@ fn gather_exported_functions_with_metadata_internal(
         }
         ComponentItem::Component(sub_component) => {
             let previous_name = Some(export_name.to_string());
-            for (export_name, export_item) in sub_component.exports(engine) {
+            for (export_name, export_item) in sub_component.exports(context.engine) {
                 gather_exported_functions_with_metadata_internal(
                     export_name,
                     previous_name.clone(),
                     package_name.clone(),
                     &export_item,
-                    engine,
                     results,
-                    output,
-                    package_docs,
+                    context,
                 );
             }
         }
         ComponentItem::ComponentInstance(instance) => {
             let previous_name = Some(export_name.to_string());
-            for (export_name, export_item) in instance.exports(engine) {
+            for (export_name, export_item) in instance.exports(context.engine) {
                 gather_exported_functions_with_metadata_internal(
                     export_name,
                     previous_name.clone(),
                     package_name.clone(),
                     &export_item,
-                    engine,
                     results,
-                    output,
-                    package_docs,
+                    context,
                 );
             }
         }
