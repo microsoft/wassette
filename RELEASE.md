@@ -94,8 +94,8 @@ Example WebAssembly components are automatically published to the GitHub Contain
 ### Automatic Publishing on Main Branch
 
 The [`examples.yml`](.github/workflows/examples.yml) workflow automatically publishes example components when:
-- Changes are pushed to the `main` branch in the `examples/**` directory
-- A pull request modifies files in the `examples/**` directory (build only, no publish)
+- Changes to files in the `examples/**` directory are pushed to the `main` branch
+- A pull request targeting the `main` branch modifies files in the `examples/**` directory (build only, no publish)
 
 **Published examples include:**
 - `fetch-rs` - HTTP fetch example in Rust
@@ -123,7 +123,7 @@ To manually publish examples with a specific version tag:
 
 2. **Configure the workflow run**:
    - Select the branch (typically `main`)
-   - Enter a custom tag (e.g., `v0.4.0`, `latest`, or any custom identifier)
+   - Enter a custom tag (e.g., `v0.4.0`) or leave as default `latest`
    - Click "Run workflow"
 
 3. **Monitor the workflow**:
