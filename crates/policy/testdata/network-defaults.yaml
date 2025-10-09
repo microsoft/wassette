@@ -1,0 +1,8 @@
+$schema: https://raw.githubusercontent.com/microsoft/policy-mcp/main/schema/policy-v1.0.schema.json
+version: "1.0"
+description: "Policy with default network permissions"
+permissions:
+  network:
+    allow:
+    - defaults: true
+    - host: "custom.internal.example.com"

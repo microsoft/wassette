@@ -49,10 +49,20 @@ pub struct NetworkCidrPermission {
     pub cidr: String,
 }
 
-/// Network permission entry - can be either host or CIDR
+/// Network defaults permission - includes commonly needed HTTP domains
+///
+/// defaults: When set to true, includes a curated list of commonly needed HTTP domains
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct NetworkDefaultsPermission {
+    /// Whether to include default HTTP domains
+    pub defaults: bool,
+}
+
+/// Network permission entry - can be host, CIDR, or defaults
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum NetworkPermission {
+    Defaults(NetworkDefaultsPermission),
     Host(NetworkHostPermission),
     Cidr(NetworkCidrPermission),
 }
@@ -478,6 +488,9 @@ impl Permissions {
             if let Some(allow_list) = &network.allow {
                 for perm in allow_list {
                     match perm {
+                        NetworkPermission::Defaults(_) => {
+                            // Defaults are always valid - no validation needed
+                        }
                         NetworkPermission::Host(host_perm) => {
                             Self::validate_network_host(&host_perm.host)?;
                         }
@@ -495,6 +508,10 @@ impl Permissions {
             if let Some(deny_list) = &network.deny {
                 for perm in deny_list {
                     match perm {
+                        NetworkPermission::Defaults(_) => {
+                            // Defaults should not be used in deny lists
+                            bail!("'defaults' cannot be used in deny lists");
+                        }
                         NetworkPermission::Host(host_perm) => {
                             Self::validate_network_host(&host_perm.host)?;
                         }
@@ -912,5 +929,42 @@ mod tests {
             }]),
         });
         assert!(permissions.validate().is_err());
+    }
+
+    #[test]
+    fn test_defaults_in_allow_list() {
+        let permissions = Permissions {
+            network: Some(PermissionList {
+                allow: Some(vec![
+                    NetworkPermission::Defaults(NetworkDefaultsPermission { defaults: true }),
+                    NetworkPermission::Host(NetworkHostPermission {
+                        host: "custom.example.com".to_string(),
+                    }),
+                ]),
+                deny: None,
+            }),
+            ..Default::default()
+        };
+
+        // Defaults in allow list should be valid
+        assert!(permissions.validate().is_ok());
+    }
+
+    #[test]
+    fn test_defaults_in_deny_list_should_fail() {
+        let permissions = Permissions {
+            network: Some(PermissionList {
+                allow: None,
+                deny: Some(vec![NetworkPermission::Defaults(
+                    NetworkDefaultsPermission { defaults: true },
+                )]),
+            }),
+            ..Default::default()
+        };
+
+        // Defaults in deny list should be invalid
+        let result = permissions.validate();
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("deny"));
     }
 }

@@ -31,6 +31,20 @@ Control outbound network access to specific hosts.
 - Allow API calls to external services
 - Permit access to specific domains only
 - Restrict network egress for security
+- Use default domains for common development services
+
+**Default Domains:**
+When you specify `defaults: true` in network permissions, Wassette automatically includes a curated list of commonly used HTTP domains including:
+- Package registries (npm, PyPI, RubyGems, crates.io, Maven, NuGet)
+- Version control systems (GitHub, GitLab, Bitbucket)
+- Cloud service providers (AWS, Google Cloud, Azure)
+- Container registries (Docker Hub, GitHub Container Registry, Quay)
+- AI/ML APIs (OpenAI, Anthropic, Cohere, Hugging Face)
+- CDNs (jsDelivr, UNPKG, Cloudflare CDN)
+- Documentation sites (docs.rs, Read the Docs)
+- CI/CD services (CircleCI, GitHub Actions)
+
+This eliminates the need to manually grant permissions for commonly used development services.
 
 ### Environment Variable Permissions
 
@@ -107,6 +121,8 @@ wassette permission grant network weather-tool api.weather.com
 
 # Allow localhost access
 wassette permission grant network weather-tool localhost:8080
+
+# Note: CLI doesn't support granting defaults yet - use policy files for that
 ```
 
 **Grant environment variable access:**
@@ -137,6 +153,9 @@ permissions:
         access: ["read"]
   network:
     allow:
+      # Include commonly used development domains
+      - defaults: true
+      # Add custom domains
       - host: "api.weather.com"
       - host: "api.openweathermap.org"
   environment:
@@ -150,8 +169,13 @@ permissions:
 - `description`: Human-readable description
 - `permissions`: Permission declarations organized by type
   - `storage.allow`: List of file system URIs and access types
-  - `network.allow`: List of allowed hosts
+  - `network.allow`: List of allowed hosts or `defaults: true` for common domains
   - `environment.allow`: List of environment variable keys
+
+**Network permission options:**
+- `host: "example.com"`: Allow access to a specific host
+- `host: "*.example.com"`: Allow access to all subdomains of example.com
+- `defaults: true`: Include 75+ commonly used development domains (package registries, version control, cloud providers, AI APIs, etc.)
 
 While you can manually create or edit policy files for distributing components with predefined permissions, for most use cases, granting permissions through the AI agent or CLI commands is simpler and less error-prone.
 

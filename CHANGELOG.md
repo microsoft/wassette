@@ -6,6 +6,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+- Default HTTP domain permissions following the policy-mcp design - components can now use `defaults: true` in network permissions to automatically get access to 75+ commonly used domains including package registries (npm, PyPI, crates.io), version control systems (GitHub, GitLab), cloud providers (AWS, GCP, Azure), AI APIs (OpenAI, Anthropic, Hugging Face), and more ([#TBD](https://github.com/microsoft/wassette/pull/TBD))
 - AI agent development guides (`AGENTS.md` and `Claude.md`) that consolidate development guidelines from `.github/instructions/` into accessible documentation for AI agents working on the project
 - Comprehensive installation guide page consolidating all installation methods (one-liner script, Homebrew, Nix, WinGet) organized by platform (Linux, macOS, Windows) with verification steps and troubleshooting sections
 - Cookbook section in documentation with language-specific guides for building Wasm components in JavaScript/TypeScript, Python, Rust, and Go ([#328](https://github.com/microsoft/wassette/pull/328))
