@@ -1055,10 +1055,13 @@ async fn test_disable_builtin_tools() -> Result<()> {
 
     // Read and verify response
     let mut response_line = String::new();
-    tokio::time::timeout(Duration::from_secs(10), stdout.read_line(&mut response_line))
-        .await
-        .context("Timeout waiting for initialize response")?
-        .context("Failed to read initialize response")?;
+    tokio::time::timeout(
+        Duration::from_secs(10),
+        stdout.read_line(&mut response_line),
+    )
+    .await
+    .context("Timeout waiting for initialize response")?
+    .context("Failed to read initialize response")?;
 
     let response: serde_json::Value =
         serde_json::from_str(&response_line).context("Failed to parse initialize response")?;
@@ -1125,8 +1128,7 @@ async fn test_disable_builtin_tools() -> Result<()> {
     );
 
     // Try to call a builtin tool and verify it fails
-    let call_tool_request =
-        r#"{"jsonrpc": "2.0", "method": "tools/call", "params": {"name": "list-components", "arguments": {}}, "id": 3}
+    let call_tool_request = r#"{"jsonrpc": "2.0", "method": "tools/call", "params": {"name": "list-components", "arguments": {}}, "id": 3}
 "#;
 
     stdin.write_all(call_tool_request.as_bytes()).await?;
@@ -1142,8 +1144,8 @@ async fn test_disable_builtin_tools() -> Result<()> {
     .context("Timeout waiting for tools/call response")?
     .context("Failed to read tools/call response")?;
 
-    let call_response: serde_json::Value = serde_json::from_str(&call_response_line)
-        .context("Failed to parse tools/call response")?;
+    let call_response: serde_json::Value =
+        serde_json::from_str(&call_response_line).context("Failed to parse tools/call response")?;
 
     // Verify that the tool call failed
     assert_eq!(call_response["jsonrpc"], "2.0");

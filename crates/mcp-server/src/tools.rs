@@ -41,20 +41,11 @@ pub async fn handle_tools_list(
     Ok(serde_json::to_value(response)?)
 }
 
-/// Handles a tool call request.
-#[instrument(skip_all, fields(method_name = %req.name))]
-pub async fn handle_tools_call(
-    req: CallToolRequestParam,
-    lifecycle_manager: &LifecycleManager,
-    server_peer: Peer<RoleServer>,
-    disable_builtin_tools: bool,
-) -> Result<Value> {
-    info!("Handling tool call");
-
-    let result = if disable_builtin_tools {
-        // When builtin tools are disabled, only handle component calls
-        match req.name.as_ref() {
-            "load-component"
+/// Check if a tool name is a builtin tool
+fn is_builtin_tool(name: &str) -> bool {
+    matches!(
+        name,
+        "load-component"
             | "unload-component"
             | "list-components"
             | "get-policy"
@@ -65,10 +56,25 @@ pub async fn handle_tools_call(
             | "revoke-network-permission"
             | "revoke-environment-variable-permission"
             | "search-components"
-            | "reset-permission" => Err(anyhow::anyhow!("Built-in tools are disabled")),
-            _ => handle_component_call(&req, lifecycle_manager).await,
-        }
-    } else {
+            | "reset-permission"
+    )
+}
+
+/// Handles a tool call request.
+#[instrument(skip_all, fields(method_name = %req.name))]
+pub async fn handle_tools_call(
+    req: CallToolRequestParam,
+    lifecycle_manager: &LifecycleManager,
+    server_peer: Peer<RoleServer>,
+    disable_builtin_tools: bool,
+) -> Result<Value> {
+    info!("Handling tool call");
+
+    let result = if disable_builtin_tools && is_builtin_tool(req.name.as_ref()) {
+        // When builtin tools are disabled, reject calls to builtin tools
+        Err(anyhow::anyhow!("Built-in tools are disabled"))
+    } else if !disable_builtin_tools {
+        // When builtin tools are enabled, handle them normally
         match req.name.as_ref() {
             "load-component" => handle_load_component(&req, lifecycle_manager, server_peer).await,
             "unload-component" => {
@@ -98,6 +104,9 @@ pub async fn handle_tools_call(
             "reset-permission" => handle_reset_permission(&req, lifecycle_manager).await,
             _ => handle_component_call(&req, lifecycle_manager).await,
         }
+    } else {
+        // Builtin tools disabled and this is not a builtin tool - handle as component call
+        handle_component_call(&req, lifecycle_manager).await
     };
 
     if let Err(ref e) = result {
