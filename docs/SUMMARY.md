@@ -5,10 +5,6 @@
 - [MCP Clients](./mcp-clients.md)
 - [FAQ](./faq.md)
 
-# Using Wassette
-
-- [Permissions](./using/permissions.md)
-
 # Cookbook
 
 - [Building Wasm Components](./cookbook/README.md)
@@ -20,6 +16,7 @@
 # Reference
 
 - [CLI](./reference/cli.md)
+- [Permissions](./reference/permissions.md)
 
 # Design & Architecture
 

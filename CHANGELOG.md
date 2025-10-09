@@ -19,6 +19,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Changed
 
+- Moved permissions documentation from "Using Wassette" section to "Reference" section, placing it after CLI reference for better organization and discoverability
 - Reorganized documentation structure by moving CLI reference to a new `reference` section in the mdBook for better organization
 - Updated README.md to reference the new dedicated installation guide for complete installation instructions
 - Removed separate homebrew.md, nix.md, and winget.md pages to eliminate duplication; all installation content is now consolidated in installation.md

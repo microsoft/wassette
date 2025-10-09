@@ -394,7 +394,7 @@ This deny-by-default behavior ensures components cannot exceed their granted cap
 
 ## Next Steps
 
-- **[CLI Reference](../reference/cli.md)**: Complete CLI command documentation
+- **[CLI Reference](./cli.md)**: Complete CLI command documentation
 - **[FAQ](../faq.md)**: Common questions about security and permissions
 - **[Permission System Design](../design/permission-system.md)**: Technical architecture details
 
