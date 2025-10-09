@@ -92,7 +92,7 @@ permissions:
       - host: "api.openai.com"
 ```
 
-This policy permits read/write access to a `workspace` directory, read-only access to a specific config file, and network egress only to `api.openai.com`. All other filesystem and network access is denied and will be blcoked by the sandbox.
+This policy permits read/write access to a `workspace` directory, read-only access to a specific config file, and network egress only to `api.openai.com`. All other filesystem and network access is denied and will be blocked by the sandbox.
 
 ### Can I grant permissions at runtime?
 

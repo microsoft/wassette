@@ -180,7 +180,7 @@ impl Default for WasiStateTemplate {
     }
 }
 
-/// Maps the policy-mcp capabiltiies to the wasi state template
+/// Maps the policy-mcp capabilities to the wasi state template
 pub fn create_wasi_state_template_from_policy(
     policy: &PolicyDocument,
     plugin_dir: &Path,
