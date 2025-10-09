@@ -156,6 +156,41 @@ WIT supports various data types:
 | `option<T>` | Optional value | `T | undefined` |
 | `result<T, E>` | Success/Error type | `{ tag: "ok", val: T } | { tag: "err", val: E }` |
 
+### Documenting Your WIT Interface
+
+Documentation in your WIT files is crucial for AI agent discovery and effective tool usage. Wassette automatically extracts and embeds this documentation during the build process.
+
+For comprehensive guidance on writing effective WIT documentation, including:
+- Why documentation matters for AI agents
+- Documentation syntax and best practices
+- Complete examples with rich documentation
+- How to verify embedded documentation
+- Before/after comparisons showing impact on AI agents
+
+See the **[Documenting WIT Interfaces](../cookbook/documenting-wit.md)** guide.
+
+**Quick Example:**
+
+```wit
+package local:weather;
+
+world weather-service {
+    /// Get current weather information for a city.
+    ///
+    /// Fetches real-time weather data from OpenWeatherMap API
+    /// and returns the temperature in Celsius along with weather
+    /// description.
+    ///
+    /// # Parameters
+    /// - `city`: The name of the city (e.g., "London", "New York")
+    ///
+    /// # Returns
+    /// A JSON string containing temperature and weather description,
+    /// or an error if the city is not found or the API is unavailable.
+    export get-weather: func(city: string) -> result<string, string>;
+}
+```
+
 ### Complex Types Examples
 
 #### Records

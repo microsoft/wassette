@@ -74,6 +74,36 @@ Key concepts:
 - **World**: Defines what your component imports and exports
 - **WASI imports**: Standard WebAssembly System Interface capabilities (CLI, HTTP, filesystem, etc.)
 
+### Documenting Your WIT Interface
+
+Documentation in your WIT files is crucial for AI agent discovery and effective tool usage. Wassette automatically extracts and embeds this documentation during the build process.
+
+For comprehensive guidance on writing effective WIT documentation, including:
+- Why documentation matters for AI agents
+- Documentation syntax and best practices
+- Complete examples with rich documentation
+- How to verify embedded documentation
+- Before/after comparisons showing impact on AI agents
+
+See the **[Documenting WIT Interfaces](../cookbook/documenting-wit.md)** guide.
+
+**Quick Example:**
+
+```wit
+package local:my-component;
+
+interface my-interface {
+    /// Get the latest version of multiple Go modules.
+    ///
+    /// Takes a comma-separated list of module names and returns
+    /// a JSON string with module -> version mapping.
+    ///
+    /// Returns an error if any module cannot be found or if
+    /// the module registry is unreachable.
+    get-latest-versions: func(module-names: string) -> result<string, string>;
+}
+```
+
 ## Project Structure
 
 A typical Go Wasm component project structure looks like this:

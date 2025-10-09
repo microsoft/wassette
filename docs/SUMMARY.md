@@ -12,6 +12,7 @@
 # Cookbook
 
 - [Building Wasm Components](./cookbook/README.md)
+  - [Documenting WIT Interfaces](./cookbook/documenting-wit.md)
   - [JavaScript/TypeScript](./cookbook/javascript.md)
   - [Python](./cookbook/python.md)
   - [Rust](./cookbook/rust.md)

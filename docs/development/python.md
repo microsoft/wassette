@@ -79,6 +79,37 @@ world calculator {
 - Choose appropriate data types (string, f64, s32, bool, etc.)
 - Keep interfaces simple and focused
 
+#### Documenting Your WIT Interface
+
+Documentation in your WIT files is crucial for AI agent discovery and effective tool usage. Wassette automatically extracts and embeds this documentation during the build process.
+
+For comprehensive guidance on writing effective WIT documentation, including:
+- Why documentation matters for AI agents
+- Documentation syntax and best practices
+- Complete examples with rich documentation
+- How to verify embedded documentation
+- Before/after comparisons showing impact on AI agents
+
+See the **[Documenting WIT Interfaces](../cookbook/documenting-wit.md)** guide.
+
+**Quick Example:**
+
+```wit
+package local:text-tools;
+
+/// A tool for processing and analyzing text content
+world text-analyzer {
+    /// Count the frequency of each word in the text.
+    ///
+    /// Takes text input and returns a JSON object mapping
+    /// each unique word to its occurrence count. Words are
+    /// normalized to lowercase before counting.
+    ///
+    /// Returns an error if the input is empty.
+    export word-frequency: func(text: string) -> result<string, string>;
+}
+```
+
 ### Step 3: Configure Python Project
 
 Create `pyproject.toml`:

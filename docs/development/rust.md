@@ -174,6 +174,36 @@ record text-stats {
 | `variant` | `enum` | Tagged union |
 | `tuple<T, U>` | `(T, U)` | Fixed-size collection |
 
+### Documenting Your WIT Interface
+
+Documentation in your WIT files is crucial for AI agent discovery and effective tool usage. Wassette automatically extracts and embeds this documentation during the build process.
+
+For comprehensive guidance on writing effective WIT documentation, including:
+- Why documentation matters for AI agents
+- Documentation syntax and best practices
+- Complete examples with rich documentation
+- How to verify embedded documentation
+- Before/after comparisons showing impact on AI agents
+
+See the **[Documenting WIT Interfaces](../cookbook/documenting-wit.md)** guide.
+
+**Quick Example:**
+
+```wit
+package component:my-component;
+
+world my-component {
+    /// Fetch data from a URL and return the response body as a String.
+    ///
+    /// # Parameters
+    /// - `url`: The URL to fetch data from
+    ///
+    /// # Returns
+    /// The response body as a string, or an error if the request fails.
+    export fetch: func(url: string) -> result<string, string>;
+}
+```
+
 ## Implementing the Component
 
 ### 1. Generate Bindings
