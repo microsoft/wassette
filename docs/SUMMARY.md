@@ -19,6 +19,10 @@
 - [CLI](./reference/cli.md)
 - [Permissions](./reference/permissions.md)
 
+# Deployment
+
+- [Docker](./deployment/docker.md)
+
 # Design & Architecture
 
 - [Architecture](./design/architecture.md)
