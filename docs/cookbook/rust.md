@@ -5,7 +5,7 @@ This cookbook guide shows you how to build WebAssembly components using Rust tha
 ## Quick Start
 
 ### Prerequisites
-- Rust toolchain (1.90.0 or later)
+- Rust toolchain (1.75.0 or later)
 - WASI Preview 2 target
 
 ### Install Tools

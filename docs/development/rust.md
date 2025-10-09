@@ -20,7 +20,7 @@ This guide provides comprehensive instructions for creating WebAssembly (Wasm) c
 
 Before you begin, ensure you have the following installed:
 
-1. **Rust toolchain** (1.90.0 or later):
+1. **Rust toolchain** (1.75.0 or later):
    ```bash
    curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
    source ~/.cargo/env
