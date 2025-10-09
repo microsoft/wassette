@@ -8,7 +8,7 @@ services:
     build: .
     image: wassette:latest
     
-    # Expose port 9001 for HTTP/SSE access
+    # Expose port 9001 for streamable-http transport (default)
     ports:
       - "9001:9001"
     
@@ -38,14 +38,16 @@ services:
       # - OPENWEATHER_API_KEY=your_api_key_here
     
     # Command to run (override the default CMD from Dockerfile)
-    # Note: stdio is the default and recommended for MCP clients
+    # Note: Default is streamable-http, but you can override it
     
-    # Option 1: Stdio transport (default, recommended)
-    command: ["wassette", "serve", "--stdio"]
+    # Default: Streamable HTTP transport (uses port 9001)
+    # Uses the default CMD from Dockerfile - no need to specify
     
-    # Option 2: SSE transport (requires host networking on Linux)
+    # Option 1: Override with stdio transport
+    # command: ["wassette", "serve", "--stdio"]
+    
+    # Option 2: Override with SSE transport
     # command: ["wassette", "serve", "--sse"]
-    # network_mode: host  # Uncomment for SSE/HTTP access
     
     # Security: Limit container resources
     deploy:

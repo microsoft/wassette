@@ -48,11 +48,11 @@ For enhanced security isolation and reproducible environments, Wassette can run 
 # Build the image
 docker build -t wassette:latest .
 
-# Run with stdio transport (recommended)
-docker run -i --rm wassette:latest
+# Run with streamable-http transport (default)
+docker run --rm -p 9001:9001 wassette:latest
 
 # Mount components directory
-docker run -i --rm \
+docker run --rm -p 9001:9001 \
   -v ./components:/home/wassette/.local/share/wassette/components:ro \
   wassette:latest
 ```

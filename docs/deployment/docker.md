@@ -31,26 +31,33 @@ This builds a multi-stage Docker image that:
 2. Creates a minimal runtime image with only necessary dependencies
 3. Runs as a non-root user for enhanced security
 
+### Run with Streamable HTTP Transport (Default)
+
+The Docker image defaults to streamable-http transport:
+
+```bash
+docker run --rm -p 9001:9001 wassette:latest
+```
+
+Then connect to `http://localhost:9001` from your MCP client.
+
 ### Run with Stdio Transport
 
-For use with MCP clients that expect stdio:
+For use with MCP clients that expect stdio, override the default command:
 
 ```bash
-docker run -i --rm wassette:latest
+docker run -i --rm wassette:latest wassette serve --stdio
 ```
 
-### Run with HTTP/SSE Transport
+### Run with SSE Transport
 
-**Note**: The current version of Wassette binds to `127.0.0.1:9001`, which doesn't work directly with Docker port forwarding. The stdio transport is recommended for Docker deployments. HTTP/SSE support for Docker will be improved in a future release.
-
-If you need HTTP/SSE access in Docker, you can use a workaround with host networking:
+For SSE transport, override the default command:
 
 ```bash
-# Using host network mode (Linux only)
-docker run --rm --network host wassette:latest wassette serve --sse
+docker run --rm -p 9001:9001 wassette:latest wassette serve --sse
 ```
 
-Then connect to `http://localhost:9001/sse` from your MCP client on the host.
+Then connect to `http://localhost:9001/sse` from your MCP client.
 
 ## Mounting Components
 
@@ -74,15 +81,15 @@ docker run -i --rm \
 cd examples/filesystem-rs
 cargo build --release --target wasm32-wasip2
 
-# Run Wassette with the example component mounted (stdio transport)
-docker run -i --rm \
+# Run Wassette with the example component mounted (streamable-http transport)
+docker run --rm -p 9001:9001 \
   -v $(pwd)/examples/filesystem-rs/target/wasm32-wasip2/release:/home/wassette/.local/share/wassette/components:ro \
   wassette:latest
 
-# If you need SSE transport on Linux, use host networking:
-# docker run --rm --network host \
+# For stdio transport, override the default:
+# docker run -i --rm \
 #   -v $(pwd)/examples/filesystem-rs/target/wasm32-wasip2/release:/home/wassette/.local/share/wassette/components:ro \
-#   wassette:latest wassette serve --sse
+#   wassette:latest wassette serve --stdio
 ```
 
 ### Example: Running with Multiple Component Directories
@@ -90,7 +97,7 @@ docker run -i --rm \
 You can mount multiple component directories using multiple `-v` flags:
 
 ```bash
-docker run -i --rm \
+docker run --rm -p 9001:9001 \
   -v /path/to/components1:/home/wassette/.local/share/wassette/components:ro \
   -v /path/to/data:/data:rw \
   wassette:latest
@@ -101,7 +108,7 @@ docker run -i --rm \
 If your components require secrets (API keys, credentials, etc.), mount the secrets directory:
 
 ```bash
-docker run -i --rm \
+docker run --rm -p 9001:9001 \
   -v /path/to/secrets:/home/wassette/.config/wassette/secrets:ro \
   -v /path/to/components:/home/wassette/.local/share/wassette/components:ro \
   wassette:latest
@@ -116,7 +123,7 @@ docker run -i --rm \
 Pass environment variables to the container:
 
 ```bash
-docker run -i --rm \
+docker run --rm -p 9001:9001 \
   -e RUST_LOG=debug \
   -e OPENWEATHER_API_KEY=your_api_key \
   wassette:latest
@@ -127,7 +134,7 @@ docker run -i --rm \
 Mount a custom configuration file:
 
 ```bash
-docker run -i --rm \
+docker run --rm -p 9001:9001 \
   -v /path/to/config.toml:/home/wassette/.config/wassette/config.toml:ro \
   wassette:latest
 ```
@@ -156,10 +163,8 @@ services:
   wassette:
     build: .
     image: wassette:latest
-    # Note: Port mapping works best with --network host on Linux
-    # or use stdio transport without port mapping
-    # ports:
-    #   - "9001:9001"
+    ports:
+      - "9001:9001"
     volumes:
       # Mount component directory (read-only)
       - ./components:/home/wassette/.local/share/wassette/components:ro
@@ -169,8 +174,9 @@ services:
       - ./config.toml:/home/wassette/.config/wassette/config.toml:ro
     environment:
       - RUST_LOG=info
-    # Use SSE transport for network access
-    command: ["wassette", "serve", "--sse"]
+    # Default is streamable-http, but you can override:
+    # command: ["wassette", "serve", "--sse"]
+    # command: ["wassette", "serve", "--stdio"]
     # Security: Run with limited resources
     deploy:
       resources:
@@ -193,7 +199,7 @@ The Dockerfile already configures Wassette to run as a non-root user (`wassette:
 
 ```bash
 # Good: Uses default non-root user
-docker run -i --rm wassette:latest
+docker run --rm -p 9001:9001 wassette:latest
 
 # Bad: Don't do this!
 # docker run -i --rm --user root wassette:latest
@@ -204,7 +210,7 @@ docker run -i --rm wassette:latest
 Mount component and secret directories as read-only when possible:
 
 ```bash
-docker run -i --rm \
+docker run --rm -p 9001:9001 \
   -v /path/to/components:/home/wassette/.local/share/wassette/components:ro \
   wassette:latest
 ```
@@ -214,7 +220,7 @@ docker run -i --rm \
 Prevent resource exhaustion by setting limits:
 
 ```bash
-docker run -i --rm \
+docker run --rm -p 9001:9001 \
   --memory="512m" \
   --cpus="1.0" \
   --pids-limit=100 \
@@ -226,7 +232,7 @@ docker run -i --rm \
 For maximum security, run with a read-only root filesystem:
 
 ```bash
-docker run -i --rm \
+docker run --rm -p 9001:9001 \
   --read-only \
   --tmpfs /tmp:rw,noexec,nosuid,size=50m \
   -v /path/to/components:/home/wassette/.local/share/wassette/components:ro \
@@ -238,7 +244,7 @@ docker run -i --rm \
 Drop Linux capabilities that Wassette doesn't need:
 
 ```bash
-docker run -i --rm \
+docker run --rm -p 9001:9001 \
   --cap-drop=ALL \
   --security-opt=no-new-privileges:true \
   wassette:latest
@@ -250,12 +256,12 @@ Use AppArmor or SELinux for additional security:
 
 ```bash
 # With AppArmor
-docker run -i --rm \
+docker run --rm -p 9001:9001 \
   --security-opt apparmor=docker-default \
   wassette:latest
 
 # With SELinux
-docker run -i --rm \
+docker run --rm -p 9001:9001 \
   --security-opt label=type:container_runtime_t \
   wassette:latest
 ```
@@ -267,7 +273,7 @@ docker run -i --rm \
 If you need a custom base image:
 
 ```dockerfile
-FROM rust:1.83-bookworm AS builder
+FROM rust:1.90-bookworm AS builder
 # ... build stage ...
 
 FROM your-custom-base:latest
@@ -300,7 +306,7 @@ For persistent component storage across container restarts:
 docker volume create wassette-components
 
 # Use the volume
-docker run -i --rm \
+docker run --rm -p 9001:9001 \
   -v wassette-components:/home/wassette/.local/share/wassette/components \
   wassette:latest
 ```
