@@ -1,6 +1,6 @@
 # Wassette AI Agent Instructions
 
-This guide provides essential instructions for AI agents working with Wassette components and permission management.
+Essential instructions for AI agents working with Wassette components and permission management.
 
 ## Critical: Permission Management
 
