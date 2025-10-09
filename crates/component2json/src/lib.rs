@@ -6,6 +6,7 @@
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Value};
 use thiserror::Error;
+use wasmparser::{Parser, Payload};
 use wasmtime::component::types::{ComponentFunc, ComponentItem};
 use wasmtime::component::{Component, Type, Val};
 use wasmtime::Engine;
@@ -154,6 +155,95 @@ pub fn component_exports_to_json_schema(
     output: bool,
 ) -> Value {
     let tools = component_exports_to_tools(component, engine, output);
+    json!({ "tools": tools.into_iter().map(|t| t.schema).collect::<Vec<_>>() })
+}
+
+/// Extracts package-docs custom section from a WebAssembly component.
+///
+/// The package-docs section contains JSON-formatted documentation extracted from WIT source files.
+/// Returns `None` if no package-docs section is found.
+pub fn extract_package_docs(wasm_bytes: &[u8]) -> Option<Value> {
+    for payload in Parser::new(0).parse_all(wasm_bytes) {
+        match payload {
+            Ok(Payload::CustomSection(reader)) => {
+                if reader.name() == "package-docs" {
+                    let data = reader.data();
+                    // Skip the first byte (version) and parse the JSON
+                    if data.len() > 1 {
+                        let json_data = &data[1..];
+                        return serde_json::from_slice(json_data).ok();
+                    }
+                }
+            }
+            Err(_) => return None,
+            _ => continue,
+        }
+    }
+
+    None
+}
+
+/// Finds documentation for a specific exported function in package-docs.
+///
+/// Searches through all worlds in the package-docs structure to find documentation
+/// for the given function name. Returns the documentation string if found.
+fn find_function_docs(package_docs: &Value, function_name: &str) -> Option<String> {
+    let worlds = package_docs.get("worlds")?.as_object()?;
+
+    // Search through all worlds for the function
+    for (_world_name, world_data) in worlds {
+        // Check exported functions
+        if let Some(func_exports) = world_data.get("func_exports").and_then(|v| v.as_object()) {
+            if let Some(func_data) = func_exports.get(function_name) {
+                if let Some(docs) = func_data.get("docs").and_then(|d| d.as_str()) {
+                    return Some(docs.to_string());
+                }
+            }
+        }
+    }
+
+    None
+}
+
+/// Given a component with package-docs and a wasmtime engine, return structured tool metadata with normalized names and documentation.
+///
+/// The `output` parameter determines whether to include the output schema for functions.
+/// The `package_docs` parameter should be obtained via `extract_package_docs`.
+pub fn component_exports_to_tools_with_docs(
+    component: &Component,
+    engine: &Engine,
+    output: bool,
+    package_docs: &Value,
+) -> Vec<ToolMetadata> {
+    let mut tools = Vec::new();
+
+    for (export_name, export_item) in component.component_type().exports(engine) {
+        gather_exported_functions_with_metadata_internal(
+            export_name,
+            None,
+            None,
+            &export_item,
+            engine,
+            &mut tools,
+            output,
+            Some(package_docs),
+        );
+    }
+
+    tools
+}
+
+/// Given a component with package-docs and a wasmtime engine, return a full JSON schema of the component's exports with documentation.
+///
+/// The `output` parameter determines whether to include the output schema for functions.
+/// The `package_docs` parameter should be obtained via `extract_package_docs`.
+pub fn component_exports_to_json_schema_with_docs(
+    component: &Component,
+    engine: &Engine,
+    output: bool,
+    package_docs: &Value,
+) -> Value {
+    let tools = component_exports_to_tools_with_docs(component, engine, output, package_docs);
     json!({ "tools": tools.into_iter().map(|t| t.schema).collect::<Vec<_>>() })
 }
 
@@ -378,6 +468,16 @@ fn type_to_json_schema(t: &Type) -> Value {
 }
 
 fn component_func_to_schema(name: &str, func: &ComponentFunc, output: bool) -> serde_json::Value {
+    component_func_to_schema_with_docs(name, func, output, None, None)
+}
+
+fn component_func_to_schema_with_docs(
+    name: &str,
+    func: &ComponentFunc,
+    output: bool,
+    function_id: Option<&FunctionIdentifier>,
+    package_docs: Option<&Value>,
+) -> serde_json::Value {
     let mut properties = serde_json::Map::new();
     let mut required = Vec::new();
 
@@ -394,10 +494,16 @@ fn component_func_to_schema(name: &str, func: &ComponentFunc, output: bool) -> s
 
     let mut tool_obj = serde_json::Map::new();
     tool_obj.insert("name".to_string(), json!(name));
-    tool_obj.insert(
-        "description".to_string(),
-        json!(format!("Auto-generated schema for function '{name}'")),
-    );
+
+    // Look up documentation or fall back to auto-generated
+    let description = if let (Some(func_id), Some(docs)) = (function_id, package_docs) {
+        find_function_docs(docs, &func_id.function_name)
+            .unwrap_or_else(|| format!("Auto-generated schema for function '{name}'"))
+    } else {
+        format!("Auto-generated schema for function '{name}'")
+    };
+
+    tool_obj.insert("description".to_string(), json!(description));
     tool_obj.insert("inputSchema".to_string(), input_schema);
 
     if output {
@@ -459,6 +565,28 @@ fn gather_exported_functions_with_metadata(
     results: &mut Vec<ToolMetadata>,
     output: bool,
 ) {
+    gather_exported_functions_with_metadata_internal(
+        export_name,
+        previous_name,
+        package_name,
+        item,
+        engine,
+        results,
+        output,
+        None,
+    );
+}
+
+fn gather_exported_functions_with_metadata_internal(
+    export_name: &str,
+    previous_name: Option<String>,
+    package_name: Option<String>,
+    item: &ComponentItem,
+    engine: &Engine,
+    results: &mut Vec<ToolMetadata>,
+    output: bool,
+    package_docs: Option<&Value>,
+) {
     match item {
         ComponentItem::ComponentFunc(func) => {
             let function_id = FunctionIdentifier {
@@ -468,7 +596,13 @@ fn gather_exported_functions_with_metadata(
             };
 
             let normalized_name = normalize_tool_name(&function_id);
-            let schema = component_func_to_schema(&normalized_name, func, output);
+            let schema = component_func_to_schema_with_docs(
+                &normalized_name,
+                func,
+                output,
+                Some(&function_id),
+                package_docs,
+            );
 
             results.push(ToolMetadata {
                 identifier: function_id,
@@ -479,7 +613,7 @@ fn gather_exported_functions_with_metadata(
         ComponentItem::Component(sub_component) => {
             let previous_name = Some(export_name.to_string());
             for (export_name, export_item) in sub_component.exports(engine) {
-                gather_exported_functions_with_metadata(
+                gather_exported_functions_with_metadata_internal(
                     export_name,
                     previous_name.clone(),
                     package_name.clone(),
@@ -487,13 +621,14 @@ fn gather_exported_functions_with_metadata(
                     engine,
                     results,
                     output,
+                    package_docs,
                 );
             }
         }
         ComponentItem::ComponentInstance(instance) => {
             let previous_name = Some(export_name.to_string());
             for (export_name, export_item) in instance.exports(engine) {
-                gather_exported_functions_with_metadata(
+                gather_exported_functions_with_metadata_internal(
                     export_name,
                     previous_name.clone(),
                     package_name.clone(),
@@ -501,6 +636,7 @@ fn gather_exported_functions_with_metadata(
                     engine,
                     results,
                     output,
+                    package_docs,
                 );
             }
         }
@@ -1977,5 +2113,185 @@ mod tests {
         assert_eq!(tool.identifier.function_name, "generate");
 
         Ok(())
+    }
+
+    #[test]
+    fn test_extract_package_docs_with_docs() {
+        // Test component with package-docs embedded
+        let wasm_bytes = std::fs::read("../../bin/fetch-rs.docs.wasm").unwrap();
+        let docs = extract_package_docs(&wasm_bytes);
+
+        assert!(docs.is_some());
+        let docs = docs.unwrap();
+
+        // Verify structure
+        assert!(docs.get("worlds").is_some());
+        let worlds = docs["worlds"].as_object().unwrap();
+        assert!(worlds.contains_key("fetch"));
+
+        // Verify function docs exist
+        let fetch_world = &worlds["fetch"];
+        assert!(fetch_world.get("func_exports").is_some());
+    }
+
+    #[test]
+    fn test_extract_package_docs_without_docs() {
+        // Test component without package-docs
+        let engine = Engine::default();
+        let wat = r#"(component)"#;
+        let component = Component::new(&engine, wat).unwrap();
+
+        // Serialize to bytes for testing
+        let wasm_bytes = wat::parse_str(wat).unwrap();
+        let docs = extract_package_docs(&wasm_bytes);
+
+        assert!(docs.is_none());
+    }
+
+    #[test]
+    fn test_find_function_docs() {
+        let docs = json!({
+            "worlds": {
+                "fetch": {
+                    "func_exports": {
+                        "fetch": {
+                            "docs": "Fetch data from a URL and return the response body as a String"
+                        }
+                    }
+                }
+            }
+        });
+
+        let result = find_function_docs(&docs, "fetch");
+        assert_eq!(
+            result,
+            Some("Fetch data from a URL and return the response body as a String".to_string())
+        );
+
+        let result = find_function_docs(&docs, "nonexistent");
+        assert_eq!(result, None);
+    }
+
+    #[test]
+    fn test_find_function_docs_multiple_worlds() {
+        let docs = json!({
+            "worlds": {
+                "world1": {
+                    "func_exports": {
+                        "foo": {
+                            "docs": "Function foo from world1"
+                        }
+                    }
+                },
+                "world2": {
+                    "func_exports": {
+                        "bar": {
+                            "docs": "Function bar from world2"
+                        }
+                    }
+                }
+            }
+        });
+
+        let result = find_function_docs(&docs, "foo");
+        assert_eq!(result, Some("Function foo from world1".to_string()));
+
+        let result = find_function_docs(&docs, "bar");
+        assert_eq!(result, Some("Function bar from world2".to_string()));
+    }
+
+    #[test]
+    fn test_component_with_docs() {
+        // Load a component with embedded documentation
+        let mut config = wasmtime::Config::new();
+        config.wasm_component_model(true);
+        let engine = Engine::new(&config).unwrap();
+
+        let wasm_bytes = std::fs::read("../../bin/fetch-rs.docs.wasm").unwrap();
+        let component = Component::new(&engine, &wasm_bytes).unwrap();
+        let package_docs = extract_package_docs(&wasm_bytes).unwrap();
+
+        // Generate schema with docs
+        let schema =
+            component_exports_to_json_schema_with_docs(&component, &engine, true, &package_docs);
+
+        let tools = schema["tools"].as_array().unwrap();
+        assert!(!tools.is_empty());
+
+        // Find the fetch tool
+        let fetch_tool = tools
+            .iter()
+            .find(|t| t["name"] == "fetch")
+            .expect("fetch tool should exist");
+
+        // Verify description is NOT auto-generated
+        let description = fetch_tool["description"].as_str().unwrap();
+        assert!(!description.starts_with("Auto-generated"));
+        assert!(description.contains("Fetch") || description.contains("fetch"));
+    }
+
+    #[test]
+    fn test_component_without_docs_fallback() {
+        // Test backward compatibility: component without docs uses auto-generated descriptions
+        let engine = Engine::default();
+        let wat = r#"(component
+            (type (component
+                (type (component
+                    (type (func (param "url" string) (result string)))
+                    (export "fetch" (func (type 0)))
+                ))
+                (export "example:fetch/fetch" (component (type 0)))
+            ))
+            (export "fetch" (type 0))
+        )"#;
+        let component = Component::new(&engine, wat).unwrap();
+        let schema = component_exports_to_json_schema(&component, &engine, true);
+
+        let tools = schema["tools"].as_array().unwrap();
+        assert_eq!(tools.len(), 1);
+
+        let tool = &tools[0];
+        let description = tool["description"].as_str().unwrap();
+
+        // Should use auto-generated description
+        assert!(description.starts_with("Auto-generated schema for function"));
+    }
+
+    #[test]
+    fn test_component_with_empty_docs() {
+        // Test component with package-docs custom section but empty content
+        let engine = Engine::default();
+        let wat = r#"(component
+            (type (component
+                (type (component
+                    (type (func (param "url" string) (result string)))
+                    (export "fetch" (func (type 0)))
+                ))
+                (export "example:fetch/fetch" (component (type 0)))
+            ))
+            (export "fetch" (type 0))
+            (@custom "package-docs" "\00{\"worlds\":{}}")
+        )"#;
+        let component = Component::new(&engine, wat).unwrap();
+
+        let wasm_bytes = wat::parse_str(wat).unwrap();
+        let package_docs = extract_package_docs(&wasm_bytes);
+
+        assert!(package_docs.is_some());
+
+        // Generate schema - should fall back to auto-generated since docs are empty
+        let schema = component_exports_to_json_schema_with_docs(
+            &component,
+            &engine,
+            true,
+            &package_docs.unwrap(),
+        );
+
+        let tools = schema["tools"].as_array().unwrap();
+        let tool = &tools[0];
+        let description = tool["description"].as_str().unwrap();
+
+        // Should fallback to auto-generated since no docs found
+        assert!(description.starts_with("Auto-generated schema for function"));
     }
 }

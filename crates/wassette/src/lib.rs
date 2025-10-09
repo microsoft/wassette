@@ -12,8 +12,9 @@ use std::time::Instant;
 
 use anyhow::{anyhow, bail, Context, Result};
 use component2json::{
-    component_exports_to_json_schema, component_exports_to_tools, create_placeholder_results,
-    json_to_vals, vals_to_json, FunctionIdentifier, ToolMetadata,
+    component_exports_to_json_schema, component_exports_to_json_schema_with_docs,
+    component_exports_to_tools, component_exports_to_tools_with_docs, create_placeholder_results,
+    extract_package_docs, json_to_vals, vals_to_json, FunctionIdentifier, ToolMetadata,
 };
 use etcetera::BaseStrategy;
 use serde::{Deserialize, Serialize};
@@ -309,6 +310,7 @@ pub struct LifecycleManager {
 pub struct ComponentInstance {
     component: Arc<Component>,
     instance_pre: Arc<InstancePre<WassetteWasiState<WasiState>>>,
+    package_docs: Option<Value>,
 }
 
 impl LifecycleManager {
@@ -378,11 +380,20 @@ impl LifecycleManager {
         let mut registered_ids = Vec::new();
 
         for (component_instance, name) in loaded_components {
-            let tool_metadata = component_exports_to_tools(
-                &component_instance.component,
-                self.runtime.as_ref(),
-                true,
-            );
+            let tool_metadata = if let Some(ref package_docs) = component_instance.package_docs {
+                component_exports_to_tools_with_docs(
+                    &component_instance.component,
+                    self.runtime.as_ref(),
+                    true,
+                    package_docs,
+                )
+            } else {
+                component_exports_to_tools(
+                    &component_instance.component,
+                    self.runtime.as_ref(),
+                    true,
+                )
+            };
 
             if let Err(error) = self
                 .registry
@@ -439,7 +450,7 @@ impl LifecycleManager {
         component_id: &str,
         wasm_path: &Path,
     ) -> Result<ComponentLoadOutcome> {
-        let (component, _wasm_bytes) = self
+        let (component, wasm_bytes) = self
             .load_component_optimized(wasm_path, component_id)
             .await?;
 
@@ -448,13 +459,27 @@ impl LifecycleManager {
             .instantiate_pre(&component)
             .context("failed to instantiate component")?;
 
+        // Extract package docs from wasm bytes
+        let package_docs = extract_package_docs(&wasm_bytes);
+
         let component_instance = ComponentInstance {
             component: Arc::new(component),
             instance_pre: Arc::new(instance_pre),
+            package_docs: package_docs.clone(),
         };
 
-        let tool_metadata =
-            component_exports_to_tools(&component_instance.component, self.runtime.as_ref(), true);
+        // Use package docs if available
+        let tool_metadata = if let Some(ref docs) = package_docs {
+            component_exports_to_tools_with_docs(
+                &component_instance.component,
+                self.runtime.as_ref(),
+                true,
+                docs,
+            )
+        } else {
+            component_exports_to_tools(&component_instance.component, self.runtime.as_ref(), true)
+        };
+
         let tool_names: Vec<String> = tool_metadata
             .iter()
             .map(|tool| tool.normalized_name.clone())
@@ -649,11 +674,22 @@ impl LifecycleManager {
     pub async fn get_component_schema(&self, component_id: &str) -> Option<Value> {
         // Prefer live component schema if loaded
         if let Some(component_instance) = self.get_component(component_id).await {
-            return Some(component_exports_to_json_schema(
-                &component_instance.component,
-                self.runtime.as_ref(),
-                true,
-            ));
+            return Some(
+                if let Some(ref package_docs) = component_instance.package_docs {
+                    component_exports_to_json_schema_with_docs(
+                        &component_instance.component,
+                        self.runtime.as_ref(),
+                        true,
+                        package_docs,
+                    )
+                } else {
+                    component_exports_to_json_schema(
+                        &component_instance.component,
+                        self.runtime.as_ref(),
+                        true,
+                    )
+                },
+            );
         }
 
         // Fallback to metadata-based schema without compiling the component
@@ -1285,6 +1321,15 @@ async fn load_component_from_entry(
         return Ok(None);
     }
     let entry_path = entry.path();
+
+    // Read wasm bytes to extract package docs
+    let wasm_bytes = tokio::fs::read(&entry_path)
+        .await
+        .context("Failed to read wasm file")?;
+
+    // Extract package docs before spawning blocking task
+    let package_docs = extract_package_docs(&wasm_bytes);
+
     let runtime_for_component = Arc::clone(&runtime);
     let component = tokio::task::spawn_blocking(move || {
         Component::from_file(runtime_for_component.as_ref(), entry_path)
@@ -1302,6 +1347,7 @@ async fn load_component_from_entry(
         ComponentInstance {
             component: Arc::new(component),
             instance_pre: Arc::new(instance_pre),
+            package_docs,
         },
         name,
     )))
