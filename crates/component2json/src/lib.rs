@@ -467,10 +467,6 @@ fn type_to_json_schema(t: &Type) -> Value {
     }
 }
 
-fn component_func_to_schema(name: &str, func: &ComponentFunc, output: bool) -> serde_json::Value {
-    component_func_to_schema_with_docs(name, func, output, None, None)
-}
-
 fn component_func_to_schema_with_docs(
     name: &str,
     func: &ComponentFunc,
@@ -2137,9 +2133,7 @@ mod tests {
     #[test]
     fn test_extract_package_docs_without_docs() {
         // Test component without package-docs
-        let engine = Engine::default();
         let wat = r#"(component)"#;
-        let component = Component::new(&engine, wat).unwrap();
 
         // Serialize to bytes for testing
         let wasm_bytes = wat::parse_str(wat).unwrap();
