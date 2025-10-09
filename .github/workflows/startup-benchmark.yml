@@ -1,0 +1,98 @@
+name: Startup Benchmark
+
+on:
+  schedule:
+    - cron: "30 3 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  benchmark:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+
+      - uses: extractions/setup-just@e33e0265a09d6d736e2ee1e0eb685ef1de4669ff # v3.0.0
+
+      - uses: actions-rust-lang/setup-rust-toolchain@1780873c7b576612439a134613cc4cc74ce5538c # v1.15.2
+        with:
+          toolchain: stable
+
+      - name: Install wasm32-wasip2 target
+        run: rustup target add wasm32-wasip2
+
+      - uses: ./.github/actions/rust-cache
+
+      - name: Build Wassette (release)
+        run: just build mode=release
+
+      - name: Build benchmark components
+        run: just build-benchmark-components mode=release
+
+      - name: Prepare benchmark workspace
+        run: mkdir -p target
+
+      - name: Checkout gh-pages branch
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          REPO="https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          if git ls-remote --exit-code "$REPO" gh-pages >/dev/null 2>&1; then
+            git clone --depth 1 --branch gh-pages "$REPO" gh-pages
+          else
+            git clone --depth 1 "$REPO" gh-pages
+            cd gh-pages
+            git checkout --orphan gh-pages
+            rm -rf ./*
+            cd ..
+          fi
+          mkdir -p gh-pages/benchmarks/startup
+
+      - name: Run startup benchmark
+        env:
+          BENCH_RUNS: 5
+          GIT_SHA: ${{ github.sha }}
+          GIT_REF: ${{ github.ref_name }}
+        run: |
+          cargo run --release --bin benchmark-startup -- \
+            --components-dir bin \
+            --runs "${BENCH_RUNS}" \
+            --git-sha "${GIT_SHA}" \
+            --git-ref "${GIT_REF}" \
+            --output target/startup-benchmark.json \
+            --history-file gh-pages/benchmarks/startup/data.json
+
+      - name: Sync dashboard assets
+        run: |
+          rsync -av --exclude "data.json" benchmarks/startup/dashboard/ gh-pages/benchmarks/startup/
+        shell: bash
+
+      - name: Commit and push updates
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GIT_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          cd gh-pages
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add benchmarks/startup
+          if git diff --cached --quiet; then
+            echo "No changes to publish."
+            exit 0
+          fi
+          git commit -m "Update startup benchmark data (${GIT_SHA::7})"
+          git push origin gh-pages
+
+      - name: Upload benchmark artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: startup-benchmark
+          path: target/startup-benchmark.json
+          retention-days: 7

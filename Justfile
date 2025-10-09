@@ -41,8 +41,8 @@ inject-docs wasm_path wit_dir:
 build-examples mode="debug":
     mkdir -p bin
     just ensure-wit-docs-inject
-    (cd examples/fetch-rs && just build mode)
-    (cd examples/filesystem-rs && just build mode)
+    (cd examples/fetch-rs && just build {{ mode }})
+    (cd examples/filesystem-rs && just build {{ mode }})
     (cd examples/get-weather-js && just build)
     (cd examples/time-server-js && just build)
     (cd examples/eval-py && just build)
@@ -64,6 +64,22 @@ build-examples mode="debug":
     cp examples/time-server-js/time.wasm bin/time-server-js.wasm
     cp examples/eval-py/eval.wasm bin/eval-py.wasm
     cp examples/gomodule-go/gomodule.wasm bin/gomodule.wasm
+    
+build-benchmark-components mode="release":
+    mkdir -p bin
+    (cd examples/fetch-rs && just build {{ mode }})
+    (cd examples/filesystem-rs && just build {{ mode }})
+    (cd examples/get-weather-js && just build)
+    (cd examples/time-server-js && just build)
+    cp examples/fetch-rs/target/wasm32-wasip2/{{ mode }}/fetch_rs.wasm bin/fetch-rs.wasm
+    cp examples/filesystem-rs/target/wasm32-wasip2/{{ mode }}/filesystem.wasm bin/filesystem.wasm
+    cp examples/get-weather-js/weather.wasm bin/get-weather-js.wasm
+    cp examples/time-server-js/time.wasm bin/time-server-js.wasm
+
+benchmark-startup mode="release" runs="3":
+    just build {{ mode }}
+    just build-benchmark-components {{ mode }}
+    cargo run {{ if mode == "release" { "--release" } else { "" } }} --bin benchmark-startup -- --components-dir bin --runs {{ runs }} --git-sha $(git rev-parse HEAD) --git-ref $(git rev-parse --abbrev-ref HEAD) --output target/startup-benchmark.json
     
 clean:
     cargo clean
@@ -131,4 +147,3 @@ ci-cache-info:
 ci-clean:
     docker rmi $(docker images -q wassette-ci-* 2>/dev/null) 2>/dev/null || true
     docker builder prune -f
-

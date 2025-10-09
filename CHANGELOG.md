@@ -6,6 +6,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+- Daily startup performance benchmark covering preloaded example components, including the `benchmark-startup` utility, automation helpers, and a GitHub Pages dashboard with historical metrics
 - `rust-toolchain.toml` file specifying Rust 1.90 as the stable toolchain version, ensuring consistent Rust version across development environments and CI/CD pipelines
 - AI agent development guides (`AGENTS.md` and `Claude.md`) that consolidate development guidelines from `.github/instructions/` into accessible documentation for AI agents working on the project
 - Comprehensive installation guide page consolidating all installation methods (one-liner script, Homebrew, Nix, WinGet) organized by platform (Linux, macOS, Windows) with verification steps and troubleshooting sections
@@ -39,6 +40,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+- Daily startup performance benchmark covering preloaded example components, including the `benchmark-startup` utility, automation helpers, and a GitHub Pages dashboard with historical metrics
 - **Component Discovery**: Added `search-components` tool that lists all known components available for loading from the component registry, making it easier for users to discover and load new WebAssembly tools ([#236](https://github.com/microsoft/wassette/pull/236))
 - Simple per-component secret management system with CLI commands `wassette secret list|set|delete <component-id>` ([#199](https://github.com/microsoft/wassette/pull/199))
   - Stores secrets in OS-appropriate directories with proper permissions (0700/user-only)
@@ -135,6 +137,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+- Daily startup performance benchmark covering preloaded example components, including the `benchmark-startup` utility, automation helpers, and a GitHub Pages dashboard with historical metrics
 - Enhanced component lifecycle management with improved file cleanup
 - Comprehensive documentation and release process improvements
 - Integration tests for component notifications
@@ -155,6 +158,7 @@ Initial release of Wassette - A security-oriented runtime that runs WebAssembly 
 
 ### Added
 
+- Daily startup performance benchmark covering preloaded example components, including the `benchmark-startup` utility, automation helpers, and a GitHub Pages dashboard with historical metrics
 - Core MCP server implementation for running WebAssembly components
 - Support for SSE and stdio transports
 - Component lifecycle management (load, unload, call)

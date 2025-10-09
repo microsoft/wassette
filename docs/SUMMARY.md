@@ -18,6 +18,7 @@
 
 - [CLI](./reference/cli.md)
 - [Permissions](./reference/permissions.md)
+- [Startup Benchmark](./reference/startup-benchmark.md)
 
 # Design & Architecture
 
