@@ -1,0 +1,84 @@
+# Example Docker Compose configuration for Wassette
+# Copy this file to docker-compose.yml and customize for your needs
+
+version: '3.8'
+
+services:
+  wassette:
+    build: .
+    image: wassette:latest
+    
+    # Expose port 9001 for streamable-http transport (default)
+    ports:
+      - "9001:9001"
+    
+    # Mount volumes for components, secrets, and configuration
+    volumes:
+      # Component directory (read-only for security)
+      - ./components:/home/wassette/.local/share/wassette/components:ro
+      
+      # Secrets directory (read-only)
+      # Store API keys and credentials here
+      - ./secrets:/home/wassette/.config/wassette/secrets:ro
+      
+      # Optional: Custom configuration file
+      # - ./config.toml:/home/wassette/.config/wassette/config.toml:ro
+      
+      # Optional: Persistent component storage
+      # Use this if you want to load components via the MCP interface
+      # and persist them across container restarts
+      # - wassette-components:/home/wassette/.local/share/wassette/components
+    
+    # Environment variables
+    environment:
+      # Set log level (trace, debug, info, warn, error)
+      - RUST_LOG=info
+      
+      # Add any additional environment variables your components need
+      # - OPENWEATHER_API_KEY=your_api_key_here
+    
+    # Command to run (override the default CMD from Dockerfile)
+    # Note: Default is streamable-http, but you can override it
+    
+    # Default: Streamable HTTP transport (uses port 9001)
+    # Uses the default CMD from Dockerfile - no need to specify
+    
+    # Option 1: Override with stdio transport
+    # command: ["wassette", "serve", "--stdio"]
+    
+    # Option 2: Override with SSE transport
+    # command: ["wassette", "serve", "--sse"]
+    
+    # Security: Limit container resources
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 512M
+        reservations:
+          cpus: '0.5'
+          memory: 256M
+    
+    # Security: Drop unnecessary capabilities
+    cap_drop:
+      - ALL
+    
+    # Security: Prevent privilege escalation
+    security_opt:
+      - no-new-privileges:true
+    
+    # Optional: Health check for SSE/HTTP transports
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:9001/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    
+    # Restart policy
+    restart: unless-stopped
+
+# Optional: Named volumes for persistent storage
+# volumes:
+#   wassette-components:
+#     driver: local

@@ -1,0 +1,42 @@
+# Wassette Docker Image (Pre-built Binary)
+# This Dockerfile uses a pre-built Wassette binary for faster builds
+# Useful when you already have the binary compiled on your host system
+
+FROM debian:bookworm-slim
+
+# Install runtime dependencies
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+        ca-certificates \
+        libssl3 && \
+    rm -rf /var/lib/apt/lists/*
+
+# Create a non-root user for running Wassette
+RUN useradd -m -u 1000 -s /bin/bash wassette
+
+# Create necessary directories with proper permissions
+RUN mkdir -p /home/wassette/.local/share/wassette/components && \
+    mkdir -p /home/wassette/.config/wassette/secrets && \
+    chown -R wassette:wassette /home/wassette
+
+# Copy the pre-built binary from the host (build context)
+# Build the binary first with: cargo build --release --bin wassette
+# Then copy it: COPY target/release/wassette /usr/local/bin/wassette
+COPY target/release/wassette /usr/local/bin/wassette
+RUN chmod +x /usr/local/bin/wassette
+
+# Set up environment
+ENV HOME=/home/wassette
+ENV XDG_DATA_HOME=/home/wassette/.local/share
+ENV XDG_CONFIG_HOME=/home/wassette/.config
+
+# Switch to the non-root user
+USER wassette
+WORKDIR /home/wassette
+
+# Expose the default HTTP port (when using --http or --sse)
+EXPOSE 9001
+
+# Default command: start Wassette with streamable-http transport
+# Override this in docker run or docker-compose for different transports
+CMD ["wassette", "serve", "--streamable-http"]
