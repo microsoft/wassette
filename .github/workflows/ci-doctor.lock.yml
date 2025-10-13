@@ -98,7 +98,7 @@ jobs:
               core.setFailed(error instanceof Error ? error.message : String(error));
             });
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
           node-version: '24'
       - name: Install GitHub Copilot CLI
@@ -2944,7 +2944,7 @@ jobs:
           mkdir -p /tmp/threat-detection
           touch /tmp/threat-detection/detection.log
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
           node-version: '24'
       - name: Install GitHub Copilot CLI
