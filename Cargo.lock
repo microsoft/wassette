@@ -651,7 +651,7 @@ dependencies = [
  "serde_json",
  "thiserror 2.0.17",
  "tokio",
- "wasmparser 0.236.1",
+ "wasmparser 0.239.0",
  "wasmtime",
  "wat",
 ]
@@ -4574,8 +4574,10 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8c9d90bb93e764f6beabf1d02028c70a2156a6583e63ac4218dd07ef733368b0"
 dependencies = [
  "bitflags 2.9.4",
+ "hashbrown 0.15.5",
  "indexmap 2.11.3",
  "semver",
+ "serde",
 ]
 
 [[package]]
