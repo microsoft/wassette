@@ -36,9 +36,9 @@ WebAssembly Components are a standardized way to build portable, secure, and int
 Wassette supports tools written in any language that can compile to WebAssembly Components. For current language support, see the [WebAssembly Language Support Guide](https://developer.fermyon.com/wasm-languages/webassembly-language-support).
 
 The project includes examples in several popular languages:
-- **JavaScript** ([time-server-js](https://github.com/microsoft/wassette/tree/main/examples/time-server-js), [get-weather-js](https://github.com/microsoft/wassette/tree/main/examples/get-weather-js))
+- **JavaScript** ([time-server-js](https://github.com/microsoft/wassette/tree/main/examples/time-server-js), [get-weather-js](https://github.com/microsoft/wassette/tree/main/examples/get-weather-js), [get-open-meteo-weather-js](https://github.com/microsoft/wassette/tree/main/examples/get-open-meteo-weather-js))
 - **Python** ([eval-py](https://github.com/microsoft/wassette/tree/main/examples/eval-py))
-- **Rust** ([fetch-rs](https://github.com/microsoft/wassette/tree/main/examples/fetch-rs), [filesystem-rs](https://github.com/microsoft/wassette/tree/main/examples/filesystem-rs))
+- **Rust** ([fetch-rs](https://github.com/microsoft/wassette/tree/main/examples/fetch-rs), [filesystem-rs](https://github.com/microsoft/wassette/tree/main/examples/filesystem-rs), [brave-search-rs](https://github.com/microsoft/wassette/tree/main/examples/brave-search-rs), [context7-rs](https://github.com/microsoft/wassette/tree/main/examples/context7-rs))
 - **Go** ([gomodule-go](https://github.com/microsoft/wassette/tree/main/examples/gomodule-go))
 
 ### Can I use existing WebAssembly modules with Wassette?
@@ -224,9 +224,12 @@ See the [Contributing Guide](https://github.com/microsoft/wassette/blob/main/CON
 ### Where can I find more examples?
 
 The [examples directory](https://github.com/microsoft/wassette/tree/main/examples) contains working examples in multiple languages:
-- [Time server (JavaScript)](https://github.com/microsoft/wassette/tree/main/examples/time-server-js)
-- [Weather API (JavaScript)](https://github.com/microsoft/wassette/tree/main/examples/get-weather-js)
-- [File system operations (Rust)](https://github.com/microsoft/wassette/tree/main/examples/filesystem-rs)
-- [HTTP client (Rust)](https://github.com/microsoft/wassette/tree/main/examples/fetch-rs)
+- [Brave Search (Rust)](https://github.com/microsoft/wassette/tree/main/examples/brave-search-rs)
+- [Context7 API (Rust)](https://github.com/microsoft/wassette/tree/main/examples/context7-rs)
 - [Code execution (Python)](https://github.com/microsoft/wassette/tree/main/examples/eval-py)
+- [HTTP client (Rust)](https://github.com/microsoft/wassette/tree/main/examples/fetch-rs)
+- [File system operations (Rust)](https://github.com/microsoft/wassette/tree/main/examples/filesystem-rs)
+- [Weather via Open-Meteo (JavaScript)](https://github.com/microsoft/wassette/tree/main/examples/get-open-meteo-weather-js)
+- [Weather via OpenWeather (JavaScript)](https://github.com/microsoft/wassette/tree/main/examples/get-weather-js)
 - [Go module info (Go)](https://github.com/microsoft/wassette/tree/main/examples/gomodule-go)
+- [Time server (JavaScript)](https://github.com/microsoft/wassette/tree/main/examples/time-server-js)

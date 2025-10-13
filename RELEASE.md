@@ -98,12 +98,17 @@ The [`examples.yml`](.github/workflows/examples.yml) workflow automatically publ
 - A pull request targeting the `main` branch modifies files in the `examples/**` directory (build only, no publish)
 
 **Published examples include:**
+- `eval-py` - Python expression evaluator
 - `fetch-rs` - HTTP fetch example in Rust
 - `filesystem-rs` - Filesystem operations in Rust
-- `get-weather-js` - Weather API example in JavaScript
-- `time-server-js` - Time server example in JavaScript
-- `eval-py` - Python expression evaluator
+- `get-weather-js` - Weather API example in JavaScript using OpenWeather API
 - `gomodule-go` - Go module information tool
+- `time-server-js` - Time server example in JavaScript
+
+**Additional examples in repository (not yet published to OCI registry):**
+- `brave-search-rs` - Web search using Brave Search API
+- `context7-rs` - Search libraries and fetch documentation via Context7 API
+- `get-open-meteo-weather-js` - Weather data via Open-Meteo API (no API key required)
 
 **What the workflow does:**
 1. Builds all example components using `just build-examples`
