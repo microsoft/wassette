@@ -56,7 +56,7 @@ jobs:
     
     # Install uv for Python package management
     - name: Setup uv
-      uses: astral-sh/setup-uv@b75a909f75acd358c2196fb9a5f1299a9a8868a4 # v6.7.0
+      uses: astral-sh/setup-uv@3259c6206f993105e3a61b142c2d97bf4b9ef83d # v7.1.0
     
     # Install TinyGo for Go WebAssembly examples
     - name: Setup TinyGo
