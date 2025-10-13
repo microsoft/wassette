@@ -9,6 +9,8 @@ on:
     branches: [ "main" ]
     paths:
       - 'examples/**'
+  release:
+    types: [publish]
   workflow_dispatch:
     inputs:
       tag:

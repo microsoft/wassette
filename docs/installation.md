@@ -159,12 +159,18 @@ Once Wassette is installed, you'll need to configure it with your AI agent:
    - Claude Code
    - Gemini CLI
 
-2. **Load your first component**: Try loading a sample component to verify everything works:
+2. **Install agent instructions** (Recommended): Add Wassette-specific instructions to your agent's documentation to ensure proper permission management:
+   ```bash
+   curl https://raw.githubusercontent.com/microsoft/wassette/main/rules/agent.md >> AGENTS.md
+   ```
+   This adds important guidelines that help AI agents correctly use Wassette's permission tools instead of manually editing policy files.
+
+3. **Load your first component**: Try loading a sample component to verify everything works:
    ```
    Please load the time component from oci://ghcr.io/yoshuawuyts/time:latest
    ```
 
-3. **Explore examples**: Check out the [examples directory](https://github.com/microsoft/wassette/tree/main/examples) for sample components in different languages.
+4. **Explore examples**: Check out the [examples directory](https://github.com/microsoft/wassette/tree/main/examples) for sample components in different languages.
 
 ## Troubleshooting
 
