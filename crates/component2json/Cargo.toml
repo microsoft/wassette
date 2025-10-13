@@ -15,7 +15,7 @@ thiserror = { workspace = true }
 tokio = { workspace = true, features = ["full"] }
 
 [dev-dependencies]
-wat = "1.239"
+wat = "1.240"
 
 [[bin]]
 name = "component2json"
