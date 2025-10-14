@@ -143,7 +143,7 @@ async fn test_fetch_component_workflow() -> Result<()> {
 
     let response_body = result;
     assert!(response_body.contains("Example Domain"));
-    assert!(response_body.contains("This domain is for use in illustrative examples in documents"));
+    assert!(response_body.contains("This domain is for use in documentation examples"));
 
     // Copy the component to another name
     let mut component_path2 = component_path.clone();
