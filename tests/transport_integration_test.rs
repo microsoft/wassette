@@ -142,6 +142,7 @@ async fn test_fetch_component_workflow() -> Result<()> {
         .await?;
 
     let response_body = result;
+    eprintln!("DEBUG: Response body: {}", response_body);
     assert!(response_body.contains("Example Domain"));
     assert!(response_body.contains("This domain is for use in documentation examples"));
 
