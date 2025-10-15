@@ -103,7 +103,17 @@ async fn setup_lifecycle_manager_with_client(
 #[cfg(any(target_os = "linux", target_os = "macos"))]
 #[test(tokio::test)]
 async fn test_fetch_component_workflow() -> Result<()> {
-    let (manager, _tempdir) = setup_lifecycle_manager().await?;
+    // Start a local HTTP server to avoid relying on external network access
+    let mock_html = b"<html><body><h1>Example Domain</h1><p>This domain is for use in documentation examples</p></body></html>";
+    let (addr, _server_handle) = start_mock_http_server(mock_html.to_vec()).await?;
+    let mock_url = format!("http://{addr}/");
+
+    // Create HTTP client that accepts self-signed certs
+    let http_client = reqwest::Client::builder()
+        .danger_accept_invalid_certs(true)
+        .build()?;
+
+    let (manager, _tempdir) = setup_lifecycle_manager_with_client(http_client).await?;
 
     let initial_components = manager.list_components().await;
     assert!(
@@ -132,17 +142,21 @@ async fn test_fetch_component_workflow() -> Result<()> {
         .iter()
         .any(|t| t["name"] == "fetch"));
 
+    // Grant permission for the local mock server (use IP address or localhost)
     let grant_result = manager
-        .grant_permission(&id, "network", &serde_json::json!({"host": "example.com"}))
+        .grant_permission(
+            &id,
+            "network",
+            &serde_json::json!({"host": addr.ip().to_string()}),
+        )
         .await;
     assert!(grant_result.is_ok(), "Failed to grant network permission");
 
     let result = manager
-        .execute_component_call(&id, "fetch", r#"{"url": "https://example.com/"}"#)
+        .execute_component_call(&id, "fetch", &format!(r#"{{"url": "{}"}}"#, mock_url))
         .await?;
 
     let response_body = result;
-    eprintln!("DEBUG: Response body: {}", response_body);
     assert!(response_body.contains("Example Domain"));
     assert!(response_body.contains("This domain is for use in documentation examples"));
 
@@ -223,6 +237,43 @@ async fn start_https_server(
                             .status(200)
                             .header("Content-Type", "application/wasm")
                             .body(Full::new(Bytes::from(wasm_bytes.as_ref().clone())))
+                            .unwrap();
+                        Ok::<_, hyper::Error>(response)
+                    }
+                });
+
+                if let Err(err) = http1::Builder::new().serve_connection(io, service).await {
+                    eprintln!("Error serving connection: {err:?}");
+                }
+            });
+        }
+    });
+
+    Ok((addr, handle))
+}
+
+async fn start_mock_http_server(
+    content: Vec<u8>,
+) -> Result<(SocketAddr, tokio::task::JoinHandle<()>)> {
+    let listener = TcpListener::bind("127.0.0.1:0").await?;
+    let addr = listener.local_addr()?;
+
+    let content_bytes = Arc::new(content);
+
+    let handle = tokio::spawn(async move {
+        loop {
+            let (stream, _) = listener.accept().await.unwrap();
+            let content_bytes = content_bytes.clone();
+
+            tokio::spawn(async move {
+                let io = TokioIo::new(stream);
+                let service = service_fn(move |_req: Request<hyper::body::Incoming>| {
+                    let content_bytes = content_bytes.clone();
+                    async move {
+                        let response = Response::builder()
+                            .status(200)
+                            .header("Content-Type", "text/html")
+                            .body(Full::new(Bytes::from(content_bytes.as_ref().clone())))
                             .unwrap();
                         Ok::<_, hyper::Error>(response)
                     }
