@@ -108,12 +108,7 @@ async fn test_fetch_component_workflow() -> Result<()> {
     let (addr, _server_handle) = start_mock_http_server(mock_html.to_vec()).await?;
     let mock_url = format!("http://{addr}/");
 
-    // Create HTTP client that accepts self-signed certs
-    let http_client = reqwest::Client::builder()
-        .danger_accept_invalid_certs(true)
-        .build()?;
-
-    let (manager, _tempdir) = setup_lifecycle_manager_with_client(http_client).await?;
+    let (manager, _tempdir) = setup_lifecycle_manager().await?;
 
     let initial_components = manager.list_components().await;
     assert!(
