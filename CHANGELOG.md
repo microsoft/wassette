@@ -22,6 +22,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Changed
 
+- Removed redundant "Docker Deployment" section from README.md; users are directed to the comprehensive Docker deployment guide via the installation methods list
 - Moved permissions documentation from "Using Wassette" section to "Reference" section, placing it after CLI reference for better organization and discoverability
 - Reorganized documentation structure by moving CLI reference to a new `reference` section in the mdBook for better organization
 - Updated README.md to reference the new dedicated installation guide for complete installation instructions
