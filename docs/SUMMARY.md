@@ -3,6 +3,7 @@
 - [Overview](./overview.md)
 - [Installation](./installation.md)
   - [Docker](./deployment/docker.md)
+- [Concepts](./concepts.md)
 - [MCP Clients](./mcp-clients.md)
 - [FAQ](./faq.md)
 

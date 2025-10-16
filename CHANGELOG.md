@@ -6,6 +6,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+- Concepts documentation page explaining MCP fundamentals (server vs client, tools, prompts, resources), WebAssembly Component Model (components, WIT, bindings), how Wassette translates components to MCP tools, and the policy/capability model
 - Comprehensive Docker documentation and Dockerfile for running Wassette in containers with enhanced security isolation, including examples for mounting components, secrets, configuration files, and production deployment patterns with Docker Compose
 - `rust-toolchain.toml` file specifying Rust 1.90 as the stable toolchain version, ensuring consistent Rust version across development environments and CI/CD pipelines
 - AI agent development guides (`AGENTS.md` and `Claude.md`) that consolidate development guidelines from `.github/instructions/` into accessible documentation for AI agents working on the project
