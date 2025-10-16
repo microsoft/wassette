@@ -86,7 +86,7 @@ code --add-mcp '{"name":"Wassette","command":"wassette","args":["serve","--stdio
 Now that your agent knows about Wassette, we are ready to load Wasm Components. To teach your agent to tell the time, we can ask it to load a time component:
 
 ```text
-Please load the time component from oci://ghcr.io/yoshuawuyts/time:latest
+Please load the time component from oci://ghcr.io/microsoft/time-server-js:latest
 ```
 
 Now that the time component is loaded, we can ask your agent to tell you the current time:
@@ -139,7 +139,7 @@ Wassette comes with several built-in tools for managing components and their per
 
 ### load-component
 **Parameters:**
-- `path` (string, required): Path to the component from either filesystem or OCI registries (e.g., `oci://ghcr.io/yoshuawuyts/time:latest` or `/path/to/component.wasm`)
+- `path` (string, required): Path to the component from either filesystem or OCI registries (e.g., `oci://ghcr.io/microsoft/time-server-js:latest` or `/path/to/component.wasm`)
 
 **Returns:**
 ```json

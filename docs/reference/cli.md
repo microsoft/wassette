@@ -25,7 +25,7 @@ wassette --help
 wassette component list
 
 # Load a component from an OCI registry
-wassette component load oci://ghcr.io/yoshuawuyts/time:latest
+wassette component load oci://ghcr.io/microsoft/time-server-js:latest
 
 # Load a component from a local file
 wassette component load file:///path/to/component.wasm
@@ -92,7 +92,7 @@ Load a WebAssembly component from various sources.
 **Load from OCI registry:**
 ```bash
 # Load a component from GitHub Container Registry
-wassette component load oci://ghcr.io/yoshuawuyts/time:latest
+wassette component load oci://ghcr.io/microsoft/time-server-js:latest
 
 # Load with custom plugin directory
 wassette component load oci://ghcr.io/microsoft/gomodule:latest --plugin-dir /custom/components
