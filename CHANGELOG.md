@@ -4,6 +4,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [v0.4.0] - 2025-10-16
+
 ### Added
 
 - Added `--disable-builtin-tools` flag to the `serve` command that allows disabling all built-in tools (load-component, unload-component, list-components, get-policy, grant/revoke permissions, search-components, reset-permission). When enabled, only loaded component tools will be available through the MCP server
@@ -168,7 +170,8 @@ Initial release of Wassette - A security-oriented runtime that runs WebAssembly 
 - Built-in examples and CLI interface
 - Installation support and documentation
 
-[Unreleased]: https://github.com/microsoft/wassette/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/microsoft/wassette/compare/v0.4.0...HEAD
+[v0.4.0]: https://github.com/microsoft/wassette/compare/v0.3.0...v0.4.0
 [v0.3.0]: https://github.com/microsoft/wassette/compare/v0.2.0...v0.3.0
 [v0.2.0]: https://github.com/microsoft/wassette/compare/v0.1.0...v0.2.0
 [v0.1.0]: https://github.com/microsoft/wassette/releases/tag/v0.1.0
