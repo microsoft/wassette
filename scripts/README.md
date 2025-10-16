@@ -59,7 +59,7 @@ Integration test for the CHANGELOG automation scripts. Runs a complete test cycl
 Both extraction and update scripts support the `CHANGELOG_FILE` environment variable to specify a custom CHANGELOG path:
 
 ```bash
-CHANGELOG_FILE=/path/to/CHANGELOG.md ./scripts/extract-changelog.sh v0.4.0
+CHANGELOG_FILE=./docs/CHANGELOG.md ./scripts/extract-changelog.sh v0.4.0
 ```
 
 If not specified, defaults to `CHANGELOG.md` in the current directory.
