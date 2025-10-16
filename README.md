@@ -40,25 +40,6 @@ Available installation methods:
 - **[Docker](./docs/deployment/docker.md)** for containerized deployments
 - **[Manual download](https://github.com/microsoft/wassette/releases)** from GitHub Releases
 
-### Docker Deployment
-
-For enhanced security isolation and reproducible environments, Wassette can run in Docker containers:
-
-```bash
-# Build the image
-docker build -t wassette:latest .
-
-# Run with streamable-http transport (default)
-docker run --rm -p 9001:9001 wassette:latest
-
-# Mount components directory
-docker run --rm -p 9001:9001 \
-  -v ./components:/home/wassette/.local/share/wassette/components:ro \
-  wassette:latest
-```
-
-See the **[Docker deployment guide](./docs/deployment/docker.md)** for detailed documentation on running Wassette in containers, including security best practices, component mounting, and production deployment patterns.
-
 ## Using Wassette
 
 With Wassette installed, the next step is to register it with your agent of
@@ -86,7 +67,7 @@ code --add-mcp '{"name":"Wassette","command":"wassette","args":["serve","--stdio
 Now that your agent knows about Wassette, we are ready to load Wasm Components. To teach your agent to tell the time, we can ask it to load a time component:
 
 ```text
-Please load the time component from oci://ghcr.io/yoshuawuyts/time:latest
+Please load the time component from oci://ghcr.io/microsoft/time-server-js:latest
 ```
 
 Now that the time component is loaded, we can ask your agent to tell you the current time:
@@ -139,7 +120,7 @@ Wassette comes with several built-in tools for managing components and their per
 
 ### load-component
 **Parameters:**
-- `path` (string, required): Path to the component from either filesystem or OCI registries (e.g., `oci://ghcr.io/yoshuawuyts/time:latest` or `/path/to/component.wasm`)
+- `path` (string, required): Path to the component from either filesystem or OCI registries (e.g., `oci://ghcr.io/microsoft/time-server-js:latest` or `/path/to/component.wasm`)
 
 **Returns:**
 ```json
