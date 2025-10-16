@@ -6,6 +6,10 @@
 - [MCP Clients](./mcp-clients.md)
 - [FAQ](./faq.md)
 
+# Developer Guide
+
+- [Getting Started](./development/getting-started.md)
+
 # Cookbook
 
 - [Building Wasm Components](./cookbook/README.md)
