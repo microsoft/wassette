@@ -4,10 +4,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
-## [v0.4.0] - 2025-10-16
-
 ### Added
 
+- Automated CHANGELOG synchronization with release pipeline: Release workflow now extracts changelog content for release notes and automatically updates CHANGELOG.md post-release by converting [Unreleased] to the new version with date, adding a new empty [Unreleased] section, and updating version comparison links
 - Added `--disable-builtin-tools` flag to the `serve` command that allows disabling all built-in tools (load-component, unload-component, list-components, get-policy, grant/revoke permissions, search-components, reset-permission). When enabled, only loaded component tools will be available through the MCP server
 - Comprehensive Docker documentation and Dockerfile for running Wassette in containers with enhanced security isolation, including examples for mounting components, secrets, configuration files, and production deployment patterns with Docker Compose
 - `rust-toolchain.toml` file specifying Rust 1.90 as the stable toolchain version, ensuring consistent Rust version across development environments and CI/CD pipelines
@@ -170,8 +169,7 @@ Initial release of Wassette - A security-oriented runtime that runs WebAssembly 
 - Built-in examples and CLI interface
 - Installation support and documentation
 
-[Unreleased]: https://github.com/microsoft/wassette/compare/v0.4.0...HEAD
-[v0.4.0]: https://github.com/microsoft/wassette/compare/v0.3.0...v0.4.0
+[Unreleased]: https://github.com/microsoft/wassette/compare/v0.3.0...HEAD
 [v0.3.0]: https://github.com/microsoft/wassette/compare/v0.2.0...v0.3.0
 [v0.2.0]: https://github.com/microsoft/wassette/compare/v0.1.0...v0.2.0
 [v0.1.0]: https://github.com/microsoft/wassette/releases/tag/v0.1.0

@@ -6,6 +6,20 @@ This document describes the process for releasing new versions of the Wassette p
 
 The release process is automated using GitHub Actions, specifically the [`release.yml`](.github/workflows/release.yml) workflow. This workflow is triggered when a new tag is pushed to the repository. Once triggered, the workflow uses a matrix to compile `wassette` for different platforms on native runners and uses `sccache` to speed up the compilation process by caching previous builds. The compiled binaries are then uploaded as artifacts to the release.
 
+### CHANGELOG Synchronization
+
+The release workflow automatically synchronizes with the `CHANGELOG.md` file:
+
+1. **Release Notes from CHANGELOG**: The workflow extracts the changelog content for the specific version being released and uses it as the release notes on GitHub. This ensures consistency between the CHANGELOG and release notes.
+
+2. **Post-Release CHANGELOG Update**: After the release is published, a separate job automatically updates the CHANGELOG:
+   - Converts the `[Unreleased]` section to the new version with the release date
+   - Adds a new empty `[Unreleased]` section at the top
+   - Updates the comparison links to point to the correct version ranges
+   - Commits and pushes these changes back to the main branch
+
+This automation eliminates the need to manually maintain release notes separately from the CHANGELOG.
+
 ## Release Versioning
 
 Wassette uses semantic versioning. All releases follow the format `vX.Y.Z`, where X is the major version, Y is the minor version, and Z is the patch version.
@@ -20,6 +34,16 @@ Wassette uses semantic versioning. All releases follow the format `vX.Y.Z`, wher
 ## Steps to Cut a Release
 
 The release process is now largely automated through GitHub Actions workflows. Follow these steps:
+
+1. **Prepare the CHANGELOG**: Before creating a release, ensure that the `[Unreleased]` section in `CHANGELOG.md` contains all the changes for the upcoming release. Follow the [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) format with sections for:
+   - `Added` - new features
+   - `Changed` - changes in existing functionality
+   - `Deprecated` - soon-to-be removed features
+   - `Removed` - now removed features
+   - `Fixed` - bug fixes
+   - `Security` - vulnerability fixes
+
+   The release workflow will automatically use this content for the GitHub release notes.
 
 1. **Prepare the release**: Trigger the `prepare-release` workflow to create a PR that bumps the version.
 
@@ -51,7 +75,13 @@ The release process is now largely automated through GitHub Actions workflows. F
 
 1. **Monitor the release workflow**: Once the tag is pushed, the `release.yml` workflow will be triggered automatically:
    - Builds binaries for all platforms (Linux, macOS, Windows; AMD64 and ARM64)
-   - Creates a GitHub release with all compiled binaries
+   - Extracts the changelog content for the version from `CHANGELOG.md`
+   - Creates a GitHub release with all compiled binaries and the changelog content as release notes
+   - Automatically updates `CHANGELOG.md`:
+     - Converts `[Unreleased]` section to the new version with release date
+     - Adds a new empty `[Unreleased]` section
+     - Updates version comparison links
+     - Commits and pushes changes back to main branch
    - Monitor the workflow progress in the [Actions tab](https://github.com/microsoft/wassette/actions)
 
 1. **Package manifests are updated automatically**: After the release is published, the `update-package-manifests` workflow will automatically:
