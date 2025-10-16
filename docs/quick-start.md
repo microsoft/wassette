@@ -27,4 +27,4 @@ Ask your AI agent:
 What is the current time?
 ```
 
-For other AI agents (Cursor, Claude Code, Gemini CLI), see the [MCP clients guide](../mcp-clients.md).
+For other AI agents (Cursor, Claude Code, Gemini CLI), see the [MCP clients guide](./mcp-clients.md).

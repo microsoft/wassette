@@ -2,8 +2,8 @@
 
 - [Overview](./overview.md)
 - [Installation](./installation.md)
-  - [Quick Start](./installation/quick-start.md)
   - [Docker](./deployment/docker.md)
+- [Quick Start](./quick-start.md)
 - [MCP Clients](./mcp-clients.md)
 - [FAQ](./faq.md)
 
