@@ -10,7 +10,7 @@ on:
     paths:
       - 'examples/**'
   release:
-    types: [publish]
+    types: [published]
   workflow_dispatch:
     inputs:
       tag:
