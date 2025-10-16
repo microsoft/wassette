@@ -22,7 +22,7 @@ Before you begin, ensure you have the following installed on your system:
 
 ### Required Tools
 
-1. **Rust toolchain** (1.75.0 or later):
+1. **Rust toolchain** (1.90 or later):
    ```bash
    curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
    source ~/.cargo/env
