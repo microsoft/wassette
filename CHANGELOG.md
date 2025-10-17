@@ -28,6 +28,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Changed
 
+- Updated publish examples workflow to include new examples: brave-search-rs, context7-rs, and get-open-meteo-weather-js
 - Streamlined README.md by removing detailed sections on "Built-in Tools", "Building WebAssembly Components", "Community Components", and "Documentation" in favor of linking to comprehensive documentation pages
 - Simplified README "Installation" section to show only quick start and link to full installation guide
 - Updated "Using Wassette" section in README to remove installation instructions and focus on component loading workflow

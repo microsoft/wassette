@@ -41,18 +41,24 @@ inject-docs wasm_path wit_dir:
 build-examples mode="debug":
     mkdir -p bin
     just ensure-wit-docs-inject
-    (cd examples/fetch-rs && just build mode)
-    (cd examples/filesystem-rs && just build mode)
+    (cd examples/fetch-rs && just build {{ mode }})
+    (cd examples/filesystem-rs && just build {{ mode }})
     (cd examples/get-weather-js && just build)
     (cd examples/time-server-js && just build)
     (cd examples/eval-py && just build)
     (cd examples/gomodule-go && just build)
+    (cd examples/brave-search-rs && just build {{ mode }})
+    (cd examples/context7-rs && just build {{ mode }})
+    (cd examples/get-open-meteo-weather-js && just build)
     # Inject docs for Rust examples
     just inject-docs examples/fetch-rs/target/wasm32-wasip2/{{ mode }}/fetch_rs.wasm examples/fetch-rs/wit
     just inject-docs examples/filesystem-rs/target/wasm32-wasip2/{{ mode }}/filesystem.wasm examples/filesystem-rs/wit
+    just inject-docs examples/brave-search-rs/target/wasm32-wasip2/{{ mode }}/brave_search_rs.wasm examples/brave-search-rs/wit
+    # Note: Skipping doc injection for context7-rs due to missing WIT dependencies (wasi:http@0.2.1)
     # Inject docs for JS examples
     just inject-docs examples/get-weather-js/weather.wasm examples/get-weather-js/wit
     just inject-docs examples/time-server-js/time.wasm examples/time-server-js/wit
+    just inject-docs examples/get-open-meteo-weather-js/weather.wasm examples/get-open-meteo-weather-js/wit
     # Inject docs for Python examples
     just inject-docs examples/eval-py/eval.wasm examples/eval-py/wit
     # Inject docs for Go examples
@@ -64,6 +70,9 @@ build-examples mode="debug":
     cp examples/time-server-js/time.wasm bin/time-server-js.wasm
     cp examples/eval-py/eval.wasm bin/eval-py.wasm
     cp examples/gomodule-go/gomodule.wasm bin/gomodule.wasm
+    cp examples/brave-search-rs/target/wasm32-wasip2/{{ mode }}/brave_search_rs.wasm bin/brave-search-rs.wasm
+    cp examples/context7-rs/target/wasm32-wasip2/{{ mode }}/context7.wasm bin/context7-rs.wasm
+    cp examples/get-open-meteo-weather-js/weather.wasm bin/get-open-meteo-weather-js.wasm
     
 clean:
     cargo clean

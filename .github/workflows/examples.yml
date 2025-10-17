@@ -75,6 +75,12 @@ jobs:
             file: filesystem.wasm
           - name: fetch-rs
             file: fetch-rs.wasm
+          - name: brave-search-rs
+            file: brave-search-rs.wasm
+          - name: context7-rs
+            file: context7-rs.wasm
+          - name: get-open-meteo-weather-js
+            file: get-open-meteo-weather-js.wasm
     steps:
       - name: Download artifacts
         uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5.0.0
