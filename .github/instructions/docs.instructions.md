@@ -6,6 +6,16 @@ applyTo: "docs/**/*.md"
 
 When working on documentation changes that affect visual presentation or layout, **always use Playwright** to display and capture visual changes. This helps reviewers understand the impact of documentation modifications.
 
+## Writing Style Guidelines
+
+**Keep documentation concise and code-focused:**
+- Prefer code examples over verbose explanations
+- Keep document files focused and concise for readability
+- Use clear, simple language that's easy to understand
+- Show working examples first, explain details second
+- Remove unnecessary words - every sentence should add value
+- Write the answer as 2–4 cohesive paragraphs. No bullet points, no numbered lists, no sub-headings, no tables, no Markdown lists.
+
 ## Running the Documentation Locally
 
 The project uses [mdbook](https://rust-lang.github.io/mdBook/) for documentation. Use the following commands:
