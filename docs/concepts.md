@@ -4,53 +4,21 @@ This page introduces the fundamental concepts behind Wassette and how it bridges
 
 ## Model Context Protocol (MCP)
 
-The Model Context Protocol is a standard protocol that defines how AI agents (like Claude, GitHub Copilot, or Cursor) communicate with external tools and services.
+The [Model Context Protocol](https://modelcontextprotocol.io/docs/getting-started/intro) is a standard protocol that defines how AI agents (like Claude, GitHub Copilot, or Cursor) communicate with external tools and services.
 
 ### MCP Components
 
-MCP defines several types of components that servers can provide:
-
-#### MCP Servers vs MCP Clients
-
-- **MCP Clients**: The AI agent applications (VS Code, Claude Code, Cursor, Gemini CLI) that connect to MCP servers and use their capabilities
-- **MCP Servers**: Backend services that provide capabilities to AI agents. Wassette is an MCP server.
-
-#### Tools
-
-**Tools** are functions that AI agents can call to perform actions or retrieve information. For example:
-- A weather tool that fetches current weather data
-- A file system tool that reads or writes files
-- A calculation tool that performs mathematical operations
-
-Wassette primarily focuses on **tools** by translating WebAssembly component functions into MCP tools.
-
-#### Prompts (Not Yet Supported)
-
-**Prompts** are reusable templates that help structure conversations with AI agents. These provide standardized ways to interact with certain types of data or workflows.
-
-> **Note**: Wassette does not currently support MCP prompts.
-
-#### Resources (Not Yet Supported)
-
-**Resources** are data sources that can be read by AI agents, such as files, database entries, or API endpoints. Resources allow agents to access contextual information without requiring explicit tool calls.
-
-> **Note**: Wassette does not currently support MCP resources.
+MCP defines several types of components that servers can provide: **tools** (functions that AI agents call to perform actions), **prompts** (reusable conversation templates), and **resources** (data sources like files or API endpoints). Wassette is an MCP server that primarily focuses on tools, translating WebAssembly component functions into MCP tools that AI agents can invoke. Prompts and resources are not currently supported.
 
 ## WebAssembly Component Model
 
-WebAssembly (Wasm) is a portable binary instruction format that runs in a sandboxed environment. The **WebAssembly Component Model** extends basic Wasm with standardized interfaces for building composable, reusable components.
+WebAssembly (Wasm) is a portable binary instruction format that runs in a sandboxed environment. The **WebAssembly Component Model** extends basic Wasm with standardized interfaces for building composable, reusable components. For a deeper understanding, see [WebAssembly Components: The Next Wave of Cloud Native Computing](https://www.cncf.io/blog/2024/07/09/webassembly-components-the-next-wave-of-cloud-native-computing/).
 
 ### Key Concepts
 
 #### Components
 
-A **component** is a self-contained WebAssembly module with a well-defined interface. Think of components as portable, language-agnostic libraries that can run securely anywhere.
-
-Key characteristics:
-- **Language-agnostic**: Write in JavaScript, Python, Rust, Go, or any language that compiles to Wasm
-- **Portable**: Run on any platform with a Wasm runtime
-- **Sandboxed**: Isolated execution environment with no access to host resources by default
-- **Composable**: Components can import and export interfaces to work together
+A **component** is a self-contained WebAssembly module with a well-defined interface. Components are portable, language-agnostic libraries that run securely anywhere with a Wasm runtime.
 
 #### WIT (WebAssembly Interface Types)
 
@@ -109,13 +77,7 @@ graph LR
 
 ### Dynamic Tool Registration
 
-When you load a component in Wassette:
-
-1. **Component Loading**: Wassette loads the WebAssembly component using the Wasmtime runtime
-2. **Interface Introspection**: Wassette examines the component's WIT interface to discover exported functions
-3. **Schema Generation**: Each function's parameters and return types are converted to JSON Schema
-4. **Tool Registration**: Each function becomes an MCP tool with a name, description, and parameter schema
-5. **Runtime Execution**: When the AI agent calls a tool, Wassette executes the corresponding function in the sandboxed Wasm environment
+When you load a component in Wassette, the system first loads the WebAssembly component using the Wasmtime runtime, then examines the component's WIT interface to discover exported functions. Each function's parameters and return types are converted to JSON Schema, and each function becomes an MCP tool with a name, description, and parameter schema. When an AI agent calls a tool, Wassette executes the corresponding function in the sandboxed Wasm environment.
 
 ### Example Flow
 
@@ -152,12 +114,30 @@ Wassette's security model is built on the principle of **least privilege**: comp
 
 ### Capability-Based Security
 
-Instead of running with the same privileges as the host process, WebAssembly components in Wassette operate under a capability-based security model:
+Wassette enforces a deny-by-default security model. Consider a weather component that needs to access an API:
 
-- **Deny by default**: No file system, network, or environment variable access without explicit grants
-- **Fine-grained control**: Permissions are granted per-component and per-resource
-- **Runtime enforcement**: The Wasm sandbox enforces all security policies
-- **Auditable**: All permission grants are tracked and can be reviewed
+```yaml
+# Without permissions - component cannot access anything
+storage: {}
+network: {}
+environment: {}
+```
+
+```yaml
+# With permissions - component can access specific resources
+storage:
+  allow:
+    - uri: "fs:///tmp/cache"
+      access: ["read", "write"]
+network:
+  allow:
+    - host: "api.weather.com"
+environment:
+  allow:
+    - key: "API_KEY"
+```
+
+This capability-based model ensures components only access resources you explicitly grant, with the Wasm sandbox enforcing all policies at runtime.
 
 ### Permission Types
 
@@ -237,14 +217,6 @@ Wassette provides multiple layers of security:
 2. **Wasmtime Runtime**: Enforces WASI (WebAssembly System Interface) capabilities
 3. **Policy Engine**: Applies fine-grained permission checks
 4. **Wassette Server**: Manages component lifecycle and MCP protocol
-
-### Benefits of This Architecture
-
-- **Defense in Depth**: Multiple security layers protect against vulnerabilities
-- **Minimal Attack Surface**: Components cannot access unauthorized resources
-- **Transparent Security**: Permissions are explicit and auditable
-- **Isolated Execution**: Components cannot interfere with each other
-- **Cross-Platform**: Same security guarantees on Linux, macOS, and Windows
 
 ## Next Steps
 
