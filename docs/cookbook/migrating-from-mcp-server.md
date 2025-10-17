@@ -88,10 +88,14 @@ await server.connect(transport);
 package local:weather;
 
 world weather-component {
+    import wasi:config/store@0.2.0-draft;
+    
     /// Get current weather for a city
     export get-weather: func(city: string) -> result<string, string>;
 }
 ```
+
+> **Note**: You'll need the WASI config WIT definitions. Copy them from the [get-weather-js example](https://github.com/microsoft/wassette/tree/main/examples/get-weather-js/wit/deps) or download from the WASI repository.
 
 **weather.js:**
 ```javascript
@@ -126,6 +130,8 @@ export async function getWeather(city) {
 
 1. Extract your tool's business logic (the actual work it does)
 2. Create a WIT file defining your function signatures
+   - Include `import` statements for any WASI interfaces you use (e.g., `wasi:config/store`)
+   - Copy required WIT dependencies to `wit/deps/` (see examples for reference)
 3. Update environment variable access to use WASI config store
 4. Export your functions directly from your JS file
 5. Build with `jco componentize`
