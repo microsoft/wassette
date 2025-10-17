@@ -9,11 +9,9 @@
 use anyhow::{bail, Context, Result};
 use serde::{Deserialize, Serialize};
 
-pub mod defaults;
 pub mod parser;
 pub mod types;
 
-pub use defaults::get_default_domains;
 pub use parser::PolicyParser;
 pub use types::*;
 

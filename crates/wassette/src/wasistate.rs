@@ -267,18 +267,6 @@ pub(crate) fn extract_allowed_hosts(policy: &PolicyDocument) -> HashSet<String> 
             for allow_entry in allow_list {
                 // The policy uses serde_json::Value, so we need to extract the host field
                 if let Ok(json_value) = serde_json::to_value(allow_entry) {
-                    // Check for defaults field
-                    if let Some(defaults_value) = json_value.get("defaults") {
-                        let is_defaults_enabled = defaults_value.as_bool().unwrap_or(false);
-                        if is_defaults_enabled {
-                            // Add all default domains
-                            let default_domains = policy::get_default_domains();
-                            for domain in default_domains {
-                                allowed_hosts.insert(domain.to_string());
-                            }
-                        }
-                    }
-                    // Check for host field
                     if let Some(host) = json_value.get("host").and_then(|h| h.as_str()) {
                         allowed_hosts.insert(host.to_string());
                     }
@@ -562,81 +550,6 @@ permissions:
         assert!(!network_perms.allow_tcp);
         assert!(!network_perms.allow_udp);
         assert!(!network_perms.allow_ip_name_lookup);
-    }
-
-    #[test]
-    fn test_extract_allowed_hosts_with_defaults() {
-        let yaml_content = r#"
-version: "1.0"
-description: "Policy with default network permissions"
-permissions:
-  network:
-    allow:
-      - defaults: true
-      - host: "custom.example.com"
-"#;
-        let policy = PolicyParser::parse_str(yaml_content).unwrap();
-        let allowed_hosts = extract_allowed_hosts(&policy);
-
-        // Should include default domains
-        assert!(allowed_hosts.contains("registry.npmjs.org"));
-        assert!(allowed_hosts.contains("pypi.org"));
-        assert!(allowed_hosts.contains("github.com"));
-        assert!(allowed_hosts.contains("api.openai.com"));
-
-        // Should also include custom host
-        assert!(allowed_hosts.contains("custom.example.com"));
-
-        // Check that we have a reasonable number of defaults (should have ~75+ default domains)
-        assert!(
-            allowed_hosts.len() > 70,
-            "Should have many default domains, got {}",
-            allowed_hosts.len()
-        );
-    }
-
-    #[test]
-    fn test_extract_allowed_hosts_without_defaults() {
-        let yaml_content = r#"
-version: "1.0"
-description: "Policy without defaults"
-permissions:
-  network:
-    allow:
-      - host: "custom.example.com"
-"#;
-        let policy = PolicyParser::parse_str(yaml_content).unwrap();
-        let allowed_hosts = extract_allowed_hosts(&policy);
-
-        // Should only include custom host
-        assert_eq!(allowed_hosts.len(), 1);
-        assert!(allowed_hosts.contains("custom.example.com"));
-
-        // Should NOT include default domains
-        assert!(!allowed_hosts.contains("registry.npmjs.org"));
-        assert!(!allowed_hosts.contains("pypi.org"));
-    }
-
-    #[test]
-    fn test_extract_allowed_hosts_defaults_false() {
-        let yaml_content = r#"
-version: "1.0"
-description: "Policy with defaults explicitly set to false"
-permissions:
-  network:
-    allow:
-      - defaults: false
-      - host: "custom.example.com"
-"#;
-        let policy = PolicyParser::parse_str(yaml_content).unwrap();
-        let allowed_hosts = extract_allowed_hosts(&policy);
-
-        // Should only include custom host
-        assert_eq!(allowed_hosts.len(), 1);
-        assert!(allowed_hosts.contains("custom.example.com"));
-
-        // Should NOT include default domains
-        assert!(!allowed_hosts.contains("registry.npmjs.org"));
     }
 
     #[test]

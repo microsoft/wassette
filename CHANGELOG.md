@@ -6,7 +6,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
-- Default HTTP domain permissions following the policy-mcp design - components can now use `defaults: true` in network permissions to automatically get access to 75+ commonly used domains including package registries (npm, PyPI, crates.io), version control systems (GitHub, GitLab), cloud providers (AWS, GCP, Azure), AI APIs (OpenAI, Anthropic, Hugging Face), and more ([#TBD](https://github.com/microsoft/wassette/pull/TBD))
+- Documentation reference for commonly used HTTP domains in network permissions, providing a comprehensive list of frequently needed domains organized by category (package registries, version control systems, cloud providers, container registries, AI/ML APIs, CDNs, documentation sites, and CI/CD services) to help users make informed decisions when granting network permissions ([#368](https://github.com/microsoft/wassette/pull/368))
 - `rust-toolchain.toml` file specifying Rust 1.90 as the stable toolchain version, ensuring consistent Rust version across development environments and CI/CD pipelines
 - AI agent development guides (`AGENTS.md` and `Claude.md`) that consolidate development guidelines from `.github/instructions/` into accessible documentation for AI agents working on the project
 - Comprehensive installation guide page consolidating all installation methods (one-liner script, Homebrew, Nix, WinGet) organized by platform (Linux, macOS, Windows) with verification steps and troubleshooting sections
