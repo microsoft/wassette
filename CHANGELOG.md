@@ -29,6 +29,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ### Changed
 
 - Streamlined README.md by removing detailed sections on "Built-in Tools", "Building WebAssembly Components", "Community Components", and "Documentation" in favor of linking to comprehensive documentation pages
+- Removed duplicate built-in tools listing from `docs/design/permission-system.md` and replaced with reference link to `docs/reference/built-in-tools.md` ([#379](https://github.com/microsoft/wassette/pull/379))
+- Removed duplicate built-in tools listing from `docs/faq.md` and replaced with reference link to `docs/reference/built-in-tools.md` ([#379](https://github.com/microsoft/wassette/pull/379))
+- Added cross-references throughout documentation (`docs/concepts.md`, `docs/overview.md`, `docs/faq.md`) to link to detailed reference documentation for permissions and built-in tools, reducing content duplication while improving navigation ([#379](https://github.com/microsoft/wassette/pull/379))
 - Simplified README "Installation" section to show only quick start and link to full installation guide
 - Updated "Using Wassette" section in README to remove installation instructions and focus on component loading workflow
 - Created new documentation pages: `docs/reference/built-in-tools.md` for tool reference and `docs/reference/community-components.md` for community projects
