@@ -1,0 +1,112 @@
+/* Copyright (c) Microsoft Corporation. */
+/* Licensed under the MIT license. */
+
+/* On This Page Table of Contents Styling */
+
+.toc-container {
+    position: fixed;
+    right: 2rem;
+    top: calc(var(--menu-bar-height) + 2rem);
+    width: 220px;
+    max-height: calc(100vh - var(--menu-bar-height) - 4rem);
+    overflow-y: auto;
+    overflow-x: hidden;
+    padding: 1rem;
+    background: var(--sidebar-bg);
+    border: 1px solid var(--sidebar-non-existant);
+    border-radius: 4px;
+    font-size: 0.85em;
+    z-index: 90;
+}
+
+.toc-header {
+    font-weight: 600;
+    margin-bottom: 0.75rem;
+    padding-bottom: 0.5rem;
+    border-bottom: 1px solid var(--sidebar-non-existant);
+    color: var(--sidebar-fg);
+    font-size: 0.95em;
+}
+
+.toc-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+}
+
+.toc-item {
+    margin: 0;
+    padding: 0;
+}
+
+.toc-link {
+    display: block;
+    padding: 0.35rem 0.5rem;
+    color: var(--sidebar-fg);
+    text-decoration: none;
+    line-height: 1.4;
+    border-left: 2px solid transparent;
+    transition: all 0.2s ease;
+}
+
+.toc-link:hover {
+    color: var(--sidebar-active);
+    background: var(--sidebar-non-existant);
+}
+
+.toc-link.active {
+    color: var(--sidebar-active);
+    border-left-color: var(--sidebar-active);
+    font-weight: 500;
+}
+
+/* H2 items - no indent */
+.toc-h2 .toc-link {
+    padding-left: 0.5rem;
+}
+
+/* H3 items - indented */
+.toc-h3 .toc-link {
+    padding-left: 1.25rem;
+    font-size: 0.95em;
+}
+
+/* Custom scrollbar for TOC */
+.toc-container::-webkit-scrollbar {
+    width: 6px;
+}
+
+.toc-container::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+.toc-container::-webkit-scrollbar-thumb {
+    background: var(--scrollbar);
+    border-radius: 3px;
+}
+
+.toc-container::-webkit-scrollbar-thumb:hover {
+    background: var(--sidebar-fg);
+}
+
+/* Hide TOC on smaller screens */
+@media screen and (max-width: 1440px) {
+    .toc-container {
+        display: none;
+    }
+}
+
+/* Adjust content wrapper to make room for TOC on large screens */
+@media screen and (min-width: 1441px) {
+    .content {
+        max-width: calc(100% - 280px);
+    }
+}
+
+/* Dark theme specific adjustments */
+.coal .toc-container,
+.navy .toc-container,
+.ayu .toc-container {
+    background: var(--sidebar-bg);
+    border-color: var(--sidebar-non-existant);
+}

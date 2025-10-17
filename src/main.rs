@@ -194,6 +194,7 @@ const BIND_ADDRESS: &str = "127.0.0.1:9001";
 pub struct McpServer {
     lifecycle_manager: LifecycleManager,
     peer: Arc<Mutex<Option<rmcp::Peer<rmcp::RoleServer>>>>,
+    disable_builtin_tools: bool,
 }
 
 /// Handle CLI tool commands by creating appropriate tool call requests
@@ -271,6 +272,7 @@ async fn create_lifecycle_manager(plugin_dir: Option<PathBuf>) -> Result<Lifecyc
             transport: Default::default(),
             env_vars: vec![],
             env_file: None,
+            disable_builtin_tools: false,
         })
         .context("Failed to load configuration")?
     };
@@ -297,10 +299,12 @@ impl McpServer {
     ///
     /// # Arguments
     /// * `lifecycle_manager` - The lifecycle manager for handling component operations
-    pub fn new(lifecycle_manager: LifecycleManager) -> Self {
+    /// * `disable_builtin_tools` - Whether to disable built-in tools
+    pub fn new(lifecycle_manager: LifecycleManager, disable_builtin_tools: bool) -> Self {
         Self {
             lifecycle_manager,
             peer: Arc::new(Mutex::new(None)),
+            disable_builtin_tools,
         }
     }
 
@@ -354,8 +358,15 @@ Key points:
         // Store peer on first request
         self.store_peer_if_empty(peer_clone.clone());
 
+        let disable_builtin_tools = self.disable_builtin_tools;
         Box::pin(async move {
-            let result = handle_tools_call(params, &self.lifecycle_manager, peer_clone).await;
+            let result = handle_tools_call(
+                params,
+                &self.lifecycle_manager,
+                peer_clone,
+                disable_builtin_tools,
+            )
+            .await;
             match result {
                 Ok(value) => serde_json::from_value(value).map_err(|e| {
                     ErrorData::parse_error(format!("Failed to parse result: {e}"), None)
@@ -373,8 +384,9 @@ Key points:
         // Store peer on first request
         self.store_peer_if_empty(ctx.peer.clone());
 
+        let disable_builtin_tools = self.disable_builtin_tools;
         Box::pin(async move {
-            let result = handle_tools_list(&self.lifecycle_manager).await;
+            let result = handle_tools_list(&self.lifecycle_manager, disable_builtin_tools).await;
             match result {
                 Ok(value) => serde_json::from_value(value).map_err(|e| {
                     ErrorData::parse_error(format!("Failed to parse result: {e}"), None)
@@ -519,7 +531,7 @@ async fn main() -> Result<()> {
                     .build()
                     .await?;
 
-                let server = McpServer::new(lifecycle_manager.clone());
+                let server = McpServer::new(lifecycle_manager.clone(), cfg.disable_builtin_tools);
 
                 // Start background component loading
                 let server_clone = server.clone();
