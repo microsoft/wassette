@@ -167,7 +167,7 @@ Once Wassette is installed, you'll need to configure it with your AI agent:
 
 3. **Load your first component**: Try loading a sample component to verify everything works:
    ```
-   Please load the time component from oci://ghcr.io/yoshuawuyts/time:latest
+   Please load the time component from oci://ghcr.io/microsoft/time-server-js:latest
    ```
 
 4. **Explore examples**: Check out the [examples directory](https://github.com/microsoft/wassette/tree/main/examples) for sample components in different languages.

@@ -37,6 +37,7 @@ Available installation methods:
 - **[Homebrew](./docs/installation.md#homebrew)** for macOS and Linux
 - **[WinGet](./docs/installation.md#windows)** for Windows
 - **[Nix flakes](./docs/installation.md#nix-all-platforms)** for reproducible environments
+- **[Docker](./docs/deployment/docker.md)** for containerized deployments
 - **[Manual download](https://github.com/microsoft/wassette/releases)** from GitHub Releases
 
 ## Using Wassette
@@ -66,7 +67,7 @@ code --add-mcp '{"name":"Wassette","command":"wassette","args":["serve","--stdio
 Now that your agent knows about Wassette, we are ready to load Wasm Components. To teach your agent to tell the time, we can ask it to load a time component:
 
 ```text
-Please load the time component from oci://ghcr.io/yoshuawuyts/time:latest
+Please load the time component from oci://ghcr.io/microsoft/time-server-js:latest
 ```
 
 Now that the time component is loaded, we can ask your agent to tell you the current time:
@@ -119,7 +120,7 @@ Wassette comes with several built-in tools for managing components and their per
 
 ### load-component
 **Parameters:**
-- `path` (string, required): Path to the component from either filesystem or OCI registries (e.g., `oci://ghcr.io/yoshuawuyts/time:latest` or `/path/to/component.wasm`)
+- `path` (string, required): Path to the component from either filesystem or OCI registries (e.g., `oci://ghcr.io/microsoft/time-server-js:latest` or `/path/to/component.wasm`)
 
 **Returns:**
 ```json
@@ -365,14 +366,17 @@ Component and expose its functions as MCP tools. Components can be re-used by ot
 See the [`examples/`](./examples/) directory for a complete list of examples. Here is a
 selection of examples written in different languages:
 
-| Example                                    | Description                                            |
-| ------------------------------------------ | ------------------------------------------------------ |
-| [eval-py](examples/eval-py/)               | Python code execution sandbox                          |
-| [fetch-rs](examples/fetch-rs/)             | HTTP API client for fetching and converting web content |
-| [filesystem-rs](examples/filesystem-rs/)   | File system operations (read, write, list directories) |
-| [get-weather-js](examples/get-weather-js/) | Weather API client for fetching weather data           |
-| [gomodule-go](examples/gomodule-go/)       | Go module information tool                             |
-| [time-server-js](examples/time-server-js/) | JavaScript-based time server component                |
+| Example                                                        | Description                                            |
+| -------------------------------------------------------------- | ------------------------------------------------------ |
+| [brave-search-rs](examples/brave-search-rs/)                  | Web search using Brave Search API                      |
+| [context7-rs](examples/context7-rs/)                           | Search libraries and fetch documentation via Context7 API |
+| [eval-py](examples/eval-py/)                                   | Python code execution sandbox                          |
+| [fetch-rs](examples/fetch-rs/)                                 | HTTP API client for fetching and converting web content |
+| [filesystem-rs](examples/filesystem-rs/)                       | File system operations (read, write, list directories) |
+| [get-open-meteo-weather-js](examples/get-open-meteo-weather-js/) | Weather data via Open-Meteo API (no API key required) |
+| [get-weather-js](examples/get-weather-js/)                     | Weather API client using OpenWeather API               |
+| [gomodule-go](examples/gomodule-go/)                           | Go module information tool                             |
+| [time-server-js](examples/time-server-js/)                     | JavaScript-based time server component                 |
 
 ## Community Components
 

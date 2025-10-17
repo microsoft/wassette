@@ -1,0 +1,66 @@
+# Git files
+.git
+.gitignore
+.gitattributes
+
+# GitHub workflows and documentation
+.github
+docs/book
+docs/TODO.md
+
+# Target and build artifacts
+target/**
+!target/release/wassette
+bin
+*.wasm
+
+# Examples and tests
+examples/*/target
+tests
+
+# Documentation
+*.md
+!README.md
+LICENSE
+NOTICE
+SECURITY.md
+CODE_OF_CONDUCT.md
+CONTRIBUTING.md
+
+# Development files
+.vscode
+.idea
+*.swp
+*.swo
+*~
+
+# Rust artifacts
+**/*.rs.bk
+Cargo.lock.bak
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# CI/Docker files
+Dockerfile.ci
+docker-compose.yml
+
+# Scripts
+scripts
+
+# Package manager files
+Formula
+flake.nix
+flake.lock
+winget
+
+# Other
+assets
+audit.toml
+deny.toml
+_typos.toml
+rustfmt.toml
+component-registry.json
+policy.yaml
+install.sh
