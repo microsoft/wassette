@@ -1,18 +1,6 @@
-# Configuration Files Reference
+# config.toml
 
-This page provides a comprehensive reference for all configuration files used in Wassette. These files control various aspects of the server's behavior and build configuration.
-
-## Overview
-
-Wassette uses several configuration files for different purposes:
-
-| File | Purpose | Location | Format |
-|------|---------|----------|--------|
-| [`config.toml`](#configtoml) | Main server configuration | `~/.config/wassette/` | TOML |
-
-## config.toml
-
-The main configuration file for the Wassette MCP server. This file is optional and provides defaults for server behavior.
+This page provides a comprehensive reference for the `config.toml` configuration file used by the Wassette MCP server. This file is optional and provides defaults for server behavior, including component storage locations, secrets directory, and environment variables.
 
 ### Location
 
@@ -108,97 +96,6 @@ export WASSETTE_CONFIG_FILE=/etc/wassette/config.toml
 # Start server
 wassette serve --stdio
 ```
-
-## Other Configuration Files
-
-### Cargo.toml
-
-Rust package manifest for building Wassette from source.
-
-**Location**: Repository root
-
-**Purpose**: Defines dependencies, build configuration, and workspace members for the Rust project.
-
-**Key sections:**
-- `[package]`: Project metadata
-- `[dependencies]`: Runtime dependencies
-- `[workspace]`: Multi-crate workspace configuration
-- `[profile.release]`: Release build optimizations
-
-### rust-toolchain.toml
-
-Rust toolchain specification.
-
-**Location**: Repository root
-
-**Purpose**: Specifies the Rust version and components required to build Wassette.
-
-**Content:**
-```toml
-[toolchain]
-channel = "1.90"
-components = ["rustfmt", "clippy"]
-targets = ["wasm32-wasip2", "wasm32-wasip1"]
-```
-
-### rustfmt.toml
-
-Rust code formatting configuration.
-
-**Location**: Repository root
-
-**Purpose**: Configures code formatting rules for the project.
-
-**Key settings:**
-- `unstable_features = true`: Enables nightly-only formatting features
-- `group_imports = "StdExternalCrate"`: Groups imports by category
-- `imports_granularity = "Module"`: Merges imports from the same module
-
-**Note**: Requires `cargo +nightly fmt` due to unstable features.
-
-### _typos.toml
-
-Spell checking configuration for the `typos` tool.
-
-**Location**: Repository root
-
-**Purpose**: Configures spell checking, excluding specific patterns and defining allowed words.
-
-### audit.toml
-
-Cargo audit configuration.
-
-**Location**: Repository root
-
-**Purpose**: Configures security advisory checking with `cargo-audit`, including a list of ignored advisories with justification.
-
-### deny.toml
-
-Cargo deny configuration.
-
-**Location**: Repository root
-
-**Purpose**: Configures dependency licensing, security advisories, and ban policies.
-
-**Key sections:**
-- `[advisories]`: Security advisory ignores
-- `[licenses]`: Allowed open source licenses
-- `[bans]`: Dependency ban policies
-- `[sources]`: Allowed package sources
-
-### book.toml
-
-mdBook configuration.
-
-**Location**: `docs/book.toml`
-
-**Purpose**: Configures the documentation build process.
-
-**Key settings:**
-- Output directory: `docs/book`
-- Preprocessors: Mermaid diagrams, tabs
-- Search configuration
-- Theme customization
 
 ## See Also
 

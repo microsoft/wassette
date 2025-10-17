@@ -20,7 +20,7 @@
 
 - [CLI](./reference/cli.md)
 - [Permissions](./reference/permissions.md)
-- [Configuration Files](./reference/configuration-files.md)
+- [config.toml](./reference/configuration-files.md)
 
 # Design & Architecture
 
