@@ -112,21 +112,7 @@ export async function getWeather(city) {
 }
 ```
 
-**policy.yaml:**
-```yaml
-version: "1.0"
-permissions:
-  network:
-    allow:
-      - host: "api.openweathermap.org"
-        protocols: ["https"]
-  config:
-    allow:
-      - key: "WEATHER_API_KEY"
-        access: ["read"]
-```
-
-**Total:** ~20 lines of business logic + explicit permissions.
+**Total:** ~20 lines of business logic.
 
 ## Key Changes
 
@@ -134,8 +120,7 @@ permissions:
 2. **Environment variables** - Replace `process.env` with WASI config store (`wasi:config/store`)
 3. **Error handling** - Throw errors or return result types instead of MCP response objects
 4. **WIT interface** - Define your API in WIT instead of MCP tool schemas
-5. **Permissions** - Declare allowed resources in `policy.yaml`
-6. **Build** - Run `npm run build` to create the `.wasm` component
+5. **Build** - Run `npm run build` to create the `.wasm` component
 
 ## Migration Steps
 
@@ -143,8 +128,7 @@ permissions:
 2. Create a WIT file defining your function signatures
 3. Update environment variable access to use WASI config store
 4. Export your functions directly from your JS file
-5. Create `policy.yaml` with required permissions
-6. Build with `jco componentize`
+5. Build with `jco componentize`
 
 ## Next Steps
 
