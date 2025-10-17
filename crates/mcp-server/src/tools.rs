@@ -21,11 +21,16 @@ const COMPONENT_LIST: &str = include_str!("../../../component-registry.json");
 
 /// Handles a request to list available tools.
 #[instrument(skip(lifecycle_manager))]
-pub async fn handle_tools_list(lifecycle_manager: &LifecycleManager) -> Result<Value> {
+pub async fn handle_tools_list(
+    lifecycle_manager: &LifecycleManager,
+    disable_builtin_tools: bool,
+) -> Result<Value> {
     debug!("Handling tools list request");
 
     let mut tools = get_component_tools(lifecycle_manager).await?;
-    tools.extend(get_builtin_tools());
+    if !disable_builtin_tools {
+        tools.extend(get_builtin_tools());
+    }
     debug!(num_tools = %tools.len(), "Retrieved tools");
 
     let response = rmcp::model::ListToolsResult {
@@ -36,41 +41,79 @@ pub async fn handle_tools_list(lifecycle_manager: &LifecycleManager) -> Result<V
     Ok(serde_json::to_value(response)?)
 }
 
+/// Check if a tool name is a builtin tool
+fn is_builtin_tool(name: &str) -> bool {
+    matches!(
+        name,
+        "load-component"
+            | "unload-component"
+            | "list-components"
+            | "get-policy"
+            | "grant-storage-permission"
+            | "grant-network-permission"
+            | "grant-environment-variable-permission"
+            | "revoke-storage-permission"
+            | "revoke-network-permission"
+            | "revoke-environment-variable-permission"
+            | "search-components"
+            | "reset-permission"
+    )
+}
+
 /// Handles a tool call request.
 #[instrument(skip_all, fields(method_name = %req.name))]
 pub async fn handle_tools_call(
     req: CallToolRequestParam,
     lifecycle_manager: &LifecycleManager,
     server_peer: Peer<RoleServer>,
+    disable_builtin_tools: bool,
 ) -> Result<Value> {
     info!("Handling tool call");
 
-    let result = match req.name.as_ref() {
-        "load-component" => handle_load_component(&req, lifecycle_manager, server_peer).await,
-        "unload-component" => handle_unload_component(&req, lifecycle_manager, server_peer).await,
-        "list-components" => handle_list_components(lifecycle_manager).await,
-        "get-policy" => handle_get_policy(&req, lifecycle_manager).await,
-        "grant-storage-permission" => {
-            handle_grant_storage_permission(&req, lifecycle_manager).await
+    let result = if disable_builtin_tools && is_builtin_tool(req.name.as_ref()) {
+        // When builtin tools are disabled, reject calls to builtin tools
+        Err(anyhow::anyhow!("Built-in tools are disabled"))
+    } else {
+        // Handle builtin tools (if enabled) or component calls
+        match req.name.as_ref() {
+            "load-component" if !disable_builtin_tools => {
+                handle_load_component(&req, lifecycle_manager, server_peer).await
+            }
+            "unload-component" if !disable_builtin_tools => {
+                handle_unload_component(&req, lifecycle_manager, server_peer).await
+            }
+            "list-components" if !disable_builtin_tools => {
+                handle_list_components(lifecycle_manager).await
+            }
+            "get-policy" if !disable_builtin_tools => {
+                handle_get_policy(&req, lifecycle_manager).await
+            }
+            "grant-storage-permission" if !disable_builtin_tools => {
+                handle_grant_storage_permission(&req, lifecycle_manager).await
+            }
+            "grant-network-permission" if !disable_builtin_tools => {
+                handle_grant_network_permission(&req, lifecycle_manager).await
+            }
+            "grant-environment-variable-permission" if !disable_builtin_tools => {
+                handle_grant_environment_variable_permission(&req, lifecycle_manager).await
+            }
+            "revoke-storage-permission" if !disable_builtin_tools => {
+                handle_revoke_storage_permission(&req, lifecycle_manager).await
+            }
+            "revoke-network-permission" if !disable_builtin_tools => {
+                handle_revoke_network_permission(&req, lifecycle_manager).await
+            }
+            "revoke-environment-variable-permission" if !disable_builtin_tools => {
+                handle_revoke_environment_variable_permission(&req, lifecycle_manager).await
+            }
+            "search-components" if !disable_builtin_tools => {
+                handle_search_component(&req, lifecycle_manager).await
+            }
+            "reset-permission" if !disable_builtin_tools => {
+                handle_reset_permission(&req, lifecycle_manager).await
+            }
+            _ => handle_component_call(&req, lifecycle_manager).await,
         }
-        "grant-network-permission" => {
-            handle_grant_network_permission(&req, lifecycle_manager).await
-        }
-        "grant-environment-variable-permission" => {
-            handle_grant_environment_variable_permission(&req, lifecycle_manager).await
-        }
-        "revoke-storage-permission" => {
-            handle_revoke_storage_permission(&req, lifecycle_manager).await
-        }
-        "revoke-network-permission" => {
-            handle_revoke_network_permission(&req, lifecycle_manager).await
-        }
-        "revoke-environment-variable-permission" => {
-            handle_revoke_environment_variable_permission(&req, lifecycle_manager).await
-        }
-        "search-components" => handle_search_component(&req, lifecycle_manager).await,
-        "reset-permission" => handle_reset_permission(&req, lifecycle_manager).await,
-        _ => handle_component_call(&req, lifecycle_manager).await,
     };
 
     if let Err(ref e) = result {

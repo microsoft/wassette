@@ -7,6 +7,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ### Added
 
 - Concepts documentation page explaining MCP fundamentals (server vs client, tools, prompts, resources), WebAssembly Component Model (components, WIT, bindings), how Wassette translates components to MCP tools, and the policy/capability model
+- Added `--disable-builtin-tools` flag to the `serve` command that allows disabling all built-in tools (load-component, unload-component, list-components, get-policy, grant/revoke permissions, search-components, reset-permission). When enabled, only loaded component tools will be available through the MCP server
 - Comprehensive Docker documentation and Dockerfile for running Wassette in containers with enhanced security isolation, including examples for mounting components, secrets, configuration files, and production deployment patterns with Docker Compose
 - `rust-toolchain.toml` file specifying Rust 1.90 as the stable toolchain version, ensuring consistent Rust version across development environments and CI/CD pipelines
 - AI agent development guides (`AGENTS.md` and `Claude.md`) that consolidate development guidelines from `.github/instructions/` into accessible documentation for AI agents working on the project
@@ -34,6 +35,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Fixed
 
+- Fixed post-release workflows not triggering properly: Release workflow now uses `RELEASE_TOKEN` instead of `GITHUB_TOKEN` to allow triggering downstream workflows, and Publish Examples workflow corrected event type from `publish` to `published`
 - `wassette secret set` now returns a clear error message when the component ID is not found, preventing silent failures and providing better user feedback
 - Fixed invalid `workflows` permission in dependabot-automerge workflow file that caused GitHub Actions validation error
 - Fixed Mermaid sequence diagram rendering in documentation by adding mdbook-mermaid preprocessor configuration
