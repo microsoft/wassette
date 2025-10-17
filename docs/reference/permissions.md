@@ -32,6 +32,59 @@ Control outbound network access to specific hosts.
 - Permit access to specific domains only
 - Restrict network egress for security
 
+**Commonly Used Domains:**
+
+When configuring network permissions for your components, you may need to grant access to commonly used development services. Below is a reference list of frequently needed domains organized by category. You should evaluate each domain and only grant access to those that your specific component requires.
+
+**Package Registries:**
+- `registry.npmjs.org`, `*.npmjs.com` - npm (Node.js packages)
+- `pypi.org`, `*.pypi.org`, `files.pythonhosted.org` - PyPI (Python packages)
+- `rubygems.org`, `*.rubygems.org` - RubyGems (Ruby packages)
+- `crates.io`, `*.crates.io`, `static.crates.io`, `index.crates.io` - Cargo (Rust packages)
+- `repo.maven.apache.org`, `repo1.maven.org`, `central.maven.org`, `search.maven.org` - Maven (Java packages)
+- `nuget.org`, `*.nuget.org`, `api.nuget.org` - NuGet (.NET packages)
+- `registry.yarnpkg.com` - Yarn (JavaScript packages)
+
+**Version Control Systems:**
+- `github.com`, `*.github.com`, `api.github.com`, `raw.githubusercontent.com`, `codeload.github.com` - GitHub
+- `gitlab.com`, `*.gitlab.com` - GitLab
+- `bitbucket.org`, `*.bitbucket.org`, `api.bitbucket.org` - Bitbucket
+
+**Cloud Service Providers:**
+- `*.amazonaws.com`, `s3.amazonaws.com`, `*.s3.amazonaws.com` - AWS
+- `*.googleapis.com`, `storage.googleapis.com`, `*.google.com` - Google Cloud
+- `*.azure.com`, `*.azurewebsites.net`, `*.blob.core.windows.net` - Azure
+- `*.cloudflare.com`, `cloudflare.com` - Cloudflare
+
+**Container Registries:**
+- `docker.io`, `*.docker.io`, `registry-1.docker.io`, `index.docker.io` - Docker Hub
+- `ghcr.io` - GitHub Container Registry
+- `quay.io`, `*.quay.io` - Quay
+- `gcr.io`, `*.gcr.io`, `*.pkg.dev` - Google Container Registry
+
+**AI/ML APIs:**
+- `api.openai.com`, `*.openai.com` - OpenAI
+- `api.anthropic.com`, `*.anthropic.com` - Anthropic
+- `api.cohere.ai`, `*.cohere.ai` - Cohere
+- `huggingface.co`, `*.huggingface.co`, `cdn-lfs.huggingface.co` - Hugging Face
+
+**Content Delivery Networks (CDNs):**
+- `cdn.jsdelivr.net`, `*.jsdelivr.net` - jsDelivr
+- `unpkg.com` - UNPKG
+- `cdnjs.cloudflare.com` - Cloudflare CDN
+- `*.fastly.net` - Fastly
+- `*.akamaized.net`, `*.edgecastcdn.net` - Akamai
+
+**Documentation and Learning:**
+- `docs.rs` - Rust documentation
+- `readthedocs.io`, `*.readthedocs.io`, `readthedocs.org`, `*.readthedocs.org` - Read the Docs
+
+**Build and CI/CD:**
+- `circleci.com`, `*.circleci.com` - CircleCI
+- `actions.githubusercontent.com`, `objects.githubusercontent.com` - GitHub Actions
+
+> **Security Note**: Only grant network access to domains that your component actually needs. Review each domain permission request carefully to maintain a secure sandbox environment.
+
 ### Environment Variable Permissions
 
 Control access to environment variables.
@@ -152,6 +205,12 @@ permissions:
   - `storage.allow`: List of file system URIs and access types
   - `network.allow`: List of allowed hosts
   - `environment.allow`: List of environment variable keys
+
+**Network permission options:**
+- `host: "example.com"`: Allow access to a specific host
+- `host: "*.example.com"`: Allow access to all subdomains of example.com
+
+See the [Network Permissions](#network-permissions) section above for a comprehensive list of commonly used domains you may need to grant access to.
 
 While you can manually create or edit policy files for distributing components with predefined permissions, for most use cases, granting permissions through the AI agent or CLI commands is simpler and less error-prone.
 

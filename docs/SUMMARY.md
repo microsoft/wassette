@@ -4,8 +4,13 @@
 - [Installation](./installation.md)
   - [Docker](./deployment/docker.md)
 - [Quick Start](./quick-start.md)
+- [Concepts](./concepts.md)
 - [MCP Clients](./mcp-clients.md)
 - [FAQ](./faq.md)
+
+# Developer Guide
+
+- [Getting Started](./development/getting-started.md)
 
 # Cookbook
 
