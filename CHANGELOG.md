@@ -25,6 +25,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - Comprehensive documentation in RELEASE.md for releasing example component images to GHCR, including automatic publishing workflow, manual release process, and instructions for adding new examples
 - GitHub Actions workflow `.github/workflows/copilot-setup-steps.yml` that provides reusable setup steps for GitHub Copilot coding agents to prepare a complete development environment with Rust, just, protobuf, wasm-tools, and other essential tools
 - Added `rules/agent.md` instruction file for AI agents emphasizing use of `grant-xxx-permission` tools instead of manually editing policy files, with installation instructions in the installation guide
+- Comprehensive documentation on wit-docs-inject usage, explaining how WIT documentation is extracted from interface definitions and embedded into WASM binaries as a package-docs custom section, how the build process integrates documentation injection, and how embedded documentation translates to tool descriptions that AI agents use for tool discovery
 
 ### Changed
 
