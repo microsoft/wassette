@@ -70,6 +70,11 @@ pub struct Serve {
     #[arg(long = "env-file")]
     #[serde(skip)]
     pub env_file: Option<PathBuf>,
+
+    /// Disable built-in tools (load-component, unload-component, list-components, etc.)
+    #[arg(long)]
+    #[serde(default)]
+    pub disable_builtin_tools: bool,
 }
 
 #[derive(Args, Debug, Clone, Serialize, Deserialize, Default)]

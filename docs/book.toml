@@ -11,8 +11,8 @@ build-dir = "book"
 [preprocessor.tabs]
 
 [output.html]
-additional-js = ["mermaid.min.js", "mermaid-init.js", "theme/version-picker.js"]
-additional-css = ["theme/version-picker.css"]
+additional-js = ["mermaid.min.js", "mermaid-init.js", "theme/version-picker.js", "theme/toc.js"]
+additional-css = ["theme/version-picker.css", "theme/toc.css"]
 smart-punctuation = true
 git-repository-url = "https://github.com/microsoft/wassette"
 edit-url-template = "https://github.com/microsoft/wassette/edit/main/docs/{path}"

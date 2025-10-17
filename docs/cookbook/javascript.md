@@ -25,6 +25,8 @@ npm init -y
 
 ### 2. Install Dependencies
 
+Add the following to your `package.json`:
+
 ```json
 {
   "type": "module",
