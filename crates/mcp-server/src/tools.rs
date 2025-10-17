@@ -542,121 +542,12 @@ pub async fn handle_get_policy(
     })
 }
 
-#[instrument(skip(lifecycle_manager))]
-pub async fn handle_grant_storage_permission(
+/// Generic helper for handling grant permission requests
+async fn handle_grant_permission_generic(
     req: &CallToolRequestParam,
     lifecycle_manager: &LifecycleManager,
-) -> Result<CallToolResult> {
-    let args = extract_args_from_request(req)?;
-
-    let component_id = args
-        .get("component_id")
-        .and_then(|v| v.as_str())
-        .ok_or_else(|| anyhow::anyhow!("Missing required argument: 'component_id'"))?;
-
-    let details = args
-        .get("details")
-        .ok_or_else(|| anyhow::anyhow!("Missing required argument: 'details'"))?;
-
-    info!("Granting storage permission to component {}", component_id);
-
-    // Ensure component is loaded (lazy compile)
-    lifecycle_manager
-        .ensure_component_loaded(component_id)
-        .await
-        .map_err(|e| anyhow::anyhow!("Component not found: {} ({})", component_id, e))?;
-
-    let result = lifecycle_manager
-        .grant_permission(component_id, "storage", details)
-        .await;
-
-    match result {
-        Ok(()) => {
-            let status_text = serde_json::to_string(&json!({
-                "status": "permission granted successfully",
-                "component_id": component_id,
-                "permission_type": "storage",
-                "details": details
-            }))?;
-
-            let contents = vec![Content::text(status_text)];
-
-            Ok(CallToolResult {
-                content: Some(contents),
-                structured_content: None,
-                is_error: None,
-            })
-        }
-        Err(e) => {
-            error!("Failed to grant storage permission: {}", e);
-            Err(anyhow::anyhow!(
-                "Failed to grant storage permission to component {}: {}",
-                component_id,
-                e
-            ))
-        }
-    }
-}
-
-#[instrument(skip(lifecycle_manager))]
-pub async fn handle_grant_network_permission(
-    req: &CallToolRequestParam,
-    lifecycle_manager: &LifecycleManager,
-) -> Result<CallToolResult> {
-    let args = extract_args_from_request(req)?;
-
-    let component_id = args
-        .get("component_id")
-        .and_then(|v| v.as_str())
-        .ok_or_else(|| anyhow::anyhow!("Missing required argument: 'component_id'"))?;
-
-    let details = args
-        .get("details")
-        .ok_or_else(|| anyhow::anyhow!("Missing required argument: 'details'"))?;
-
-    info!("Granting network permission to component {}", component_id);
-
-    lifecycle_manager
-        .ensure_component_loaded(component_id)
-        .await
-        .map_err(|e| anyhow::anyhow!("Component not found: {} ({})", component_id, e))?;
-
-    let result = lifecycle_manager
-        .grant_permission(component_id, "network", details)
-        .await;
-
-    match result {
-        Ok(()) => {
-            let status_text = serde_json::to_string(&json!({
-                "status": "permission granted successfully",
-                "component_id": component_id,
-                "permission_type": "network",
-                "details": details
-            }))?;
-
-            let contents = vec![Content::text(status_text)];
-
-            Ok(CallToolResult {
-                content: Some(contents),
-                structured_content: None,
-                is_error: None,
-            })
-        }
-        Err(e) => {
-            error!("Failed to grant network permission: {}", e);
-            Err(anyhow::anyhow!(
-                "Failed to grant network permission to component {}: {}",
-                component_id,
-                e
-            ))
-        }
-    }
-}
-
-#[instrument(skip(lifecycle_manager))]
-pub async fn handle_grant_environment_variable_permission(
-    req: &CallToolRequestParam,
-    lifecycle_manager: &LifecycleManager,
+    permission_type: &str,
+    permission_display_name: &str,
 ) -> Result<CallToolResult> {
     let args = extract_args_from_request(req)?;
 
@@ -670,17 +561,18 @@ pub async fn handle_grant_environment_variable_permission(
         .ok_or_else(|| anyhow::anyhow!("Missing required argument: 'details'"))?;
 
     info!(
-        "Granting environment variable permission to component {}",
-        component_id
+        "Granting {} permission to component {}",
+        permission_display_name, component_id
     );
 
+    // Ensure component is loaded (lazy compile)
     lifecycle_manager
         .ensure_component_loaded(component_id)
         .await
         .map_err(|e| anyhow::anyhow!("Component not found: {} ({})", component_id, e))?;
 
     let result = lifecycle_manager
-        .grant_permission(component_id, "environment", details)
+        .grant_permission(component_id, permission_type, details)
         .await;
 
     match result {
@@ -688,7 +580,7 @@ pub async fn handle_grant_environment_variable_permission(
             let status_text = serde_json::to_string(&json!({
                 "status": "permission granted successfully",
                 "component_id": component_id,
-                "permission_type": "environment",
+                "permission_type": permission_display_name,
                 "details": details
             }))?;
 
@@ -701,9 +593,13 @@ pub async fn handle_grant_environment_variable_permission(
             })
         }
         Err(e) => {
-            error!("Failed to grant environment variable permission: {}", e);
+            error!(
+                "Failed to grant {} permission: {}",
+                permission_display_name, e
+            );
             Err(anyhow::anyhow!(
-                "Failed to grant environment variable permission to component {}: {}",
+                "Failed to grant {} permission to component {}: {}",
+                permission_display_name,
                 component_id,
                 e
             ))
@@ -712,9 +608,49 @@ pub async fn handle_grant_environment_variable_permission(
 }
 
 #[instrument(skip(lifecycle_manager))]
+pub async fn handle_grant_storage_permission(
+    req: &CallToolRequestParam,
+    lifecycle_manager: &LifecycleManager,
+) -> Result<CallToolResult> {
+    handle_grant_permission_generic(req, lifecycle_manager, "storage", "storage").await
+}
+
+#[instrument(skip(lifecycle_manager))]
+pub async fn handle_grant_network_permission(
+    req: &CallToolRequestParam,
+    lifecycle_manager: &LifecycleManager,
+) -> Result<CallToolResult> {
+    handle_grant_permission_generic(req, lifecycle_manager, "network", "network").await
+}
+
+#[instrument(skip(lifecycle_manager))]
+pub async fn handle_grant_environment_variable_permission(
+    req: &CallToolRequestParam,
+    lifecycle_manager: &LifecycleManager,
+) -> Result<CallToolResult> {
+    handle_grant_permission_generic(
+        req,
+        lifecycle_manager,
+        "environment",
+        "environment variable",
+    )
+    .await
+}
+
+#[instrument(skip(lifecycle_manager))]
 pub async fn handle_grant_memory_permission(
     req: &CallToolRequestParam,
     lifecycle_manager: &LifecycleManager,
+) -> Result<CallToolResult> {
+    handle_grant_permission_generic(req, lifecycle_manager, "resource", "memory").await
+}
+
+/// Generic helper for handling revoke permission requests
+async fn handle_revoke_permission_generic(
+    req: &CallToolRequestParam,
+    lifecycle_manager: &LifecycleManager,
+    permission_type: &str,
+    permission_display_name: &str,
 ) -> Result<CallToolResult> {
     let args = extract_args_from_request(req)?;
 
@@ -727,7 +663,10 @@ pub async fn handle_grant_memory_permission(
         .get("details")
         .ok_or_else(|| anyhow::anyhow!("Missing required argument: 'details'"))?;
 
-    info!("Granting memory permission to component {}", component_id);
+    info!(
+        "Revoking {} permission from component {}",
+        permission_display_name, component_id
+    );
 
     lifecycle_manager
         .ensure_component_loaded(component_id)
@@ -735,15 +674,15 @@ pub async fn handle_grant_memory_permission(
         .map_err(|e| anyhow::anyhow!("Component not found: {} ({})", component_id, e))?;
 
     let result = lifecycle_manager
-        .grant_permission(component_id, "resource", details)
+        .revoke_permission(component_id, permission_type, details)
         .await;
 
     match result {
         Ok(()) => {
             let status_text = serde_json::to_string(&json!({
-                "status": "permission granted successfully",
+                "status": "permission revoked",
                 "component_id": component_id,
-                "permission_type": "memory",
+                "permission_type": permission_display_name,
                 "details": details
             }))?;
 
@@ -756,9 +695,13 @@ pub async fn handle_grant_memory_permission(
             })
         }
         Err(e) => {
-            error!("Failed to grant memory permission: {}", e);
+            error!(
+                "Failed to revoke {} permission: {}",
+                permission_display_name, e
+            );
             Err(anyhow::anyhow!(
-                "Failed to grant memory permission to component {}: {}",
+                "Failed to revoke {} permission from component {}: {}",
+                permission_display_name,
                 component_id,
                 e
             ))
@@ -834,57 +777,7 @@ pub async fn handle_revoke_network_permission(
     req: &CallToolRequestParam,
     lifecycle_manager: &LifecycleManager,
 ) -> Result<CallToolResult> {
-    let args = extract_args_from_request(req)?;
-
-    let component_id = args
-        .get("component_id")
-        .and_then(|v| v.as_str())
-        .ok_or_else(|| anyhow::anyhow!("Missing required argument: 'component_id'"))?;
-
-    let details = args
-        .get("details")
-        .ok_or_else(|| anyhow::anyhow!("Missing required argument: 'details'"))?;
-
-    info!(
-        "Revoking network permission from component {}",
-        component_id
-    );
-
-    lifecycle_manager
-        .ensure_component_loaded(component_id)
-        .await
-        .map_err(|e| anyhow::anyhow!("Component not found: {} ({})", component_id, e))?;
-
-    let result = lifecycle_manager
-        .revoke_permission(component_id, "network", details)
-        .await;
-
-    match result {
-        Ok(()) => {
-            let status_text = serde_json::to_string(&json!({
-                "status": "permission revoked",
-                "component_id": component_id,
-                "permission_type": "network",
-                "details": details
-            }))?;
-
-            let contents = vec![Content::text(status_text)];
-
-            Ok(CallToolResult {
-                content: Some(contents),
-                structured_content: None,
-                is_error: None,
-            })
-        }
-        Err(e) => {
-            error!("Failed to revoke network permission: {}", e);
-            Err(anyhow::anyhow!(
-                "Failed to revoke network permission from component {}: {}",
-                component_id,
-                e
-            ))
-        }
-    }
+    handle_revoke_permission_generic(req, lifecycle_manager, "network", "network").await
 }
 
 #[instrument(skip(lifecycle_manager))]
@@ -892,57 +785,13 @@ pub async fn handle_revoke_environment_variable_permission(
     req: &CallToolRequestParam,
     lifecycle_manager: &LifecycleManager,
 ) -> Result<CallToolResult> {
-    let args = extract_args_from_request(req)?;
-
-    let component_id = args
-        .get("component_id")
-        .and_then(|v| v.as_str())
-        .ok_or_else(|| anyhow::anyhow!("Missing required argument: 'component_id'"))?;
-
-    let details = args
-        .get("details")
-        .ok_or_else(|| anyhow::anyhow!("Missing required argument: 'details'"))?;
-
-    info!(
-        "Revoking environment variable permission from component {}",
-        component_id
-    );
-
-    lifecycle_manager
-        .ensure_component_loaded(component_id)
-        .await
-        .map_err(|e| anyhow::anyhow!("Component not found: {} ({})", component_id, e))?;
-
-    let result = lifecycle_manager
-        .revoke_permission(component_id, "environment", details)
-        .await;
-
-    match result {
-        Ok(()) => {
-            let status_text = serde_json::to_string(&json!({
-                "status": "permission revoked",
-                "component_id": component_id,
-                "permission_type": "environment",
-                "details": details
-            }))?;
-
-            let contents = vec![Content::text(status_text)];
-
-            Ok(CallToolResult {
-                content: Some(contents),
-                structured_content: None,
-                is_error: None,
-            })
-        }
-        Err(e) => {
-            error!("Failed to revoke environment variable permission: {}", e);
-            Err(anyhow::anyhow!(
-                "Failed to revoke environment variable permission from component {}: {}",
-                component_id,
-                e
-            ))
-        }
-    }
+    handle_revoke_permission_generic(
+        req,
+        lifecycle_manager,
+        "environment",
+        "environment variable",
+    )
+    .await
 }
 
 #[instrument(skip(lifecycle_manager))]
