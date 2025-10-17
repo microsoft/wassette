@@ -19,7 +19,9 @@
 # Reference
 
 - [CLI](./reference/cli.md)
+- [Built-in Tools](./reference/built-in-tools.md)
 - [Permissions](./reference/permissions.md)
+- [Community Components](./reference/community-components.md)
 
 # Design & Architecture
 

@@ -23,6 +23,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Changed
 
+- Streamlined README.md by removing detailed sections on "Built-in Tools", "Building WebAssembly Components", "Community Components", and "Documentation" in favor of linking to comprehensive documentation pages
+- Simplified README "Installation" section to show only quick start and link to full installation guide
+- Updated "Using Wassette" section in README to remove installation instructions and focus on component loading workflow
+- Created new documentation pages: `docs/reference/built-in-tools.md` for tool reference and `docs/reference/community-components.md` for community projects
 - Removed redundant "Docker Deployment" section from README.md; users are directed to the comprehensive Docker deployment guide via the installation methods list
 - Moved permissions documentation from "Using Wassette" section to "Reference" section, placing it after CLI reference for better organization and discoverability
 - Reorganized documentation structure by moving CLI reference to a new `reference` section in the mdBook for better organization
