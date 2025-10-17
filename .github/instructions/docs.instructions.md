@@ -10,7 +10,7 @@ When working on documentation changes that affect visual presentation or layout,
 
 **Keep documentation concise and code-focused:**
 - Prefer code examples over verbose explanations
-- Keep document files tight for readability
+- Keep document files focused and concise for readability
 - Use clear, simple language that's easy to understand
 - Show working examples first, explain details second
 - Remove unnecessary words - every sentence should add value
