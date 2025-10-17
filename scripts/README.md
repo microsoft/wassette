@@ -1,102 +1,61 @@
 # CHANGELOG Automation Scripts
 
-This directory contains scripts for automating CHANGELOG management during the release process.
+Scripts for automating CHANGELOG management during releases.
 
 ## Scripts
 
-### extract-changelog.sh
+### changelog_utils.py
 
-Extracts the changelog content for a specific version from `CHANGELOG.md`.
+Python utility for extracting and updating CHANGELOG.md content.
 
-**Usage:**
+**Extract changelog content:**
 ```bash
-./scripts/extract-changelog.sh <version>
+python3 scripts/changelog_utils.py extract <version> [changelog_path]
 ```
 
-**Example:**
+**Update changelog post-release:**
 ```bash
-./scripts/extract-changelog.sh v0.4.0
+python3 scripts/changelog_utils.py update <new_version> <prev_version> [changelog_path]
 ```
 
-**Output:** Prints the changelog content for the specified version (without the version header).
-
-**Use in CI:** This script is used by the release workflow to populate GitHub release notes with the appropriate changelog content.
-
-### update-changelog-post-release.sh
-
-Updates `CHANGELOG.md` after a release by:
-1. Converting the `[Unreleased]` section to the new version with release date
-2. Adding a new empty `[Unreleased]` section at the top
-3. Updating version comparison links
-
-**Usage:**
+**Examples:**
 ```bash
-./scripts/update-changelog-post-release.sh <version> <previous-version>
+# Extract v0.4.0 content
+python3 scripts/changelog_utils.py extract v0.4.0
+
+# Update CHANGELOG after v0.4.0 release
+python3 scripts/changelog_utils.py update v0.4.0 v0.3.0
+
+# Use custom changelog path
+python3 scripts/changelog_utils.py extract v0.4.0 docs/CHANGELOG.md
 ```
 
-**Example:**
+### test_changelog_utils.py
+
+Unit tests for changelog_utils module.
+
+**Run tests:**
 ```bash
-./scripts/update-changelog-post-release.sh v0.4.0 v0.3.0
+cd scripts
+python3 test_changelog_utils.py
 ```
-
-**Use in CI:** This script is used by the release workflow after creating a GitHub release to automatically update the CHANGELOG.
-
-### test-changelog-scripts.sh
-
-Integration test for the CHANGELOG automation scripts. Runs a complete test cycle:
-1. Extract changelog for an existing version
-2. Update changelog to create a new version
-3. Verify the updated CHANGELOG format
-4. Extract changelog for the new version
-
-**Usage:**
-```bash
-./scripts/test-changelog-scripts.sh
-```
-
-## Environment Variables
-
-Both extraction and update scripts support the `CHANGELOG_FILE` environment variable to specify a custom CHANGELOG path:
-
-```bash
-CHANGELOG_FILE=./docs/CHANGELOG.md ./scripts/extract-changelog.sh v0.4.0
-```
-
-If not specified, defaults to `CHANGELOG.md` in the current directory.
 
 ## Release Workflow Integration
 
-The release workflow (`.github/workflows/release.yml`) integrates these scripts:
+The `.github/workflows/release.yml` workflow uses these scripts to:
 
-1. **Release Job:**
-   - Extracts changelog content using `extract-changelog.sh`
-   - Uses the content as GitHub release notes
-   - Creates release with binaries and formatted changelog
-
-2. **Update CHANGELOG Job:**
-   - Runs after successful release
-   - Determines the previous version from git tags
-   - Updates CHANGELOG using `update-changelog-post-release.sh`
-   - Commits and pushes changes back to main branch
+1. **During Release:** Extract CHANGELOG content for GitHub release notes
+2. **Post-Release:** Update CHANGELOG.md automatically (converts `[Unreleased]` to versioned section, adds new `[Unreleased]`, updates comparison links)
 
 ## Manual Testing
 
-To test the scripts locally before a release:
-
 ```bash
 # Test extraction
-./scripts/extract-changelog.sh v0.3.0
+python3 scripts/changelog_utils.py extract v0.3.0
 
-# Test update (creates a backup first!)
+# Test update (backup first!)
 cp CHANGELOG.md CHANGELOG.md.backup
-./scripts/update-changelog-post-release.sh v0.4.0 v0.3.0
-# Review changes
+python3 scripts/changelog_utils.py update v0.4.0 v0.3.0
 git diff CHANGELOG.md
-# Restore if needed
-mv CHANGELOG.md.backup CHANGELOG.md
-```
-
-Or use the test script:
-```bash
-./scripts/test-changelog-scripts.sh
+mv CHANGELOG.md.backup CHANGELOG.md  # Restore if needed
 ```
