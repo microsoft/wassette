@@ -64,14 +64,9 @@ The `--inplace` flag modifies the WASM file directly. Without it, `wit-docs-inje
 
 ### How Documentation Translates to Tool Descriptions
 
-When Wassette loads a component with embedded documentation, it:
+When Wassette loads a component with embedded documentation, it extracts the `package-docs` custom section from the WASM binary and parses the documentation to associate it with exported functions. The system then generates MCP tool schemas using the documentation as tool descriptions and exposes these tools to AI agents through the Model Context Protocol.
 
-1. **Extracts the `package-docs` custom section** from the WASM binary
-2. **Parses the documentation** and associates it with exported functions
-3. **Generates MCP tool schemas** with the documentation as tool descriptions
-4. **Exposes these tools** to AI agents through the Model Context Protocol
-
-This means your WIT documentation comments (`///`) become the descriptions that AI agents see when discovering and selecting tools to use.
+Your WIT documentation comments (`///`) become the descriptions that AI agents see when discovering and selecting tools to use.
 
 ## Basic Syntax
 
