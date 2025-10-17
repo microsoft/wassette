@@ -4,6 +4,23 @@ This example demonstrates how to get the weather for a given location using a Wa
 
 For more information on installing Wassette, please see the [installation instructions](https://github.com/microsoft/wassette?tab=readme-ov-file#installation).
 
+## Building
+
+This example uses `jco` to build the component with an additional documentation injection step:
+
+```bash
+# Build the component
+npm install
+npm run build:component
+
+# From repository root: inject WIT documentation into the component
+just inject-docs examples/get-weather-js/weather.wasm examples/get-weather-js/wit
+```
+
+The documentation injection embeds the WIT interface documentation into the WASM binary, making it available to AI agents when they discover this tool. See [`wit/mcp.wit`](wit/mcp.wit) for the documented interface.
+
+For more information about documenting components, see the [Documenting WIT Interfaces](../../docs/cookbook/documenting-wit.md) guide.
+
 ## Usage
 
 To use this component, you will need an API key from [OpenWeather](https://openweathermap.org/api). Export the API key as an environment variable:
