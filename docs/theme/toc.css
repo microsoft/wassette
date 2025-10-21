@@ -13,7 +13,7 @@
     overflow-x: hidden;
     padding: 1rem;
     background: var(--sidebar-bg);
-    border: 1px solid var(--sidebar-non-existant);
+    border: 1px solid var(--sidebar-non-existent);
     border-radius: 4px;
     font-size: 0.85em;
     z-index: 90;
@@ -23,7 +23,7 @@
     font-weight: 600;
     margin-bottom: 0.75rem;
     padding-bottom: 0.5rem;
-    border-bottom: 1px solid var(--sidebar-non-existant);
+    border-bottom: 1px solid var(--sidebar-non-existent);
     color: var(--sidebar-fg);
     font-size: 0.95em;
 }
@@ -51,7 +51,7 @@
 
 .toc-link:hover {
     color: var(--sidebar-active);
-    background: var(--sidebar-non-existant);
+    background: var(--sidebar-non-existent);
 }
 
 .toc-link.active {
@@ -108,5 +108,5 @@
 .navy .toc-container,
 .ayu .toc-container {
     background: var(--sidebar-bg);
-    border-color: var(--sidebar-non-existant);
+    border-color: var(--sidebar-non-existent);
 }
