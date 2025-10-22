@@ -262,6 +262,7 @@ See these complete working examples in the repository:
 - [time-server-js](https://github.com/microsoft/wassette/tree/main/examples/time-server-js) - Simple time server
 - [get-weather-js](https://github.com/microsoft/wassette/tree/main/examples/get-weather-js) - Weather API client
 - [get-open-meteo-weather-js](https://github.com/microsoft/wassette/tree/main/examples/get-open-meteo-weather-js) - Open-Meteo weather service
+- [memory-js](https://github.com/microsoft/wassette/tree/main/examples/memory-js) - Knowledge graph memory server
 
 ## Next Steps
 
