@@ -263,6 +263,8 @@ wassette permission grant environment-variable my-component HOME
 wassette permission grant environment-variable my-component PATH
 ```
 
+> **Note**: See the [Environment Variables reference](./environment-variables.md) for detailed instructions on how to set and pass environment variables to Wassette.
+
 **Memory permissions:**
 ```bash
 # Grant memory limit to a component (using Kubernetes format)

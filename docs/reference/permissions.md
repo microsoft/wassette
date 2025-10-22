@@ -133,9 +133,11 @@ Allow the weather-tool to access the API_KEY environment variable
 
 The agent understands permission requests and selects the right tool, so you don't need to worry about command syntax.
 
-> **Note**: After granting environment variable permissions, the server must be able to see those environment variables. You can provide them by:
+> **Note**: After granting environment variable permissions, the server must be able to see those environment variables. See the [Environment Variables reference](./environment-variables.md) for detailed instructions on passing environment variables to Wassette, including:
+> - Shell exports (recommended for development)
+> - Configuration files (recommended for production)
+> - Docker environment flags
 > - Using `wassette secret set <component-id> <key> <value>` to inject secrets
-> - Running the server with the necessary environment variables already set
 
 ### Using CLI Commands
 
