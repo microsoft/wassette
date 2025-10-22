@@ -21,6 +21,7 @@
   - [Python](./cookbook/python.md)
   - [Rust](./cookbook/rust.md)
   - [Go](./cookbook/go.md)
+  - [Publishing to OCI Registries](./cookbook/publishing-to-oci-registries.md)
 
 # Reference
 
