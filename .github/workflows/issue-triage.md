@@ -12,13 +12,15 @@ safe-outputs:
   add-labels:
     max: 5
 
+roles: all
+
 tools:
   bash: [ ":*" ]
 
 timeout_minutes: 10
 ---
 
-# Agentic Triage
+# Issue Triage
 
 <!-- Note - this file can be customized to your needs. Replace this section directly, or add further instructions here. After editing run 'gh aw compile' -->
 
@@ -57,9 +59,3 @@ You're a triage assistant for GitHub issues. Your task is to analyze issue #${{ 
    - Only select labels from the provided list above
    - It's okay to not add any labels if none are clearly applicable
 
-@include agentics/shared/include-link.md
-
-@include agentics/shared/xpia.md
-
-<!-- You can customize prompting and tools in .github/workflows/agentics/issue-triage.config -->
-@include? agentics/issue-triage.config
