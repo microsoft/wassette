@@ -94,6 +94,8 @@ permissions:
 
 This policy permits read/write access to a `workspace` directory, read-only access to a specific config file, and network egress only to `api.openai.com`. All other filesystem and network access is denied and will be blocked by the sandbox.
 
+For complete policy file documentation and usage patterns, see the [Managing Permissions](./reference/permissions.md) guide.
+
 ### Can I grant permissions at runtime?
 
 Yes, Wassette provides built-in tools for dynamic permission management:
@@ -101,7 +103,9 @@ Yes, Wassette provides built-in tools for dynamic permission management:
 - `grant-network-permission`: Grant network access  
 - `grant-environment-variable-permission`: Grant environment variable access
 
-You can also revoke previously granted permissions with the corresponding `revoke-*` tools. 
+You can also revoke previously granted permissions with the corresponding `revoke-*` tools.
+
+For detailed documentation on all permission management tools and usage examples, see the [Built-in Tools Reference](./reference/built-in-tools.md) and [Managing Permissions](./reference/permissions.md) guide. 
 
 ### What happens if a component tries to access unauthorized resources?
 
@@ -159,18 +163,7 @@ Please load the component from ./path/to/component.wasm
 
 ### What built-in tools does Wassette provide?
 
-Wassette includes several built-in management tools:
-- `load-component`: Load WebAssembly components
-- `unload-component`: Unload components
-- `list-components`: List loaded components
-- `get-policy`: Get policy information
-- `grant-storage-permission`: Grant storage access
-- `grant-network-permission`: Grant network access
-- `grant-environment-variable-permission`: Grant environment variable access
-- `revoke-storage-permission`: Revoke storage access permissions
-- `revoke-network-permission`: Revoke network access permissions
-- `revoke-environment-variable-permission`: Revoke environment variable access permissions
-- `reset-permission`: Reset all permissions for a component
+Wassette includes several built-in tools for managing components and their permissions. For a complete list with detailed descriptions and usage examples, see the [Built-in Tools Reference](./reference/built-in-tools.md)
 
 ## What’s a practical use case?
 One example is the `fetch` tool. With Wassette, you can write a policy that restricts the tool to only contact a specific API endpoint, such as `weather.com`. This means that even if the tool is compromised, it cannot exfiltrate data from your internal APIs or file systems. It is strictly limited to the network host you approved.

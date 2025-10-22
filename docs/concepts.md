@@ -192,6 +192,8 @@ Permissions can be managed in several ways:
 3. **CLI Commands**: Direct management via `wassette permission grant` commands
 4. **AI Agent Requests**: Natural language requests to your agent (e.g., "Grant this component read access to the workspace")
 
+For detailed information on working with permissions, see the [Managing Permissions](./reference/permissions.md) guide.
+
 ### Security Boundaries
 
 Wassette provides multiple layers of security:
