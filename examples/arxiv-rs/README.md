@@ -79,42 +79,43 @@ read-paper(id: string) -> result<string, string>
 read-paper("2301.00001")  // Returns formatted metadata and abstract
 ```
 
-## Testing with Wasmtime
+## Testing
 
-Test directly with wasmtime CLI:
+This component uses the WebAssembly Component Model and exports functions according to the WIT specification. Since this is a WebAssembly Component (not a core module), it cannot be tested directly with `wasmtime run --invoke` as that command only works with core WebAssembly modules.
 
-```bash
-# Search for papers
-wasmtime run -S http=y -S inherit-network=y \
-  --invoke 'search-papers("quantum computing", 5, "", "")' \
-  target/wasm32-wasip2/release/arxiv_rs.wasm
+To test this component, use one of the following methods:
 
-# Read paper metadata
-wasmtime run -S http=y -S inherit-network=y \
-  --invoke 'read-paper("2301.00001")' \
-  target/wasm32-wasip2/release/arxiv_rs.wasm
-```
+### Testing with Wassette CLI
 
-## Testing with Wassette CLI
-
-Load and test the component:
+The recommended way to test the component is through Wassette:
 
 ```bash
 # Build the component
 just build release
 
-# Load the component
+# Load the component with Wassette
 wassette component load file://$(pwd)/target/wasm32-wasip2/release/arxiv_rs.wasm
 
 # Grant network permissions
 wassette permission grant network arxiv_rs "http://export.arxiv.org/"
 wassette permission grant network arxiv_rs "http://arxiv.org/"
 
-# Check component is loaded
-wassette component list
+# The component functions are now available as MCP tools
 ```
 
-## Testing via MCP Server
+### Component Validation
+
+You can verify the component structure and exports using `wasm-tools`:
+
+```bash
+# Validate the component
+wasm-tools validate target/wasm32-wasip2/release/arxiv_rs.wasm
+
+# View component interface
+wasm-tools component wit target/wasm32-wasip2/release/arxiv_rs.wasm
+```
+
+### Testing via MCP Server
 
 Start the MCP server and interact with it via the MCP Inspector:
 
