@@ -80,17 +80,17 @@ pub struct Serve {
 #[derive(Args, Debug, Clone, Serialize, Deserialize, Default)]
 #[group(required = false, multiple = false)]
 pub struct TransportFlags {
-    /// Enable SSE transport
+    /// Serving with SSE transport
     #[arg(long)]
     #[serde(skip)]
     pub sse: bool,
 
-    /// Enable stdio transport
+    /// Serving with stdio transport
     #[arg(long)]
     #[serde(skip)]
     pub stdio: bool,
 
-    /// Enable streamable HTTP transport  
+    /// Serving with streamable HTTP transport  
     #[arg(long)]
     #[serde(skip)]
     pub streamable_http: bool,
