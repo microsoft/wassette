@@ -16,6 +16,7 @@
 
 - [Building Wasm Components](./cookbook/README.md)
   - [Documenting WIT Interfaces](./cookbook/documenting-wit.md)
+  - [Migrating from JavaScript MCP Servers](./cookbook/migrating-from-mcp-server.md)
   - [JavaScript/TypeScript](./cookbook/javascript.md)
   - [Python](./cookbook/python.md)
   - [Rust](./cookbook/rust.md)
