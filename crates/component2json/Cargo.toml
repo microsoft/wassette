@@ -16,7 +16,3 @@ tokio = { workspace = true, features = ["full"] }
 
 [dev-dependencies]
 wat = "1.240"
-
-[[bin]]
-name = "component2json"
-path = "cmd/main.rs"
