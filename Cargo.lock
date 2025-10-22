@@ -4994,6 +4994,7 @@ dependencies = [
  "built",
  "bytes",
  "clap",
+ "component2json",
  "etcetera",
  "figment",
  "futures-util",
@@ -5024,6 +5025,7 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "tracing-test",
+ "wasmtime",
  "wassette",
 ]
 
