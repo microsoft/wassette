@@ -1,0 +1,22 @@
+{
+  "name": "memory",
+  "version": "1.0.0",
+  "description": "Knowledge graph memory server as a WebAssembly component",
+  "main": "memory.js",
+  "type": "module",
+  "scripts": {
+    "build": "jco componentize ./memory.js --wit ./wit -o ./memory.wasm"
+  },
+  "keywords": [
+    "mcp",
+    "memory",
+    "knowledge-graph",
+    "wasm",
+    "component"
+  ],
+  "license": "MIT",
+  "dependencies": {
+    "@bytecodealliance/componentize-js": "0.18.1",
+    "@bytecodealliance/jco": "^1.11.1"
+  }
+}

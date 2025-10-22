@@ -45,6 +45,7 @@ build-examples mode="debug":
     (cd examples/filesystem-rs && just build {{ mode }})
     (cd examples/get-weather-js && just build)
     (cd examples/time-server-js && just build)
+    (cd examples/memory-js && just build)
     (cd examples/eval-py && just build)
     (cd examples/gomodule-go && just build)
     (cd examples/brave-search-rs && just build {{ mode }})
@@ -58,6 +59,7 @@ build-examples mode="debug":
     # Inject docs for JS examples
     just inject-docs examples/get-weather-js/weather.wasm examples/get-weather-js/wit
     just inject-docs examples/time-server-js/time.wasm examples/time-server-js/wit
+    just inject-docs examples/memory-js/memory.wasm examples/memory-js/wit
     just inject-docs examples/get-open-meteo-weather-js/weather.wasm examples/get-open-meteo-weather-js/wit
     # Inject docs for Python examples
     just inject-docs examples/eval-py/eval.wasm examples/eval-py/wit
@@ -68,6 +70,7 @@ build-examples mode="debug":
     cp examples/filesystem-rs/target/wasm32-wasip2/{{ mode }}/filesystem.wasm bin/filesystem.wasm
     cp examples/get-weather-js/weather.wasm bin/get-weather-js.wasm
     cp examples/time-server-js/time.wasm bin/time-server-js.wasm
+    cp examples/memory-js/memory.wasm bin/memory-js.wasm
     cp examples/eval-py/eval.wasm bin/eval-py.wasm
     cp examples/gomodule-go/gomodule.wasm bin/gomodule.wasm
     cp examples/brave-search-rs/target/wasm32-wasip2/{{ mode }}/brave_search_rs.wasm bin/brave-search-rs.wasm
@@ -96,6 +99,9 @@ run-get-weather RUST_LOG='info':
 
 run-fetch-rs RUST_LOG='info':
     RUST_LOG={{RUST_LOG}} cargo run --bin wassette serve --sse --plugin-dir ./examples/fetch-rs
+
+run-memory RUST_LOG='info':
+    RUST_LOG={{RUST_LOG}} cargo run --bin wassette serve --sse --plugin-dir ./examples/memory-js
 
 # Documentation commands
 docs-build:
