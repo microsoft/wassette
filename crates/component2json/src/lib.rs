@@ -2121,9 +2121,7 @@ mod tests {
     #[test]
     fn test_extract_package_docs_with_docs() {
         // Test component with package-docs embedded
-        let wasm_bytes =
-            std::fs::read("../../examples/fetch-rs/target/wasm32-wasip2/release/fetch_rs.wasm")
-                .unwrap();
+        let wasm_bytes = std::fs::read("testdata/fetch-rs.wasm").unwrap();
         let docs = extract_package_docs(&wasm_bytes);
 
         assert!(docs.is_some());
@@ -2210,9 +2208,7 @@ mod tests {
         config.wasm_component_model(true);
         let engine = Engine::new(&config).unwrap();
 
-        let wasm_bytes =
-            std::fs::read("../../examples/fetch-rs/target/wasm32-wasip2/release/fetch_rs.wasm")
-                .unwrap();
+        let wasm_bytes = std::fs::read("testdata/fetch-rs.wasm").unwrap();
         let component = Component::new(&engine, &wasm_bytes).unwrap();
         let package_docs = extract_package_docs(&wasm_bytes).unwrap();
 
@@ -2358,153 +2354,7 @@ mod tests {
         );
     }
 
-    #[test]
-    #[ignore = "Large WASM file (34MB) - run explicitly with --ignored"]
-    fn test_eval_py_component() {
-        let mut config = wasmtime::Config::new();
-        config.wasm_component_model(true);
-        let engine = Engine::new(&config).unwrap();
-        let component = Component::from_file(&engine, "testdata/eval-py.wasm").unwrap();
-        let schema = component_exports_to_json_schema(&component, &engine, true);
 
-        let tools = schema.get("tools").unwrap().as_array().unwrap();
-        assert!(
-            tools.len() >= 2,
-            "eval-py should export at least 2 functions (eval and exec)"
-        );
-
-        // Find eval and exec tools
-        let eval_tool = tools
-            .iter()
-            .find(|t| t["name"] == "eval")
-            .expect("eval function should exist");
-        let exec_tool = tools
-            .iter()
-            .find(|t| t["name"] == "exec")
-            .expect("exec function should exist");
-
-        // Verify eval input schema
-        let eval_input = eval_tool.get("inputSchema").unwrap();
-        let eval_props = eval_input.get("properties").unwrap().as_object().unwrap();
-        assert!(
-            eval_props.contains_key("expression"),
-            "eval should have expression parameter"
-        );
-
-        // Verify exec input schema
-        let exec_input = exec_tool.get("inputSchema").unwrap();
-        let exec_props = exec_input.get("properties").unwrap().as_object().unwrap();
-        assert!(
-            exec_props.contains_key("statements"),
-            "exec should have statements parameter"
-        );
-    }
-
-    #[test]
-    #[ignore = "Large WASM file (11MB) - run explicitly with --ignored"]
-    fn test_time_server_js_component() {
-        let mut config = wasmtime::Config::new();
-        config.wasm_component_model(true);
-        let engine = Engine::new(&config).unwrap();
-        let component = Component::from_file(&engine, "testdata/time-server-js.wasm").unwrap();
-        let schema = component_exports_to_json_schema(&component, &engine, true);
-
-        let tools = schema.get("tools").unwrap().as_array().unwrap();
-        // Time server component should have at least one exported function
-        assert!(
-            !tools.is_empty(),
-            "time-server-js should export at least one function"
-        );
-
-        // Verify each tool has required fields
-        for tool in tools {
-            assert!(tool.get("name").is_some(), "tool should have a name");
-            assert!(
-                tool.get("inputSchema").is_some(),
-                "tool should have inputSchema"
-            );
-        }
-    }
-
-    #[test]
-    #[ignore = "Large WASM file (11MB) - run explicitly with --ignored"]
-    fn test_get_weather_js_component() {
-        let mut config = wasmtime::Config::new();
-        config.wasm_component_model(true);
-        let engine = Engine::new(&config).unwrap();
-        let component = Component::from_file(&engine, "testdata/get-weather-js.wasm").unwrap();
-        let schema = component_exports_to_json_schema(&component, &engine, true);
-
-        let tools = schema.get("tools").unwrap().as_array().unwrap();
-        assert!(
-            !tools.is_empty(),
-            "get-weather-js should export at least one function"
-        );
-
-        // Verify the weather function exists and has proper structure
-        let weather_tool = tools
-            .iter()
-            .find(|t| t["name"].as_str().unwrap().contains("weather"))
-            .expect("weather function should exist");
-
-        assert!(
-            weather_tool.get("inputSchema").is_some(),
-            "weather function should have input schema"
-        );
-    }
-
-    #[test]
-    #[ignore = "Large WASM file (11MB) - run explicitly with --ignored"]
-    fn test_get_open_meteo_weather_js_component() {
-        let mut config = wasmtime::Config::new();
-        config.wasm_component_model(true);
-        let engine = Engine::new(&config).unwrap();
-        let component =
-            Component::from_file(&engine, "testdata/get-open-meteo-weather-js.wasm").unwrap();
-        let schema = component_exports_to_json_schema(&component, &engine, true);
-
-        let tools = schema.get("tools").unwrap().as_array().unwrap();
-        assert!(
-            !tools.is_empty(),
-            "get-open-meteo-weather-js should export at least one function"
-        );
-
-        // Verify all tools have proper JSON schema structure
-        for tool in tools {
-            assert!(tool.get("name").is_some());
-            assert!(tool.get("inputSchema").is_some());
-            let input_schema = tool.get("inputSchema").unwrap();
-            assert_eq!(input_schema["type"], "object");
-            assert!(input_schema.get("properties").is_some());
-        }
-    }
-
-    #[test]
-    #[ignore = "Large WASM file (2.9MB) - run explicitly with --ignored"]
-    fn test_gomodule_component() {
-        let mut config = wasmtime::Config::new();
-        config.wasm_component_model(true);
-        let engine = Engine::new(&config).unwrap();
-        let component = Component::from_file(&engine, "testdata/gomodule.wasm").unwrap();
-        let schema = component_exports_to_json_schema(&component, &engine, true);
-
-        let tools = schema.get("tools").unwrap().as_array().unwrap();
-        assert!(
-            !tools.is_empty(),
-            "gomodule should export at least one function"
-        );
-
-        // Verify JSON schema validity
-        for tool in tools {
-            assert!(tool.get("name").is_some());
-            assert!(tool.get("inputSchema").is_some());
-            assert!(tool.get("description").is_some());
-
-            // Verify input schema is valid
-            let input_schema = tool.get("inputSchema").unwrap();
-            assert_eq!(input_schema["type"], "object");
-        }
-    }
 
     #[test]
     fn test_context7_rs_component() {

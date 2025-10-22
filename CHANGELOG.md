@@ -6,7 +6,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
-- Comprehensive test coverage for component2json crate with all example components added to testdata directory, including tests for fetch-rs, brave-search-rs, context7-rs, eval-py, time-server-js, get-weather-js, get-open-meteo-weather-js, gomodule, and filesystem components ([#XXX](https://github.com/microsoft/wassette/pull/XXX))
+- Comprehensive test coverage for component2json crate with example components added to testdata directory (fetch-rs, brave-search-rs, context7-rs under 1MB) to validate JSON schema generation across different language ecosystems ([#XXX](https://github.com/microsoft/wassette/pull/XXX))
 - Automated CHANGELOG synchronization with release pipeline: Release workflow extracts changelog content for release notes and automatically updates CHANGELOG.md post-release. Implemented using Python scripts with unit tests. The update-changelog job now checks that the release job succeeded before running.
 - Migration guide documentation for converting JavaScript-based MCP servers to Wassette WebAssembly components in the cookbook section, with step-by-step instructions, code examples, and a complete weather service migration walkthrough
 - Configuration Files reference documentation covering Wassette server configuration files (config.toml) and build/toolchain configuration files (Cargo.toml, rust-toolchain.toml, rustfmt.toml, etc.) with detailed schemas, examples, and best practices
