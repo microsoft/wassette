@@ -75,6 +75,11 @@ pub struct Serve {
     #[arg(long)]
     #[serde(default)]
     pub disable_builtin_tools: bool,
+
+    /// Bind address for HTTP-based transports (SSE and StreamableHttp). Defaults to 127.0.0.1:9001
+    #[arg(long)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub bind_address: Option<String>,
 }
 
 #[derive(Args, Debug, Clone, Serialize, Deserialize, Default)]

@@ -35,6 +35,10 @@ fn default_secrets_dir() -> PathBuf {
     })
 }
 
+fn default_bind_address() -> String {
+    "127.0.0.1:9001".to_string()
+}
+
 /// Configuration for the Wasette MCP server
 #[derive(Debug, Deserialize, Serialize)]
 pub struct Config {
@@ -49,6 +53,10 @@ pub struct Config {
     /// Environment variables to be made available to components
     #[serde(default)]
     pub environment_vars: HashMap<String, String>,
+
+    /// Bind address for HTTP-based transports (SSE and StreamableHttp)
+    #[serde(default = "default_bind_address")]
+    pub bind_address: String,
 }
 
 impl Config {
@@ -135,6 +143,7 @@ mod tests {
             env_vars: vec![],
             env_file: None,
             disable_builtin_tools: false,
+            bind_address: None,
         }
     }
 
@@ -145,6 +154,7 @@ mod tests {
             env_vars: vec![],
             env_file: None,
             disable_builtin_tools: false,
+            bind_address: None,
         }
     }
 
@@ -303,5 +313,109 @@ policy_file = "custom_policy.yaml"
         let config = Config::new(&empty_test_cli_config()).expect("Failed to create config");
 
         assert_eq!(config.plugin_dir, PathBuf::from("/custom/plugin/dir"));
+    }
+
+    #[test]
+    fn test_bind_address_default() {
+        temp_env::with_vars_unset(vec!["WASETTE_BIND_ADDRESS"], || {
+            let temp_dir = TempDir::new().unwrap();
+            let non_existent_config = temp_dir.path().join("non_existent_config.toml");
+
+            let config = Config::new_from_path(&empty_test_cli_config(), &non_existent_config)
+                .expect("Failed to create config");
+
+            // Should use default bind address
+            assert_eq!(config.bind_address, "127.0.0.1:9001");
+        });
+    }
+
+    #[test]
+    fn test_bind_address_from_config_file() {
+        temp_env::with_vars_unset(vec!["WASETTE_BIND_ADDRESS"], || {
+            let temp_dir = TempDir::new().unwrap();
+            let config_file = temp_dir.path().join("config.toml");
+
+            let toml_content = r#"
+bind_address = "0.0.0.0:8080"
+"#;
+            fs::write(&config_file, toml_content).unwrap();
+
+            let config = Config::new_from_path(&empty_test_cli_config(), &config_file)
+                .expect("Failed to create config");
+
+            assert_eq!(config.bind_address, "0.0.0.0:8080");
+        });
+    }
+
+    #[test]
+    fn test_bind_address_cli_override() {
+        let temp_dir = TempDir::new().unwrap();
+        let config_file = temp_dir.path().join("config.toml");
+
+        // Config file sets one bind address
+        let toml_content = r#"
+bind_address = "0.0.0.0:8080"
+"#;
+        fs::write(&config_file, toml_content).unwrap();
+
+        // CLI provides a different bind address
+        let serve_config = crate::Serve {
+            plugin_dir: None,
+            transport: Default::default(),
+            env_vars: vec![],
+            env_file: None,
+            disable_builtin_tools: false,
+            bind_address: Some("192.168.1.100:9090".to_string()),
+        };
+
+        let config =
+            Config::new_from_path(&serve_config, &config_file).expect("Failed to create config");
+
+        // CLI value should take precedence
+        assert_eq!(config.bind_address, "192.168.1.100:9090");
+    }
+
+    #[test]
+    fn test_bind_address_env_var() {
+        temp_env::with_var("WASETTE_BIND_ADDRESS", Some("10.0.0.1:3000"), || {
+            let temp_dir = TempDir::new().unwrap();
+            let non_existent_config = temp_dir.path().join("non_existent_config.toml");
+
+            let config = Config::new_from_path(&empty_test_cli_config(), &non_existent_config)
+                .expect("Failed to create config");
+
+            // Environment variable should be used
+            assert_eq!(config.bind_address, "10.0.0.1:3000");
+        });
+    }
+
+    #[test]
+    fn test_bind_address_precedence() {
+        temp_env::with_var("WASETTE_BIND_ADDRESS", Some("10.0.0.1:3000"), || {
+            let temp_dir = TempDir::new().unwrap();
+            let config_file = temp_dir.path().join("config.toml");
+
+            // Config file sets bind address
+            let toml_content = r#"
+bind_address = "0.0.0.0:8080"
+"#;
+            fs::write(&config_file, toml_content).unwrap();
+
+            // CLI provides bind address
+            let serve_config = crate::Serve {
+                plugin_dir: None,
+                transport: Default::default(),
+                env_vars: vec![],
+                env_file: None,
+                disable_builtin_tools: false,
+                bind_address: Some("192.168.1.100:9090".to_string()),
+            };
+
+            let config = Config::new_from_path(&serve_config, &config_file)
+                .expect("Failed to create config");
+
+            // CLI value should take highest precedence
+            assert_eq!(config.bind_address, "192.168.1.100:9090");
+        });
     }
 }
