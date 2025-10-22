@@ -2299,4 +2299,308 @@ mod tests {
         // Should fallback to auto-generated since no docs found
         assert!(description.starts_with("Auto-generated schema for function"));
     }
+
+    // Tests for example components in testdata directory
+
+    #[test]
+    fn test_fetch_rs_component() {
+        let mut config = wasmtime::Config::new();
+        config.wasm_component_model(true);
+        let engine = Engine::new(&config).unwrap();
+        let component = Component::from_file(&engine, "testdata/fetch-rs.wasm").unwrap();
+        let schema = component_exports_to_json_schema(&component, &engine, true);
+
+        let tools = schema.get("tools").unwrap().as_array().unwrap();
+        assert_eq!(tools.len(), 1, "fetch-rs should export 1 function");
+
+        let fetch_tool = &tools[0];
+        assert_eq!(fetch_tool["name"], "fetch");
+
+        // Verify input schema has url parameter
+        let input_schema = fetch_tool.get("inputSchema").unwrap();
+        let properties = input_schema.get("properties").unwrap().as_object().unwrap();
+        assert!(properties.contains_key("url"), "fetch should have url parameter");
+        assert_eq!(properties["url"]["type"], "string");
+
+        // Verify output schema is a result type
+        let output_schema = fetch_tool.get("outputSchema").unwrap();
+        let result_schema_ref = result_schema(output_schema);
+        assert!(
+            result_schema_ref.get("oneOf").is_some(),
+            "fetch should return a result type"
+        );
+    }
+
+    #[test]
+    fn test_brave_search_rs_component() {
+        let mut config = wasmtime::Config::new();
+        config.wasm_component_model(true);
+        let engine = Engine::new(&config).unwrap();
+        let component = Component::from_file(&engine, "testdata/brave-search-rs.wasm").unwrap();
+        let schema = component_exports_to_json_schema(&component, &engine, true);
+
+        let tools = schema.get("tools").unwrap().as_array().unwrap();
+        assert_eq!(
+            tools.len(),
+            1,
+            "brave-search-rs should export 1 function"
+        );
+
+        let search_tool = &tools[0];
+        assert_eq!(search_tool["name"], "search");
+
+        // Verify input schema has query parameter
+        let input_schema = search_tool.get("inputSchema").unwrap();
+        let properties = input_schema.get("properties").unwrap().as_object().unwrap();
+        assert!(
+            properties.contains_key("query"),
+            "search should have query parameter"
+        );
+    }
+
+    #[test]
+    #[ignore = "Large WASM file (34MB) - run explicitly with --ignored"]
+    fn test_eval_py_component() {
+        let mut config = wasmtime::Config::new();
+        config.wasm_component_model(true);
+        let engine = Engine::new(&config).unwrap();
+        let component = Component::from_file(&engine, "testdata/eval-py.wasm").unwrap();
+        let schema = component_exports_to_json_schema(&component, &engine, true);
+
+        let tools = schema.get("tools").unwrap().as_array().unwrap();
+        assert!(
+            tools.len() >= 2,
+            "eval-py should export at least 2 functions (eval and exec)"
+        );
+
+        // Find eval and exec tools
+        let eval_tool = tools
+            .iter()
+            .find(|t| t["name"] == "eval")
+            .expect("eval function should exist");
+        let exec_tool = tools
+            .iter()
+            .find(|t| t["name"] == "exec")
+            .expect("exec function should exist");
+
+        // Verify eval input schema
+        let eval_input = eval_tool.get("inputSchema").unwrap();
+        let eval_props = eval_input.get("properties").unwrap().as_object().unwrap();
+        assert!(
+            eval_props.contains_key("expression"),
+            "eval should have expression parameter"
+        );
+
+        // Verify exec input schema
+        let exec_input = exec_tool.get("inputSchema").unwrap();
+        let exec_props = exec_input.get("properties").unwrap().as_object().unwrap();
+        assert!(
+            exec_props.contains_key("statements"),
+            "exec should have statements parameter"
+        );
+    }
+
+    #[test]
+    #[ignore = "Large WASM file (11MB) - run explicitly with --ignored"]
+    fn test_time_server_js_component() {
+        let mut config = wasmtime::Config::new();
+        config.wasm_component_model(true);
+        let engine = Engine::new(&config).unwrap();
+        let component = Component::from_file(&engine, "testdata/time-server-js.wasm").unwrap();
+        let schema = component_exports_to_json_schema(&component, &engine, true);
+
+        let tools = schema.get("tools").unwrap().as_array().unwrap();
+        // Time server component should have at least one exported function
+        assert!(
+            !tools.is_empty(),
+            "time-server-js should export at least one function"
+        );
+
+        // Verify each tool has required fields
+        for tool in tools {
+            assert!(tool.get("name").is_some(), "tool should have a name");
+            assert!(
+                tool.get("inputSchema").is_some(),
+                "tool should have inputSchema"
+            );
+        }
+    }
+
+    #[test]
+    #[ignore = "Large WASM file (11MB) - run explicitly with --ignored"]
+    fn test_get_weather_js_component() {
+        let mut config = wasmtime::Config::new();
+        config.wasm_component_model(true);
+        let engine = Engine::new(&config).unwrap();
+        let component = Component::from_file(&engine, "testdata/get-weather-js.wasm").unwrap();
+        let schema = component_exports_to_json_schema(&component, &engine, true);
+
+        let tools = schema.get("tools").unwrap().as_array().unwrap();
+        assert!(
+            !tools.is_empty(),
+            "get-weather-js should export at least one function"
+        );
+
+        // Verify the weather function exists and has proper structure
+        let weather_tool = tools
+            .iter()
+            .find(|t| t["name"].as_str().unwrap().contains("weather"))
+            .expect("weather function should exist");
+
+        assert!(
+            weather_tool.get("inputSchema").is_some(),
+            "weather function should have input schema"
+        );
+    }
+
+    #[test]
+    #[ignore = "Large WASM file (11MB) - run explicitly with --ignored"]
+    fn test_get_open_meteo_weather_js_component() {
+        let mut config = wasmtime::Config::new();
+        config.wasm_component_model(true);
+        let engine = Engine::new(&config).unwrap();
+        let component =
+            Component::from_file(&engine, "testdata/get-open-meteo-weather-js.wasm").unwrap();
+        let schema = component_exports_to_json_schema(&component, &engine, true);
+
+        let tools = schema.get("tools").unwrap().as_array().unwrap();
+        assert!(
+            !tools.is_empty(),
+            "get-open-meteo-weather-js should export at least one function"
+        );
+
+        // Verify all tools have proper JSON schema structure
+        for tool in tools {
+            assert!(tool.get("name").is_some());
+            assert!(tool.get("inputSchema").is_some());
+            let input_schema = tool.get("inputSchema").unwrap();
+            assert_eq!(input_schema["type"], "object");
+            assert!(input_schema.get("properties").is_some());
+        }
+    }
+
+    #[test]
+    #[ignore = "Large WASM file (2.9MB) - run explicitly with --ignored"]
+    fn test_gomodule_component() {
+        let mut config = wasmtime::Config::new();
+        config.wasm_component_model(true);
+        let engine = Engine::new(&config).unwrap();
+        let component = Component::from_file(&engine, "testdata/gomodule.wasm").unwrap();
+        let schema = component_exports_to_json_schema(&component, &engine, true);
+
+        let tools = schema.get("tools").unwrap().as_array().unwrap();
+        assert!(
+            !tools.is_empty(),
+            "gomodule should export at least one function"
+        );
+
+        // Verify JSON schema validity
+        for tool in tools {
+            assert!(tool.get("name").is_some());
+            assert!(tool.get("inputSchema").is_some());
+            assert!(tool.get("description").is_some());
+
+            // Verify input schema is valid
+            let input_schema = tool.get("inputSchema").unwrap();
+            assert_eq!(input_schema["type"], "object");
+        }
+    }
+
+    #[test]
+    fn test_context7_rs_component() {
+        let mut config = wasmtime::Config::new();
+        config.wasm_component_model(true);
+        let engine = Engine::new(&config).unwrap();
+        let component = Component::from_file(&engine, "testdata/context7-rs.wasm").unwrap();
+        let schema = component_exports_to_json_schema(&component, &engine, true);
+
+        let tools = schema.get("tools").unwrap().as_array().unwrap();
+        assert!(
+            !tools.is_empty(),
+            "context7-rs should export at least one function"
+        );
+
+        // Verify all tools have proper structure
+        for tool in tools {
+            assert!(tool.get("name").is_some());
+            assert!(tool.get("inputSchema").is_some());
+
+            // Verify name follows MCP compliance
+            let name = tool["name"].as_str().unwrap();
+            assert!(
+                validate_tool_name(name).is_ok(),
+                "tool name '{}' should be MCP compliant",
+                name
+            );
+        }
+    }
+
+    #[test]
+    fn test_all_testdata_components_schema_validity() {
+        // This test ensures all testdata components produce valid JSON schemas
+        // Note: Large files like eval-py.wasm (34MB) and JS components (11MB each) are tested
+        // individually in separate tests to avoid timeout issues
+        let test_files = [
+            "testdata/fetch-rs.wasm",
+            "testdata/brave-search-rs.wasm",
+            "testdata/context7-rs.wasm",
+            "testdata/filesystem.wasm",
+        ];
+
+        let mut config = wasmtime::Config::new();
+        config.wasm_component_model(true);
+        config.async_support(true);
+        let engine = Engine::new(&config).unwrap();
+
+        for file_path in &test_files {
+            let component = Component::from_file(&engine, file_path)
+                .unwrap_or_else(|e| panic!("Failed to load {}: {}", file_path, e));
+            let schema = component_exports_to_json_schema(&component, &engine, true);
+
+            // Verify top-level structure
+            assert!(
+                schema.get("tools").is_some(),
+                "{} should have tools field",
+                file_path
+            );
+            let tools = schema["tools"].as_array().unwrap();
+
+            // Verify each tool has required fields
+            for (idx, tool) in tools.iter().enumerate() {
+                assert!(
+                    tool.get("name").is_some(),
+                    "{} tool {} should have name",
+                    file_path,
+                    idx
+                );
+                assert!(
+                    tool.get("description").is_some(),
+                    "{} tool {} should have description",
+                    file_path,
+                    idx
+                );
+                assert!(
+                    tool.get("inputSchema").is_some(),
+                    "{} tool {} should have inputSchema",
+                    file_path,
+                    idx
+                );
+
+                // Verify input schema structure
+                let input_schema = tool["inputSchema"].as_object().unwrap();
+                assert_eq!(input_schema.get("type").unwrap(), "object");
+                assert!(input_schema.get("properties").is_some());
+                assert!(input_schema.get("required").is_some());
+
+                // Verify tool name is MCP compliant
+                let name = tool["name"].as_str().unwrap();
+                assert!(
+                    validate_tool_name(name).is_ok(),
+                    "{} tool '{}' should be MCP compliant",
+                    file_path,
+                    name
+                );
+            }
+        }
+    }
 }
