@@ -50,6 +50,7 @@ build-examples mode="debug":
     (cd examples/brave-search-rs && just build {{ mode }})
     (cd examples/context7-rs && just build {{ mode }})
     (cd examples/get-open-meteo-weather-js && just build)
+    (cd examples/arxiv-rs && just build {{ mode }})
     # Inject docs for Rust examples
     just inject-docs examples/fetch-rs/target/wasm32-wasip2/{{ mode }}/fetch_rs.wasm examples/fetch-rs/wit
     just inject-docs examples/filesystem-rs/target/wasm32-wasip2/{{ mode }}/filesystem.wasm examples/filesystem-rs/wit

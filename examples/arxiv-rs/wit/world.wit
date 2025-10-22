@@ -1,0 +1,31 @@
+package component:arxiv-rs;
+
+/// An example world for arXiv research component
+world arxiv {
+    /// Search for papers on arXiv
+    /// 
+    /// Parameters:
+    /// - query: search query (e.g., "machine learning", "cat:cs.AI", "ti:neural networks")
+    /// - max-results: maximum number of results to return
+    /// - date-from: optional date filter in YYYYMMDD format (empty string to skip)
+    /// - categories: optional comma-separated category filter (empty string to skip)
+    /// 
+    /// Returns formatted markdown with paper results
+    export search-papers: func(query: string, max-results: u32, date-from: string, categories: string) -> result<string, string>;
+
+    /// Download a paper PDF from arXiv
+    /// 
+    /// Parameters:
+    /// - id: arXiv paper ID (e.g., "2301.00001")
+    /// 
+    /// Returns the PDF content as bytes
+    export download-paper: func(id: string) -> result<list<u8>, string>;
+
+    /// Read paper metadata and abstract from arXiv
+    /// 
+    /// Parameters:
+    /// - id: arXiv paper ID (e.g., "2301.00001")
+    /// 
+    /// Returns formatted markdown with paper details
+    export read-paper: func(id: string) -> result<string, string>;
+}
