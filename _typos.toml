@@ -10,3 +10,5 @@ extend-exclude = [
 [default.extend-words]
 # Part of "Wassette" pronunciation guide
 Wass = "Wass"
+# CSS variable name in docs/theme/toc.css
+existant = "existant"
