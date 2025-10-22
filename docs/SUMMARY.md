@@ -27,6 +27,7 @@
 - [CLI](./reference/cli.md)
 - [Built-in Tools](./reference/built-in-tools.md)
 - [Permissions](./reference/permissions.md)
+- [Environment Variables](./reference/environment-variables.md)
 - [config.toml](./reference/configuration-files.md)
 - [Community Components](./reference/community-components.md)
 

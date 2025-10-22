@@ -6,11 +6,13 @@ For more information on installing Wassette, please see the [installation instru
 
 ## Usage
 
-To use this component, you will need an API key from [OpenWeather](https://openweathermap.org/api). Export the API key as an environment variable:
+To use this component, you will need an API key from [OpenWeather](https://openweathermap.org/api). Set the API key as an environment variable:
 
 ```bash
 export OPENWEATHER_API_KEY="your_api_key_here"
 ```
+
+See the [Environment Variables reference](../../docs/reference/environment-variables.md) for alternative methods including config files and Docker.
 
 Then, load the component from the OCI registry and provide a latitude and longitude.
 

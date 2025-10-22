@@ -78,3 +78,5 @@ Set it as an environment variable:
 ```bash
 export BRAVE_SEARCH_API_KEY=your_api_key_here
 ```
+
+See the [Environment Variables reference](../../docs/reference/environment-variables.md) for alternative methods including config files and Docker.
