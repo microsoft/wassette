@@ -6,6 +6,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+- Migration guide documentation for converting JavaScript-based MCP servers to Wassette WebAssembly components in the cookbook section, with step-by-step instructions, code examples, and a complete weather service migration walkthrough
 - Configuration Files reference documentation covering Wassette server configuration files (config.toml) and build/toolchain configuration files (Cargo.toml, rust-toolchain.toml, rustfmt.toml, etc.) with detailed schemas, examples, and best practices
 - Concepts documentation page explaining MCP fundamentals (server vs client, tools, prompts, resources), WebAssembly Component Model (components, WIT, bindings), how Wassette translates components to MCP tools, and the policy/capability model
 - Developer documentation section with comprehensive "Getting Started" guide covering prerequisites, building, testing, code formatting, development workflow, CI/CD, and project structure for contributors
