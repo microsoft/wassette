@@ -254,16 +254,12 @@ fn parse_arxiv_xml(xml: &str) -> Result<ArxivFeed, String> {
                     if let Some(href_end) = entry_xml[href_start..].find("\"") {
                         let href = entry_xml[href_start..href_start + href_end].to_string();
                         let link_type = if link_tag.contains("type=\"") {
-                            if let Some(type_pos) = link_tag.find("type=\"") {
+                            link_tag.find("type=\"").and_then(|type_pos| {
                                 let type_start = type_pos + 6;
-                                if let Some(type_end) = link_tag[type_start..].find("\"") {
-                                    Some(link_tag[type_start..type_start + type_end].to_string())
-                                } else {
-                                    None
-                                }
-                            } else {
-                                None
-                            }
+                                link_tag[type_start..].find("\"").map(|type_end| {
+                                    link_tag[type_start..type_start + type_end].to_string()
+                                })
+                            })
                         } else {
                             None
                         };
@@ -313,7 +309,7 @@ fn format_search_results(query: &str, entries: &[ArxivEntry]) -> Result<String, 
         markdown.push_str(&format!("## {}. {}\n\n", i + 1, entry.title));
 
         // Extract arXiv ID from the ID URL
-        let arxiv_id = entry.id.split('/').last().unwrap_or(&entry.id);
+        let arxiv_id = entry.id.split('/').next_back().unwrap_or(&entry.id);
         markdown.push_str(&format!("**arXiv ID:** {}\n\n", arxiv_id));
 
         // Authors
@@ -363,7 +359,7 @@ fn format_paper_details(entry: &ArxivEntry) -> Result<String, String> {
     markdown.push_str(&format!("# {}\n\n", entry.title));
 
     // Extract arXiv ID
-    let arxiv_id = entry.id.split('/').last().unwrap_or(&entry.id);
+    let arxiv_id = entry.id.split('/').next_back().unwrap_or(&entry.id);
     markdown.push_str(&format!("**arXiv ID:** {}\n\n", arxiv_id));
 
     // Authors
