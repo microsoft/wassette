@@ -12,3 +12,4 @@ mdbook-mermaid
 
 # typos binary
 typos
+__pycache__/

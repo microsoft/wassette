@@ -146,14 +146,24 @@ jobs:
           find artifacts -name "*.zip" -exec cp {} release-assets/ \;
           ls -la release-assets/
 
+      - name: Extract changelog content
+        id: changelog
+        run: |
+          CHANGELOG_CONTENT=$(python3 scripts/changelog_utils.py extract "${{ github.ref_name }}")
+          echo "content<<EOF" >> $GITHUB_OUTPUT
+          echo "$CHANGELOG_CONTENT" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
       - name: Create Release
         uses: softprops/action-gh-release@6da8fa9354ddfdc4aeace5fc48d7f679b5214090 # v2.4.1
         with:
           draft: false
           prerelease: false
-          generate_release_notes: true
+          generate_release_notes: false
           files: release-assets/*
           body: |
+            ${{ steps.changelog.outputs.content }}
+
             ## Downloads
 
             ### Linux
@@ -185,3 +195,47 @@ jobs:
             ```
         env:
           GITHUB_TOKEN: ${{ secrets.RELEASE_TOKEN }}
+
+  update-changelog:
+    name: Update CHANGELOG
+    runs-on: ubuntu-latest
+    needs: release
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/') && needs.release.result == 'success'
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+        with:
+          token: ${{ secrets.RELEASE_TOKEN }}
+
+      - name: Get previous version
+        id: prev_version
+        run: |
+          # Get the tag before the current one
+          PREV_TAG=$(git tag --sort=-version:refname | grep -A1 "${{ github.ref_name }}" | tail -n1)
+          if [ -z "$PREV_TAG" ]; then
+            echo "Warning: Could not find previous tag, skipping changelog update"
+            echo "found=false" >> $GITHUB_OUTPUT
+          else
+            echo "found=true" >> $GITHUB_OUTPUT
+            echo "tag=$PREV_TAG" >> $GITHUB_OUTPUT
+            echo "Previous version: $PREV_TAG"
+          fi
+
+      - name: Update CHANGELOG
+        if: steps.prev_version.outputs.found == 'true'
+        run: |
+          python3 scripts/changelog_utils.py update "${{ github.ref_name }}" "${{ steps.prev_version.outputs.tag }}"
+
+      - name: Commit and push CHANGELOG changes
+        if: steps.prev_version.outputs.found == 'true'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add CHANGELOG.md
+          if git diff --staged --quiet; then
+            echo "No changes to CHANGELOG.md"
+          else
+            git commit -m "chore(release): update CHANGELOG for ${{ github.ref_name }}"
+            git push origin HEAD:main
+          fi

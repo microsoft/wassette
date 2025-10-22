@@ -6,6 +6,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+- Automated CHANGELOG synchronization with release pipeline: Release workflow extracts changelog content for release notes and automatically updates CHANGELOG.md post-release. Implemented using Python scripts with unit tests. The update-changelog job now checks that the release job succeeded before running.
 - Migration guide documentation for converting JavaScript-based MCP servers to Wassette WebAssembly components in the cookbook section, with step-by-step instructions, code examples, and a complete weather service migration walkthrough
 - Configuration Files reference documentation covering Wassette server configuration files (config.toml) and build/toolchain configuration files (Cargo.toml, rust-toolchain.toml, rustfmt.toml, etc.) with detailed schemas, examples, and best practices
 - Concepts documentation page explaining MCP fundamentals (server vs client, tools, prompts, resources), WebAssembly Component Model (components, WIT, bindings), how Wassette translates components to MCP tools, and the policy/capability model
@@ -29,8 +30,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ### Changed
 
 - Refactored duplicated tool name string constants in `src/main.rs` by introducing centralized `const` definitions, eliminating duplication between `TryFrom` and `AsRef` implementations
-- Consolidated grant permission handlers in `crates/mcp-server/src/tools.rs` into a generic `handle_grant_permission_generic` helper function, reducing code duplication across storage, network, environment variable, and memory permission handlers
-- Consolidated revoke permission handlers in `crates/mcp-server/src/tools.rs` into a generic `handle_revoke_permission_generic` helper function, reducing code duplication across network and environment variable permission handlers
+- Updated publish examples workflow to include new examples: brave-search-rs, context7-rs, and get-open-meteo-weather-js
 - Streamlined README.md by removing detailed sections on "Built-in Tools", "Building WebAssembly Components", "Community Components", and "Documentation" in favor of linking to comprehensive documentation pages
 - Removed duplicate built-in tools listing from `docs/design/permission-system.md` and replaced with reference link to `docs/reference/built-in-tools.md` ([#379](https://github.com/microsoft/wassette/pull/379))
 - Removed duplicate built-in tools listing from `docs/faq.md` and replaced with reference link to `docs/reference/built-in-tools.md` ([#379](https://github.com/microsoft/wassette/pull/379))
