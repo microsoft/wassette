@@ -30,6 +30,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Changed
 
+- Updated wasmtime dependencies from version 36 to 38.0.2 (wasmtime, wasmtime-wasi, wasmtime-wasi-http, wasmtime-wasi-config)
 - Refactored duplicated tool name string constants in `src/main.rs` by introducing centralized `const` definitions, eliminating duplication between `TryFrom` and `AsRef` implementations
 - Updated publish examples workflow to include new examples: brave-search-rs, context7-rs, and get-open-meteo-weather-js
 - Streamlined README.md by removing detailed sections on "Built-in Tools", "Building WebAssembly Components", "Community Components", and "Documentation" in favor of linking to comprehensive documentation pages
