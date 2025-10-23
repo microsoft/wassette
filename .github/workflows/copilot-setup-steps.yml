@@ -68,6 +68,12 @@ jobs:
     - name: Cache Rust dependencies
       uses: ./.github/actions/rust-cache
     
+    # Install gh-aw extension for agentic workflows
+    - name: Install gh-aw extension
+      run: gh extension install githubnext/gh-aw
+      env:
+        GH_TOKEN: ${{ github.token }}
+    
     # Verify installations
     - name: Verify tool installations
       run: |
@@ -92,9 +98,14 @@ jobs:
         echo "WASM target installed:"
         rustup target list --installed | grep wasm32-wasip2
         echo ""
+        echo "GitHub extensions:"
+        gh extension list
+        echo ""
         echo "=== Ready for development! ==="
         echo "You can now run:"
         echo "  - just build     # Build the project"
         echo "  - just test      # Run tests"
         echo "  - just run       # Start MCP server"
         echo "  - cargo clippy   # Run linter"
+      env:
+        GH_TOKEN: ${{ github.token }}
