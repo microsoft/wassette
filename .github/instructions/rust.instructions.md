@@ -22,6 +22,7 @@ View the design/architecture.md for a high-level overview of the architecture an
 - Use traits to define shared behavior and generics to create reusable, type-safe components. Design the API to be extensible
 - Use stdlib primitives like `Arc` and `Mutex` for thread safety and shared state.
 - Choose appropriate data types like `&str` over `String` for performance and memory efficiency.
+- ALWAYS run `cargo machete` at the end to check for unused dependencies.
 
 ## Copyright Headers
 
