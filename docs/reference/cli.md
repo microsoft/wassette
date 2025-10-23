@@ -75,12 +75,20 @@ wassette serve --http
 
 # Use Server-Sent Events (SSE) transport
 wassette serve --sse
+
+# Use custom bind address
+wassette serve --sse --bind-address 0.0.0.0:8080
+
+# Use environment variable for bind address
+export WASSETTE_BIND_ADDRESS=192.168.1.100:9001
+wassette serve --sse
 ```
 
 **Options:**
 - `--stdio`: Use stdio transport (recommended for MCP clients)
 - `--http`: Use HTTP transport on 127.0.0.1:9001
 - `--sse`: Use Server-Sent Events transport
+- `--bind-address <ADDRESS>`: Set bind address for HTTP-based transports (default: `127.0.0.1:9001`)
 - `--plugin-dir <PATH>`: Set component storage directory (default: `$XDG_DATA_HOME/wassette/components`)
 
 ## Component Management
@@ -420,6 +428,7 @@ plugin_dir = "/opt/wassette/components"
 
 - **`WASSETTE_CONFIG_FILE`**: Override the default configuration file location
 - **`WASSETTE_PLUGIN_DIR`**: Override the default component storage location
+- **`WASSETTE_BIND_ADDRESS`**: Override the default bind address for HTTP-based transports
 - **`XDG_CONFIG_HOME`**: Base directory for configuration files (Linux/macOS)
 - **`XDG_DATA_HOME`**: Base directory for data storage (Linux/macOS)
 
