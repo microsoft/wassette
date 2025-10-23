@@ -129,6 +129,8 @@ docker run --rm -p 9001:9001 \
   wassette:latest
 ```
 
+See the [Environment Variables reference](../reference/environment-variables.md) for comprehensive examples and best practices.
+
 ### Using a Configuration File
 
 Mount a custom configuration file:
