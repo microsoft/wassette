@@ -1,6 +1,6 @@
 # Environment Variables
 
-Pass environment variables to Wassette components using shell exports, config files, or Docker flags. Components need explicit permission to access variables.
+Pass environment variables to Wassette components using shell exports or config files. Components need explicit permission to access variables.
 
 ## Quick Start
 
@@ -10,29 +10,15 @@ wassette serve --stdio
 wassette permission grant environment-variable weather-tool OPENWEATHER_API_KEY
 ```
 
-## Three Methods
+## Recommended Method
 
-**Shell Export (Development)**
-
-```bash
-export API_KEY="your_key"
-wassette serve --stdio
-```
-
-**Config File (Production)** - `~/.config/wassette/config.toml`:
-
-```toml
-[environment_vars]
-API_KEY = "your_key"
-```
-
-**Docker**
+Use `wassette secret set` to securely pass environment variables to components:
 
 ```bash
-docker run -e API_KEY="your_key" wassette:latest
-# Or with env file
-docker run --env-file .env wassette:latest
+wassette secret set weather-tool API_KEY "your_secret_key"
 ```
+
+This stores the secret securely and makes it available to the component when granted permission.
 
 ## Grant Access
 
@@ -49,25 +35,6 @@ permissions:
     allow:
       - key: "API_KEY"
 ```
-
-## Security
-
-```bash
-# ✅ Good
-export API_KEY="secret"
-chmod 600 ~/.config/wassette/config.toml
-wassette secret set weather-tool API_KEY "secret"
-
-# ❌ Avoid: Hardcoding, committing to git, command-line args
-```
-
-## Troubleshooting
-
-**Can't read variable:** Check `echo $VAR_NAME`, verify `wassette permission list component-id`, restart Wassette.
-
-**Not persisting:** Use `config.toml` instead of shell export.
-
-**Docker can't see:** Pass `-e` flag or `--env-file`.
 
 ## See Also
 
