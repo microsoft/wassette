@@ -38,7 +38,7 @@ install mode="debug":
     echo ""
     echo "Make sure $HOME/.local/bin is in your PATH."
     echo "You can add it by running:"
-    echo "  export PATH=\"\$HOME/.local/bin:\$PATH\""
+    echo '  export PATH="$HOME/.local/bin:$PATH"'
 
 # Check if wit-docs-inject is installed, if not install it
 ensure-wit-docs-inject:
