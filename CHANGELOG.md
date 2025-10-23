@@ -7,6 +7,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ### Added
 
 - Added `wassette inspect` subcommand for debugging WebAssembly components, displaying their JSON schema for inputs and outputs. This provides a convenient way to inspect component metadata without loading them into the MCP server
+- Cookbook tutorial for publishing Wasm components to OCI registries (GHCR) using `wkg` CLI tool and GitHub Actions, including local development workflow, automated CI/CD publishing, signing with Cosign, version management strategies, and troubleshooting guide
 - Prepared policy crate for publication to crates.io with comprehensive README.md and complete package metadata (description, repository, documentation, homepage, keywords, categories, authors). The policy crate is now ready to be published as a standalone library for other projects like [policy-mcp](https://github.com/microsoft/policy-mcp)
 - Automated CHANGELOG synchronization with release pipeline: Release workflow extracts changelog content for release notes and automatically updates CHANGELOG.md post-release. Implemented using Python scripts with unit tests. The update-changelog job now checks that the release job succeeded before running.
 - Migration guide documentation for converting JavaScript-based MCP servers to Wassette WebAssembly components in the cookbook section, with step-by-step instructions, code examples, and a complete weather service migration walkthrough

@@ -53,7 +53,7 @@ DATABASE_URL = "postgresql://localhost/mydb"
 
 - **Type**: Table/Map
 - **Default**: Empty
-- **Description**: Key-value pairs of environment variables to make available to components. Note that components must explicitly request access to environment variables via their policy files.
+- **Description**: Key-value pairs of environment variables to make available to components. Note that components must explicitly request access to environment variables via their policy files. See the [Environment Variables reference](./environment-variables.md) for detailed usage patterns and examples.
 
 ### Example Configurations
 
