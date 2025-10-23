@@ -21,12 +21,14 @@
   - [Python](./cookbook/python.md)
   - [Rust](./cookbook/rust.md)
   - [Go](./cookbook/go.md)
+  - [Publishing to OCI Registries](./cookbook/publishing-to-oci-registries.md)
 
 # Reference
 
 - [CLI](./reference/cli.md)
 - [Built-in Tools](./reference/built-in-tools.md)
 - [Permissions](./reference/permissions.md)
+- [Environment Variables](./reference/environment-variables.md)
 - [config.toml](./reference/configuration-files.md)
 - [Community Components](./reference/community-components.md)
 

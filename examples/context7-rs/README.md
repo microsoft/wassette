@@ -6,11 +6,13 @@ For more information on installing Wassette, please see the [installation instru
 
 ## Usage
 
-To use this component, you will need an API key from [Context7](https://context7.com).
+To use this component, you will need an API key from [Context7](https://context7.com). Set the API key as an environment variable:
 
 ```bash
 export CONTEXT7_API_KEY="your_api_key_here"
 ```
+
+See the [Environment Variables reference](../../docs/reference/environment-variables.md) for alternative methods including config files and Docker.
 
 Then, load the component from the local file system.
 

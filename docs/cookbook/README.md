@@ -53,6 +53,18 @@ Develop Wasm components using Go and TinyGo. Great for developers who prefer Go'
 - Growing WebAssembly support
 - Examples: module information service
 
+## Distribution and Deployment
+
+### [Publishing to OCI Registries](./publishing-to-oci-registries.md)
+Learn how to publish your Wasm components to OCI registries like GitHub Container Registry (GHCR) for easy distribution and deployment.
+
+**Key highlights:**
+- Publish components using the `wkg` CLI tool
+- Automate publishing with GitHub Actions
+- Sign components with Cosign for security
+- Version management and tagging strategies
+- Examples: Local publishing and CI/CD workflows
+
 ## Getting Started
 
 If you're new to WebAssembly components, we recommend:
