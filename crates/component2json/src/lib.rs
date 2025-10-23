@@ -2385,8 +2385,8 @@ mod tests {
     #[test]
     fn test_all_testdata_components_schema_validity() {
         // This test ensures all testdata components produce valid JSON schemas
-        // Note: Large files like eval-py.wasm (34MB) and JS components (11MB each) are tested
-        // individually in separate tests to avoid timeout issues
+        // Note: Large files like eval-py.wasm (34MB) and JS components (11MB each) are intentionally
+        // excluded from this test to avoid timeout issues.
         let test_files = [
             "testdata/fetch-rs.wasm",
             "testdata/brave-search-rs.wasm",
