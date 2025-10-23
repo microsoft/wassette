@@ -2315,7 +2315,10 @@ mod tests {
         // Verify input schema has url parameter
         let input_schema = fetch_tool.get("inputSchema").unwrap();
         let properties = input_schema.get("properties").unwrap().as_object().unwrap();
-        assert!(properties.contains_key("url"), "fetch should have url parameter");
+        assert!(
+            properties.contains_key("url"),
+            "fetch should have url parameter"
+        );
         assert_eq!(properties["url"]["type"], "string");
 
         // Verify output schema is a result type
@@ -2336,11 +2339,7 @@ mod tests {
         let schema = component_exports_to_json_schema(&component, &engine, true);
 
         let tools = schema.get("tools").unwrap().as_array().unwrap();
-        assert_eq!(
-            tools.len(),
-            1,
-            "brave-search-rs should export 1 function"
-        );
+        assert_eq!(tools.len(), 1, "brave-search-rs should export 1 function");
 
         let search_tool = &tools[0];
         assert_eq!(search_tool["name"], "search");
@@ -2353,8 +2352,6 @@ mod tests {
             "search should have query parameter"
         );
     }
-
-
 
     #[test]
     fn test_context7_rs_component() {
