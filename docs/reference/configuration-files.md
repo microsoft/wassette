@@ -27,6 +27,10 @@ plugin_dir = "/path/to/components"
 # Default: $XDG_CONFIG_HOME/wassette/secrets (~/.config/wassette/secrets)
 secrets_dir = "/path/to/secrets"
 
+# Bind address for HTTP-based transports (SSE and StreamableHttp)
+# Default: 127.0.0.1:9001
+bind_address = "0.0.0.0:8080"
+
 # Environment variables to be made available to components
 # These are global defaults and can be overridden per-component in policy files
 [environment_vars]
@@ -49,6 +53,12 @@ DATABASE_URL = "postgresql://localhost/mydb"
 - **Default**: Platform-specific config directory
 - **Description**: Directory for storing sensitive data like API keys and credentials. This directory should have restricted permissions (e.g., `chmod 600`).
 
+#### `bind_address`
+
+- **Type**: String
+- **Default**: `127.0.0.1:9001`
+- **Description**: Bind address for HTTP-based transports (SSE and StreamableHttp). The address should be in the format `host:port`. Use `0.0.0.0` to bind to all network interfaces, or a specific IP address to bind to a particular interface. This setting is ignored when using stdio transport.
+
 #### `environment_vars`
 
 - **Type**: Table/Map
@@ -66,6 +76,7 @@ DATABASE_URL = "postgresql://localhost/mydb"
 ```toml
 plugin_dir = "./dev-components"
 secrets_dir = "./dev-secrets"
+bind_address = "127.0.0.1:9001"
 
 [environment_vars]
 LOG_LEVEL = "debug"
@@ -76,6 +87,7 @@ RUST_LOG = "trace"
 ```toml
 plugin_dir = "/opt/wassette/components"
 secrets_dir = "/opt/wassette/secrets"
+bind_address = "0.0.0.0:8080"
 
 [environment_vars]
 LOG_LEVEL = "info"
@@ -90,11 +102,14 @@ You can override any configuration value using environment variables with the `W
 # Override plugin directory
 export WASSETTE_PLUGIN_DIR=/custom/components
 
+# Override bind address
+export WASSETTE_BIND_ADDRESS=0.0.0.0:8080
+
 # Override config file location
 export WASSETTE_CONFIG_FILE=/etc/wassette/config.toml
 
 # Start server
-wassette serve --stdio
+wassette serve --sse
 ```
 
 ## See Also
