@@ -6,7 +6,6 @@ license.workspace = true
 description = "A Rust library for parsing and validating capability-based security policies for MCP servers"
 repository = "https://github.com/microsoft/wassette"
 homepage = "https://github.com/microsoft/wassette"
-documentation = "https://docs.rs/policy"
 readme = "README.md"
 keywords = ["mcp", "security", "policy", "webassembly", "permissions"]
 categories = ["parser-implementations", "web-programming", "config"]
