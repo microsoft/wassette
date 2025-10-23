@@ -61,25 +61,65 @@ enum ToolName {
     ResetPermission,
 }
 
+impl ToolName {
+    /// Get the tool name as a string constant
+    const fn as_str(&self) -> &'static str {
+        match self {
+            Self::LoadComponent => Self::LOAD_COMPONENT,
+            Self::UnloadComponent => Self::UNLOAD_COMPONENT,
+            Self::ListComponents => Self::LIST_COMPONENTS,
+            Self::GetPolicy => Self::GET_POLICY,
+            Self::GrantStoragePermission => Self::GRANT_STORAGE_PERMISSION,
+            Self::GrantNetworkPermission => Self::GRANT_NETWORK_PERMISSION,
+            Self::GrantEnvironmentVariablePermission => Self::GRANT_ENVIRONMENT_VARIABLE_PERMISSION,
+            Self::GrantMemoryPermission => Self::GRANT_MEMORY_PERMISSION,
+            Self::RevokeStoragePermission => Self::REVOKE_STORAGE_PERMISSION,
+            Self::RevokeNetworkPermission => Self::REVOKE_NETWORK_PERMISSION,
+            Self::RevokeEnvironmentVariablePermission => {
+                Self::REVOKE_ENVIRONMENT_VARIABLE_PERMISSION
+            }
+            Self::ResetPermission => Self::RESET_PERMISSION,
+        }
+    }
+
+    // String constants for tool names
+    const LOAD_COMPONENT: &'static str = "load-component";
+    const UNLOAD_COMPONENT: &'static str = "unload-component";
+    const LIST_COMPONENTS: &'static str = "list-components";
+    const GET_POLICY: &'static str = "get-policy";
+    const GRANT_STORAGE_PERMISSION: &'static str = "grant-storage-permission";
+    const GRANT_NETWORK_PERMISSION: &'static str = "grant-network-permission";
+    const GRANT_ENVIRONMENT_VARIABLE_PERMISSION: &'static str =
+        "grant-environment-variable-permission";
+    const GRANT_MEMORY_PERMISSION: &'static str = "grant-memory-permission";
+    const REVOKE_STORAGE_PERMISSION: &'static str = "revoke-storage-permission";
+    const REVOKE_NETWORK_PERMISSION: &'static str = "revoke-network-permission";
+    const REVOKE_ENVIRONMENT_VARIABLE_PERMISSION: &'static str =
+        "revoke-environment-variable-permission";
+    const RESET_PERMISSION: &'static str = "reset-permission";
+}
+
 impl TryFrom<&str> for ToolName {
     type Error = anyhow::Error;
 
     fn try_from(value: &str) -> Result<Self, Self::Error> {
         match value {
-            "load-component" => Ok(Self::LoadComponent),
-            "unload-component" => Ok(Self::UnloadComponent),
-            "list-components" => Ok(Self::ListComponents),
-            "get-policy" => Ok(Self::GetPolicy),
-            "grant-storage-permission" => Ok(Self::GrantStoragePermission),
-            "grant-network-permission" => Ok(Self::GrantNetworkPermission),
-            "grant-environment-variable-permission" => Ok(Self::GrantEnvironmentVariablePermission),
-            "grant-memory-permission" => Ok(Self::GrantMemoryPermission),
-            "revoke-storage-permission" => Ok(Self::RevokeStoragePermission),
-            "revoke-network-permission" => Ok(Self::RevokeNetworkPermission),
-            "revoke-environment-variable-permission" => {
+            Self::LOAD_COMPONENT => Ok(Self::LoadComponent),
+            Self::UNLOAD_COMPONENT => Ok(Self::UnloadComponent),
+            Self::LIST_COMPONENTS => Ok(Self::ListComponents),
+            Self::GET_POLICY => Ok(Self::GetPolicy),
+            Self::GRANT_STORAGE_PERMISSION => Ok(Self::GrantStoragePermission),
+            Self::GRANT_NETWORK_PERMISSION => Ok(Self::GrantNetworkPermission),
+            Self::GRANT_ENVIRONMENT_VARIABLE_PERMISSION => {
+                Ok(Self::GrantEnvironmentVariablePermission)
+            }
+            Self::GRANT_MEMORY_PERMISSION => Ok(Self::GrantMemoryPermission),
+            Self::REVOKE_STORAGE_PERMISSION => Ok(Self::RevokeStoragePermission),
+            Self::REVOKE_NETWORK_PERMISSION => Ok(Self::RevokeNetworkPermission),
+            Self::REVOKE_ENVIRONMENT_VARIABLE_PERMISSION => {
                 Ok(Self::RevokeEnvironmentVariablePermission)
             }
-            "reset-permission" => Ok(Self::ResetPermission),
+            Self::RESET_PERMISSION => Ok(Self::ResetPermission),
             _ => Err(anyhow::anyhow!("Unknown tool name: {}", value)),
         }
     }
@@ -95,27 +135,7 @@ impl TryFrom<String> for ToolName {
 
 impl AsRef<str> for ToolName {
     fn as_ref(&self) -> &str {
-        match self {
-            Self::LoadComponent => "load-component",
-            Self::UnloadComponent => "unload-component",
-            Self::ListComponents => "list-components",
-            Self::GetPolicy => "get-policy",
-            Self::GrantStoragePermission => "grant-storage-permission",
-            Self::GrantNetworkPermission => "grant-network-permission",
-            Self::GrantEnvironmentVariablePermission => "grant-environment-variable-permission",
-            Self::GrantMemoryPermission => "grant-memory-permission",
-            Self::RevokeStoragePermission => "revoke-storage-permission",
-            Self::RevokeNetworkPermission => "revoke-network-permission",
-            Self::RevokeEnvironmentVariablePermission => "revoke-environment-variable-permission",
-            Self::ResetPermission => "reset-permission",
-        }
-    }
-}
-
-impl ToolName {
-    /// Get the tool name as a string (convenience method that delegates to AsRef)
-    fn as_str(&self) -> &str {
-        self.as_ref()
+        self.as_str()
     }
 }
 
