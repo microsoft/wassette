@@ -3,6 +3,13 @@ name = "policy"
 version = "0.1.0"
 edition = "2021"
 license.workspace = true
+description = "A Rust library for parsing and validating capability-based security policies for MCP servers"
+repository = "https://github.com/microsoft/wassette"
+homepage = "https://github.com/microsoft/wassette"
+readme = "README.md"
+keywords = ["mcp", "security", "policy", "webassembly", "permissions"]
+categories = ["parser-implementations", "web-programming", "config"]
+authors = ["Microsoft Corporation"]
 
 
 [dependencies]

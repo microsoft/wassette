@@ -7,6 +7,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ### Added
 
 - Daily startup performance benchmark covering preloaded example components, including the `benchmark-startup` utility, automation helpers, and a GitHub Pages dashboard with historical metrics
+- Prepared policy crate for publication to crates.io with comprehensive README.md and complete package metadata (description, repository, documentation, homepage, keywords, categories, authors). The policy crate is now ready to be published as a standalone library for other projects like [policy-mcp](https://github.com/microsoft/policy-mcp)
+- Automated CHANGELOG synchronization with release pipeline: Release workflow extracts changelog content for release notes and automatically updates CHANGELOG.md post-release. Implemented using Python scripts with unit tests. The update-changelog job now checks that the release job succeeded before running.
+- Migration guide documentation for converting JavaScript-based MCP servers to Wassette WebAssembly components in the cookbook section, with step-by-step instructions, code examples, and a complete weather service migration walkthrough
+- Configuration Files reference documentation covering Wassette server configuration files (config.toml) and build/toolchain configuration files (Cargo.toml, rust-toolchain.toml, rustfmt.toml, etc.) with detailed schemas, examples, and best practices
+- Concepts documentation page explaining MCP fundamentals (server vs client, tools, prompts, resources), WebAssembly Component Model (components, WIT, bindings), how Wassette translates components to MCP tools, and the policy/capability model
+- Developer documentation section with comprehensive "Getting Started" guide covering prerequisites, building, testing, code formatting, development workflow, CI/CD, and project structure for contributors
+- Documentation reference for commonly used HTTP domains in network permissions, providing a comprehensive list of frequently needed domains organized by category (package registries, version control systems, cloud providers, container registries, AI/ML APIs, CDNs, documentation sites, and CI/CD services) to help users make informed decisions when granting network permissions ([#368](https://github.com/microsoft/wassette/pull/368))
+- Added `--disable-builtin-tools` flag to the `serve` command that allows disabling all built-in tools (load-component, unload-component, list-components, get-policy, grant/revoke permissions, search-components, reset-permission). When enabled, only loaded component tools will be available through the MCP server
+- Comprehensive Docker documentation and Dockerfile for running Wassette in containers with enhanced security isolation, including examples for mounting components, secrets, configuration files, and production deployment patterns with Docker Compose
 - `rust-toolchain.toml` file specifying Rust 1.90 as the stable toolchain version, ensuring consistent Rust version across development environments and CI/CD pipelines
 - AI agent development guides (`AGENTS.md` and `Claude.md`) that consolidate development guidelines from `.github/instructions/` into accessible documentation for AI agents working on the project
 - Comprehensive installation guide page consolidating all installation methods (one-liner script, Homebrew, Nix, WinGet) organized by platform (Linux, macOS, Windows) with verification steps and troubleshooting sections
@@ -19,17 +28,34 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - Comprehensive documentation in RELEASE.md for releasing example component images to GHCR, including automatic publishing workflow, manual release process, and instructions for adding new examples
 - GitHub Actions workflow `.github/workflows/copilot-setup-steps.yml` that provides reusable setup steps for GitHub Copilot coding agents to prepare a complete development environment with Rust, just, protobuf, wasm-tools, and other essential tools
 - Added `rules/agent.md` instruction file for AI agents emphasizing use of `grant-xxx-permission` tools instead of manually editing policy files, with installation instructions in the installation guide
+- Comprehensive documentation on wit-docs-inject usage for embedding WIT documentation into WASM components and translating it to AI agent tool descriptions
+- Agentic workflow for automatic CHANGELOG PR link addition: When PRs modify CHANGELOG.md, the workflow automatically adds PR links to new entries in the Unreleased section, ensuring consistent formatting and making it easier to track changes back to their source PRs
 
 ### Changed
 
+- Improved CLI help text for transport flags: changed from "Enable XXX transport" to "Serving with XXX transport" for better clarity on what the flags do
+- Updated wasmtime dependencies from version 36 to 38.0.2 (wasmtime, wasmtime-wasi, wasmtime-wasi-http, wasmtime-wasi-config)
+- Refactored duplicated tool name string constants in `src/main.rs` by introducing centralized `const` definitions, eliminating duplication between `TryFrom` and `AsRef` implementations
+- Updated publish examples workflow to include new examples: brave-search-rs, context7-rs, and get-open-meteo-weather-js
+- Streamlined README.md by removing detailed sections on "Built-in Tools", "Building WebAssembly Components", "Community Components", and "Documentation" in favor of linking to comprehensive documentation pages
+- Removed duplicate built-in tools listing from `docs/design/permission-system.md` and replaced with reference link to `docs/reference/built-in-tools.md` ([#379](https://github.com/microsoft/wassette/pull/379))
+- Removed duplicate built-in tools listing from `docs/faq.md` and replaced with reference link to `docs/reference/built-in-tools.md` ([#379](https://github.com/microsoft/wassette/pull/379))
+- Added cross-references throughout documentation (`docs/concepts.md`, `docs/overview.md`, `docs/faq.md`) to link to detailed reference documentation for permissions and built-in tools, reducing content duplication while improving navigation ([#379](https://github.com/microsoft/wassette/pull/379))
+- Simplified README "Installation" section to show only quick start and link to full installation guide
+- Updated "Using Wassette" section in README to remove installation instructions and focus on component loading workflow
+- Created new documentation pages: `docs/reference/built-in-tools.md` for tool reference and `docs/reference/community-components.md` for community projects
+- Removed redundant "Docker Deployment" section from README.md; users are directed to the comprehensive Docker deployment guide via the installation methods list
 - Moved permissions documentation from "Using Wassette" section to "Reference" section, placing it after CLI reference for better organization and discoverability
 - Reorganized documentation structure by moving CLI reference to a new `reference` section in the mdBook for better organization
 - Updated README.md to reference the new dedicated installation guide for complete installation instructions
 - Removed separate homebrew.md, nix.md, and winget.md pages to eliminate duplication; all installation content is now consolidated in installation.md
 - Added tabbed interface for installation instructions organized by platform (Linux, macOS, Windows, Nix) using mdbook-tabs preprocessor
+- Updated README.md, docs/faq.md, and RELEASE.md to include all 9 examples in the examples directory: brave-search-rs, context7-rs, eval-py, fetch-rs, filesystem-rs, get-open-meteo-weather-js, get-weather-js, gomodule-go, and time-server-js
+- Configure `prepare-release` workflow to use `RELEASE_TOKEN` secret for creating pull requests, allowing custom PAT authentication
 
 ### Fixed
 
+- Fixed post-release workflows not triggering properly: Release workflow now uses `RELEASE_TOKEN` instead of `GITHUB_TOKEN` to allow triggering downstream workflows, and Publish Examples workflow corrected event type from `publish` to `published`
 - `wassette secret set` now returns a clear error message when the component ID is not found, preventing silent failures and providing better user feedback
 - Fixed invalid `workflows` permission in dependabot-automerge workflow file that caused GitHub Actions validation error
 - Fixed Mermaid sequence diagram rendering in documentation by adding mdbook-mermaid preprocessor configuration

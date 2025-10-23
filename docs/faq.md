@@ -36,9 +36,9 @@ WebAssembly Components are a standardized way to build portable, secure, and int
 Wassette supports tools written in any language that can compile to WebAssembly Components. For current language support, see the [WebAssembly Language Support Guide](https://developer.fermyon.com/wasm-languages/webassembly-language-support).
 
 The project includes examples in several popular languages:
-- **JavaScript** ([time-server-js](https://github.com/microsoft/wassette/tree/main/examples/time-server-js), [get-weather-js](https://github.com/microsoft/wassette/tree/main/examples/get-weather-js))
+- **JavaScript** ([time-server-js](https://github.com/microsoft/wassette/tree/main/examples/time-server-js), [get-weather-js](https://github.com/microsoft/wassette/tree/main/examples/get-weather-js), [get-open-meteo-weather-js](https://github.com/microsoft/wassette/tree/main/examples/get-open-meteo-weather-js))
 - **Python** ([eval-py](https://github.com/microsoft/wassette/tree/main/examples/eval-py))
-- **Rust** ([fetch-rs](https://github.com/microsoft/wassette/tree/main/examples/fetch-rs), [filesystem-rs](https://github.com/microsoft/wassette/tree/main/examples/filesystem-rs))
+- **Rust** ([fetch-rs](https://github.com/microsoft/wassette/tree/main/examples/fetch-rs), [filesystem-rs](https://github.com/microsoft/wassette/tree/main/examples/filesystem-rs), [brave-search-rs](https://github.com/microsoft/wassette/tree/main/examples/brave-search-rs), [context7-rs](https://github.com/microsoft/wassette/tree/main/examples/context7-rs))
 - **Go** ([gomodule-go](https://github.com/microsoft/wassette/tree/main/examples/gomodule-go))
 
 ### Can I use existing WebAssembly modules with Wassette?
@@ -94,6 +94,8 @@ permissions:
 
 This policy permits read/write access to a `workspace` directory, read-only access to a specific config file, and network egress only to `api.openai.com`. All other filesystem and network access is denied and will be blocked by the sandbox.
 
+For complete policy file documentation and usage patterns, see the [Managing Permissions](./reference/permissions.md) guide.
+
 ### Can I grant permissions at runtime?
 
 Yes, Wassette provides built-in tools for dynamic permission management:
@@ -101,7 +103,9 @@ Yes, Wassette provides built-in tools for dynamic permission management:
 - `grant-network-permission`: Grant network access  
 - `grant-environment-variable-permission`: Grant environment variable access
 
-You can also revoke previously granted permissions with the corresponding `revoke-*` tools. 
+You can also revoke previously granted permissions with the corresponding `revoke-*` tools.
+
+For detailed documentation on all permission management tools and usage examples, see the [Built-in Tools Reference](./reference/built-in-tools.md) and [Managing Permissions](./reference/permissions.md) guide. 
 
 ### What happens if a component tries to access unauthorized resources?
 
@@ -159,18 +163,7 @@ Please load the component from ./path/to/component.wasm
 
 ### What built-in tools does Wassette provide?
 
-Wassette includes several built-in management tools:
-- `load-component`: Load WebAssembly components
-- `unload-component`: Unload components
-- `list-components`: List loaded components
-- `get-policy`: Get policy information
-- `grant-storage-permission`: Grant storage access
-- `grant-network-permission`: Grant network access
-- `grant-environment-variable-permission`: Grant environment variable access
-- `revoke-storage-permission`: Revoke storage access permissions
-- `revoke-network-permission`: Revoke network access permissions
-- `revoke-environment-variable-permission`: Revoke environment variable access permissions
-- `reset-permission`: Reset all permissions for a component
+Wassette includes several built-in tools for managing components and their permissions. For a complete list with detailed descriptions and usage examples, see the [Built-in Tools Reference](./reference/built-in-tools.md)
 
 ## What’s a practical use case?
 One example is the `fetch` tool. With Wassette, you can write a policy that restricts the tool to only contact a specific API endpoint, such as `weather.com`. This means that even if the tool is compromised, it cannot exfiltrate data from your internal APIs or file systems. It is strictly limited to the network host you approved.
@@ -224,9 +217,12 @@ See the [Contributing Guide](https://github.com/microsoft/wassette/blob/main/CON
 ### Where can I find more examples?
 
 The [examples directory](https://github.com/microsoft/wassette/tree/main/examples) contains working examples in multiple languages:
-- [Time server (JavaScript)](https://github.com/microsoft/wassette/tree/main/examples/time-server-js)
-- [Weather API (JavaScript)](https://github.com/microsoft/wassette/tree/main/examples/get-weather-js)
-- [File system operations (Rust)](https://github.com/microsoft/wassette/tree/main/examples/filesystem-rs)
-- [HTTP client (Rust)](https://github.com/microsoft/wassette/tree/main/examples/fetch-rs)
+- [Brave Search (Rust)](https://github.com/microsoft/wassette/tree/main/examples/brave-search-rs)
+- [Context7 API (Rust)](https://github.com/microsoft/wassette/tree/main/examples/context7-rs)
 - [Code execution (Python)](https://github.com/microsoft/wassette/tree/main/examples/eval-py)
+- [HTTP client (Rust)](https://github.com/microsoft/wassette/tree/main/examples/fetch-rs)
+- [File system operations (Rust)](https://github.com/microsoft/wassette/tree/main/examples/filesystem-rs)
+- [Weather via Open-Meteo (JavaScript)](https://github.com/microsoft/wassette/tree/main/examples/get-open-meteo-weather-js)
+- [Weather via OpenWeather (JavaScript)](https://github.com/microsoft/wassette/tree/main/examples/get-weather-js)
 - [Go module info (Go)](https://github.com/microsoft/wassette/tree/main/examples/gomodule-go)
+- [Time server (JavaScript)](https://github.com/microsoft/wassette/tree/main/examples/time-server-js)

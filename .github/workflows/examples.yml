@@ -9,6 +9,8 @@ on:
     branches: [ "main" ]
     paths:
       - 'examples/**'
+  release:
+    types: [published]
   workflow_dispatch:
     inputs:
       tag:
@@ -28,7 +30,7 @@ jobs:
     steps:
     - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
     - uses: extractions/setup-just@e33e0265a09d6d736e2ee1e0eb685ef1de4669ff # v3.0.0
-    - uses: astral-sh/setup-uv@b75a909f75acd358c2196fb9a5f1299a9a8868a4 # v6.7.0
+    - uses: astral-sh/setup-uv@3259c6206f993105e3a61b142c2d97bf4b9ef83d # v7.1.0
     - uses: acifani/setup-tinygo@db56321a62b9a67922bb9ac8f9d085e218807bb3 # v0.2.1
       with:
         tinygo-version: ${{ env.TINYGO_VERSION }}
@@ -73,6 +75,12 @@ jobs:
             file: filesystem.wasm
           - name: fetch-rs
             file: fetch-rs.wasm
+          - name: brave-search-rs
+            file: brave-search-rs.wasm
+          - name: context7-rs
+            file: context7-rs.wasm
+          - name: get-open-meteo-weather-js
+            file: get-open-meteo-weather-js.wasm
     steps:
       - name: Download artifacts
         uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5.0.0
@@ -87,7 +95,7 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
       - name: Install Cosign
-        uses: sigstore/cosign-installer@d7543c93d881b35a8faa02e8e3605f69b7a1ce62 # v3.10.0
+        uses: sigstore/cosign-installer@faadad0cce49287aee09b3a48701e75088a2c6ad # v4.0.0
         with:
           cosign-release: 'v2.4.1'
 

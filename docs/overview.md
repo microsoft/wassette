@@ -68,6 +68,8 @@ permissions:
     - host: "api.openai.com"
 ```
 
+For detailed information on policy files and permission management, see the [Managing Permissions](./reference/permissions.md) guide.
+
 ## Developer Experience
 
 Developers will write MCP tools as functions that can be compiled to WebAssembly Components, instead of developing servers. This is a significant paradigm shift and offers a completely different experience than writing MCP servers as it currently stands. We are fully aware that current MCP server code would need to be rewritten for retargeting to Wasm but the security benefits and flexibility of the Component Model are worth it.

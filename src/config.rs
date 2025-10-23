@@ -134,6 +134,7 @@ mod tests {
             transport: Default::default(),
             env_vars: vec![],
             env_file: None,
+            disable_builtin_tools: false,
         }
     }
 
@@ -143,6 +144,7 @@ mod tests {
             transport: Default::default(),
             env_vars: vec![],
             env_file: None,
+            disable_builtin_tools: false,
         }
     }
 
