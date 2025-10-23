@@ -1,6 +1,5 @@
 # MCP Threat Model
 
-- Author: @copilot
 - Date: 2025-10-22
 
 ## Overview
