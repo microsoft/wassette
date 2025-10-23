@@ -38,42 +38,6 @@ wkg oci push ghcr.io/your-username/component-name:v1.0.0 component.wasm \
   --annotation "org.opencontainers.image.licenses"="MIT"
 ```
 
-## Method 2: Automated Publishing with GitHub Actions
-
-Create `.github/workflows/publish-component.yml`:
-
-```yaml
-name: Publish Component
-on:
-  push:
-    tags: [ "v*" ]
-
-jobs:
-  publish:
-    runs-on: ubuntu-latest
-    permissions:
-      packages: write
-      id-token: write
-    steps:
-      - uses: actions/checkout@v4
-      - name: Build component
-        run: npm install && npm run build  # Adjust for your language
-      - name: Log in to GHCR
-        uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-      - name: Publish component
-        uses: bytecodealliance/wkg-github-action@v5
-        with:
-          file: dist/component.wasm
-          oci-reference-without-tag: ghcr.io/${{ github.repository_owner }}/component
-          version: ${{ github.ref_name }}
-```
-
-See [Wassette's workflow](https://github.com/microsoft/wassette/blob/main/.github/workflows/examples.yml) for a complete example.
-
 ## Versioning Strategy
 
 ```bash
@@ -90,9 +54,3 @@ wkg oci push ghcr.io/user/component:v1.0.0-beta.1 component.wasm # Pre-release
 - Use CI/CD for consistent builds
 - Add OCI annotations for discoverability
 - Follow semantic versioning (MAJOR.MINOR.PATCH)
-
-## Resources
-
-- [OCI Distribution Spec](https://github.com/opencontainers/distribution-spec)
-- [GHCR Documentation](https://docs.github.com/en/packages/working-with-a-github-packages-registry/working-with-the-container-registry)
-- [Cosign Documentation](https://docs.sigstore.dev/cosign/overview/)
