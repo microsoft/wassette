@@ -112,7 +112,25 @@ cargo build --target wasm32-wasip2 --release
 # Output: target/wasm32-wasip2/release/my_component.wasm
 ```
 
-### 7. Test Your Component
+### 7. Inject WIT Documentation
+
+To make your component's documentation available to AI agents, inject the WIT documentation into the compiled WASM binary:
+
+```bash
+# Install wit-docs-inject (if not already installed)
+cargo install --git https://github.com/Mossaka/wit-docs-inject
+
+# Inject documentation into your component
+wit-docs-inject --component target/wasm32-wasip2/release/my_component.wasm \
+                --wit-dir wit/ \
+                --inplace
+```
+
+This embeds the documentation from your WIT files as a `package-docs` custom section in the WASM binary. When Wassette loads your component, it extracts this documentation and uses it to describe your tools to AI agents.
+
+For more information, see the [Documenting WIT Interfaces](./documenting-wit.md) guide.
+
+### 8. Test Your Component
 
 ```bash
 wassette serve --sse --plugin-dir target/wasm32-wasip2/release/
