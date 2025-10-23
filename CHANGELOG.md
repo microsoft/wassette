@@ -27,9 +27,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - Comprehensive documentation in RELEASE.md for releasing example component images to GHCR, including automatic publishing workflow, manual release process, and instructions for adding new examples
 - GitHub Actions workflow `.github/workflows/copilot-setup-steps.yml` that provides reusable setup steps for GitHub Copilot coding agents to prepare a complete development environment with Rust, just, protobuf, wasm-tools, and other essential tools
 - Added `rules/agent.md` instruction file for AI agents emphasizing use of `grant-xxx-permission` tools instead of manually editing policy files, with installation instructions in the installation guide
+- Comprehensive documentation on wit-docs-inject usage for embedding WIT documentation into WASM components and translating it to AI agent tool descriptions
+- Agentic workflow for automatic CHANGELOG PR link addition: When PRs modify CHANGELOG.md, the workflow automatically adds PR links to new entries in the Unreleased section, ensuring consistent formatting and making it easier to track changes back to their source PRs
 
 ### Changed
 
+- Improved CLI help text for transport flags: changed from "Enable XXX transport" to "Serving with XXX transport" for better clarity on what the flags do
+- Updated wasmtime dependencies from version 36 to 38.0.2 (wasmtime, wasmtime-wasi, wasmtime-wasi-http, wasmtime-wasi-config)
+- Refactored duplicated tool name string constants in `src/main.rs` by introducing centralized `const` definitions, eliminating duplication between `TryFrom` and `AsRef` implementations
 - Updated publish examples workflow to include new examples: brave-search-rs, context7-rs, and get-open-meteo-weather-js
 - Streamlined README.md by removing detailed sections on "Built-in Tools", "Building WebAssembly Components", "Community Components", and "Documentation" in favor of linking to comprehensive documentation pages
 - Removed duplicate built-in tools listing from `docs/design/permission-system.md` and replaced with reference link to `docs/reference/built-in-tools.md` ([#379](https://github.com/microsoft/wassette/pull/379))
