@@ -100,13 +100,13 @@ You can override any configuration value using environment variables with the `W
 
 ```bash
 # Override plugin directory
-export WASETTE_PLUGIN_DIR=/custom/components
+export WASSETTE_PLUGIN_DIR=/custom/components
 
 # Override bind address
-export WASETTE_BIND_ADDRESS=0.0.0.0:8080
+export WASSETTE_BIND_ADDRESS=0.0.0.0:8080
 
 # Override config file location
-export WASETTE_CONFIG_FILE=/etc/wassette/config.toml
+export WASSETTE_CONFIG_FILE=/etc/wassette/config.toml
 
 # Start server
 wassette serve --sse

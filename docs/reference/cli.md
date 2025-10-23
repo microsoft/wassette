@@ -80,7 +80,7 @@ wassette serve --sse
 wassette serve --sse --bind-address 0.0.0.0:8080
 
 # Use environment variable for bind address
-export WASETTE_BIND_ADDRESS=192.168.1.100:9001
+export WASSETTE_BIND_ADDRESS=192.168.1.100:9001
 wassette serve --sse
 ```
 
@@ -426,7 +426,7 @@ plugin_dir = "/opt/wassette/components"
 
 - **`WASSETTE_CONFIG_FILE`**: Override the default configuration file location
 - **`WASSETTE_PLUGIN_DIR`**: Override the default component storage location
-- **`WASETTE_BIND_ADDRESS`**: Override the default bind address for HTTP-based transports
+- **`WASSETTE_BIND_ADDRESS`**: Override the default bind address for HTTP-based transports
 - **`XDG_CONFIG_HOME`**: Base directory for configuration files (Linux/macOS)
 - **`XDG_DATA_HOME`**: Base directory for data storage (Linux/macOS)
 

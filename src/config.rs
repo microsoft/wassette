@@ -64,14 +64,14 @@ impl Config {
     /// `cli_config` (any struct that is Serialize/Deserialize, but generally a Clap `Parser`) with
     /// the configuration file and environment variables. By default, the configuration file is
     /// located at `$XDG_CONFIG_HOME/wassette/config.toml`. This can be overridden by setting
-    /// the `WASETTE_CONFIG_FILE` environment variable.
+    /// the `WASSETTE_CONFIG_FILE` environment variable.
     ///
     /// The order of precedence for configuration sources is as follows:
     /// 1. Values from `cli_config`
-    /// 2. Environment variables prefixed with `WASETTE_`
-    /// 3. Configuration file specified by `WASETTE_CONFIG_FILE` or default location
+    /// 2. Environment variables prefixed with `WASSETTE_`
+    /// 3. Configuration file specified by `WASSETTE_CONFIG_FILE` or default location
     pub fn new<T: Serialize>(cli_config: &T) -> Result<Self, anyhow::Error> {
-        let config_file_path = match std::env::var_os("WASETTE_CONFIG_FILE") {
+        let config_file_path = match std::env::var_os("WASSETTE_CONFIG_FILE") {
             Some(path) => PathBuf::from(path),
             None => etcetera::choose_base_strategy()
                 .context("Unable to get home directory")?
@@ -89,7 +89,7 @@ impl Config {
     ) -> Result<Self, anyhow::Error> {
         figment::Figment::new()
             .admerge(Toml::file(config_file_path))
-            .admerge(Env::prefixed("WASETTE_"))
+            .admerge(Env::prefixed("WASSETTE_"))
             .admerge(Serialized::defaults(cli_config))
             .extract()
             .context("Unable to merge configs")
@@ -263,12 +263,12 @@ plugin_dir = "/config/plugin/dir"
 
     #[test]
     fn test_new_method_without_wassette_config_file_env() {
-        // This test verifies that new() works when WASETTE_CONFIG_FILE is not set
+        // This test verifies that new() works when WASSETTE_CONFIG_FILE is not set
         // It should try to use the default config location, which likely won't exist
         // but should still succeed with defaults
 
-        // Ensure WASETTE_CONFIG_FILE is not set
-        std::env::remove_var("WASETTE_CONFIG_FILE");
+        // Ensure WASSETTE_CONFIG_FILE is not set
+        std::env::remove_var("WASSETTE_CONFIG_FILE");
 
         let serve_config = create_test_cli_config();
         let config = Config::new(&serve_config).expect("Failed to create config");
@@ -307,8 +307,8 @@ policy_file = "custom_policy.yaml"
 "#;
         fs::write(&config_file, toml_content).unwrap();
 
-        // Use SetEnv helper to manage WASETTE_CONFIG_FILE environment variable
-        let _env = SetEnv::new("WASETTE_CONFIG_FILE", config_file.to_str().unwrap());
+        // Use SetEnv helper to manage WASSETTE_CONFIG_FILE environment variable
+        let _env = SetEnv::new("WASSETTE_CONFIG_FILE", config_file.to_str().unwrap());
 
         let config = Config::new(&empty_test_cli_config()).expect("Failed to create config");
 
@@ -317,7 +317,7 @@ policy_file = "custom_policy.yaml"
 
     #[test]
     fn test_bind_address_default() {
-        temp_env::with_vars_unset(vec!["WASETTE_BIND_ADDRESS"], || {
+        temp_env::with_vars_unset(vec!["WASSETTE_BIND_ADDRESS"], || {
             let temp_dir = TempDir::new().unwrap();
             let non_existent_config = temp_dir.path().join("non_existent_config.toml");
 
@@ -331,7 +331,7 @@ policy_file = "custom_policy.yaml"
 
     #[test]
     fn test_bind_address_from_config_file() {
-        temp_env::with_vars_unset(vec!["WASETTE_BIND_ADDRESS"], || {
+        temp_env::with_vars_unset(vec!["WASSETTE_BIND_ADDRESS"], || {
             let temp_dir = TempDir::new().unwrap();
             let config_file = temp_dir.path().join("config.toml");
 
@@ -377,7 +377,7 @@ bind_address = "0.0.0.0:8080"
 
     #[test]
     fn test_bind_address_env_var() {
-        temp_env::with_var("WASETTE_BIND_ADDRESS", Some("10.0.0.1:3000"), || {
+        temp_env::with_var("WASSETTE_BIND_ADDRESS", Some("10.0.0.1:3000"), || {
             let temp_dir = TempDir::new().unwrap();
             let non_existent_config = temp_dir.path().join("non_existent_config.toml");
 
@@ -391,7 +391,7 @@ bind_address = "0.0.0.0:8080"
 
     #[test]
     fn test_bind_address_precedence() {
-        temp_env::with_var("WASETTE_BIND_ADDRESS", Some("10.0.0.1:3000"), || {
+        temp_env::with_var("WASSETTE_BIND_ADDRESS", Some("10.0.0.1:3000"), || {
             let temp_dir = TempDir::new().unwrap();
             let config_file = temp_dir.path().join("config.toml");
 
