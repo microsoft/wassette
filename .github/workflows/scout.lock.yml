@@ -534,7 +534,7 @@ jobs:
             memory-${{ github.workflow }}-
             memory-
       - name: Upload cache-memory data as artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: cache-memory
           path: /tmp/cache-memory
@@ -1772,7 +1772,7 @@ jobs:
               .write();
       - name: Upload agentic run info
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: aw_info.json
           path: /tmp/aw_info.json
@@ -1884,7 +1884,7 @@ jobs:
           echo "" >> $GITHUB_STEP_SUMMARY
       - name: Upload Safe Outputs
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: safe_output.jsonl
           path: ${{ env.GITHUB_AW_SAFE_OUTPUTS }}
@@ -2638,7 +2638,7 @@ jobs:
             await main();
       - name: Upload sanitized agent output
         if: always() && env.GITHUB_AW_AGENT_OUTPUT
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: agent_output.json
           path: ${{ env.GITHUB_AW_AGENT_OUTPUT }}
@@ -2805,7 +2805,7 @@ jobs:
           SECRET_GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           SECRET_TAVILY_API_KEY: ${{ secrets.TAVILY_API_KEY }}
       - name: Upload engine output files
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: agent_outputs
           path: |
@@ -2823,14 +2823,14 @@ jobs:
           fi
       - name: Upload squid access logs
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: access.log
           path: /tmp/access-logs/
           if-no-files-found: warn
       - name: Upload MCP logs
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: mcp-logs
           path: /tmp/mcp-logs/
@@ -3383,7 +3383,7 @@ jobs:
             main();
       - name: Upload Agent Stdio
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: agent-stdio.log
           path: /tmp/agent-stdio.log
@@ -3680,7 +3680,7 @@ jobs:
             }
       - name: Upload threat detection log
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: threat-detection.log
           path: /tmp/threat-detection/detection.log
