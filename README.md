@@ -9,6 +9,9 @@
 [Getting started][setup guide] | [FAQ] | [Documentation] | [Releases] | [Contributing] | [Discord]
 </div>
 
+> [!WARNING]
+> **Early Development**: This repository is not production ready yet. It is in early development and may change significantly.
+
 ## Why Wassette?
 
 - **Convenience**: Wassette makes it easy to extend AI agents with new tools,
