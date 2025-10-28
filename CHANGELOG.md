@@ -32,6 +32,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - Added `rules/agent.md` instruction file for AI agents emphasizing use of `grant-xxx-permission` tools instead of manually editing policy files, with installation instructions in the installation guide
 - Comprehensive documentation on wit-docs-inject usage for embedding WIT documentation into WASM components and translating it to AI agent tool descriptions
 - Agentic workflow for automatic CHANGELOG PR link addition: When PRs modify CHANGELOG.md, the workflow automatically adds PR links to new entries in the Unreleased section, ensuring consistent formatting and making it easier to track changes back to their source PRs
+- Release branch strategy to prevent development blockages: Release pipeline now creates and preserves dedicated release branches (e.g., `release/vX.Y.Z`) for the entire release process, ensuring that ongoing development on main is not blocked by release activities
 
 ### Changed
 
@@ -49,6 +50,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - Removed redundant "Docker Deployment" section from README.md; users are directed to the comprehensive Docker deployment guide via the installation methods list
 - Moved permissions documentation from "Using Wassette" section to "Reference" section, placing it after CLI reference for better organization and discoverability
 - Reorganized documentation structure by moving CLI reference to a new `reference` section in the mdBook for better organization
+- **BREAKING CHANGE**: Release workflow no longer pushes CHANGELOG updates directly to main; instead creates a PR from the release branch for review and merging, preventing development blockages during release process
 - Updated README.md to reference the new dedicated installation guide for complete installation instructions
 - Removed separate homebrew.md, nix.md, and winget.md pages to eliminate duplication; all installation content is now consolidated in installation.md
 - Added tabbed interface for installation instructions organized by platform (Linux, macOS, Windows, Nix) using mdbook-tabs preprocessor
