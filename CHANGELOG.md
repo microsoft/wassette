@@ -63,6 +63,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - Fixed Mermaid sequence diagram rendering in documentation by adding mdbook-mermaid preprocessor configuration
 - Copyright check script now skips auto-generated `bindings.rs` files containing wit-bindgen markers, preventing incorrect license header additions to generated code while still checking custom bindings.rs files
 - Made dependabot automerge workflow non-blocking by adding `continue-on-error: true` to the auto-merge step, preventing workflow failures from blocking PRs when automerge cannot be enabled
+- Fixed release pipeline changelog extraction to support extracting from `[Unreleased]` section when version is not yet published, allowing releases to be created before the CHANGELOG is automatically updated by the release workflow
 
 ## [v0.3.0] - 2025-10-03
 
