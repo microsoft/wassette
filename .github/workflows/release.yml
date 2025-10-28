@@ -222,11 +222,6 @@ jobs:
             echo "Previous version: $PREV_TAG"
           fi
 
-      - name: Update CHANGELOG
-        if: steps.prev_version.outputs.found == 'true'
-        run: |
-          python3 scripts/changelog_utils.py update "${{ github.ref_name }}" "${{ steps.prev_version.outputs.tag }}"
-
       - name: Extract version
         if: steps.prev_version.outputs.found == 'true'
         id: version
