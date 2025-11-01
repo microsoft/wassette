@@ -37,10 +37,11 @@ use tracing_subscriber::util::SubscriberInitExt as _;
 mod commands;
 mod config;
 mod format;
+mod registry;
 
 use commands::{
     Cli, Commands, ComponentCommands, GrantPermissionCommands, PermissionCommands, PolicyCommands,
-    RevokePermissionCommands, SecretCommands, Serve, ToolCommands, Transport,
+    RegistryCommands, RevokePermissionCommands, SecretCommands, Serve, ToolCommands, Transport,
 };
 use format::{print_result, OutputFormat};
 
@@ -1166,6 +1167,70 @@ async fn main() -> Result<()> {
                     println!("No tools found in component");
                 }
             }
+            Commands::Registry { command } => match command {
+                RegistryCommands::Search {
+                    query,
+                    output_format,
+                } => {
+                    // Load the component registry
+                    const COMPONENT_REGISTRY: &str = include_str!("../component-registry.json");
+
+                    let components = registry::parse_registry(COMPONENT_REGISTRY)
+                        .context("Failed to parse component registry")?;
+
+                    let results = registry::search_components(&components, query.as_deref());
+
+                    let result = json!({
+                        "status": "success",
+                        "count": results.len(),
+                        "components": results
+                    });
+
+                    print_result(
+                        &rmcp::model::CallToolResult {
+                            content: Some(vec![rmcp::model::Content::text(
+                                serde_json::to_string_pretty(&result)?,
+                            )]),
+                            structured_content: None,
+                            is_error: None,
+                        },
+                        *output_format,
+                    )?;
+                }
+                RegistryCommands::Get {
+                    component,
+                    plugin_dir,
+                } => {
+                    // Load the component registry
+                    const COMPONENT_REGISTRY: &str = include_str!("../component-registry.json");
+
+                    let components = registry::parse_registry(COMPONENT_REGISTRY)
+                        .context("Failed to parse component registry")?;
+
+                    // Find the component by name or URI
+                    let registry_component =
+                        registry::find_component_by_name_or_uri(&components, component)
+                            .ok_or_else(|| {
+                                anyhow::anyhow!(
+                                    "Component '{}' not found in registry. Use 'wassette registry search' to list available components.",
+                                    component
+                                )
+                            })?;
+
+                    // Use the existing load-component functionality
+                    let plugin_dir = plugin_dir.clone().or_else(|| cli.plugin_dir.clone());
+                    let lifecycle_manager = create_lifecycle_manager(plugin_dir).await?;
+                    let mut args = Map::new();
+                    args.insert("path".to_string(), json!(registry_component.uri));
+                    handle_tool_cli_command(
+                        &lifecycle_manager,
+                        "load-component",
+                        args,
+                        OutputFormat::Json,
+                    )
+                    .await?;
+                }
+            },
         },
         None => {
             eprintln!("No command provided. Use --help for usage information.");

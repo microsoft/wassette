@@ -59,6 +59,11 @@ pub enum Commands {
         #[command(subcommand)]
         command: ToolCommands,
     },
+    /// Search and fetch components from the registry.
+    Registry {
+        #[command(subcommand)]
+        command: RegistryCommands,
+    },
 }
 
 #[derive(Parser, Debug, Clone, Serialize, Deserialize)]
@@ -355,5 +360,25 @@ pub enum ToolCommands {
         /// Output format
         #[arg(short = 'o', long = "output-format", default_value = "json")]
         output_format: OutputFormat,
+    },
+}
+
+#[derive(Subcommand, Debug)]
+pub enum RegistryCommands {
+    /// Search for components in the registry.
+    Search {
+        /// Search query (matches against component name and description)
+        query: Option<String>,
+        /// Output format
+        #[arg(short = 'o', long = "output-format", default_value = "json")]
+        output_format: OutputFormat,
+    },
+    /// Fetch and load a component from the registry.
+    Get {
+        /// Component name or URI from the registry
+        component: String,
+        /// Directory where plugins are stored. Defaults to $XDG_DATA_HOME/wassette/components
+        #[arg(long)]
+        plugin_dir: Option<PathBuf>,
     },
 }
