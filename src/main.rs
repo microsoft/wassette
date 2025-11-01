@@ -208,6 +208,12 @@ mod built_info {
     include!(concat!(env!("OUT_DIR"), "/built.rs"));
 }
 
+/// Load and parse the component registry JSON
+fn load_component_registry() -> Result<Vec<registry::RegistryComponent>> {
+    const COMPONENT_REGISTRY: &str = include_str!("../component-registry.json");
+    registry::parse_registry(COMPONENT_REGISTRY).context("Failed to parse component registry")
+}
+
 /// A security-oriented runtime that runs WebAssembly Components via MCP.
 #[derive(Clone)]
 pub struct McpServer {
@@ -1172,12 +1178,7 @@ async fn main() -> Result<()> {
                     query,
                     output_format,
                 } => {
-                    // Load the component registry
-                    const COMPONENT_REGISTRY: &str = include_str!("../component-registry.json");
-
-                    let components = registry::parse_registry(COMPONENT_REGISTRY)
-                        .context("Failed to parse component registry")?;
-
+                    let components = load_component_registry()?;
                     let results = registry::search_components(&components, query.as_deref());
 
                     let result = json!({
@@ -1201,11 +1202,7 @@ async fn main() -> Result<()> {
                     component,
                     plugin_dir,
                 } => {
-                    // Load the component registry
-                    const COMPONENT_REGISTRY: &str = include_str!("../component-registry.json");
-
-                    let components = registry::parse_registry(COMPONENT_REGISTRY)
-                        .context("Failed to parse component registry")?;
+                    let components = load_component_registry()?;
 
                     // Find the component by name or URI
                     let registry_component =

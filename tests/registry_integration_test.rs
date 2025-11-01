@@ -76,11 +76,9 @@ impl RegistryTestContext {
     async fn run_command(&self, args: &[&str]) -> Result<(String, String, i32)> {
         let mut cmd = AsyncCommand::new(&self.wassette_bin);
         cmd.args(args);
-        // Only add plugin-dir for commands that support it
-        if !args.contains(&"search") || args.iter().any(|arg| arg.contains("get")) {
-            if args.contains(&"get") {
-                cmd.arg("--plugin-dir").arg(&self.plugin_dir);
-            }
+        // Only add plugin-dir for 'get' commands that support it
+        if args.contains(&"get") {
+            cmd.arg("--plugin-dir").arg(&self.plugin_dir);
         }
 
         let output = tokio::time::timeout(std::time::Duration::from_secs(30), cmd.output())
