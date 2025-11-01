@@ -46,12 +46,19 @@ wassette
 │   ├── unload     # Remove components
 │   └── list       # Show loaded components
 ├── inspect        # Inspect component schema (debugging)
+├── registry       # Registry search and fetch
+│   ├── search     # Search for components
+│   └── get        # Fetch and load from registry
 ├── policy         # Policy information
 │   └── get        # Retrieve component policies
-└── permission     # Permission management
-    ├── grant      # Add permissions
-    ├── revoke     # Remove permissions
-    └── reset      # Clear all permissions
+├── permission     # Permission management
+│   ├── grant      # Add permissions
+│   ├── revoke     # Remove permissions
+│   └── reset      # Clear all permissions
+└── secret         # Secret management
+    ├── list       # List component secrets
+    ├── set        # Set secret values
+    └── delete     # Remove secrets
 ```
 
 ## Server Commands
@@ -275,6 +282,92 @@ This is particularly useful for:
 **Options:**
 - `<PATH>`: Path to the WebAssembly component file (required)
 
+## Registry Management
+
+The registry commands provide convenient access to components defined in the `component-registry.json` file. This centralized registry makes it easy to discover and fetch commonly used components without needing to remember their full OCI URIs.
+
+### `wassette registry search`
+
+Search for components in the registry by name or description.
+
+**Search all components:**
+```bash
+# List all available components in the registry
+wassette registry search
+```
+
+**Search with a query:**
+```bash
+# Search for components matching "weather"
+wassette registry search weather
+
+# Search is case-insensitive
+wassette registry search RUST
+
+# Search matches both name and description
+wassette registry search javascript
+```
+
+**Example output:**
+```json
+{
+  "status": "success",
+  "count": 1,
+  "components": [
+    {
+      "name": "Weather Server",
+      "description": "A weather component written in JavaScript",
+      "uri": "oci://ghcr.io/microsoft/get-weather-js:latest"
+    }
+  ]
+}
+```
+
+**Options:**
+- `--output-format <FORMAT>`: Output format (json, yaml, table) [default: json]
+
+### `wassette registry get`
+
+Fetch and load a component from the registry by name or URI.
+
+**Get by component name:**
+```bash
+# Fetch and load a component by its name
+wassette registry get "Weather Server"
+
+# Names are case-insensitive
+wassette registry get "weather server"
+```
+
+**Get by component URI:**
+```bash
+# Fetch by full OCI URI
+wassette registry get "oci://ghcr.io/microsoft/time-server-js:latest"
+```
+
+**With custom plugin directory:**
+```bash
+# Load to a specific directory
+wassette registry get "Fetch" --plugin-dir /custom/components
+```
+
+This command automatically:
+1. Looks up the component in the registry
+2. Retrieves its OCI URI
+3. Downloads the component using the existing OCI client
+4. Loads it into the component storage
+
+**Error handling:**
+```bash
+# Component not found
+$ wassette registry get "NonExistent"
+Error: Component 'NonExistent' not found in registry. 
+Use 'wassette registry search' to list available components.
+```
+
+**Options:**
+- `--plugin-dir <PATH>`: Component storage directory
+
 ## Policy Management
 
 ### `wassette policy get`
@@ -437,6 +530,33 @@ wassette permission grant memory my-tool 512Mi
 wassette policy get my-tool --output-format yaml
 
 # 6. Test via MCP server
+wassette serve --stdio
+```
+
+### Component Discovery and Installation
+
+```bash
+# 1. Search for available components in the registry
+wassette registry search
+
+# 2. Search for specific functionality
+wassette registry search weather
+
+# 3. Get detailed information about a component
+wassette registry search "Weather Server" --output-format yaml
+
+# 4. Fetch and load the component from the registry
+wassette registry get "Weather Server"
+
+# 5. Configure permissions for the component
+wassette permission grant network weather-server api.openweathermap.org
+wassette permission grant memory weather-server 256Mi
+
+# 6. Verify the component is loaded and configured
+wassette component list --output-format table
+wassette policy get weather-server --output-format yaml
+
+# 7. Start the MCP server
 wassette serve --stdio
 ```
 
