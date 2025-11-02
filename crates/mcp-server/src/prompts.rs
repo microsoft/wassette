@@ -604,3 +604,133 @@ Would you like me to help you implement any specific functionality for your comp
         messages: vec![PromptMessage::new_text(PromptMessageRole::User, content)],
     })
 }
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use super::*;
+
+    #[tokio::test]
+    async fn test_handle_prompts_list() {
+        let result = handle_prompts_list(json!(null)).await.unwrap();
+        let list_result: ListPromptsResult = serde_json::from_value(result).unwrap();
+
+        assert_eq!(list_result.prompts.len(), 3);
+        assert_eq!(list_result.prompts[0].name, "build-rust-component");
+        assert_eq!(list_result.prompts[1].name, "build-javascript-component");
+        assert_eq!(list_result.prompts[2].name, "build-python-component");
+
+        // Check that all prompts have descriptions
+        for prompt in &list_result.prompts {
+            assert!(prompt.description.is_some());
+            assert!(prompt.arguments.is_some());
+        }
+    }
+
+    #[tokio::test]
+    async fn test_handle_prompts_get_rust() {
+        let req = json!({
+            "name": "build-rust-component",
+            "arguments": {
+                "component_name": "test-component"
+            }
+        });
+
+        let result = handle_prompts_get(req).await.unwrap();
+        let get_result: GetPromptResult = serde_json::from_value(result).unwrap();
+
+        assert!(get_result.description.is_some());
+        assert!(get_result.description.unwrap().contains("test-component"));
+        assert_eq!(get_result.messages.len(), 1);
+        assert_eq!(get_result.messages[0].role, PromptMessageRole::User);
+
+        // Check content includes expected sections
+        if let PromptMessageRole::User = get_result.messages[0].role {
+            let content_text = match &get_result.messages[0].content {
+                rmcp::model::PromptMessageContent::Text { text } => text,
+                _ => panic!("Expected text content"),
+            };
+            assert!(content_text.contains("Building a Rust WebAssembly Component"));
+            assert!(content_text.contains("test-component"));
+            assert!(content_text.contains("cargo build"));
+            assert!(content_text.contains("wasm32-wasip2"));
+        }
+    }
+
+    #[tokio::test]
+    async fn test_handle_prompts_get_javascript() {
+        let req = json!({
+            "name": "build-javascript-component",
+            "arguments": {
+                "component_name": "js-tool"
+            }
+        });
+
+        let result = handle_prompts_get(req).await.unwrap();
+        let get_result: GetPromptResult = serde_json::from_value(result).unwrap();
+
+        assert!(get_result.description.is_some());
+        assert!(get_result.description.unwrap().contains("js-tool"));
+        assert_eq!(get_result.messages.len(), 1);
+
+        let content_text = match &get_result.messages[0].content {
+            rmcp::model::PromptMessageContent::Text { text } => text,
+            _ => panic!("Expected text content"),
+        };
+        assert!(content_text.contains("Building a JavaScript WebAssembly Component"));
+        assert!(content_text.contains("js-tool"));
+        assert!(content_text.contains("jco componentize"));
+    }
+
+    #[tokio::test]
+    async fn test_handle_prompts_get_python() {
+        let req = json!({
+            "name": "build-python-component"
+        });
+
+        let result = handle_prompts_get(req).await.unwrap();
+        let get_result: GetPromptResult = serde_json::from_value(result).unwrap();
+
+        assert!(get_result.description.is_some());
+        assert_eq!(get_result.messages.len(), 1);
+
+        let content_text = match &get_result.messages[0].content {
+            rmcp::model::PromptMessageContent::Text { text } => text,
+            _ => panic!("Expected text content"),
+        };
+        assert!(content_text.contains("Building a Python WebAssembly Component"));
+        assert!(content_text.contains("componentize-py"));
+    }
+
+    #[tokio::test]
+    async fn test_handle_prompts_get_default_component_name() {
+        let req = json!({
+            "name": "build-rust-component"
+        });
+
+        let result = handle_prompts_get(req).await.unwrap();
+        let get_result: GetPromptResult = serde_json::from_value(result).unwrap();
+
+        let content_text = match &get_result.messages[0].content {
+            rmcp::model::PromptMessageContent::Text { text } => text,
+            _ => panic!("Expected text content"),
+        };
+        // Should use default "my-component" when no argument provided
+        assert!(content_text.contains("my-component"));
+    }
+
+    #[tokio::test]
+    async fn test_handle_prompts_get_unknown_prompt() {
+        let req = json!({
+            "name": "unknown-prompt"
+        });
+
+        let result = handle_prompts_get(req).await;
+        assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("Unknown prompt: unknown-prompt"));
+    }
+}
