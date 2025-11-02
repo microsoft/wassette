@@ -4,6 +4,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [v0.3.4] - 2025-11-02
+
 ### Added
 
 - Component registry validation pipeline that automatically validates new or modified component URIs in `component-registry.json` on pull requests, ensuring all URIs can be successfully loaded by wassette before merging changes ([#456](https://github.com/microsoft/wassette/pull/456))
@@ -203,7 +205,8 @@ Initial release of Wassette - A security-oriented runtime that runs WebAssembly 
 - Built-in examples and CLI interface
 - Installation support and documentation
 
-[Unreleased]: https://github.com/microsoft/wassette/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/microsoft/wassette/compare/v0.3.4...HEAD
+[v0.3.4]: https://github.com/microsoft/wassette/compare/v0.3.4...v0.3.4
 [v0.3.0]: https://github.com/microsoft/wassette/compare/v0.2.0...v0.3.0
 [v0.2.0]: https://github.com/microsoft/wassette/compare/v0.1.0...v0.2.0
 [v0.1.0]: https://github.com/microsoft/wassette/releases/tag/v0.1.0
