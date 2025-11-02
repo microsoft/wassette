@@ -41,7 +41,6 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Changed
 
-- Release workflow now supports dry run / test releases: Tags with hyphen suffixes (e.g., `v0.3.4-test1`, `v0.4.0-rc1`) are treated as prereleases. These releases build and publish binaries to GitHub but skip CHANGELOG updates and package manifest updates, enabling safe testing of the release pipeline without affecting production releases
 - Improved CLI help text for transport flags: changed from "Enable XXX transport" to "Serving with XXX transport" for better clarity on what the flags do ([#446](https://github.com/microsoft/wassette/pull/446))
 - Updated wasmtime dependencies from version 36 to 38.0.2 (wasmtime, wasmtime-wasi, wasmtime-wasi-http, wasmtime-wasi-config) ([#433](https://github.com/microsoft/wassette/pull/433))
 - Refactored duplicated tool name string constants in `src/main.rs` by introducing centralized `const` definitions, eliminating duplication between `TryFrom` and `AsRef` implementations ([#418](https://github.com/microsoft/wassette/pull/418))
