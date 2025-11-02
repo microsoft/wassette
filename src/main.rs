@@ -981,6 +981,59 @@ async fn main() -> Result<()> {
                     )?;
                 }
             },
+            Commands::Inspect { path } => {
+                use std::sync::Arc;
+
+                use wasmtime::component::Component;
+                use wasmtime::{Config, Engine};
+
+                // Configure Wasmtime engine for component model
+                let mut config = Config::new();
+                config.wasm_component_model(true);
+                config.async_support(true);
+                let engine = Arc::new(Engine::new(&config)?);
+
+                // Load the component
+                let component = Arc::new(Component::from_file(&engine, path)?);
+
+                // Try to extract package docs
+                let wasm_bytes = std::fs::read(path)?;
+                let package_docs = component2json::extract_package_docs(&wasm_bytes);
+
+                // Generate schema
+                let schema = if let Some(ref docs) = package_docs {
+                    println!("Found package docs!");
+                    component2json::component_exports_to_json_schema_with_docs(
+                        &component, &engine, true, docs,
+                    )
+                } else {
+                    println!("No package docs found, using auto-generated");
+                    component2json::component_exports_to_json_schema(&component, &engine, true)
+                };
+
+                // Display tools information
+                if let Some(arr) = schema["tools"].as_array() {
+                    for t in arr {
+                        let name = t["name"].as_str().unwrap_or("<unnamed>").to_string();
+                        let description: Option<String> =
+                            t["description"].as_str().map(|s| s.to_string());
+                        let input_schema = t["inputSchema"].clone();
+                        let output_schema = t["outputSchema"].clone();
+
+                        println!("{name}, {description:?}");
+                        println!(
+                            "input schema: {}",
+                            serde_json::to_string_pretty(&input_schema)?
+                        );
+                        println!(
+                            "output schema: {}",
+                            serde_json::to_string_pretty(&output_schema)?
+                        );
+                    }
+                } else {
+                    println!("No tools found in component");
+                }
+            }
         },
         None => {
             eprintln!("No command provided. Use --help for usage information.");
