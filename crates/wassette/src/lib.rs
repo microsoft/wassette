@@ -316,33 +316,33 @@ pub struct ComponentInstance {
 impl LifecycleManager {
     /// Begin constructing a lifecycle manager with a fluent builder that
     /// validates configuration and applies sensible defaults.
-    pub fn builder(plugin_dir: impl AsRef<Path>) -> LifecycleBuilder {
-        LifecycleBuilder::new(plugin_dir.as_ref().to_path_buf())
+    pub fn builder(component_dir: impl AsRef<Path>) -> LifecycleBuilder {
+        LifecycleBuilder::new(component_dir.as_ref().to_path_buf())
     }
 
     /// Creates a lifecycle manager with default configuration and eager loading.
-    #[instrument(skip_all, fields(plugin_dir = %plugin_dir.as_ref().display()))]
-    pub async fn new(plugin_dir: impl AsRef<Path>) -> Result<Self> {
-        Self::builder(plugin_dir).build().await
+    #[instrument(skip_all, fields(component_dir = %component_dir.as_ref().display()))]
+    pub async fn new(component_dir: impl AsRef<Path>) -> Result<Self> {
+        Self::builder(component_dir).build().await
     }
 
     /// Creates an unloaded lifecycle manager; components remain unloaded until requested.
-    #[instrument(skip_all, fields(plugin_dir = %plugin_dir.as_ref().display()))]
-    pub async fn new_unloaded(plugin_dir: impl AsRef<Path>) -> Result<Self> {
-        Self::builder(plugin_dir)
+    #[instrument(skip_all, fields(component_dir = %component_dir.as_ref().display()))]
+    pub async fn new_unloaded(component_dir: impl AsRef<Path>) -> Result<Self> {
+        Self::builder(component_dir)
             .with_eager_loading(false)
             .build()
             .await
     }
 
     /// Construct a lifecycle manager from an explicit configuration without loading components.
-    #[instrument(skip_all, fields(plugin_dir = %config.plugin_dir().display()))]
+    #[instrument(skip_all, fields(component_dir = %config.component_dir().display()))]
     pub async fn from_config(config: LifecycleConfig) -> Result<Self> {
-        let (plugin_dir, secrets_dir, environment_vars, http_client, oci_client, _) =
+        let (component_dir, secrets_dir, environment_vars, http_client, oci_client, _) =
             config.into_parts();
 
         let storage =
-            ComponentStorage::new(plugin_dir.clone(), DEFAULT_DOWNLOAD_CONCURRENCY).await?;
+            ComponentStorage::new(component_dir.clone(), DEFAULT_DOWNLOAD_CONCURRENCY).await?;
 
         let runtime = Arc::new(RuntimeContext::initialize()?);
 
@@ -371,7 +371,7 @@ impl LifecycleManager {
         })
     }
 
-    /// Load every component present in the plugin directory, updating the registry and cache.
+    /// Load every component present in the component directory, updating the registry and cache.
     #[instrument(skip(self))]
     pub async fn load_all_components(&self) -> Result<()> {
         let loaded_components =
@@ -627,7 +627,7 @@ impl LifecycleManager {
     }
 
     /// Lists all known components by ID (union of loaded components and any
-    /// `*.wasm` files present in the plugin directory). Does not compile components.
+    /// `*.wasm` files present in the component directory). Does not compile components.
     #[instrument(skip(self))]
     pub async fn list_components_known(&self) -> Vec<String> {
         use std::collections::HashSet;
@@ -801,14 +801,14 @@ impl LifecycleManager {
             .await
     }
 
-    /// Returns the plugin directory root on disk.
-    pub fn plugin_root(&self) -> &Path {
+    /// Returns the component directory root on disk.
+    pub fn component_root(&self) -> &Path {
         self.storage.root()
     }
 
     /// Ensure a specific component is loaded (compiled and instantiated) by its ID.
     /// If it's already loaded, this is a no-op. If the wasm file is not present in
-    /// the plugin directory, an error is returned.
+    /// the component directory, an error is returned.
     #[instrument(skip(self))]
     pub async fn ensure_component_loaded(&self, component_id: &str) -> Result<()> {
         if self.registry.contains_component(component_id).await {
@@ -1043,7 +1043,7 @@ impl LifecycleManager {
         }
     }
 
-    /// Load existing components from plugin directory in the background with bounded parallelism
+    /// Load existing components from component directory in the background with bounded parallelism
     /// Default concurrency is min(num_cpus, 4) if not specified
     #[instrument(skip(self, notify_fn))]
     pub async fn load_existing_components_async<F>(
@@ -1215,10 +1215,10 @@ impl LifecycleManager {
 }
 // Load components in parallel for improved startup performance
 async fn load_components_parallel(
-    plugin_dir: &Path,
+    component_dir: &Path,
     runtime: Arc<RuntimeContext>,
 ) -> Result<Vec<(ComponentInstance, String)>> {
-    let mut entries = tokio::fs::read_dir(plugin_dir).await?;
+    let mut entries = tokio::fs::read_dir(component_dir).await?;
     let mut load_futures = Vec::new();
 
     while let Some(entry) = entries.next_entry().await? {
@@ -1269,7 +1269,7 @@ impl LifecycleManager {
         component_id: &str,
         secrets: &[(String, String)],
     ) -> Result<()> {
-        // Check if component exists in the plugin directory
+        // Check if component exists in the component directory
         let component_path = self.component_path(component_id);
         if !component_path.exists() {
             bail!("Component not found: {}", component_id);
@@ -1536,7 +1536,7 @@ mod tests {
         let manager = create_test_manager().await?;
 
         let component_id = "test-component";
-        let expected_path = manager.plugin_root().join("test-component.wasm");
+        let expected_path = manager.component_root().join("test-component.wasm");
         let actual_path = manager.component_path(component_id);
 
         assert_eq!(actual_path, expected_path);
@@ -1557,7 +1557,7 @@ permissions:
     allow:
       - host: "example.com"
 "#;
-        let policy_path = manager.plugin_root().join("test-policy.yaml");
+        let policy_path = manager.component_root().join("test-policy.yaml");
         tokio::fs::write(&policy_path, policy_content).await?;
 
         let policy_uri = format!("file://{}", policy_path.display());

@@ -269,15 +269,15 @@ async fn handle_tool_cli_command(
     Ok(())
 }
 
-/// Create LifecycleManager from plugin directory
+/// Create LifecycleManager from component directory
 ///
 /// For CLI responsiveness, we create an unloaded lifecycle manager which
 /// initializes engine/linker without compiling/scanning all components.
 /// Component metadata or lazy loads are used by individual handlers.
-async fn create_lifecycle_manager(plugin_dir: Option<PathBuf>) -> Result<LifecycleManager> {
-    let config = if let Some(dir) = plugin_dir {
+async fn create_lifecycle_manager(component_dir: Option<PathBuf>) -> Result<LifecycleManager> {
+    let config = if let Some(dir) = component_dir {
         config::Config {
-            plugin_dir: dir,
+            component_dir: dir,
             secrets_dir: config::get_secrets_dir().unwrap_or_else(|_| {
                 eprintln!("WARN: Unable to determine default secrets directory, using `secrets` directory in the current working directory");
                 PathBuf::from("./secrets")
@@ -287,7 +287,7 @@ async fn create_lifecycle_manager(plugin_dir: Option<PathBuf>) -> Result<Lifecyc
         }
     } else {
         config::Config::from_serve(&crate::Serve {
-            plugin_dir: None,
+            component_dir: None,
             transport: Default::default(),
             env_vars: vec![],
             env_file: None,
@@ -299,13 +299,13 @@ async fn create_lifecycle_manager(plugin_dir: Option<PathBuf>) -> Result<Lifecyc
 
     // Use unloaded manager for fast CLI startup, but preserve custom secrets dir
     let config::Config {
-        plugin_dir,
+        component_dir,
         secrets_dir,
         environment_vars,
         bind_address: _,
     } = config;
 
-    LifecycleManager::builder(plugin_dir)
+    LifecycleManager::builder(component_dir)
         .with_environment_vars(environment_vars)
         .with_secrets_dir(secrets_dir)
         .with_oci_client(oci_client::Client::default())
@@ -358,7 +358,7 @@ impl ServerHandler for McpServer {
 
 Key points:
 - Tools must be loaded before use: "Load component from oci://registry/tool:version" or "file:///path/to/tool.wasm"
-- When the server starts, it will load all tools present in the plugin directory.
+- When the server starts, it will load all tools present in the component directory.
 - You can list loaded tools with 'list-components' tool.
 - Each tool only accesses resources explicitly granted by a policy file (filesystem paths, network domains, etc.)
 - You MUST never modify the policy file directly, use tools to grant permissions instead.
@@ -538,13 +538,13 @@ async fn main() -> Result<()> {
                 // Build the lifecycle manager without eagerly loading components so the
                 // background loader is the single source of tool registration.
                 let config::Config {
-                    plugin_dir,
+                    component_dir,
                     secrets_dir,
                     environment_vars,
                     bind_address,
                 } = config;
 
-                let lifecycle_manager = LifecycleManager::builder(plugin_dir)
+                let lifecycle_manager = LifecycleManager::builder(component_dir)
                     .with_environment_vars(environment_vars)
                     .with_secrets_dir(secrets_dir)
                     .with_oci_client(oci_client::Client::default())
@@ -624,9 +624,9 @@ async fn main() -> Result<()> {
                 tracing::info!("MCP server shutting down");
             }
             Commands::Component { command } => match command {
-                ComponentCommands::Load { path, plugin_dir } => {
-                    let plugin_dir = plugin_dir.clone().or_else(|| cli.plugin_dir.clone());
-                    let lifecycle_manager = create_lifecycle_manager(plugin_dir).await?;
+                ComponentCommands::Load { path, component_dir } => {
+                    let component_dir = component_dir.clone().or_else(|| cli.component_dir.clone());
+                    let lifecycle_manager = create_lifecycle_manager(component_dir).await?;
                     let mut args = Map::new();
                     args.insert("path".to_string(), json!(path));
                     handle_tool_cli_command(
@@ -637,9 +637,9 @@ async fn main() -> Result<()> {
                     )
                     .await?;
                 }
-                ComponentCommands::Unload { id, plugin_dir } => {
-                    let plugin_dir = plugin_dir.clone().or_else(|| cli.plugin_dir.clone());
-                    let lifecycle_manager = create_lifecycle_manager(plugin_dir).await?;
+                ComponentCommands::Unload { id, component_dir } => {
+                    let component_dir = component_dir.clone().or_else(|| cli.component_dir.clone());
+                    let lifecycle_manager = create_lifecycle_manager(component_dir).await?;
                     let mut args = Map::new();
                     args.insert("id".to_string(), json!(id));
                     handle_tool_cli_command(
@@ -651,11 +651,11 @@ async fn main() -> Result<()> {
                     .await?;
                 }
                 ComponentCommands::List {
-                    plugin_dir,
+                    component_dir,
                     output_format,
                 } => {
-                    let plugin_dir = plugin_dir.clone().or_else(|| cli.plugin_dir.clone());
-                    let lifecycle_manager = create_lifecycle_manager(plugin_dir).await?;
+                    let component_dir = component_dir.clone().or_else(|| cli.component_dir.clone());
+                    let lifecycle_manager = create_lifecycle_manager(component_dir).await?;
                     let args = Map::new();
                     handle_tool_cli_command(
                         &lifecycle_manager,
@@ -669,11 +669,11 @@ async fn main() -> Result<()> {
             Commands::Policy { command } => match command {
                 PolicyCommands::Get {
                     component_id,
-                    plugin_dir,
+                    component_dir,
                     output_format,
                 } => {
-                    let plugin_dir = plugin_dir.clone().or_else(|| cli.plugin_dir.clone());
-                    let lifecycle_manager = create_lifecycle_manager(plugin_dir).await?;
+                    let component_dir = component_dir.clone().or_else(|| cli.component_dir.clone());
+                    let lifecycle_manager = create_lifecycle_manager(component_dir).await?;
                     let mut args = Map::new();
                     args.insert("component_id".to_string(), json!(component_id));
                     handle_tool_cli_command(&lifecycle_manager, "get-policy", args, *output_format)
@@ -686,10 +686,10 @@ async fn main() -> Result<()> {
                         component_id,
                         uri,
                         access,
-                        plugin_dir,
+                        component_dir,
                     } => {
-                        let plugin_dir = plugin_dir.clone().or_else(|| cli.plugin_dir.clone());
-                        let lifecycle_manager = create_lifecycle_manager(plugin_dir).await?;
+                        let component_dir = component_dir.clone().or_else(|| cli.component_dir.clone());
+                        let lifecycle_manager = create_lifecycle_manager(component_dir).await?;
                         let mut args = Map::new();
                         args.insert("component_id".to_string(), json!(component_id));
                         args.insert(
@@ -710,10 +710,10 @@ async fn main() -> Result<()> {
                     GrantPermissionCommands::Network {
                         component_id,
                         host,
-                        plugin_dir,
+                        component_dir,
                     } => {
-                        let plugin_dir = plugin_dir.clone().or_else(|| cli.plugin_dir.clone());
-                        let lifecycle_manager = create_lifecycle_manager(plugin_dir).await?;
+                        let component_dir = component_dir.clone().or_else(|| cli.component_dir.clone());
+                        let lifecycle_manager = create_lifecycle_manager(component_dir).await?;
                         let mut args = Map::new();
                         args.insert("component_id".to_string(), json!(component_id));
                         args.insert(
@@ -733,10 +733,10 @@ async fn main() -> Result<()> {
                     GrantPermissionCommands::EnvironmentVariable {
                         component_id,
                         key,
-                        plugin_dir,
+                        component_dir,
                     } => {
-                        let plugin_dir = plugin_dir.clone().or_else(|| cli.plugin_dir.clone());
-                        let lifecycle_manager = create_lifecycle_manager(plugin_dir).await?;
+                        let component_dir = component_dir.clone().or_else(|| cli.component_dir.clone());
+                        let lifecycle_manager = create_lifecycle_manager(component_dir).await?;
                         let mut args = Map::new();
                         args.insert("component_id".to_string(), json!(component_id));
                         args.insert(
@@ -756,10 +756,10 @@ async fn main() -> Result<()> {
                     GrantPermissionCommands::Memory {
                         component_id,
                         limit,
-                        plugin_dir,
+                        component_dir,
                     } => {
-                        let plugin_dir = plugin_dir.clone().or_else(|| cli.plugin_dir.clone());
-                        let lifecycle_manager = create_lifecycle_manager(plugin_dir).await?;
+                        let component_dir = component_dir.clone().or_else(|| cli.component_dir.clone());
+                        let lifecycle_manager = create_lifecycle_manager(component_dir).await?;
                         let mut args = Map::new();
                         args.insert("component_id".to_string(), json!(component_id));
                         args.insert(
@@ -785,10 +785,10 @@ async fn main() -> Result<()> {
                     RevokePermissionCommands::Storage {
                         component_id,
                         uri,
-                        plugin_dir,
+                        component_dir,
                     } => {
-                        let plugin_dir = plugin_dir.clone().or_else(|| cli.plugin_dir.clone());
-                        let lifecycle_manager = create_lifecycle_manager(plugin_dir).await?;
+                        let component_dir = component_dir.clone().or_else(|| cli.component_dir.clone());
+                        let lifecycle_manager = create_lifecycle_manager(component_dir).await?;
                         let mut args = Map::new();
                         args.insert("component_id".to_string(), json!(component_id));
                         args.insert(
@@ -808,10 +808,10 @@ async fn main() -> Result<()> {
                     RevokePermissionCommands::Network {
                         component_id,
                         host,
-                        plugin_dir,
+                        component_dir,
                     } => {
-                        let plugin_dir = plugin_dir.clone().or_else(|| cli.plugin_dir.clone());
-                        let lifecycle_manager = create_lifecycle_manager(plugin_dir).await?;
+                        let component_dir = component_dir.clone().or_else(|| cli.component_dir.clone());
+                        let lifecycle_manager = create_lifecycle_manager(component_dir).await?;
                         let mut args = Map::new();
                         args.insert("component_id".to_string(), json!(component_id));
                         args.insert(
@@ -831,10 +831,10 @@ async fn main() -> Result<()> {
                     RevokePermissionCommands::EnvironmentVariable {
                         component_id,
                         key,
-                        plugin_dir,
+                        component_dir,
                     } => {
-                        let plugin_dir = plugin_dir.clone().or_else(|| cli.plugin_dir.clone());
-                        let lifecycle_manager = create_lifecycle_manager(plugin_dir).await?;
+                        let component_dir = component_dir.clone().or_else(|| cli.component_dir.clone());
+                        let lifecycle_manager = create_lifecycle_manager(component_dir).await?;
                         let mut args = Map::new();
                         args.insert("component_id".to_string(), json!(component_id));
                         args.insert(
@@ -854,10 +854,10 @@ async fn main() -> Result<()> {
                 },
                 PermissionCommands::Reset {
                     component_id,
-                    plugin_dir,
+                    component_dir,
                 } => {
-                    let plugin_dir = plugin_dir.clone().or_else(|| cli.plugin_dir.clone());
-                    let lifecycle_manager = create_lifecycle_manager(plugin_dir).await?;
+                    let component_dir = component_dir.clone().or_else(|| cli.component_dir.clone());
+                    let lifecycle_manager = create_lifecycle_manager(component_dir).await?;
                     let mut args = Map::new();
                     args.insert("component_id".to_string(), json!(component_id));
                     handle_tool_cli_command(
@@ -874,10 +874,10 @@ async fn main() -> Result<()> {
                     component_id,
                     show_values,
                     yes,
-                    plugin_dir,
+                    component_dir,
                     output_format,
                 } => {
-                    let lifecycle_manager = create_lifecycle_manager(plugin_dir.clone()).await?;
+                    let lifecycle_manager = create_lifecycle_manager(component_dir.clone()).await?;
 
                     // Prompt for confirmation if showing values
                     if *show_values && !*yes {
@@ -929,9 +929,9 @@ async fn main() -> Result<()> {
                 SecretCommands::Set {
                     component_id,
                     secrets,
-                    plugin_dir,
+                    component_dir,
                 } => {
-                    let lifecycle_manager = create_lifecycle_manager(plugin_dir.clone()).await?;
+                    let lifecycle_manager = create_lifecycle_manager(component_dir.clone()).await?;
                     lifecycle_manager
                         .set_component_secrets(component_id, secrets)
                         .await?;
@@ -956,9 +956,9 @@ async fn main() -> Result<()> {
                 SecretCommands::Delete {
                     component_id,
                     keys,
-                    plugin_dir,
+                    component_dir,
                 } => {
-                    let lifecycle_manager = create_lifecycle_manager(plugin_dir.clone()).await?;
+                    let lifecycle_manager = create_lifecycle_manager(component_dir.clone()).await?;
                     lifecycle_manager
                         .delete_component_secrets(component_id, keys)
                         .await?;

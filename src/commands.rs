@@ -17,9 +17,9 @@ pub struct Cli {
     #[arg(long, short = 'V')]
     pub version: bool,
 
-    /// Directory where plugins are stored (ignored when using --version)
+    /// Directory where components are stored (ignored when using --version)
     #[arg(long)]
-    pub plugin_dir: Option<std::path::PathBuf>,
+    pub component_dir: Option<std::path::PathBuf>,
 
     #[command(subcommand)]
     pub command: Option<Commands>,
@@ -58,10 +58,10 @@ pub enum Commands {
 
 #[derive(Parser, Debug, Clone, Serialize, Deserialize)]
 pub struct Serve {
-    /// Directory where plugins are stored. Defaults to $XDG_DATA_HOME/wassette/components
+    /// Directory where components are stored. Defaults to $XDG_DATA_HOME/wassette/components
     #[arg(long)]
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub plugin_dir: Option<PathBuf>,
+    pub component_dir: Option<PathBuf>,
 
     #[command(flatten)]
     pub transport: TransportFlags,
@@ -130,23 +130,23 @@ pub enum ComponentCommands {
     Load {
         /// Path to the component (file:// or oci://)
         path: String,
-        /// Directory where plugins are stored. Defaults to $XDG_DATA_HOME/wassette/components
+        /// Directory where components are stored. Defaults to $XDG_DATA_HOME/wassette/components
         #[arg(long)]
-        plugin_dir: Option<PathBuf>,
+        component_dir: Option<PathBuf>,
     },
     /// Unload a WebAssembly component.
     Unload {
         /// Component ID to unload
         id: String,
-        /// Directory where plugins are stored. Defaults to $XDG_DATA_HOME/wassette/components
+        /// Directory where components are stored. Defaults to $XDG_DATA_HOME/wassette/components
         #[arg(long)]
-        plugin_dir: Option<PathBuf>,
+        component_dir: Option<PathBuf>,
     },
     /// List all loaded components.
     List {
-        /// Directory where plugins are stored. Defaults to $XDG_DATA_HOME/wassette/components
+        /// Directory where components are stored. Defaults to $XDG_DATA_HOME/wassette/components
         #[arg(long)]
-        plugin_dir: Option<PathBuf>,
+        component_dir: Option<PathBuf>,
         /// Output format
         #[arg(short = 'o', long = "output-format", default_value = "json")]
         output_format: OutputFormat,
@@ -159,9 +159,9 @@ pub enum PolicyCommands {
     Get {
         /// Component ID to get policy for
         component_id: String,
-        /// Directory where plugins are stored. Defaults to $XDG_DATA_HOME/wassette/components
+        /// Directory where components are stored. Defaults to $XDG_DATA_HOME/wassette/components
         #[arg(long)]
-        plugin_dir: Option<PathBuf>,
+        component_dir: Option<PathBuf>,
         /// Output format
         #[arg(short = 'o', long = "output-format", default_value = "json")]
         output_format: OutputFormat,
@@ -184,9 +184,9 @@ pub enum PermissionCommands {
     Reset {
         /// Component ID to reset permissions for
         component_id: String,
-        /// Directory where plugins are stored. Defaults to $XDG_DATA_HOME/wassette/components
+        /// Directory where components are stored. Defaults to $XDG_DATA_HOME/wassette/components
         #[arg(long)]
-        plugin_dir: Option<PathBuf>,
+        component_dir: Option<PathBuf>,
     },
 }
 
@@ -201,9 +201,9 @@ pub enum GrantPermissionCommands {
         /// Access level (read, write, or read,write)
         #[arg(long, value_delimiter = ',')]
         access: Vec<String>,
-        /// Directory where plugins are stored. Defaults to $XDG_DATA_HOME/wassette/components
+        /// Directory where components are stored. Defaults to $XDG_DATA_HOME/wassette/components
         #[arg(long)]
-        plugin_dir: Option<PathBuf>,
+        component_dir: Option<PathBuf>,
     },
     /// Grant network permission to a component.
     Network {
@@ -211,9 +211,9 @@ pub enum GrantPermissionCommands {
         component_id: String,
         /// Host to grant access to
         host: String,
-        /// Directory where plugins are stored. Defaults to $XDG_DATA_HOME/wassette/components
+        /// Directory where components are stored. Defaults to $XDG_DATA_HOME/wassette/components
         #[arg(long)]
-        plugin_dir: Option<PathBuf>,
+        component_dir: Option<PathBuf>,
     },
     /// Grant environment variable permission to a component.
     #[command(name = "environment-variable")]
@@ -222,9 +222,9 @@ pub enum GrantPermissionCommands {
         component_id: String,
         /// Environment variable key
         key: String,
-        /// Directory where plugins are stored. Defaults to $XDG_DATA_HOME/wassette/components
+        /// Directory where components are stored. Defaults to $XDG_DATA_HOME/wassette/components
         #[arg(long)]
-        plugin_dir: Option<PathBuf>,
+        component_dir: Option<PathBuf>,
     },
     /// Grant memory permission to a component.
     Memory {
@@ -232,9 +232,9 @@ pub enum GrantPermissionCommands {
         component_id: String,
         /// Memory limit (e.g., 512Mi, 1Gi, 2048Ki)
         limit: String,
-        /// Directory where plugins are stored. Defaults to $XDG_DATA_HOME/wassette/components
+        /// Directory where components are stored. Defaults to $XDG_DATA_HOME/wassette/components
         #[arg(long)]
-        plugin_dir: Option<PathBuf>,
+        component_dir: Option<PathBuf>,
     },
 }
 
@@ -246,9 +246,9 @@ pub enum RevokePermissionCommands {
         component_id: String,
         /// URI of the storage resource (e.g., fs:///path/to/directory)
         uri: String,
-        /// Directory where plugins are stored. Defaults to $XDG_DATA_HOME/wassette/components
+        /// Directory where components are stored. Defaults to $XDG_DATA_HOME/wassette/components
         #[arg(long)]
-        plugin_dir: Option<PathBuf>,
+        component_dir: Option<PathBuf>,
     },
     /// Revoke network permission from a component.
     Network {
@@ -256,9 +256,9 @@ pub enum RevokePermissionCommands {
         component_id: String,
         /// Host to revoke access from
         host: String,
-        /// Directory where plugins are stored. Defaults to $XDG_DATA_HOME/wassette/components
+        /// Directory where components are stored. Defaults to $XDG_DATA_HOME/wassette/components
         #[arg(long)]
-        plugin_dir: Option<PathBuf>,
+        component_dir: Option<PathBuf>,
     },
     /// Revoke environment variable permission from a component.
     #[command(name = "environment-variable")]
@@ -267,9 +267,9 @@ pub enum RevokePermissionCommands {
         component_id: String,
         /// Environment variable key
         key: String,
-        /// Directory where plugins are stored. Defaults to $XDG_DATA_HOME/wassette/components
+        /// Directory where components are stored. Defaults to $XDG_DATA_HOME/wassette/components
         #[arg(long)]
-        plugin_dir: Option<PathBuf>,
+        component_dir: Option<PathBuf>,
     },
 }
 
@@ -285,9 +285,9 @@ pub enum SecretCommands {
         /// Skip confirmation prompt when showing values
         #[arg(long)]
         yes: bool,
-        /// Directory where plugins are stored. Defaults to $XDG_DATA_HOME/wassette/components
+        /// Directory where components are stored. Defaults to $XDG_DATA_HOME/wassette/components
         #[arg(long)]
-        plugin_dir: Option<PathBuf>,
+        component_dir: Option<PathBuf>,
         /// Output format
         #[arg(short = 'o', long = "output-format", default_value = "json")]
         output_format: OutputFormat,
@@ -299,9 +299,9 @@ pub enum SecretCommands {
         /// Secrets in KEY=VALUE format. Can be specified multiple times.
         #[arg(value_parser = crate::parse_env_var)]
         secrets: Vec<(String, String)>,
-        /// Directory where plugins are stored. Defaults to $XDG_DATA_HOME/wassette/components
+        /// Directory where components are stored. Defaults to $XDG_DATA_HOME/wassette/components
         #[arg(long)]
-        plugin_dir: Option<PathBuf>,
+        component_dir: Option<PathBuf>,
     },
     /// Delete secrets for a component.
     Delete {
@@ -309,8 +309,8 @@ pub enum SecretCommands {
         component_id: String,
         /// Secret keys to delete
         keys: Vec<String>,
-        /// Directory where plugins are stored. Defaults to $XDG_DATA_HOME/wassette/components
+        /// Directory where components are stored. Defaults to $XDG_DATA_HOME/wassette/components
         #[arg(long)]
-        plugin_dir: Option<PathBuf>,
+        component_dir: Option<PathBuf>,
     },
 }

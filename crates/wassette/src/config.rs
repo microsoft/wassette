@@ -17,7 +17,7 @@ use crate::{
 /// Fully-specified configuration for constructing a [`LifecycleManager`].
 #[derive(Clone)]
 pub struct LifecycleConfig {
-    plugin_dir: PathBuf,
+    component_dir: PathBuf,
     secrets_dir: PathBuf,
     environment_vars: HashMap<String, String>,
     http_client: reqwest::Client,
@@ -27,8 +27,8 @@ pub struct LifecycleConfig {
 
 impl LifecycleConfig {
     /// Location where components live.
-    pub fn plugin_dir(&self) -> &Path {
-        &self.plugin_dir
+    pub fn component_dir(&self) -> &Path {
+        &self.component_dir
     }
 
     /// Directory where component secrets are stored.
@@ -67,7 +67,7 @@ impl LifecycleConfig {
         bool,
     ) {
         (
-            self.plugin_dir,
+            self.component_dir,
             self.secrets_dir,
             self.environment_vars,
             self.http_client,
@@ -80,7 +80,7 @@ impl LifecycleConfig {
 /// Builder that validates inputs and produces a [`LifecycleConfig`] or [`LifecycleManager`].
 #[derive(Clone)]
 pub struct LifecycleBuilder {
-    plugin_dir: PathBuf,
+    component_dir: PathBuf,
     secrets_dir: Option<PathBuf>,
     environment_vars: HashMap<String, String>,
     http_client: Option<reqwest::Client>,
@@ -89,11 +89,11 @@ pub struct LifecycleBuilder {
 }
 
 impl LifecycleBuilder {
-    /// Create a builder with sensible defaults for the provided plugin
+    /// Create a builder with sensible defaults for the provided component
     /// directory.
-    pub(crate) fn new(plugin_dir: PathBuf) -> Self {
+    pub(crate) fn new(component_dir: PathBuf) -> Self {
         Self {
-            plugin_dir,
+            component_dir,
             secrets_dir: None,
             environment_vars: HashMap::new(),
             http_client: None,
@@ -144,9 +144,9 @@ impl LifecycleBuilder {
 
     /// Produce a validated [`LifecycleConfig`] without constructing a manager.
     pub fn build_config(self) -> Result<LifecycleConfig> {
-        let plugin_dir = match self.plugin_dir.canonicalize() {
+        let component_dir = match self.component_dir.canonicalize() {
             Ok(path) => path,
-            Err(_) => self.plugin_dir.clone(),
+            Err(_) => self.component_dir.clone(),
         };
 
         let secrets_dir = self.secrets_dir.unwrap_or_else(get_default_secrets_dir);
@@ -162,7 +162,7 @@ impl LifecycleBuilder {
         };
 
         Ok(LifecycleConfig {
-            plugin_dir,
+            component_dir,
             secrets_dir,
             environment_vars: self.environment_vars,
             http_client,
@@ -173,7 +173,7 @@ impl LifecycleBuilder {
 
     /// Construct a [`LifecycleManager`] using the current builder settings.
     ///
-    /// If eager loading is enabled the plugin directory is scanned
+    /// If eager loading is enabled the component directory is scanned
     /// immediately; otherwise the caller can defer loading until a later
     /// [`LifecycleManager::load_all_components`](crate::LifecycleManager::load_all_components)
     /// invocation.

@@ -867,7 +867,7 @@ permissions:
     allow:
       - key: "TEST_VAR"
 "#;
-        let policy_path = manager.plugin_root().join("test-policy.yaml");
+        let policy_path = manager.component_root().join("test-policy.yaml");
         tokio::fs::write(&policy_path, policy_content).await?;
 
         let policy_uri = format!("file://{}", policy_path.display());
@@ -910,7 +910,7 @@ version: "1.0"
 description: "Test policy"
 permissions: {}
 "#;
-        let policy_path = manager.plugin_root().join("test-policy.yaml");
+        let policy_path = manager.component_root().join("test-policy.yaml");
         tokio::fs::write(&policy_path, policy_content).await?;
 
         let policy_uri = format!("file://{}", policy_path.display());
@@ -1257,7 +1257,7 @@ permissions:
     allow:
       - host: "initial.example.com"
 "#;
-        let policy_path = manager.plugin_root().join("initial-policy.yaml");
+        let policy_path = manager.component_root().join("initial-policy.yaml");
         tokio::fs::write(&policy_path, policy_content).await?;
 
         let policy_uri = format!("file://{}", policy_path.display());

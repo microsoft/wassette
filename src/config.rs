@@ -21,7 +21,7 @@ pub fn get_secrets_dir() -> Result<PathBuf, anyhow::Error> {
     Ok(dir_strategy.config_dir().join("wassette").join("secrets"))
 }
 
-fn default_plugin_dir() -> PathBuf {
+fn default_component_dir() -> PathBuf {
     get_component_dir().unwrap_or_else(|_| {
         eprintln!("WARN: Unable to determine default component directory, using `components` directory in the current working directory");
         PathBuf::from("./components")
@@ -42,9 +42,9 @@ fn default_bind_address() -> String {
 /// Configuration for the Wasette MCP server
 #[derive(Debug, Deserialize, Serialize)]
 pub struct Config {
-    /// Directory where plugins are stored
-    #[serde(default = "default_plugin_dir")]
-    pub plugin_dir: PathBuf,
+    /// Directory where components are stored
+    #[serde(default = "default_component_dir")]
+    pub component_dir: PathBuf,
 
     /// Directory where secrets are stored
     #[serde(default = "default_secrets_dir")]
@@ -138,7 +138,7 @@ mod tests {
 
     fn create_test_cli_config() -> crate::Serve {
         crate::Serve {
-            plugin_dir: Some(PathBuf::from("/test/plugin/dir")),
+            component_dir: Some(PathBuf::from("/test/component/dir")),
             transport: Default::default(),
             env_vars: vec![],
             env_file: None,
@@ -149,7 +149,7 @@ mod tests {
 
     fn empty_test_cli_config() -> crate::Serve {
         crate::Serve {
-            plugin_dir: None,
+            component_dir: None,
             transport: Default::default(),
             env_vars: vec![],
             env_file: None,
@@ -194,7 +194,7 @@ mod tests {
             .expect("Failed to create config");
 
         // Should use CLI config values since no config file exists
-        assert_eq!(config.plugin_dir, PathBuf::from("/test/plugin/dir"));
+        assert_eq!(config.component_dir, PathBuf::from("/test/component/dir"));
     }
 
     #[test]
@@ -203,7 +203,7 @@ mod tests {
         let config_file = temp_dir.path().join("config.toml");
 
         let toml_content = r#"
-plugin_dir = "/config/plugin/dir"
+component_dir = "/config/component/dir"
 "#;
         fs::write(&config_file, toml_content).unwrap();
 
@@ -211,7 +211,7 @@ plugin_dir = "/config/plugin/dir"
         let config =
             Config::new_from_path(&serve_config, &config_file).expect("Failed to create config");
 
-        assert_eq!(config.plugin_dir, PathBuf::from("/test/plugin/dir"));
+        assert_eq!(config.component_dir, PathBuf::from("/test/component/dir"));
     }
 
     #[test]
@@ -220,14 +220,14 @@ plugin_dir = "/config/plugin/dir"
         let config_file = temp_dir.path().join("config.toml");
 
         let toml_content = r#"
-plugin_dir = "/config/plugin/dir"
+component_dir = "/config/component/dir"
 "#;
         fs::write(&config_file, toml_content).unwrap();
 
         let config = Config::new_from_path(&empty_test_cli_config(), &config_file)
             .expect("Failed to create config");
 
-        assert_eq!(config.plugin_dir, PathBuf::from("/config/plugin/dir"));
+        assert_eq!(config.component_dir, PathBuf::from("/config/component/dir"));
     }
 
     #[test]
@@ -240,7 +240,7 @@ plugin_dir = "/config/plugin/dir"
             .expect("Failed to create config");
 
         // Should use CLI config values as defaults
-        assert_eq!(config.plugin_dir, PathBuf::from("/test/plugin/dir"));
+        assert_eq!(config.component_dir, PathBuf::from("/test/component/dir"));
     }
 
     #[test]
@@ -248,17 +248,17 @@ plugin_dir = "/config/plugin/dir"
         let temp_dir = TempDir::new().unwrap();
         let config_file = temp_dir.path().join("config.toml");
 
-        // Config file only sets plugin_dir, not policy_file
+        // Config file only sets component_dir, not policy_file
         let toml_content = r#"
-plugin_dir = "/config/plugin/dir"
+component_dir = "/config/component/dir"
 "#;
         fs::write(&config_file, toml_content).unwrap();
 
         let config = Config::new_from_path(&empty_test_cli_config(), &config_file)
             .expect("Failed to create config");
 
-        // plugin_dir should come from config file
-        assert_eq!(config.plugin_dir, PathBuf::from("/config/plugin/dir"));
+        // component_dir should come from config file
+        assert_eq!(config.component_dir, PathBuf::from("/config/component/dir"));
     }
 
     #[test]
@@ -274,7 +274,7 @@ plugin_dir = "/config/plugin/dir"
         let config = Config::new(&serve_config).expect("Failed to create config");
 
         // Should use CLI defaults since no config file exists
-        assert_eq!(config.plugin_dir, PathBuf::from("/test/plugin/dir"));
+        assert_eq!(config.component_dir, PathBuf::from("/test/component/dir"));
     }
 
     #[test]
@@ -284,7 +284,7 @@ plugin_dir = "/config/plugin/dir"
 
         // Write invalid TOML content
         let invalid_toml = r#"
-plugin_dir = "/some/path"
+component_dir = "/some/path"
 policy_file = unclosed_string"
 "#;
         fs::write(&config_file, invalid_toml).unwrap();
@@ -302,7 +302,7 @@ policy_file = unclosed_string"
         let config_file = temp_dir.path().join("custom_config.toml");
 
         let toml_content = r#"
-plugin_dir = "/custom/plugin/dir"
+component_dir = "/custom/component/dir"
 policy_file = "custom_policy.yaml"
 "#;
         fs::write(&config_file, toml_content).unwrap();
@@ -312,7 +312,7 @@ policy_file = "custom_policy.yaml"
 
         let config = Config::new(&empty_test_cli_config()).expect("Failed to create config");
 
-        assert_eq!(config.plugin_dir, PathBuf::from("/custom/plugin/dir"));
+        assert_eq!(config.component_dir, PathBuf::from("/custom/component/dir"));
     }
 
     #[test]
@@ -360,7 +360,7 @@ bind_address = "0.0.0.0:8080"
 
         // CLI provides a different bind address
         let serve_config = crate::Serve {
-            plugin_dir: None,
+            component_dir: None,
             transport: Default::default(),
             env_vars: vec![],
             env_file: None,

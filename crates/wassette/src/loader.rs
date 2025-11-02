@@ -29,7 +29,7 @@ impl DownloadedResource {
     /// Returns a new `DownloadedComponent` with an already opened file handle for writing the
     /// download.
     ///
-    /// The `name` parameter must be unique across all plugins as it is used to identify the
+    /// The `name` parameter must be unique across all components as it is used to identify the
     /// component.
     pub async fn new_temp_file(
         name: impl AsRef<str>,

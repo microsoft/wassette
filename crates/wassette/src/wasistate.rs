@@ -183,13 +183,13 @@ impl Default for WasiStateTemplate {
 /// Maps the policy-mcp capabilities to the wasi state template
 pub fn create_wasi_state_template_from_policy(
     policy: &PolicyDocument,
-    plugin_dir: &Path,
+    component_dir: &Path,
     environment_vars: &HashMap<String, String>,
     secrets: Option<&HashMap<String, String>>,
 ) -> anyhow::Result<WasiStateTemplate> {
     let env_vars = extract_env_vars(policy, environment_vars, secrets)?;
     let network_perms = extract_network_perms(policy);
-    let preopened_dirs = extract_storage_permissions(policy, plugin_dir)?;
+    let preopened_dirs = extract_storage_permissions(policy, component_dir)?;
     let allowed_hosts = extract_allowed_hosts(policy);
     let memory_limit = extract_memory_limit(policy)?;
     let store_limits = memory_limit
@@ -280,7 +280,7 @@ pub(crate) fn extract_allowed_hosts(policy: &PolicyDocument) -> HashSet<String> 
 
 pub(crate) fn extract_storage_permissions(
     policy: &PolicyDocument,
-    plugin_dir: &Path,
+    component_dir: &Path,
 ) -> anyhow::Result<Vec<PreopenedDir>> {
     let mut preopened_dirs = Vec::new();
     if let Some(storage) = &policy.permissions.storage {
@@ -291,7 +291,7 @@ pub(crate) fn extract_storage_permissions(
                     let path = Path::new(uri);
                     let (file_perms, dir_perms) = calculate_permissions(&storage_permission.access);
                     let guest_path = path.to_string_lossy().to_string();
-                    let host_path = plugin_dir.join(path);
+                    let host_path = component_dir.join(path);
                     preopened_dirs.push(PreopenedDir {
                         host_path,
                         guest_path,
@@ -572,16 +572,16 @@ permissions:
     #[test]
     fn test_extract_storage_permissions() {
         let temp_dir = TempDir::new().unwrap();
-        let plugin_dir = temp_dir.path();
+        let component_dir = temp_dir.path();
 
         let policy = create_test_policy();
-        let preopened_dirs = extract_storage_permissions(&policy, plugin_dir).unwrap();
+        let preopened_dirs = extract_storage_permissions(&policy, component_dir).unwrap();
 
         assert_eq!(preopened_dirs.len(), 3);
 
         let read_only = &preopened_dirs[0];
         assert_eq!(read_only.guest_path, "test/path");
-        assert_eq!(read_only.host_path, plugin_dir.join("test/path"));
+        assert_eq!(read_only.host_path, component_dir.join("test/path"));
         assert_eq!(read_only.file_perms, wasmtime_wasi::FilePerms::READ);
         assert_eq!(read_only.dir_perms, wasmtime_wasi::DirPerms::READ);
 
@@ -608,10 +608,10 @@ permissions:
     #[test]
     fn test_extract_storage_permissions_skips_non_fs_uri() {
         let temp_dir = TempDir::new().unwrap();
-        let plugin_dir = temp_dir.path();
+        let component_dir = temp_dir.path();
 
         let policy = create_test_policy();
-        let preopened_dirs = extract_storage_permissions(&policy, plugin_dir).unwrap();
+        let preopened_dirs = extract_storage_permissions(&policy, component_dir).unwrap();
 
         for dir in &preopened_dirs {
             assert!(
@@ -626,10 +626,10 @@ permissions:
     #[test]
     fn test_extract_storage_permissions_no_permissions() {
         let temp_dir = TempDir::new().unwrap();
-        let plugin_dir = temp_dir.path();
+        let component_dir = temp_dir.path();
 
         let policy = create_zero_permission_policy();
-        let preopened_dirs = extract_storage_permissions(&policy, plugin_dir).unwrap();
+        let preopened_dirs = extract_storage_permissions(&policy, component_dir).unwrap();
 
         assert!(preopened_dirs.is_empty());
     }
@@ -637,7 +637,7 @@ permissions:
     #[test]
     fn test_extract_storage_permissions_empty_allow_list() {
         let temp_dir = TempDir::new().unwrap();
-        let plugin_dir = temp_dir.path();
+        let component_dir = temp_dir.path();
 
         let yaml_content = r#"
 version: "1.0"
@@ -647,7 +647,7 @@ permissions:
     allow: []
 "#;
         let policy = PolicyParser::parse_str(yaml_content).unwrap();
-        let preopened_dirs = extract_storage_permissions(&policy, plugin_dir).unwrap();
+        let preopened_dirs = extract_storage_permissions(&policy, component_dir).unwrap();
 
         assert!(preopened_dirs.is_empty());
     }
@@ -655,10 +655,10 @@ permissions:
     #[test]
     fn test_extract_storage_permissions_duplicated_access_has_no_effect() {
         let temp_dir = TempDir::new().unwrap();
-        let plugin_dir = temp_dir.path();
+        let component_dir = temp_dir.path();
 
         let policy = create_policy_with_duplicated_access();
-        let preopened_dirs = extract_storage_permissions(&policy, plugin_dir).unwrap();
+        let preopened_dirs = extract_storage_permissions(&policy, component_dir).unwrap();
 
         assert_eq!(preopened_dirs.len(), 1);
         let dir = &preopened_dirs[0];
@@ -675,12 +675,12 @@ permissions:
     #[test]
     fn test_create_wasi_state_template_from_policy() {
         let temp_dir = TempDir::new().unwrap();
-        let plugin_dir = temp_dir.path();
+        let component_dir = temp_dir.path();
         let policy = create_test_policy();
         let env_vars = HashMap::new(); // Empty environment for test
 
         let template =
-            create_wasi_state_template_from_policy(&policy, plugin_dir, &env_vars, None).unwrap();
+            create_wasi_state_template_from_policy(&policy, component_dir, &env_vars, None).unwrap();
 
         assert!(template.network_perms.allow_tcp);
         assert!(template.network_perms.allow_udp);
@@ -691,12 +691,12 @@ permissions:
     #[test]
     fn test_create_wasi_state_template_from_policy_no_permissions() {
         let temp_dir = TempDir::new().unwrap();
-        let plugin_dir = temp_dir.path();
+        let component_dir = temp_dir.path();
         let policy = create_policy_without_permissions();
         let env_vars = HashMap::new(); // Empty environment for test
 
         let template =
-            create_wasi_state_template_from_policy(&policy, plugin_dir, &env_vars, None).unwrap();
+            create_wasi_state_template_from_policy(&policy, component_dir, &env_vars, None).unwrap();
 
         assert!(!template.network_perms.allow_tcp);
         assert!(!template.network_perms.allow_udp);
@@ -745,7 +745,7 @@ permissions:
     #[test]
     fn test_create_wasi_state_template_with_memory_limit() {
         let temp_dir = TempDir::new().unwrap();
-        let plugin_dir = temp_dir.path();
+        let component_dir = temp_dir.path();
 
         let yaml_content = r#"
 version: "1.0"
@@ -758,7 +758,7 @@ permissions:
         let policy = PolicyParser::parse_str(yaml_content).unwrap();
         let env_vars = HashMap::new(); // Empty environment for test
         let template =
-            create_wasi_state_template_from_policy(&policy, plugin_dir, &env_vars, None).unwrap();
+            create_wasi_state_template_from_policy(&policy, component_dir, &env_vars, None).unwrap();
 
         assert_eq!(template.memory_limit, Some(512 * 1024 * 1024));
         assert!(template.store_limits.is_some());
@@ -767,7 +767,7 @@ permissions:
     #[test]
     fn test_memory_resource_end_to_end() -> anyhow::Result<()> {
         let temp_dir = TempDir::new().unwrap();
-        let plugin_dir = temp_dir.path();
+        let component_dir = temp_dir.path();
 
         // Create a policy with memory resource through policy parsing
         let yaml_content = r#"
@@ -787,7 +787,7 @@ permissions:
         // Test that WASI state template is created with memory limit
         let env_vars = HashMap::new(); // Empty environment for test
         let template =
-            create_wasi_state_template_from_policy(&policy, plugin_dir, &env_vars, None).unwrap();
+            create_wasi_state_template_from_policy(&policy, component_dir, &env_vars, None).unwrap();
         assert_eq!(template.memory_limit, Some(1024 * 1024 * 1024));
         assert!(template.store_limits.is_some());
 
@@ -801,7 +801,7 @@ permissions:
     #[test]
     fn test_wasi_state_template_injects_env_vars() {
         let temp_dir = TempDir::new().unwrap();
-        let plugin_dir = temp_dir.path();
+        let component_dir = temp_dir.path();
 
         // Create a simple policy with only environment permissions (no storage permissions)
         let yaml_content = r#"
@@ -820,7 +820,7 @@ permissions:
         env_vars.insert("ANOTHER_VAR".to_string(), "another_value".to_string());
 
         let template =
-            create_wasi_state_template_from_policy(&policy, plugin_dir, &env_vars, None).unwrap();
+            create_wasi_state_template_from_policy(&policy, component_dir, &env_vars, None).unwrap();
 
         // Verify that config_vars contains the allowed environment variables
         assert_eq!(
@@ -844,7 +844,7 @@ permissions:
     #[test]
     fn test_wasi_state_template_builds_with_empty_env_vars() {
         let temp_dir = TempDir::new().unwrap();
-        let plugin_dir = temp_dir.path();
+        let component_dir = temp_dir.path();
 
         // Create a simple policy with only environment permissions (no storage)
         let yaml_content = r#"
@@ -859,7 +859,7 @@ permissions:
         let env_vars = HashMap::new(); // Empty environment
 
         let template =
-            create_wasi_state_template_from_policy(&policy, plugin_dir, &env_vars, None).unwrap();
+            create_wasi_state_template_from_policy(&policy, component_dir, &env_vars, None).unwrap();
         assert!(template.config_vars.is_empty());
 
         let wasi_state = template.build();
@@ -872,7 +872,7 @@ permissions:
     #[test]
     fn test_wasi_state_template_builds_with_multiple_env_vars() {
         let temp_dir = TempDir::new().unwrap();
-        let plugin_dir = temp_dir.path();
+        let component_dir = temp_dir.path();
 
         // Create a policy that allows multiple environment variables
         let yaml_content = r#"
@@ -900,7 +900,7 @@ permissions:
         );
 
         let template =
-            create_wasi_state_template_from_policy(&policy, plugin_dir, &env_vars, None).unwrap();
+            create_wasi_state_template_from_policy(&policy, component_dir, &env_vars, None).unwrap();
 
         // Verify only allowed environment variables are in config_vars
         assert_eq!(template.config_vars.len(), 3);
@@ -929,7 +929,7 @@ permissions:
     #[test]
     fn test_wasi_state_template_handles_special_env_var_values() {
         let temp_dir = TempDir::new().unwrap();
-        let plugin_dir = temp_dir.path();
+        let component_dir = temp_dir.path();
 
         let yaml_content = r#"
 version: "1.0"
@@ -955,7 +955,7 @@ permissions:
         );
 
         let template =
-            create_wasi_state_template_from_policy(&policy, plugin_dir, &env_vars, None).unwrap();
+            create_wasi_state_template_from_policy(&policy, component_dir, &env_vars, None).unwrap();
 
         // Verify special values are preserved
         assert_eq!(template.config_vars.get("EMPTY_VAR"), Some(&"".to_string()));
@@ -979,7 +979,7 @@ permissions:
     #[test]
     fn test_env_vars_injection_with_no_environment_permissions() {
         let temp_dir = TempDir::new().unwrap();
-        let plugin_dir = temp_dir.path();
+        let component_dir = temp_dir.path();
 
         // Policy with no environment permissions
         let yaml_content = r#"
@@ -996,7 +996,7 @@ permissions:
         env_vars.insert("SOME_VAR".to_string(), "some_value".to_string());
 
         let template =
-            create_wasi_state_template_from_policy(&policy, plugin_dir, &env_vars, None).unwrap();
+            create_wasi_state_template_from_policy(&policy, component_dir, &env_vars, None).unwrap();
 
         // No environment variables should be in config_vars
         assert!(template.config_vars.is_empty());
@@ -1012,7 +1012,7 @@ permissions:
     #[test]
     fn test_config_vars_are_injected_as_wasi_env_vars() {
         let temp_dir = TempDir::new().unwrap();
-        let plugin_dir = temp_dir.path();
+        let component_dir = temp_dir.path();
 
         // Create a simple policy with only environment permissions (no storage)
         let yaml_content = r#"
@@ -1029,7 +1029,7 @@ permissions:
         env_vars.insert("TEST_VAR".to_string(), "injected_value".to_string());
 
         let template =
-            create_wasi_state_template_from_policy(&policy, plugin_dir, &env_vars, None).unwrap();
+            create_wasi_state_template_from_policy(&policy, component_dir, &env_vars, None).unwrap();
 
         // Verify that config_vars contains the allowed environment variable
         assert_eq!(

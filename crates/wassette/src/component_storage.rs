@@ -25,14 +25,14 @@ pub struct ComponentStorage {
 }
 
 impl ComponentStorage {
-    /// Create a new storage manager rooted at the plugin directory.
+    /// Create a new storage manager rooted at the component directory.
     pub async fn new(root: impl Into<PathBuf>, max_concurrent_downloads: usize) -> Result<Self> {
         let root = root.into();
         let downloads_dir = root.join(crate::DOWNLOADS_DIR);
 
         tokio::fs::create_dir_all(&root)
             .await
-            .with_context(|| format!("Failed to create plugin directory at {}", root.display()))?;
+            .with_context(|| format!("Failed to create component directory at {}", root.display()))?;
 
         tokio::fs::create_dir_all(&downloads_dir)
             .await
@@ -50,7 +50,7 @@ impl ComponentStorage {
         })
     }
 
-    /// Root plugin directory containing components.
+    /// Root component directory containing components.
     pub fn root(&self) -> &Path {
         &self.root
     }
