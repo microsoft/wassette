@@ -679,13 +679,15 @@ async fn test_tool_list_notification() -> Result<()> {
     let mut stdout = BufReader::new(stdout);
     let mut stderr = BufReader::new(stderr);
 
-    // Give the server time to start
-    tokio::time::sleep(Duration::from_millis(1000)).await;
+    // Give the server more time to start, especially when running tests in parallel
+    tokio::time::sleep(Duration::from_millis(2000)).await;
 
     // Check if the process is still running
     if let Ok(Some(status)) = child.try_wait() {
         let mut stderr_output = String::new();
         let _ = stderr.read_line(&mut stderr_output).await;
+        // Kill any remaining processes
+        let _ = child.kill().await;
         return Err(anyhow::anyhow!(
             "Server process exited with status: {:?}, stderr: {}",
             status,
@@ -1079,13 +1081,15 @@ async fn test_disable_builtin_tools() -> Result<()> {
     let mut stdout = BufReader::new(stdout);
     let mut stderr = BufReader::new(stderr);
 
-    // Give the server time to start
-    tokio::time::sleep(Duration::from_millis(1000)).await;
+    // Give the server more time to start, especially when running tests in parallel
+    tokio::time::sleep(Duration::from_millis(2000)).await;
 
     // Check if the process is still running
     if let Ok(Some(status)) = child.try_wait() {
         let mut stderr_output = String::new();
         let _ = stderr.read_line(&mut stderr_output).await;
+        // Kill any remaining processes
+        let _ = child.kill().await;
         return Err(anyhow::anyhow!(
             "Server process exited with status: {:?}, stderr: {}",
             status,
