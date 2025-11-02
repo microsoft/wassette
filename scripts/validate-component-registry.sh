@@ -98,7 +98,9 @@ echo "Waiting for wassette server to start..."
 MAX_WAIT=30
 WAITED=0
 while [[ $WAITED -lt $MAX_WAIT ]]; do
-    if curl -sf http://127.0.0.1:9001/health > /dev/null 2>&1; then
+    # Check if the SSE endpoint is available (returns 200 with event-stream)
+    # Use HEAD request (-I) to avoid hanging on the streaming response
+    if timeout 2 curl -s -I http://127.0.0.1:9001/sse 2>/dev/null | grep -q "HTTP/1.1 200"; then
         echo "Wassette server is ready (PID: $WASSETTE_PID)"
         break
     fi
