@@ -34,7 +34,6 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - Comprehensive documentation on wit-docs-inject usage for embedding WIT documentation into WASM components and translating it to AI agent tool descriptions
 - Agentic workflow for automatic CHANGELOG PR link addition: When PRs modify CHANGELOG.md, the workflow automatically adds PR links to new entries in the Unreleased section, ensuring consistent formatting and making it easier to track changes back to their source PRs
 - Release branch strategy to prevent development blockages: Release pipeline now creates and preserves dedicated release branches (e.g., `release/vX.Y.Z`) for the entire release process, ensuring that ongoing development on main is not blocked by release activities
-- Agentic workflow for automatic changelog fragment generation: When PRs are opened or reopened, the workflow analyzes the PR title and description to determine the change type (feature, bugfix, doc, removal, misc) and creates a tiny changelog fragment file in `changelog.d/` directory following the towncrier format `<pr_number>.<type>.md`. This enables a more distributed approach to changelog management where each PR contributes its own fragment that can later be consolidated using towncrier during releases
 
 ### Changed
 
