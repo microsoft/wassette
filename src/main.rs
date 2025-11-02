@@ -20,6 +20,9 @@ mod cli_handlers;
 mod commands;
 mod config;
 mod format;
+mod manifest;
+mod permission_synthesis;
+mod provisioning_controller;
 mod registry;
 mod server;
 mod tools;
@@ -76,6 +79,23 @@ async fn main() -> Result<()> {
                 let config =
                     config::Config::from_serve(cfg).context("Failed to load configuration")?;
 
+                // Parse and validate manifest if provided
+                let manifest = if let Some(manifest_path) = &cfg.manifest {
+                    let m = manifest::ProvisioningManifest::from_file(manifest_path)
+                        .context("Failed to parse provisioning manifest")?;
+
+                    tracing::info!("Validating provisioning manifest from: {}", manifest_path.display());
+                    m.validate().context("Manifest validation failed")?;
+
+                    tracing::info!(
+                        "Successfully validated manifest with {} component(s)",
+                        m.components.len()
+                    );
+                    Some(m)
+                } else {
+                    None
+                };
+
                 // Build the lifecycle manager without eagerly loading components so the
                 // background loader is the single source of tool registration.
                 let config::Config {
@@ -85,6 +105,9 @@ async fn main() -> Result<()> {
                     bind_address,
                 } = config;
 
+                // Keep a clone of component_dir for provisioning
+                let component_dir_path = component_dir.clone();
+
                 let lifecycle_manager = LifecycleManager::builder(component_dir)
                     .with_environment_vars(environment_vars)
                     .with_secrets_dir(secrets_dir)
@@ -93,6 +116,25 @@ async fn main() -> Result<()> {
                     .with_eager_loading(false)
                     .build()
                     .await?;
+
+                // Provision components from manifest if provided
+                if let Some(manifest) = &manifest {
+                    tracing::info!("Provisioning components from manifest...");
+
+                    let provisioner = provisioning_controller::ProvisioningController::new(
+                        manifest,
+                        &lifecycle_manager,
+                        lifecycle_manager.secrets_manager(),
+                        &component_dir_path,
+                    );
+
+                    provisioner
+                        .provision()
+                        .await
+                        .context("Component provisioning failed")?;
+
+                    tracing::info!("All components provisioned successfully");
+                }
 
                 let server = McpServer::new(lifecycle_manager.clone(), cfg.disable_builtin_tools);
 

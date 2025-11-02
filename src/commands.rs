@@ -98,6 +98,11 @@ pub struct Serve {
     #[arg(long)]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub bind_address: Option<String>,
+
+    /// Path to provisioning manifest for headless deployment mode
+    #[arg(long)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub manifest: Option<PathBuf>,
 }
 
 #[derive(Args, Debug, Clone, Serialize, Deserialize, Default)]

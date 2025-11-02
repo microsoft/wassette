@@ -51,6 +51,7 @@ figment = { version = "0.10", features = ["env", "toml"] }
 wassette = { workspace = true }
 mcp-server = { workspace = true }
 oci-client = { workspace = true }
+policy = { workspace = true }
 reqwest = { workspace = true }
 rmcp = { workspace = true, features = [
     "server",
