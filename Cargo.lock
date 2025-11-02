@@ -4940,7 +4940,7 @@ dependencies = [
 
 [[package]]
 name = "wassette-mcp-server"
-version = "0.3.3"
+version = "0.3.4"
 dependencies = [
  "anyhow",
  "axum",
