@@ -45,6 +45,7 @@ wassette
 │   ├── load       # Load components
 │   ├── unload     # Remove components
 │   └── list       # Show loaded components
+├── inspect        # Inspect component schema (debugging)
 ├── policy         # Policy information
 │   └── get        # Retrieve component policies
 └── permission     # Permission management
@@ -193,6 +194,87 @@ time-component | 1     | Provides time-related functions
 - `--output-format <FORMAT>`: Output format (json, yaml, table) [default: json]
 - `--plugin-dir <PATH>`: Component storage directory
 
+## Component Inspection
+
+### `wassette inspect`
+
+Inspect a WebAssembly component and display its JSON schema. This command is useful for debugging and understanding the structure of a component's inputs and outputs without loading it into the MCP server.
+
+**Basic usage:**
+```bash
+# Inspect a local component file
+wassette inspect /path/to/component.wasm
+
+# Inspect a component in your project
+wassette inspect ./target/wasm32-wasip2/debug/my-component.wasm
+```
+
+**Example output:**
+```
+No package docs found, using auto-generated
+get-weather, Some("Auto-generated schema for function 'get-weather'")
+input schema: {
+  "properties": {
+    "city": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "city"
+  ],
+  "type": "object"
+}
+output schema: {
+  "properties": {
+    "result": {
+      "oneOf": [
+        {
+          "properties": {
+            "ok": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "ok"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "err": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "err"
+          ],
+          "type": "object"
+        }
+      ]
+    }
+  },
+  "required": [
+    "result"
+  ],
+  "type": "object"
+}
+```
+
+The inspect command displays:
+- **Function names**: The exported functions available in the component
+- **Descriptions**: Either extracted from package documentation or auto-generated
+- **Input schemas**: JSON schema describing the expected input parameters
+- **Output schemas**: JSON schema describing the return values and result types
+
+This is particularly useful for:
+- **Development**: Verifying component interfaces during development
+- **Debugging**: Understanding why a component might not be working as expected
+- **Documentation**: Generating reference material for component APIs
+- **Integration**: Understanding how to call component functions correctly
+
+**Options:**
+- `<PATH>`: Path to the WebAssembly component file (required)
+
 ## Policy Management
 
 ### `wassette policy get`
@@ -337,21 +419,24 @@ wassette permission reset my-component --plugin-dir /custom/components
 ### Local Development
 
 ```bash
-# 1. Build and load a local component
+# 1. Inspect the component to understand its interface
+wassette inspect ./target/wasm32-wasi/debug/my-tool.wasm
+
+# 2. Build and load a local component
 wassette component load file://./target/wasm32-wasi/debug/my-tool.wasm
 
-# 2. Check it loaded correctly
+# 3. Check it loaded correctly
 wassette component list --output-format table
 
-# 3. Grant necessary permissions
+# 4. Grant necessary permissions
 wassette permission grant storage my-tool fs://$(pwd)/workspace --access read,write
 wassette permission grant network my-tool api.example.com
 wassette permission grant memory my-tool 512Mi
 
-# 4. Verify permissions
+# 5. Verify permissions
 wassette policy get my-tool --output-format yaml
 
-# 5. Test via MCP server
+# 6. Test via MCP server
 wassette serve --stdio
 ```
 
