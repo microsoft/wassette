@@ -12,6 +12,8 @@ jobs:
   update-manifests:
     name: Update Homebrew and WinGet Manifests
     runs-on: ubuntu-latest
+    # Skip for prerelease/dry-run releases (e.g., v0.3.4-test1)
+    if: github.event.release.prerelease == false
 
     steps:
       - name: Checkout repository
