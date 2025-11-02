@@ -1113,11 +1113,25 @@ async fn main() -> Result<()> {
                     }
                 }
             },
-            Commands::Inspect { path } => {
+            Commands::Inspect { uri } => {
                 use std::sync::Arc;
 
                 use wasmtime::component::Component;
                 use wasmtime::{Config, Engine};
+                use wassette::loader::{load_resource, ComponentResource};
+
+                // Create OCI and HTTP clients for downloading remote components
+                let oci_client = oci_client::Client::default();
+                let wasm_client = oci_wasm::WasmClient::new(oci_client);
+                let http_client = reqwest::Client::default();
+
+                // Download or load the component from the URI
+                let resource = load_resource::<ComponentResource>(uri, &wasm_client, &http_client)
+                    .await
+                    .context(format!("Failed to load component from URI: {}", uri))?;
+
+                // Get the path to the downloaded/local file
+                let component_path = resource.as_ref();
 
                 // Configure Wasmtime engine for component model
                 let mut config = Config::new();
@@ -1126,10 +1140,10 @@ async fn main() -> Result<()> {
                 let engine = Arc::new(Engine::new(&config)?);
 
                 // Load the component
-                let component = Arc::new(Component::from_file(&engine, path)?);
+                let component = Arc::new(Component::from_file(&engine, component_path)?);
 
                 // Try to extract package docs
-                let wasm_bytes = std::fs::read(path)?;
+                let wasm_bytes = std::fs::read(component_path)?;
                 let package_docs = component2json::extract_package_docs(&wasm_bytes);
 
                 // Generate schema
@@ -1165,6 +1179,9 @@ async fn main() -> Result<()> {
                 } else {
                     println!("No tools found in component");
                 }
+
+                // Resource cleanup: DownloadedResource implements Drop for Temp variant,
+                // so temporary files are automatically cleaned up when resource goes out of scope
             }
         },
         None => {

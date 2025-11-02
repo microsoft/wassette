@@ -51,8 +51,8 @@ pub enum Commands {
     },
     /// Inspect a WebAssembly component and display its JSON schema (for debugging).
     Inspect {
-        /// Path to the WebAssembly component file
-        path: PathBuf,
+        /// URI to the WebAssembly component (file://, oci://, or https://)
+        uri: String,
     },
     /// Manage tools (list, read, invoke).
     Tool {

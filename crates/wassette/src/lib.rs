@@ -28,7 +28,7 @@ use wasmtime::Store;
 mod component_storage;
 mod config;
 mod http;
-mod loader;
+pub mod loader;
 pub mod oci_multi_layer;
 mod policy_internal;
 mod runtime_context;

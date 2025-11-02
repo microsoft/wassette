@@ -12,7 +12,9 @@ use tracing::{debug, info, warn};
 
 /// Represents a downloaded resource, either from a local file or a temporary one.
 pub enum DownloadedResource {
+    /// A local file that already exists on disk
     Local(PathBuf),
+    /// A temporary file that will be cleaned up when dropped
     Temp((tempfile::TempDir, PathBuf)),
 }
 
@@ -43,6 +45,7 @@ impl DownloadedResource {
         Ok((DownloadedResource::Temp((tempdir, file_path)), temp_file))
     }
 
+    /// Extract the resource ID from the file name
     pub fn id(&self) -> Result<String> {
         // NOTE(thomastaylor312): Unfortunately the rust tooling (and I think some of the others),
         // doesn't preserve the package ID from the wit world defined for the component. It just
@@ -69,6 +72,7 @@ impl DownloadedResource {
             .ok_or_else(|| anyhow::anyhow!("Failed to extract resource ID from path"))
     }
 
+    /// Copy the resource to a destination directory
     pub async fn copy_to(self, dest: impl AsRef<Path>) -> Result<()> {
         let meta = tokio::fs::metadata(&dest).await?;
         if !meta.is_dir() {
@@ -148,15 +152,22 @@ impl DownloadedResource {
 }
 
 /// A trait for resources that can be loaded from a URI.
+/// Trait for resources that can be loaded from various sources (file, OCI, URL)
+#[allow(async_fn_in_trait)]
 pub trait Loadable: Sized {
+    /// The file extension for this resource type (e.g., "wasm")
     const FILE_EXTENSION: &'static str;
+    /// The resource type name for error messages (e.g., "component")
     const RESOURCE_TYPE: &'static str;
 
+    /// Load a resource from a local file path
     async fn from_local_file(path: &Path) -> Result<DownloadedResource>;
+    /// Load a resource from an OCI registry reference
     async fn from_oci_reference(
         reference: &str,
         oci_client: &oci_client::Client,
     ) -> Result<DownloadedResource>;
+    /// Load a resource from an HTTPS URL
     async fn from_url(url: &str, http_client: &reqwest::Client) -> Result<DownloadedResource>;
 }
 
@@ -361,8 +372,21 @@ impl Loadable for PolicyResource {
     }
 }
 
-/// Generic resource loading function
-pub(crate) async fn load_resource<T: Loadable>(
+/// Load a resource from a URI (file://, oci://, or https://)
+///
+/// This function supports loading resources from various sources:
+/// - `file://` - Local file system paths
+/// - `oci://` - OCI registry references
+/// - `https://` - Direct HTTPS downloads
+///
+/// # Arguments
+/// * `uri` - The URI to load from (e.g., "file:///path/to/file.wasm", "oci://registry/image:tag")
+/// * `oci_client` - The OCI client for registry downloads
+/// * `http_client` - The HTTP client for HTTPS downloads
+///
+/// # Returns
+/// A `DownloadedResource` that references either a local file or a temporary file
+pub async fn load_resource<T: Loadable>(
     uri: &str,
     oci_client: &oci_wasm::WasmClient,
     http_client: &reqwest::Client,
