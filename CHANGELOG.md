@@ -7,6 +7,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ### Added
 
 - Component registry validation pipeline that automatically validates new or modified component URIs in `component-registry.json` on pull requests, ensuring all URIs can be successfully loaded by wassette before merging changes
+- Memory server example (`examples/memory-js`) demonstrating a knowledge graph storage system as a WebAssembly component, migrated from the MCP memory server with in-memory persistence, supporting entity and relation management, observations, and full-text search capabilities
+- arXiv research component (`examples/arxiv-rs`) in Rust that provides three functions: `search-papers` for searching arXiv with query, max results, date, and category filters; `download-paper` for downloading PDF files; and `read-paper` for fetching paper metadata and abstracts. The component uses the arXiv API and returns formatted markdown output
+- Comprehensive test coverage for component2json crate with example components added to testdata directory (fetch-rs, brave-search-rs, context7-rs under 1MB) to validate JSON schema generation across different language ecosystems
+- Added `wassette inspect` subcommand for debugging WebAssembly components, displaying their JSON schema for inputs and outputs. This provides a convenient way to inspect component metadata without loading them into the MCP server
+- Added `just install` command for convenient local installation to ~/.local/bin
+- Configurable bind address for HTTP-based transports (SSE and StreamableHttp) via CLI flag `--bind-address`, environment variable `WASSETTE_BIND_ADDRESS`, or configuration file field `bind_address`. Default remains `127.0.0.1:9001` for backward compatibility
 - Cookbook tutorial for publishing Wasm components to OCI registries (GHCR) using `wkg` CLI tool and GitHub Actions, including local development workflow, automated CI/CD publishing, signing with Cosign, version management strategies, and troubleshooting guide
 - Prepared policy crate for publication to crates.io with comprehensive README.md and complete package metadata (description, repository, documentation, homepage, keywords, categories, authors). The policy crate is now ready to be published as a standalone library for other projects like [policy-mcp](https://github.com/microsoft/policy-mcp)
 - Automated CHANGELOG synchronization with release pipeline: Release workflow extracts changelog content for release notes and automatically updates CHANGELOG.md post-release. Implemented using Python scripts with unit tests. The update-changelog job now checks that the release job succeeded before running.
@@ -31,6 +37,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - Added `rules/agent.md` instruction file for AI agents emphasizing use of `grant-xxx-permission` tools instead of manually editing policy files, with installation instructions in the installation guide
 - Comprehensive documentation on wit-docs-inject usage for embedding WIT documentation into WASM components and translating it to AI agent tool descriptions
 - Agentic workflow for automatic CHANGELOG PR link addition: When PRs modify CHANGELOG.md, the workflow automatically adds PR links to new entries in the Unreleased section, ensuring consistent formatting and making it easier to track changes back to their source PRs
+- Release branch strategy to prevent development blockages: Release pipeline now creates and preserves dedicated release branches (e.g., `release/vX.Y.Z`) for the entire release process, ensuring that ongoing development on main is not blocked by release activities
 
 ### Changed
 
@@ -48,11 +55,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - Removed redundant "Docker Deployment" section from README.md; users are directed to the comprehensive Docker deployment guide via the installation methods list
 - Moved permissions documentation from "Using Wassette" section to "Reference" section, placing it after CLI reference for better organization and discoverability
 - Reorganized documentation structure by moving CLI reference to a new `reference` section in the mdBook for better organization
+- **BREAKING CHANGE**: Release workflow no longer pushes CHANGELOG updates directly to main; instead creates a PR from the release branch for review and merging, preventing development blockages during release process
 - Updated README.md to reference the new dedicated installation guide for complete installation instructions
 - Removed separate homebrew.md, nix.md, and winget.md pages to eliminate duplication; all installation content is now consolidated in installation.md
 - Added tabbed interface for installation instructions organized by platform (Linux, macOS, Windows, Nix) using mdbook-tabs preprocessor
-- Updated README.md, docs/faq.md, and RELEASE.md to include all 9 examples in the examples directory: brave-search-rs, context7-rs, eval-py, fetch-rs, filesystem-rs, get-open-meteo-weather-js, get-weather-js, gomodule-go, and time-server-js
+- Updated README.md, docs/faq.md, and RELEASE.md to include all examples in the examples directory: brave-search-rs, context7-rs, eval-py, fetch-rs, filesystem-rs, get-open-meteo-weather-js, get-weather-js, gomodule-go, memory-js, and time-server-js
 - Configure `prepare-release` workflow to use `RELEASE_TOKEN` secret for creating pull requests, allowing custom PAT authentication
+
+### Security
+
+- Updated wasmtime dependencies from 38.0.2 to 38.0.3 to fix RUSTSEC-2025-0112: "Possible host crash with host-to-wasm component intrinsics" vulnerability
 
 ### Fixed
 
@@ -62,6 +74,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - Fixed Mermaid sequence diagram rendering in documentation by adding mdbook-mermaid preprocessor configuration
 - Copyright check script now skips auto-generated `bindings.rs` files containing wit-bindgen markers, preventing incorrect license header additions to generated code while still checking custom bindings.rs files
 - Made dependabot automerge workflow non-blocking by adding `continue-on-error: true` to the auto-merge step, preventing workflow failures from blocking PRs when automerge cannot be enabled
+- Fixed release pipeline changelog extraction to support extracting from `[Unreleased]` section when version is not yet published, allowing releases to be created before the CHANGELOG is automatically updated by the release workflow
 
 ## [v0.3.0] - 2025-10-03
 

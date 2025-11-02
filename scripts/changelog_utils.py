@@ -15,6 +15,9 @@ def extract_changelog_content(changelog_path: Path, version: str) -> str:
     """
     Extract changelog content for a specific version.
     
+    Falls back to extracting from [Unreleased] section if the version
+    is not found, which is the expected state before a release is tagged.
+    
     Args:
         changelog_path: Path to CHANGELOG.md file
         version: Version to extract (e.g., "v0.4.0" or "0.4.0")
@@ -24,7 +27,7 @@ def extract_changelog_content(changelog_path: Path, version: str) -> str:
         
     Raises:
         FileNotFoundError: If changelog file doesn't exist
-        ValueError: If version not found in changelog
+        ValueError: If version not found and [Unreleased] section is empty
     """
     if not changelog_path.exists():
         raise FileNotFoundError(f"Changelog not found: {changelog_path}")
@@ -53,8 +56,25 @@ def extract_changelog_content(changelog_path: Path, version: str) -> str:
                 break
             output_lines.append(line)
     
+    # If version not found, try to extract from [Unreleased] section
     if not found:
-        raise ValueError(f"Version {version} not found in {changelog_path}")
+        output_lines = []
+        for i, line in enumerate(lines):
+            if line == '## [Unreleased]':
+                found = True
+                continue  # Skip the header itself
+                
+            if found:
+                # Stop at next version header or comparison links
+                if line.startswith('## [') or line.startswith('[Unreleased]:') or line.startswith('[v'):
+                    break
+                output_lines.append(line)
+        
+        if not found or not any(line.strip() for line in output_lines):
+            raise ValueError(
+                f"Version {version} not found in {changelog_path} and "
+                f"[Unreleased] section is empty or missing"
+            )
     
     # Remove trailing empty lines
     while output_lines and not output_lines[-1].strip():

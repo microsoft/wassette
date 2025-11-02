@@ -240,17 +240,147 @@ export const config = {
 };
 ```
 
+## Migrating MCP Servers
+
+When migrating existing MCP servers to WebAssembly components, consider these key patterns learned from converting the [MCP memory server](https://github.com/modelcontextprotocol/servers/blob/main/src/memory/index.ts):
+
+### Reserved Keywords
+
+WIT has reserved keywords that may conflict with common field names. For example, `from` and `to` are reserved in WIT syntax.
+
+**Solution**: Use descriptive alternatives:
+```wit
+// Instead of:
+// from: string,
+// to: string,
+
+// Use:
+from-entity: string,
+to-entity: string,
+```
+
+### Persistence Strategy
+
+MCP servers often use file-based persistence. The base WebAssembly Component Model doesn't include file I/O.
+
+**Options**:
+1. **In-memory storage**: Simplest approach, state persists per component instance
+2. **WASI filesystem**: Add `wasi:filesystem` imports for file-based storage
+3. **External storage**: Use HTTP client to connect to databases or storage services
+
+For the memory server example, in-memory storage was chosen for simplicity:
+```javascript
+// Module-level variables persist across function calls
+let entities = [];
+let relations = [];
+```
+
+### Error Handling Patterns
+
+Convert JavaScript exceptions to WIT result types:
+
+**MCP Server** (exceptions):
+```javascript
+async function addObservation(entityName, observation) {
+    const entity = entities.find(e => e.name === entityName);
+    if (!entity) {
+        throw new Error(`Entity ${entityName} not found`);
+    }
+    entity.observations.push(observation);
+}
+```
+
+**Wasm Component** (result types):
+```javascript
+function addObservation(entityName, observation) {
+    try {
+        const entity = entities.find(e => e.name === entityName);
+        if (!entity) {
+            return { tag: "err", val: `Entity ${entityName} not found` };
+        }
+        entity.observations.push(observation);
+        return { tag: "ok", val: entity };
+    } catch (error) {
+        return { tag: "err", val: error.message };
+    }
+}
+```
+
+### Type Mapping
+
+Map TypeScript interfaces to WIT records within interface scope:
+
+**TypeScript**:
+```typescript
+interface Entity {
+    name: string;
+    entityType: string;
+    observations: string[];
+}
+```
+
+**WIT**:
+```wit
+interface knowledge-graph-ops {
+    record entity {
+        name: string,
+        entity-type: string,
+        observations: list<string>,
+    }
+}
+```
+
+**JavaScript** (matches WIT kebab-case):
+```javascript
+export const knowledgeGraphOps = {
+    createEntity(name, entityType, observations) {
+        return {
+            name,
+            entityType,  // camelCase in JS
+            observations
+        };
+    }
+};
+```
+
+Note: Use kebab-case in WIT, camelCase in JavaScript. The jco tooling handles the conversion.
+
+### State Management
+
+Use module-level variables for component state:
+
+```javascript
+// State persists across function calls
+let knowledgeGraph = {
+    entities: [],
+    relations: []
+};
+
+export const operations = {
+    addEntity(entity) {
+        knowledgeGraph.entities.push(entity);
+        return { tag: "ok", val: entity };
+    },
+    
+    getGraph() {
+        return { tag: "ok", val: knowledgeGraph };
+    }
+};
+```
+
 ## Troubleshooting
 
 ### Build Errors
 - Ensure Node.js version is 18 or later
 - Check that WIT interface matches your exports
 - Verify all dependencies are installed
+- Watch for reserved keywords in WIT field names
 
 ### Runtime Errors
 - Check WASI permission configuration
 - Validate input/output types match WIT interface
 - Review Wassette logs for details
+- Ensure result types use correct `{tag, val}` format
 
 ## Full Documentation
 
@@ -262,6 +392,7 @@ See these complete working examples in the repository:
 - [time-server-js](https://github.com/microsoft/wassette/tree/main/examples/time-server-js) - Simple time server
 - [get-weather-js](https://github.com/microsoft/wassette/tree/main/examples/get-weather-js) - Weather API client
 - [get-open-meteo-weather-js](https://github.com/microsoft/wassette/tree/main/examples/get-open-meteo-weather-js) - Open-Meteo weather service
+- [memory-js](https://github.com/microsoft/wassette/tree/main/examples/memory-js) - Knowledge graph memory server
 
 ## Next Steps
 

@@ -207,8 +207,6 @@ mod built_info {
     include!(concat!(env!("OUT_DIR"), "/built.rs"));
 }
 
-const BIND_ADDRESS: &str = "127.0.0.1:9001";
-
 /// A security-oriented runtime that runs WebAssembly Components via MCP.
 #[derive(Clone)]
 pub struct McpServer {
@@ -285,6 +283,7 @@ async fn create_lifecycle_manager(plugin_dir: Option<PathBuf>) -> Result<Lifecyc
                 PathBuf::from("./secrets")
             }),
             environment_vars: std::collections::HashMap::new(),
+            bind_address: "127.0.0.1:9001".to_string(),
         }
     } else {
         config::Config::from_serve(&crate::Serve {
@@ -293,6 +292,7 @@ async fn create_lifecycle_manager(plugin_dir: Option<PathBuf>) -> Result<Lifecyc
             env_vars: vec![],
             env_file: None,
             disable_builtin_tools: false,
+            bind_address: None,
         })
         .context("Failed to load configuration")?
     };
@@ -302,6 +302,7 @@ async fn create_lifecycle_manager(plugin_dir: Option<PathBuf>) -> Result<Lifecyc
         plugin_dir,
         secrets_dir,
         environment_vars,
+        bind_address: _,
     } = config;
 
     LifecycleManager::builder(plugin_dir)
@@ -540,6 +541,7 @@ async fn main() -> Result<()> {
                     plugin_dir,
                     secrets_dir,
                     environment_vars,
+                    bind_address,
                 } = config;
 
                 let lifecycle_manager = LifecycleManager::builder(plugin_dir)
@@ -589,7 +591,7 @@ async fn main() -> Result<()> {
                     Transport::StreamableHttp => {
                         tracing::info!(
                         "Starting MCP server on {} with streamable HTTP transport. Components will load in the background.",
-                        BIND_ADDRESS
+                        bind_address
                     );
                         let service = StreamableHttpService::new(
                             move || Ok(server.clone()),
@@ -598,7 +600,7 @@ async fn main() -> Result<()> {
                         );
 
                         let router = axum::Router::new().nest_service("/mcp", service);
-                        let tcp_listener = tokio::net::TcpListener::bind(BIND_ADDRESS).await?;
+                        let tcp_listener = tokio::net::TcpListener::bind(&bind_address).await?;
                         let _ = axum::serve(tcp_listener, router)
                             .with_graceful_shutdown(async {
                                 tokio::signal::ctrl_c().await.unwrap()
@@ -608,9 +610,9 @@ async fn main() -> Result<()> {
                     Transport::Sse => {
                         tracing::info!(
                         "Starting MCP server on {} with SSE HTTP transport. Components will load in the background.",
-                        BIND_ADDRESS
+                        bind_address
                     );
-                        let ct = SseServer::serve(BIND_ADDRESS.parse().unwrap())
+                        let ct = SseServer::serve(bind_address.parse().unwrap())
                             .await?
                             .with_service(move || server.clone());
 
@@ -979,6 +981,59 @@ async fn main() -> Result<()> {
                     )?;
                 }
             },
+            Commands::Inspect { path } => {
+                use std::sync::Arc;
+
+                use wasmtime::component::Component;
+                use wasmtime::{Config, Engine};
+
+                // Configure Wasmtime engine for component model
+                let mut config = Config::new();
+                config.wasm_component_model(true);
+                config.async_support(true);
+                let engine = Arc::new(Engine::new(&config)?);
+
+                // Load the component
+                let component = Arc::new(Component::from_file(&engine, path)?);
+
+                // Try to extract package docs
+                let wasm_bytes = std::fs::read(path)?;
+                let package_docs = component2json::extract_package_docs(&wasm_bytes);
+
+                // Generate schema
+                let schema = if let Some(ref docs) = package_docs {
+                    println!("Found package docs!");
+                    component2json::component_exports_to_json_schema_with_docs(
+                        &component, &engine, true, docs,
+                    )
+                } else {
+                    println!("No package docs found, using auto-generated");
+                    component2json::component_exports_to_json_schema(&component, &engine, true)
+                };
+
+                // Display tools information
+                if let Some(arr) = schema["tools"].as_array() {
+                    for t in arr {
+                        let name = t["name"].as_str().unwrap_or("<unnamed>").to_string();
+                        let description: Option<String> =
+                            t["description"].as_str().map(|s| s.to_string());
+                        let input_schema = t["inputSchema"].clone();
+                        let output_schema = t["outputSchema"].clone();
+
+                        println!("{name}, {description:?}");
+                        println!(
+                            "input schema: {}",
+                            serde_json::to_string_pretty(&input_schema)?
+                        );
+                        println!(
+                            "output schema: {}",
+                            serde_json::to_string_pretty(&output_schema)?
+                        );
+                    }
+                } else {
+                    println!("No tools found in component");
+                }
+            }
         },
         None => {
             eprintln!("No command provided. Use --help for usage information.");

@@ -49,6 +49,11 @@ pub enum Commands {
         #[command(subcommand)]
         command: SecretCommands,
     },
+    /// Inspect a WebAssembly component and display its JSON schema (for debugging).
+    Inspect {
+        /// Path to the WebAssembly component file
+        path: PathBuf,
+    },
 }
 
 #[derive(Parser, Debug, Clone, Serialize, Deserialize)]
@@ -75,6 +80,11 @@ pub struct Serve {
     #[arg(long)]
     #[serde(default)]
     pub disable_builtin_tools: bool,
+
+    /// Bind address for HTTP-based transports (SSE and StreamableHttp). Defaults to 127.0.0.1:9001
+    #[arg(long)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub bind_address: Option<String>,
 }
 
 #[derive(Args, Debug, Clone, Serialize, Deserialize, Default)]

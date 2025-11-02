@@ -1,0 +1,103 @@
+package local:memory;
+
+/// Interface for knowledge graph operations
+interface knowledge-graph-ops {
+    /// An entity in the knowledge graph with a name, type, and associated observations
+    record entity {
+        /// The unique name identifier for this entity
+        name: string,
+        /// The type/category of this entity (e.g., "person", "organization", "concept")
+        entity-type: string,
+        /// List of observations associated with this entity
+        observations: list<string>,
+    }
+
+    /// A directed relationship between two entities in the knowledge graph
+    record relation {
+        /// The name of the source entity where the relation originates
+        from-entity: string,
+        /// The name of the target entity where the relation points to
+        to-entity: string,
+        /// The type of relationship (e.g., "works-for", "knows", "located-in")
+        relation-type: string,
+    }
+
+    /// The complete knowledge graph containing all entities and their relationships
+    record knowledge-graph {
+        /// All entities stored in the knowledge graph
+        entities: list<entity>,
+        /// All relations between entities in the knowledge graph
+        relations: list<relation>,
+    }
+
+    /// Input for adding observations to an entity
+    record observation-input {
+        /// The name of the entity to add observations to
+        entity-name: string,
+        /// The observation contents to add
+        contents: list<string>,
+    }
+
+    /// Result of adding observations to an entity
+    record observation-result {
+        /// The name of the entity that was modified
+        entity-name: string,
+        /// The observations that were successfully added
+        added-observations: list<string>,
+    }
+
+    /// Input for deleting observations from an entity
+    record observation-deletion {
+        /// The name of the entity to delete observations from
+        entity-name: string,
+        /// The observations to delete
+        observations: list<string>,
+    }
+    /// Create new entities in the knowledge graph.
+    /// Only entities that don't already exist will be created.
+    /// Returns the list of newly created entities.
+    create-entities: func(entities: list<entity>) -> result<list<entity>, string>;
+
+    /// Create new relations between entities in the knowledge graph.
+    /// Only relations that don't already exist will be created.
+    /// Duplicate relations (same from, to, and relation-type) are ignored.
+    /// Returns the list of newly created relations.
+    create-relations: func(relations: list<relation>) -> result<list<relation>, string>;
+
+    /// Add observations to existing entities.
+    /// Only new observations that don't already exist for the entity will be added.
+    /// Returns information about which observations were added to each entity.
+    add-observations: func(observations: list<observation-input>) -> result<list<observation-result>, string>;
+
+    /// Delete entities from the knowledge graph by their names.
+    /// Removes the specified entities and all their associated data.
+    delete-entities: func(entity-names: list<string>) -> result<_, string>;
+
+    /// Delete specific observations from entities.
+    /// Removes only the specified observations from each entity.
+    delete-observations: func(deletions: list<observation-deletion>) -> result<_, string>;
+
+    /// Delete relations from the knowledge graph.
+    /// Removes the specified relations between entities.
+    delete-relations: func(relations: list<relation>) -> result<_, string>;
+
+    /// Read the entire knowledge graph.
+    /// Returns all entities and relations currently stored in the graph.
+    read-graph: func() -> result<knowledge-graph, string>;
+
+    /// Search for nodes in the knowledge graph based on a text query.
+    /// Searches entity names, types, and observation content.
+    /// Returns matching entities with their relations.
+    search-nodes: func(query: string) -> result<knowledge-graph, string>;
+
+    /// Open specific nodes in the knowledge graph by their names.
+    /// Returns the requested entities with all their relations.
+    open-nodes: func(names: list<string>) -> result<knowledge-graph, string>;
+}
+
+/// A world that exports knowledge graph memory functionality
+/// This component provides persistent storage for a knowledge graph
+/// with entities, relations, and observations
+world memory {
+    export knowledge-graph-ops;
+}

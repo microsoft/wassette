@@ -36,7 +36,7 @@ WebAssembly Components are a standardized way to build portable, secure, and int
 Wassette supports tools written in any language that can compile to WebAssembly Components. For current language support, see the [WebAssembly Language Support Guide](https://developer.fermyon.com/wasm-languages/webassembly-language-support).
 
 The project includes examples in several popular languages:
-- **JavaScript** ([time-server-js](https://github.com/microsoft/wassette/tree/main/examples/time-server-js), [get-weather-js](https://github.com/microsoft/wassette/tree/main/examples/get-weather-js), [get-open-meteo-weather-js](https://github.com/microsoft/wassette/tree/main/examples/get-open-meteo-weather-js))
+- **JavaScript** ([time-server-js](https://github.com/microsoft/wassette/tree/main/examples/time-server-js), [get-weather-js](https://github.com/microsoft/wassette/tree/main/examples/get-weather-js), [get-open-meteo-weather-js](https://github.com/microsoft/wassette/tree/main/examples/get-open-meteo-weather-js), [memory-js](https://github.com/microsoft/wassette/tree/main/examples/memory-js))
 - **Python** ([eval-py](https://github.com/microsoft/wassette/tree/main/examples/eval-py))
 - **Rust** ([fetch-rs](https://github.com/microsoft/wassette/tree/main/examples/fetch-rs), [filesystem-rs](https://github.com/microsoft/wassette/tree/main/examples/filesystem-rs), [brave-search-rs](https://github.com/microsoft/wassette/tree/main/examples/brave-search-rs), [context7-rs](https://github.com/microsoft/wassette/tree/main/examples/context7-rs))
 - **Go** ([gomodule-go](https://github.com/microsoft/wassette/tree/main/examples/gomodule-go))
@@ -225,4 +225,5 @@ The [examples directory](https://github.com/microsoft/wassette/tree/main/example
 - [Weather via Open-Meteo (JavaScript)](https://github.com/microsoft/wassette/tree/main/examples/get-open-meteo-weather-js)
 - [Weather via OpenWeather (JavaScript)](https://github.com/microsoft/wassette/tree/main/examples/get-weather-js)
 - [Go module info (Go)](https://github.com/microsoft/wassette/tree/main/examples/gomodule-go)
+- [Knowledge graph memory (JavaScript)](https://github.com/microsoft/wassette/tree/main/examples/memory-js)
 - [Time server (JavaScript)](https://github.com/microsoft/wassette/tree/main/examples/time-server-js)
