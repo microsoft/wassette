@@ -3,6 +3,12 @@ name: Update Package Manifests
 on:
   release:
     types: [published]
+  workflow_dispatch:
+    inputs:
+      tag_name:
+        description: 'Release tag name (e.g., v0.4.0)'
+        required: true
+        type: string
 
 permissions:
   contents: write
@@ -22,15 +28,23 @@ jobs:
       - name: Extract version from tag
         id: version
         run: |
-          VERSION="${{ github.event.release.tag_name }}"
-          VERSION="${VERSION#v}"  # Remove 'v' prefix
+          # Get tag_name from either release event or workflow_dispatch input
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            TAG_NAME="${{ inputs.tag_name }}"
+          else
+            TAG_NAME="${{ github.event.release.tag_name }}"
+          fi
+
+          VERSION="${TAG_NAME#v}"  # Remove 'v' prefix
           echo "version=$VERSION" >> $GITHUB_OUTPUT
-          echo "Extracted version: $VERSION"
+          echo "tag_name=$TAG_NAME" >> $GITHUB_OUTPUT
+          echo "Extracted version: $VERSION from tag: $TAG_NAME"
 
       - name: Download release assets and compute checksums
         id: checksums
         run: |
           VERSION="${{ steps.version.outputs.version }}"
+          TAG_NAME="${{ steps.version.outputs.tag_name }}"
           REPO="${{ github.repository }}"
 
           # Create temp directory for downloads
@@ -50,7 +64,7 @@ jobs:
           # Download and compute checksums
           for arch in "${!ASSETS[@]}"; do
             asset="${ASSETS[$arch]}"
-            url="https://github.com/${REPO}/releases/download/v${VERSION}/${asset}"
+            url="https://github.com/${REPO}/releases/download/${TAG_NAME}/${asset}"
             echo "Downloading $asset from $url"
 
             if curl -fsSL -o "$asset" "$url"; then
