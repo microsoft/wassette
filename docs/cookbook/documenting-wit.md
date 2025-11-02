@@ -223,7 +223,7 @@ fetch, Some("Fetch data from a URL and return the response body as a String")
 When you load this component in Wassette:
 
 ```bash
-wassette serve --sse --plugin-dir examples/fetch-rs
+wassette serve --sse --component-dir examples/fetch-rs
 ```
 
 The AI agent sees a tool with the description from your WIT documentation:

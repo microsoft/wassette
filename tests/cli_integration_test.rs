@@ -18,15 +18,15 @@ use common::build_fetch_component;
 struct CliTestContext {
     #[allow(dead_code)] // Needed to keep temp directory alive
     temp_dir: TempDir,
-    plugin_dir: PathBuf,
+    component_dir: PathBuf,
     wassette_bin: PathBuf,
 }
 
 impl CliTestContext {
     async fn new() -> Result<Self> {
         let temp_dir = tempfile::tempdir().context("Failed to create temp directory")?;
-        let plugin_dir = temp_dir.path().join("plugins");
-        tokio::fs::create_dir_all(&plugin_dir).await?;
+        let component_dir = temp_dir.path().join("plugins");
+        tokio::fs::create_dir_all(&component_dir).await?;
 
         // Resolve the wassette binary path in a cross-platform friendly way.
         let exe_name = format!("wassette{}", env::consts::EXE_SUFFIX);
@@ -70,7 +70,7 @@ impl CliTestContext {
 
         Ok(Self {
             temp_dir,
-            plugin_dir,
+            component_dir,
             wassette_bin,
         })
     }
@@ -79,7 +79,7 @@ impl CliTestContext {
     async fn run_command(&self, args: &[&str]) -> Result<(String, String, i32)> {
         let mut cmd = AsyncCommand::new(&self.wassette_bin);
         cmd.args(args);
-        cmd.arg("--plugin-dir").arg(&self.plugin_dir);
+        cmd.arg("--component-dir").arg(&self.component_dir);
 
         let output = tokio::time::timeout(Duration::from_secs(120), cmd.output())
             .await
@@ -93,8 +93,8 @@ impl CliTestContext {
         Ok((stdout, stderr, exit_code))
     }
 
-    /// Execute a wassette CLI command without --plugin-dir (for commands that don't need it)
-    async fn run_command_no_plugin_dir(&self, args: &[&str]) -> Result<(String, String, i32)> {
+    /// Execute a wassette CLI command without --component-dir (for commands that don't need it)
+    async fn run_command_no_component_dir(&self, args: &[&str]) -> Result<(String, String, i32)> {
         let mut cmd = AsyncCommand::new(&self.wassette_bin);
         cmd.args(args);
 
@@ -696,7 +696,7 @@ async fn test_cli_inspect_component() -> Result<()> {
 
     // Run inspect command on the component
     let (stdout, stderr, exit_code) = ctx
-        .run_command_no_plugin_dir(&["inspect", component_path.to_str().unwrap()])
+        .run_command_no_component_dir(&["inspect", component_path.to_str().unwrap()])
         .await?;
 
     assert_eq!(exit_code, 0, "Inspect command failed with stderr: {stderr}");
@@ -724,7 +724,7 @@ async fn test_cli_inspect_invalid_path() -> Result<()> {
 
     // Try to inspect a non-existent file
     let (_, stderr, exit_code) = ctx
-        .run_command_no_plugin_dir(&["inspect", "/nonexistent/path.wasm"])
+        .run_command_no_component_dir(&["inspect", "/nonexistent/path.wasm"])
         .await?;
 
     assert_ne!(exit_code, 0, "Command should fail for invalid path");

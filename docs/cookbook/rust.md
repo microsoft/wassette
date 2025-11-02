@@ -133,7 +133,7 @@ For more information, see the [Documenting WIT Interfaces](./documenting-wit.md)
 ### 8. Test Your Component
 
 ```bash
-wassette serve --sse --plugin-dir target/wasm32-wasip2/release/
+wassette serve --sse --component-dir target/wasm32-wasip2/release/
 ```
 
 ## Complete Examples

@@ -12,7 +12,7 @@ This page provides a comprehensive reference for the `config.toml` configuration
 
 Configuration values are merged with the following precedence (highest to lowest):
 
-1. Command-line options (e.g., `--plugin-dir`)
+1. Command-line options (e.g., `--component-dir`)
 2. Environment variables prefixed with `WASSETTE_`
 3. Configuration file (`config.toml`)
 
@@ -21,7 +21,7 @@ Configuration values are merged with the following precedence (highest to lowest
 ```toml
 # Directory where WebAssembly components are stored
 # Default: $XDG_DATA_HOME/wassette/components (~/.local/share/wassette/components)
-plugin_dir = "/path/to/components"
+component_dir = "/path/to/components"
 
 # Directory where secrets are stored (API keys, credentials, etc.)
 # Default: $XDG_CONFIG_HOME/wassette/secrets (~/.config/wassette/secrets)
@@ -41,7 +41,7 @@ DATABASE_URL = "postgresql://localhost/mydb"
 
 ### Fields
 
-#### `plugin_dir`
+#### `component_dir`
 
 - **Type**: String (path)
 - **Default**: Platform-specific data directory
@@ -74,7 +74,7 @@ DATABASE_URL = "postgresql://localhost/mydb"
 
 **Development Configuration:**
 ```toml
-plugin_dir = "./dev-components"
+component_dir = "./dev-components"
 secrets_dir = "./dev-secrets"
 bind_address = "127.0.0.1:9001"
 
@@ -85,7 +85,7 @@ RUST_LOG = "trace"
 
 **Production Configuration:**
 ```toml
-plugin_dir = "/opt/wassette/components"
+component_dir = "/opt/wassette/components"
 secrets_dir = "/opt/wassette/secrets"
 bind_address = "0.0.0.0:8080"
 
@@ -99,8 +99,8 @@ NODE_ENV = "production"
 You can override any configuration value using environment variables with the `WASSETTE_` prefix:
 
 ```bash
-# Override plugin directory
-export WASSETTE_PLUGIN_DIR=/custom/components
+# Override component directory
+export WASSETTE_COMPONENT_DIR=/custom/components
 
 # Override bind address
 export WASSETTE_BIND_ADDRESS=0.0.0.0:8080

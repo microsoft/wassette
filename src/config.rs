@@ -403,7 +403,7 @@ bind_address = "0.0.0.0:8080"
 
             // CLI provides bind address
             let serve_config = crate::Serve {
-                plugin_dir: None,
+                component_dir: None,
                 transport: Default::default(),
                 env_vars: vec![],
                 env_file: None,

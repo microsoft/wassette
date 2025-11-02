@@ -588,7 +588,7 @@ Test your component with Wassette locally:
 cargo build --target wasm32-wasip2 --release
 
 # Start Wassette with your component
-wassette serve --sse --plugin-dir .
+wassette serve --sse --component-dir .
 ```
 
 ### 3. Component Inspection

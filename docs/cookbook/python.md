@@ -147,7 +147,7 @@ For more information, see the [Documenting WIT Interfaces](./documenting-wit.md)
 ### 8. Test Your Component
 
 ```bash
-wassette serve --sse --plugin-dir .
+wassette serve --sse --component-dir .
 ```
 
 ## Complete Examples

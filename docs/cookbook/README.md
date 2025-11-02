@@ -110,7 +110,7 @@ Once you've built a component, you can test it with Wassette:
 
 ```bash
 # Load and test your component
-wassette serve --sse --plugin-dir /path/to/your/component
+wassette serve --sse --component-dir /path/to/your/component
 
 # Or load it explicitly
 wassette load file:///path/to/your/component.wasm

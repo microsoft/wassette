@@ -446,7 +446,7 @@ async fn test_load_component_invalid_reference() -> Result<()> {
 async fn test_mixed_transport_fails() -> Result<()> {
     // Create a temporary directory for this test to avoid loading existing components
     let temp_dir = tempfile::tempdir()?;
-    let plugin_dir_arg = format!("--plugin-dir={}", temp_dir.path().display());
+    let component_dir_arg = format!("--component-dir={}", temp_dir.path().display());
 
     // Get the path to the built binary
     let binary_path = std::env::current_dir()
@@ -462,7 +462,7 @@ async fn test_mixed_transport_fails() -> Result<()> {
     for combo in combinations {
         // Start the server with the current combination of transports (should fail)
         let mut child = tokio::process::Command::new(&binary_path)
-            .args(["serve", &plugin_dir_arg])
+            .args(["serve", &component_dir_arg])
             .args(combo)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
@@ -509,7 +509,7 @@ async fn test_mixed_transport_fails() -> Result<()> {
 async fn test_stdio_transport() -> Result<()> {
     // Create a temporary directory for this test to avoid loading existing components
     let temp_dir = tempfile::tempdir()?;
-    let plugin_dir_arg = format!("--plugin-dir={}", temp_dir.path().display());
+    let component_dir_arg = format!("--component-dir={}", temp_dir.path().display());
 
     // Get the path to the built binary
     let binary_path = std::env::current_dir()
@@ -518,7 +518,7 @@ async fn test_stdio_transport() -> Result<()> {
 
     // Start the server with stdio transport (disable logs to avoid stdout pollution)
     let mut child = tokio::process::Command::new(&binary_path)
-        .args(["serve", &plugin_dir_arg])
+        .args(["serve", &component_dir_arg])
         .env("RUST_LOG", "off")
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
@@ -654,7 +654,7 @@ async fn test_stdio_transport() -> Result<()> {
 async fn test_tool_list_notification() -> Result<()> {
     // Create a temporary directory for this test to avoid loading existing components
     let temp_dir = tempfile::tempdir()?;
-    let plugin_dir_arg = format!("--plugin-dir={}", temp_dir.path().display());
+    let component_dir_arg = format!("--component-dir={}", temp_dir.path().display());
 
     // Get the path to the built binary
     let binary_path = std::env::current_dir()
@@ -663,7 +663,7 @@ async fn test_tool_list_notification() -> Result<()> {
 
     // Start the server with stdio transport (disable logs to avoid stdout pollution)
     let mut child = tokio::process::Command::new(&binary_path)
-        .args(["serve", &plugin_dir_arg])
+        .args(["serve", &component_dir_arg])
         .env("RUST_LOG", "off")
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
@@ -907,7 +907,7 @@ async fn test_http_transport() -> Result<()> {
 
     // Create a temporary directory for this test to avoid loading existing components
     let temp_dir = tempfile::tempdir()?;
-    let plugin_dir_arg = format!("--plugin-dir={}", temp_dir.path().display());
+    let component_dir_arg = format!("--component-dir={}", temp_dir.path().display());
 
     // Get the path to the built binary
     let binary_path = std::env::current_dir()
@@ -916,7 +916,7 @@ async fn test_http_transport() -> Result<()> {
 
     // Start the server with HTTP transport
     let mut child = tokio::process::Command::new(&binary_path)
-        .args(["serve", "--sse", &plugin_dir_arg])
+        .args(["serve", "--sse", &component_dir_arg])
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -950,7 +950,7 @@ async fn test_http_transport() -> Result<()> {
 async fn test_default_stdio_transport() -> Result<()> {
     // Create a temporary directory for this test to avoid loading existing components
     let temp_dir = tempfile::tempdir()?;
-    let plugin_dir_arg = format!("--plugin-dir={}", temp_dir.path().display());
+    let component_dir_arg = format!("--component-dir={}", temp_dir.path().display());
 
     // Get the path to the built binary
     let binary_path = std::env::current_dir()
@@ -959,7 +959,7 @@ async fn test_default_stdio_transport() -> Result<()> {
 
     // Start the server without any transport flags (should default to stdio)
     let mut child = tokio::process::Command::new(&binary_path)
-        .args(["serve", &plugin_dir_arg])
+        .args(["serve", &component_dir_arg])
         .env("RUST_LOG", "off")
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
@@ -1054,7 +1054,7 @@ async fn test_grant_permission_network_basic() -> Result<()> {
 async fn test_disable_builtin_tools() -> Result<()> {
     // Create a temporary directory for this test to avoid loading existing components
     let temp_dir = tempfile::tempdir()?;
-    let plugin_dir_arg = format!("--plugin-dir={}", temp_dir.path().display());
+    let component_dir_arg = format!("--component-dir={}", temp_dir.path().display());
 
     // Get the path to the built binary
     let binary_path = std::env::current_dir()
@@ -1063,7 +1063,7 @@ async fn test_disable_builtin_tools() -> Result<()> {
 
     // Start the server with stdio transport and disable-builtin-tools flag
     let mut child = tokio::process::Command::new(&binary_path)
-        .args(["serve", &plugin_dir_arg, "--disable-builtin-tools"])
+        .args(["serve", &component_dir_arg, "--disable-builtin-tools"])
         .env("RUST_LOG", "off")
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())

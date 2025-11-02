@@ -111,17 +111,17 @@ run-streamable RUST_LOG='info':
     RUST_LOG={{RUST_LOG}} cargo run --bin wassette serve --streamable-http
 
 run-filesystem RUST_LOG='info':
-    RUST_LOG={{RUST_LOG}} cargo run --bin wassette serve --sse --plugin-dir ./examples/filesystem-rs
+    RUST_LOG={{RUST_LOG}} cargo run --bin wassette serve --sse --component-dir ./examples/filesystem-rs
 
 # Requires an openweather API key in the environment variable OPENWEATHER_API_KEY
 run-get-weather RUST_LOG='info':
-    RUST_LOG={{RUST_LOG}} cargo run --bin wassette serve --sse --plugin-dir ./examples/get-weather-js
+    RUST_LOG={{RUST_LOG}} cargo run --bin wassette serve --sse --component-dir ./examples/get-weather-js
 
 run-fetch-rs RUST_LOG='info':
-    RUST_LOG={{RUST_LOG}} cargo run --bin wassette serve --sse --plugin-dir ./examples/fetch-rs
+    RUST_LOG={{RUST_LOG}} cargo run --bin wassette serve --sse --component-dir ./examples/fetch-rs
 
 run-memory RUST_LOG='info':
-    RUST_LOG={{RUST_LOG}} cargo run --bin wassette serve --sse --plugin-dir ./examples/memory-js
+    RUST_LOG={{RUST_LOG}} cargo run --bin wassette serve --sse --component-dir ./examples/memory-js
 
 # Documentation commands
 docs-build:

@@ -38,7 +38,7 @@ graph TB
 
 ### Key Design Principles
 
-- **Per-Component Policies**: Each component has its own permission policy, co-located with the component binary under the `plugin_dir` directory
+- **Per-Component Policies**: Each component has its own permission policy, co-located with the component binary under the `component_dir` directory
 - **Principle of Least Privilege**: Components only get permissions they need
 - **Dynamic Control**: Permissions can be granted at runtime using the `grant-permission` tool
 

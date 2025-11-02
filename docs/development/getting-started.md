@@ -111,7 +111,7 @@ just run
 # Custom log level (error, warn, info, debug, trace)
 just run RUST_LOG='debug'
 
-# Run with example plugins
+# Run with example components
 just run-filesystem
 just run-fetch-rs
 just run-get-weather  # Requires OPENWEATHER_API_KEY

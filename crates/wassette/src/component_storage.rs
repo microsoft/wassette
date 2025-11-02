@@ -30,9 +30,9 @@ impl ComponentStorage {
         let root = root.into();
         let downloads_dir = root.join(crate::DOWNLOADS_DIR);
 
-        tokio::fs::create_dir_all(&root)
-            .await
-            .with_context(|| format!("Failed to create component directory at {}", root.display()))?;
+        tokio::fs::create_dir_all(&root).await.with_context(|| {
+            format!("Failed to create component directory at {}", root.display())
+        })?;
 
         tokio::fs::create_dir_all(&downloads_dir)
             .await

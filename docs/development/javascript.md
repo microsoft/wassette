@@ -511,7 +511,7 @@ world my-component {
 2. **Test with Wassette:**
    ```bash
    # Start Wassette with your component directory
-   wassette serve --sse --plugin-dir .
+   wassette serve --sse --component-dir .
    ```
 
 3. **Use the MCP Inspector to test:**

@@ -624,7 +624,10 @@ async fn main() -> Result<()> {
                 tracing::info!("MCP server shutting down");
             }
             Commands::Component { command } => match command {
-                ComponentCommands::Load { path, component_dir } => {
+                ComponentCommands::Load {
+                    path,
+                    component_dir,
+                } => {
                     let component_dir = component_dir.clone().or_else(|| cli.component_dir.clone());
                     let lifecycle_manager = create_lifecycle_manager(component_dir).await?;
                     let mut args = Map::new();
@@ -688,7 +691,8 @@ async fn main() -> Result<()> {
                         access,
                         component_dir,
                     } => {
-                        let component_dir = component_dir.clone().or_else(|| cli.component_dir.clone());
+                        let component_dir =
+                            component_dir.clone().or_else(|| cli.component_dir.clone());
                         let lifecycle_manager = create_lifecycle_manager(component_dir).await?;
                         let mut args = Map::new();
                         args.insert("component_id".to_string(), json!(component_id));
@@ -712,7 +716,8 @@ async fn main() -> Result<()> {
                         host,
                         component_dir,
                     } => {
-                        let component_dir = component_dir.clone().or_else(|| cli.component_dir.clone());
+                        let component_dir =
+                            component_dir.clone().or_else(|| cli.component_dir.clone());
                         let lifecycle_manager = create_lifecycle_manager(component_dir).await?;
                         let mut args = Map::new();
                         args.insert("component_id".to_string(), json!(component_id));
@@ -735,7 +740,8 @@ async fn main() -> Result<()> {
                         key,
                         component_dir,
                     } => {
-                        let component_dir = component_dir.clone().or_else(|| cli.component_dir.clone());
+                        let component_dir =
+                            component_dir.clone().or_else(|| cli.component_dir.clone());
                         let lifecycle_manager = create_lifecycle_manager(component_dir).await?;
                         let mut args = Map::new();
                         args.insert("component_id".to_string(), json!(component_id));
@@ -758,7 +764,8 @@ async fn main() -> Result<()> {
                         limit,
                         component_dir,
                     } => {
-                        let component_dir = component_dir.clone().or_else(|| cli.component_dir.clone());
+                        let component_dir =
+                            component_dir.clone().or_else(|| cli.component_dir.clone());
                         let lifecycle_manager = create_lifecycle_manager(component_dir).await?;
                         let mut args = Map::new();
                         args.insert("component_id".to_string(), json!(component_id));
@@ -787,7 +794,8 @@ async fn main() -> Result<()> {
                         uri,
                         component_dir,
                     } => {
-                        let component_dir = component_dir.clone().or_else(|| cli.component_dir.clone());
+                        let component_dir =
+                            component_dir.clone().or_else(|| cli.component_dir.clone());
                         let lifecycle_manager = create_lifecycle_manager(component_dir).await?;
                         let mut args = Map::new();
                         args.insert("component_id".to_string(), json!(component_id));
@@ -810,7 +818,8 @@ async fn main() -> Result<()> {
                         host,
                         component_dir,
                     } => {
-                        let component_dir = component_dir.clone().or_else(|| cli.component_dir.clone());
+                        let component_dir =
+                            component_dir.clone().or_else(|| cli.component_dir.clone());
                         let lifecycle_manager = create_lifecycle_manager(component_dir).await?;
                         let mut args = Map::new();
                         args.insert("component_id".to_string(), json!(component_id));
@@ -833,7 +842,8 @@ async fn main() -> Result<()> {
                         key,
                         component_dir,
                     } => {
-                        let component_dir = component_dir.clone().or_else(|| cli.component_dir.clone());
+                        let component_dir =
+                            component_dir.clone().or_else(|| cli.component_dir.clone());
                         let lifecycle_manager = create_lifecycle_manager(component_dir).await?;
                         let mut args = Map::new();
                         args.insert("component_id".to_string(), json!(component_id));

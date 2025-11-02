@@ -224,7 +224,7 @@ You can test your component using Wassette:
 
 ```bash
 # Start Wassette with your component
-wassette serve --sse --plugin-dir .
+wassette serve --sse --component-dir .
 
 # Or load it explicitly
 wassette load file://./calculator.wasm
@@ -377,7 +377,7 @@ Test your component with Wassette:
 just build
 
 # Start Wassette with your component
-wassette serve --sse --plugin-dir .
+wassette serve --sse --component-dir .
 
 # In another terminal, test with MCP inspector
 npx @modelcontextprotocol/inspector --cli http://127.0.0.1:9001/sse

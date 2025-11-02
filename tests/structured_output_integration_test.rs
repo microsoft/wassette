@@ -25,7 +25,7 @@ async fn test_structured_output_integration() -> Result<()> {
 
     // Create a temporary directory for this test to avoid loading existing components
     let temp_dir = tempfile::tempdir()?;
-    let plugin_dir_arg = format!("--plugin-dir={}", temp_dir.path().display());
+    let component_dir_arg = format!("--component-dir={}", temp_dir.path().display());
 
     // Build the binary first
     let binary_path = std::env::current_dir()
@@ -34,7 +34,7 @@ async fn test_structured_output_integration() -> Result<()> {
 
     // Start wassette mcp server with stdio transport (default)
     let mut child = Command::new(&binary_path)
-        .args(["serve", &plugin_dir_arg])
+        .args(["serve", &component_dir_arg])
         .env("RUST_LOG", "off") // Disable logs to avoid stdout pollution
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())

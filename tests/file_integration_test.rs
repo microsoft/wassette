@@ -41,14 +41,14 @@ async fn setup_lifecycle_manager() -> Result<(Arc<LifecycleManager>, TempDir)> {
 #[test(tokio::test)]
 async fn test_filesystem_component_integration() -> Result<()> {
     let temp_dir = tempfile::tempdir()?;
-    let plugin_dir_arg = format!("--plugin-dir={}", temp_dir.path().display());
+    let component_dir_arg = format!("--component-dir={}", temp_dir.path().display());
 
     let binary_path = std::env::current_dir()
         .context("Failed to get current directory")?
         .join("target/debug/wassette");
 
     let mut child = tokio::process::Command::new(&binary_path)
-        .args(["serve", "--stdio", &plugin_dir_arg])
+        .args(["serve", "--stdio", &component_dir_arg])
         .env("RUST_LOG", "off")
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())

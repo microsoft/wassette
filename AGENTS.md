@@ -130,7 +130,7 @@ just run
 # Start with custom log level
 just run RUST_LOG='debug'
 
-# Run with example plugins
+# Run with example components
 just run-filesystem
 just run-get-weather  # Requires OPENWEATHER_API_KEY environment variable
 just run-fetch-rs

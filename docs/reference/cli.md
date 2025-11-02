@@ -66,7 +66,7 @@ Start the Wassette MCP server to handle client requests.
 wassette serve --stdio
 
 # Use with specific configuration directory
-wassette serve --stdio --plugin-dir /custom/components
+wassette serve --stdio --component-dir /custom/components
 ```
 
 **HTTP Transport (for development and debugging):**
@@ -90,7 +90,7 @@ wassette serve --sse
 - `--http`: Use HTTP transport on 127.0.0.1:9001
 - `--sse`: Use Server-Sent Events transport
 - `--bind-address <ADDRESS>`: Set bind address for HTTP-based transports (default: `127.0.0.1:9001`)
-- `--plugin-dir <PATH>`: Set component storage directory (default: `$XDG_DATA_HOME/wassette/components`)
+- `--component-dir <PATH>`: Set component storage directory (default: `$XDG_DATA_HOME/wassette/components`)
 
 ## Component Management
 
@@ -103,8 +103,8 @@ Load a WebAssembly component from various sources.
 # Load a component from GitHub Container Registry
 wassette component load oci://ghcr.io/microsoft/time-server-js:latest
 
-# Load with custom plugin directory
-wassette component load oci://ghcr.io/microsoft/gomodule:latest --plugin-dir /custom/components
+# Load with custom component directory
+wassette component load oci://ghcr.io/microsoft/gomodule:latest --component-dir /custom/components
 ```
 
 **Load from local file:**
@@ -117,7 +117,7 @@ wassette component load file://./my-component.wasm
 ```
 
 **Options:**
-- `--plugin-dir <PATH>`: Component storage directory
+- `--component-dir <PATH>`: Component storage directory
 
 ### `wassette component unload`
 
@@ -127,12 +127,12 @@ Remove a loaded component by its ID.
 # Unload a component
 wassette component unload my-component-id
 
-# Unload with custom plugin directory
-wassette component unload my-component-id --plugin-dir /custom/components
+# Unload with custom component directory
+wassette component unload my-component-id --component-dir /custom/components
 ```
 
 **Options:**
-- `--plugin-dir <PATH>`: Component storage directory
+- `--component-dir <PATH>`: Component storage directory
 
 ### `wassette component list`
 
@@ -192,7 +192,7 @@ time-component | 1     | Provides time-related functions
 
 **Options:**
 - `--output-format <FORMAT>`: Output format (json, yaml, table) [default: json]
-- `--plugin-dir <PATH>`: Component storage directory
+- `--component-dir <PATH>`: Component storage directory
 
 ## Component Inspection
 
@@ -314,7 +314,7 @@ wassette policy get my-component-id --output-format yaml
 
 **Options:**
 - `--output-format <FORMAT>`: Output format (json, yaml, table) [default: json]
-- `--plugin-dir <PATH>`: Component storage directory
+- `--component-dir <PATH>`: Component storage directory
 
 ## Permission Management
 
@@ -369,7 +369,7 @@ wassette permission grant memory my-component 2048Ki
 
 **Options:**
 - `--access <ACCESS>`: For storage permissions, comma-separated list of access types (read, write)
-- `--plugin-dir <PATH>`: Component storage directory
+- `--component-dir <PATH>`: Component storage directory
 
 ### `wassette permission revoke`
 
@@ -380,8 +380,8 @@ Remove specific permissions from a component.
 # Revoke storage access
 wassette permission revoke storage my-component fs://workspace/
 
-# Revoke with custom plugin directory
-wassette permission revoke storage my-component fs://config/ --plugin-dir /custom/components
+# Revoke with custom component directory
+wassette permission revoke storage my-component fs://config/ --component-dir /custom/components
 ```
 
 **Network permissions:**
@@ -397,7 +397,7 @@ wassette permission revoke environment-variable my-component API_KEY
 ```
 
 **Options:**
-- `--plugin-dir <PATH>`: Component storage directory
+- `--component-dir <PATH>`: Component storage directory
 
 ### `wassette permission reset`
 
@@ -407,12 +407,12 @@ Remove all permissions for a component, resetting it to default state.
 # Reset all permissions for a component
 wassette permission reset my-component
 
-# Reset with custom plugin directory
-wassette permission reset my-component --plugin-dir /custom/components
+# Reset with custom component directory
+wassette permission reset my-component --component-dir /custom/components
 ```
 
 **Options:**
-- `--plugin-dir <PATH>`: Component storage directory
+- `--component-dir <PATH>`: Component storage directory
 
 ## Common Workflows
 
@@ -506,25 +506,25 @@ Example configuration file (`config.toml`):
 
 ```toml
 # Directory where components are stored
-plugin_dir = "/opt/wassette/components"
+component_dir = "/opt/wassette/components"
 ```
 
 ### Environment Variables
 
 - **`WASSETTE_CONFIG_FILE`**: Override the default configuration file location
-- **`WASSETTE_PLUGIN_DIR`**: Override the default component storage location
+- **`WASSETTE_COMPONENT_DIR`**: Override the default component storage location
 - **`WASSETTE_BIND_ADDRESS`**: Override the default bind address for HTTP-based transports
 - **`XDG_CONFIG_HOME`**: Base directory for configuration files (Linux/macOS)
 - **`XDG_DATA_HOME`**: Base directory for data storage (Linux/macOS)
 
 ### Component Storage
 
-By default, Wassette stores components in `$XDG_DATA_HOME/wassette/components` (typically `~/.local/share/wassette/components` on Linux/macOS). You can override this with the `--plugin-dir` option:
+By default, Wassette stores components in `$XDG_DATA_HOME/wassette/components` (typically `~/.local/share/wassette/components` on Linux/macOS). You can override this with the `--component-dir` option:
 
 ```bash
 # Use custom storage directory
-export WASSETTE_PLUGIN_DIR=/opt/wassette/components
-wassette component load oci://example.com/tool:latest --plugin-dir $WASSETTE_PLUGIN_DIR
+export WASSETTE_COMPONENT_DIR=/opt/wassette/components
+wassette component load oci://example.com/tool:latest --component-dir $WASSETTE_COMPONENT_DIR
 ```
 
 ## Integration with MCP Clients

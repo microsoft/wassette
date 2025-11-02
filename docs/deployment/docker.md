@@ -145,7 +145,7 @@ Example `config.toml`:
 
 ```toml
 # Directory where components are stored
-plugin_dir = "/home/wassette/.local/share/wassette/components"
+component_dir = "/home/wassette/.local/share/wassette/components"
 
 # Environment variables to be made available to components
 [environment_vars]

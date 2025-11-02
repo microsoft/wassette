@@ -288,7 +288,7 @@ func myFunction(input string) MyResult {
 1. Build your component
 2. Start Wassette with your component:
    ```bash
-   wassette serve --sse --plugin-dir ./
+   wassette serve --sse --component-dir ./
    ```
 3. Connect using the MCP inspector:
    ```bash
