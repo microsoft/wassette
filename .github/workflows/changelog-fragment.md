@@ -11,6 +11,8 @@ permissions:
 
 engine: copilot
 
+roles: all
+
 safe-outputs:
   push-to-pull-request-branch:
     commit-title-suffix: " [skip-ci]"
