@@ -62,7 +62,7 @@ The release process is now largely automated through GitHub Actions workflows an
 
    **Important**: The release branch (`release/vX.Y.Z`) is preserved after merging and will be used during the release process.
 
-1. **Automated tag creation**: Once the version bump PR is merged, the `auto-tag-release.yml` workflow automatically:
+1. **Tag creation**: Once the version bump PR is merged, the `auto-tag-release.yml` workflow automatically:
    - Extracts the version from the merged PR's branch name (`release/vX.Y.Z`)
    - Creates an annotated tag `vX.Y.Z` on the merge commit
    - Pushes the tag to the repository

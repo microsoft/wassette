@@ -59,10 +59,10 @@ jobs:
 
             ## Next Steps
             1. Review and merge this PR to main
-            2. **Automated:** After merge, the `auto-tag-release` workflow will automatically create and push tag `v${{ inputs.version }}`
-            3. **Automated:** The release workflow will automatically trigger and create the GitHub release
-            4. **Automated:** The release workflow will update CHANGELOG.md and create a PR to merge changes back to main
-            5. **Automated:** The update-package-manifests workflow will automatically create a PR to update Homebrew and WinGet manifests
+            2. After merge, the `auto-tag-release` workflow will automatically create and push tag `v${{ inputs.version }}`
+            3. The release workflow will automatically trigger and create the GitHub release
+            4. The release workflow will update CHANGELOG.md and create a PR to merge changes back to main
+            5. The update-package-manifests workflow will automatically create a PR to update Homebrew and WinGet manifests
             
             **Note:** The release branch will be kept for the release process and will be merged back to main after the release is complete.
           labels: |
