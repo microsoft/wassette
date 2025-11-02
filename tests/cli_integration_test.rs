@@ -95,10 +95,19 @@ impl CliTestContext {
 
     /// Execute a wassette CLI command without --component-dir (for commands that don't need it)
     async fn run_command_no_component_dir(&self, args: &[&str]) -> Result<(String, String, i32)> {
+        self.run_command_no_component_dir_with_timeout(args, 120).await
+    }
+
+    /// Execute a wassette CLI command without --component-dir with a custom timeout
+    async fn run_command_no_component_dir_with_timeout(
+        &self,
+        args: &[&str],
+        timeout_secs: u64,
+    ) -> Result<(String, String, i32)> {
         let mut cmd = AsyncCommand::new(&self.wassette_bin);
         cmd.args(args);
 
-        let output = tokio::time::timeout(Duration::from_secs(120), cmd.output())
+        let output = tokio::time::timeout(Duration::from_secs(timeout_secs), cmd.output())
             .await
             .context("Command timed out")?
             .context("Failed to execute command")?;
@@ -774,15 +783,12 @@ async fn test_cli_inspect_component_with_oci_uri() -> Result<()> {
     // Use a publicly available OCI component for testing
     let oci_uri = "oci://ghcr.io/microsoft/time-server-js:latest";
 
-    // Run inspect command with oci:// URI
+    // Run inspect command with oci:// URI (with longer timeout for network download)
     let (stdout, stderr, exit_code) = ctx
-        .run_command_no_component_dir(&["inspect", oci_uri])
+        .run_command_no_component_dir_with_timeout(&["inspect", oci_uri], 180)
         .await?;
 
-    assert_eq!(
-        exit_code, 0,
-        "Inspect command failed with stderr: {stderr}"
-    );
+    assert_eq!(exit_code, 0, "Inspect command failed with stderr: {stderr}");
 
     // Verify the output contains expected schema information
     assert!(
