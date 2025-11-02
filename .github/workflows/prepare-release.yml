@@ -59,12 +59,10 @@ jobs:
 
             ## Next Steps
             1. Review and merge this PR to main
-            2. After merge, the release branch `release/v${{ inputs.version }}` will be preserved for the release process
-            3. Create and push a new tag on main: `git tag -s v${{ inputs.version }} -m "Release v${{ inputs.version }}"`
-            4. Push the tag: `git push origin v${{ inputs.version }}`
-            5. The release workflow will automatically trigger and create the GitHub release
-            6. The release workflow will update CHANGELOG.md and create a PR to merge changes back to main
-            7. The update-package-manifests workflow will automatically create a PR to update Homebrew and WinGet manifests
+            2. **Automated:** After merge, the `auto-tag-release` workflow will automatically create and push tag `v${{ inputs.version }}`
+            3. **Automated:** The release workflow will automatically trigger and create the GitHub release
+            4. **Automated:** The release workflow will update CHANGELOG.md and create a PR to merge changes back to main
+            5. **Automated:** The update-package-manifests workflow will automatically create a PR to update Homebrew and WinGet manifests
             
             **Note:** The release branch will be kept for the release process and will be merged back to main after the release is complete.
           labels: |

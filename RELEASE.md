@@ -62,21 +62,15 @@ The release process is now largely automated through GitHub Actions workflows an
 
    **Important**: The release branch (`release/vX.Y.Z`) is preserved after merging and will be used during the release process.
 
-1. **Create and push a release tag**: Once the version bump PR is merged:
+1. **Automated tag creation**: Once the version bump PR is merged, the `auto-tag-release.yml` workflow automatically:
+   - Extracts the version from the merged PR's branch name (`release/vX.Y.Z`)
+   - Creates an annotated tag `vX.Y.Z` on the merge commit
+   - Pushes the tag to the repository
+   - Adds a comment to the PR confirming the tag was created
 
-   ```bash
-   # Checkout the main branch and pull the latest changes
-   git checkout main
-   git pull origin main
+   **Note**: This step is fully automated. No manual intervention is required.
 
-   # Create a new tag (e.g., v0.4.0)
-   git tag -s v<version> -m "Release v<version>"
-   
-   # Push the tag
-   git push origin v<version>
-   ```
-
-1. **Monitor the release workflow**: Once the tag is pushed, the `release.yml` workflow will be triggered automatically:
+1. **Monitor the release workflow**: Once the tag is pushed (automatically), the `release.yml` workflow will be triggered automatically:
    - Builds binaries for all platforms (Linux, macOS, Windows; AMD64 and ARM64)
    - Extracts the changelog content for the version from `CHANGELOG.md`
    - Creates a GitHub release with all compiled binaries and the changelog content as release notes
@@ -120,6 +114,19 @@ This strategy ensures that:
 ### Manual Release Process (If Automation Fails)
 
 If the automated workflows fail, you can follow the manual process:
+
+1. **Create and push the release tag manually** (if `auto-tag-release.yml` fails):
+   ```bash
+   # Checkout the main branch and pull the latest changes
+   git checkout main
+   git pull origin main
+
+   # Create a new tag (e.g., v0.4.0)
+   git tag -a v<version> -m "Release v<version>"
+   
+   # Push the tag
+   git push origin v<version>
+   ```
 
 1. **Update the version manually**:
    ```bash

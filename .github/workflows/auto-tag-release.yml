@@ -1,0 +1,102 @@
+name: Auto Tag Release
+
+on:
+  pull_request:
+    types: [closed]
+
+permissions:
+  contents: write
+  pull-requests: read
+
+jobs:
+  create-release-tag:
+    name: Create Release Tag
+    runs-on: ubuntu-latest
+    # Only run if PR was merged, has release label, and branch matches release/v* pattern
+    if: |
+      github.event.pull_request.merged == true &&
+      contains(github.event.pull_request.labels.*.name, 'release') &&
+      startsWith(github.event.pull_request.head.ref, 'release/v')
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+        with:
+          token: ${{ secrets.RELEASE_TOKEN }}
+          ref: ${{ github.event.pull_request.merge_commit_sha }}
+          fetch-depth: 0
+
+      - name: Extract version from branch name
+        id: extract_version
+        run: |
+          BRANCH_NAME="${{ github.event.pull_request.head.ref }}"
+          # Extract version from branch name (release/v0.4.0 -> v0.4.0)
+          VERSION="${BRANCH_NAME#release/}"
+          
+          # Validate version format (vX.Y.Z)
+          if ! [[ $VERSION =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Error: Invalid version format in branch name: $BRANCH_NAME"
+            echo "Expected format: release/vX.Y.Z (e.g., release/v0.4.0)"
+            exit 1
+          fi
+          
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "Extracted version: $VERSION"
+
+      - name: Check if tag already exists
+        id: check_tag
+        run: |
+          VERSION="${{ steps.extract_version.outputs.version }}"
+          if git rev-parse "$VERSION" >/dev/null 2>&1; then
+            echo "Tag $VERSION already exists"
+            echo "exists=true" >> $GITHUB_OUTPUT
+          else
+            echo "Tag $VERSION does not exist, will create it"
+            echo "exists=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Configure git
+        if: steps.check_tag.outputs.exists == 'false'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Create and push tag
+        if: steps.check_tag.outputs.exists == 'false'
+        env:
+          VERSION: ${{ steps.extract_version.outputs.version }}
+        run: |
+          # Create annotated tag
+          git tag -a "$VERSION" -m "Release $VERSION"
+          
+          # Push tag to origin
+          git push origin "$VERSION"
+          
+          echo "Successfully created and pushed tag $VERSION"
+          echo "The release workflow will now be triggered automatically"
+
+      - name: Add comment to PR
+        if: steps.check_tag.outputs.exists == 'false'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const version = '${{ steps.extract_version.outputs.version }}';
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.payload.pull_request.number,
+              body: `🎉 Release tag \`${version}\` has been automatically created and pushed.\n\nThe [release workflow](https://github.com/${context.repo.owner}/${context.repo.repo}/actions/workflows/release.yml) will now build and publish the release.`
+            });
+
+      - name: Skip comment if tag exists
+        if: steps.check_tag.outputs.exists == 'true'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const version = '${{ steps.extract_version.outputs.version }}';
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.payload.pull_request.number,
+              body: `ℹ️ Tag \`${version}\` already exists. Skipping tag creation.`
+            });
