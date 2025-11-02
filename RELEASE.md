@@ -121,20 +121,7 @@ git tag -s v0.3.4-test1 -m "Test release v0.3.4-test1"
 git push origin v0.3.4-test1
 ```
 
-### What Happens During a Dry Run
-
-When a prerelease tag (containing a hyphen) is pushed, the release workflow:
-
-1. ✅ **Builds binaries** for all platforms (Linux, macOS, Windows; AMD64 and ARM64)
-2. ✅ **Creates a GitHub release** marked as "Pre-release" with all compiled binaries
-3. ❌ **Skips CHANGELOG update** - No PR is created to update the CHANGELOG
-4. ❌ **Skips package manifest updates** - The `update-package-manifests` workflow does not trigger
-
-This allows you to:
-- Test the complete build pipeline across all platforms
-- Verify binary artifacts are created correctly
-- Share test builds with users for validation
-- Validate the release workflow without affecting production releases
+When a prerelease tag (containing a hyphen) is pushed, the release workflow builds binaries for all platforms and creates a GitHub release marked as "Pre-release", but skips CHANGELOG updates and package manifest updates.
 
 ### Dry Run Tag Examples
 

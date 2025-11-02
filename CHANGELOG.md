@@ -6,7 +6,6 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
-- Dry run / test release support in the release workflow: Tags with hyphen suffixes (e.g., `v0.3.4-test1`, `v0.4.0-rc1`) are now treated as prereleases. These releases build and publish binaries to GitHub but skip CHANGELOG updates and package manifest updates, enabling safe testing of the release pipeline without affecting production releases
 - Component registry validation pipeline that automatically validates new or modified component URIs in `component-registry.json` on pull requests, ensuring all URIs can be successfully loaded by wassette before merging changes ([#456](https://github.com/microsoft/wassette/pull/456))
 - Memory server example (`examples/memory-js`) demonstrating a knowledge graph storage system as a WebAssembly component, migrated from the MCP memory server with in-memory persistence, supporting entity and relation management, observations, and full-text search capabilities ([#437](https://github.com/microsoft/wassette/pull/437))
 - arXiv research component (`examples/arxiv-rs`) in Rust that provides three functions: `search-papers` for searching arXiv with query, max results, date, and category filters; `download-paper` for downloading PDF files; and `read-paper` for fetching paper metadata and abstracts. The component uses the arXiv API and returns formatted markdown output ([#436](https://github.com/microsoft/wassette/pull/436))
@@ -42,6 +41,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Changed
 
+- Release workflow now supports dry run / test releases: Tags with hyphen suffixes (e.g., `v0.3.4-test1`, `v0.4.0-rc1`) are treated as prereleases. These releases build and publish binaries to GitHub but skip CHANGELOG updates and package manifest updates, enabling safe testing of the release pipeline without affecting production releases
 - Improved CLI help text for transport flags: changed from "Enable XXX transport" to "Serving with XXX transport" for better clarity on what the flags do ([#446](https://github.com/microsoft/wassette/pull/446))
 - Updated wasmtime dependencies from version 36 to 38.0.2 (wasmtime, wasmtime-wasi, wasmtime-wasi-http, wasmtime-wasi-config) ([#433](https://github.com/microsoft/wassette/pull/433))
 - Refactored duplicated tool name string constants in `src/main.rs` by introducing centralized `const` definitions, eliminating duplication between `TryFrom` and `AsRef` implementations ([#418](https://github.com/microsoft/wassette/pull/418))
