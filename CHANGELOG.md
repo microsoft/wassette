@@ -4,10 +4,6 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
-### Added
-
-- Release Doctor agentic workflow that monitors the entire release pipeline (prepare-release, release, update-package-manifests) and automatically creates diagnostic issues when failures occur, including verification of release binaries, CHANGELOG synchronization, version consistency, and package manifest updates
-
 ## [v0.3.4] - 2025-11-02
 
 ### Added
