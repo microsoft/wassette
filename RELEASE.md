@@ -157,6 +157,7 @@ The [`examples.yml`](.github/workflows/examples.yml) workflow automatically publ
 - `filesystem-rs` - Filesystem operations in Rust
 - `get-weather-js` - Weather API example in JavaScript using OpenWeather API
 - `gomodule-go` - Go module information tool
+- `memory-js` - Knowledge graph memory server in JavaScript
 - `time-server-js` - Time server example in JavaScript
 
 **Additional examples in repository (not yet published to OCI registry):**

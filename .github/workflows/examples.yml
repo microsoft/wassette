@@ -71,6 +71,8 @@ jobs:
             file: time-server-js.wasm
           - name: get-weather-js
             file: get-weather-js.wasm
+          - name: memory-js
+            file: memory-js.wasm
           - name: filesystem-rs
             file: filesystem.wasm
           - name: fetch-rs
