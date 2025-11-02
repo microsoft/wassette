@@ -1244,7 +1244,8 @@ jobs:
           6. **Exit conditions**:
              - If a changelog fragment already exists for this PR number, do nothing
              - If the PR is labeled as "documentation-only" or similar, you may skip (use your judgment)
-             - If the PR appears to be from the changelog automation itself (check if branch name contains "changelog"), do nothing
+             - If the PR appears to be from the changelog automation itself (check if branch name contains "changelog" or if PR title starts with "[auto]"), do nothing
+             - If the PR only modifies files in changelog.d/ directory, do nothing (this prevents infinite loops)
           
           ## Important Rules
           
