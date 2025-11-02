@@ -192,18 +192,11 @@ If the automated workflows fail, you can follow the manual process:
 
 1. **After release is published, update package manifests**:
    
-   **Option 1 - Use manual trigger (recommended)**:
    1. Go to the [Actions tab](https://github.com/microsoft/wassette/actions/workflows/update-package-manifests.yml)
    1. Click "Run workflow"
    1. Enter the release tag name (e.g., `v0.4.0`)
    1. Click "Run workflow"
    1. The workflow will automatically create a PR with the updated manifests
-
-   **Option 2 - Fully manual process**:
-   - Download checksums from the GitHub release page
-   - Update `Formula/wassette.rb` with new version and checksums
-   - Update `winget/Microsoft.Wassette.yaml` with new version, release date, and checksums
-   - Create a PR with these changes
 
 ## Releasing Example Component Images
 
