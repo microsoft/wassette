@@ -151,7 +151,6 @@ impl DownloadedResource {
     }
 }
 
-/// A trait for resources that can be loaded from a URI.
 /// Trait for resources that can be loaded from various sources (file, OCI, URL)
 #[allow(async_fn_in_trait)]
 pub trait Loadable: Sized {
