@@ -1248,4 +1248,61 @@ mod tests {
 
         Ok(())
     }
+
+    #[test]
+    fn test_sanitize_args_for_logging_redacts_sensitive_keys() {
+        let mut args = serde_json::Map::new();
+        args.insert("url".to_string(), json!("https://example.com"));
+        args.insert("api_key".to_string(), json!("secret-key-123"));
+        args.insert("password".to_string(), json!("my-password"));
+        args.insert("token".to_string(), json!("bearer-token"));
+
+        let sanitized = sanitize_args_for_logging(&Some(args));
+
+        assert!(sanitized.contains("\"url\""));
+        assert!(sanitized.contains("https://example.com"));
+        assert!(sanitized.contains("<redacted>"));
+        assert!(!sanitized.contains("secret-key-123"));
+        assert!(!sanitized.contains("my-password"));
+        assert!(!sanitized.contains("bearer-token"));
+    }
+
+    #[test]
+    fn test_sanitize_args_for_logging_truncates_long_strings() {
+        let mut args = serde_json::Map::new();
+        let long_string = "a".repeat(300);
+        args.insert("data".to_string(), json!(long_string));
+
+        let sanitized = sanitize_args_for_logging(&Some(args));
+
+        assert!(sanitized.contains("300 chars"));
+        assert!(!sanitized.contains(&"a".repeat(300)));
+    }
+
+    #[test]
+    fn test_sanitize_args_for_logging_handles_empty() {
+        let sanitized = sanitize_args_for_logging(&None);
+        assert_eq!(sanitized, "{}");
+
+        let empty_args = serde_json::Map::new();
+        let sanitized = sanitize_args_for_logging(&Some(empty_args));
+        assert_eq!(sanitized, "{}");
+    }
+
+    #[test]
+    fn test_sanitize_args_for_logging_preserves_normal_data() {
+        let mut args = serde_json::Map::new();
+        args.insert("name".to_string(), json!("test"));
+        args.insert("count".to_string(), json!(42));
+        args.insert("enabled".to_string(), json!(true));
+
+        let sanitized = sanitize_args_for_logging(&Some(args));
+
+        assert!(sanitized.contains("\"name\""));
+        assert!(sanitized.contains("test"));
+        assert!(sanitized.contains("\"count\""));
+        assert!(sanitized.contains("42"));
+        assert!(sanitized.contains("\"enabled\""));
+        assert!(sanitized.contains("true"));
+    }
 }

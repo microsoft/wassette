@@ -27,6 +27,7 @@
 
 - [CLI](./reference/cli.md)
 - [Built-in Tools](./reference/built-in-tools.md)
+- [Invocation Logs](./reference/invocation-logs.md)
 - [Permissions](./reference/permissions.md)
 - [Environment Variables](./reference/environment-variables.md)
 - [config.toml](./reference/configuration-files.md)

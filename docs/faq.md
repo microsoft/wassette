@@ -181,6 +181,23 @@ This makes it safe to:
 3. **Test component separately**: Validate that your component works outside Wassette
 4. **Check the interface**: Ensure your WIT interface matches what Wassette expects
 
+### How can I view invocation logs?
+
+Wassette provides comprehensive invocation logging for all tool calls. To access logs:
+
+1. **View real-time logs**: When running `wassette serve`, logs are output to stdout (SSE/HTTP) or stderr (stdio)
+2. **Increase verbosity**: Set `RUST_LOG=debug` or `RUST_LOG=trace` for more detailed logs
+3. **Filter logs**: Use grep to find specific invocations: `wassette serve 2>&1 | grep "Tool invocation"`
+4. **Parse structured data**: Extract timing and status information from key-value pairs in logs
+
+Each invocation is logged with:
+- Tool name and component ID
+- Execution duration (total, instantiation, execution time)
+- Success/failure outcome
+- Sanitized arguments (sensitive data redacted)
+
+For detailed information, see the [Invocation Logs Reference](./reference/invocation-logs.md).
+
 ### Are there performance implications of using WebAssembly?
 
 WebAssembly Components in Wassette have:
