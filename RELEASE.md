@@ -92,6 +92,12 @@ The release process is now largely automated through GitHub Actions workflows an
 
    Simply review and merge the automatically created PR to complete the release process.
 
+   **Note**: If the workflow fails, you can manually trigger it:
+   1. Go to the [Actions tab](https://github.com/microsoft/wassette/actions/workflows/update-package-manifests.yml)
+   1. Click "Run workflow"
+   1. Enter the release tag name (e.g., `v0.4.0`)
+   1. Click "Run workflow"
+
 ## Release Branch Strategy
 
 The release process uses a dedicated release branch strategy to prevent blocking development:
@@ -142,7 +148,16 @@ If the automated workflows fail, you can follow the manual process:
    git push origin <branch_name>
    ```
 
-1. **After release is published, update package manifests manually**:
+1. **After release is published, update package manifests**:
+   
+   **Option 1 - Use manual trigger (recommended)**:
+   1. Go to the [Actions tab](https://github.com/microsoft/wassette/actions/workflows/update-package-manifests.yml)
+   1. Click "Run workflow"
+   1. Enter the release tag name (e.g., `v0.4.0`)
+   1. Click "Run workflow"
+   1. The workflow will automatically create a PR with the updated manifests
+
+   **Option 2 - Fully manual process**:
    - Download checksums from the GitHub release page
    - Update `Formula/wassette.rb` with new version and checksums
    - Update `winget/Microsoft.Wassette.yaml` with new version, release date, and checksums
