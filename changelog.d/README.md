@@ -1,28 +1,29 @@
 # Changelog Fragments
 
-This directory contains changelog fragments for pending changes that will be included in the next release.
+This directory contains changelog fragments for pending changes that will be included in the next release. We use the [towncrier](https://towncrier.readthedocs.io/) format for managing changelog fragments.
 
 ## Format
 
-Each fragment file follows the naming convention: `<pr_number>.<change_type>.md`
+Each fragment file follows the towncrier naming convention: `<pr_number>.<type>`
 
-Where `<change_type>` is one of:
-- `added` - New features
-- `changed` - Changes in existing functionality
-- `deprecated` - Soon-to-be removed features
-- `removed` - Now removed features
-- `fixed` - Bug fixes
-- `security` - Security vulnerability fixes
+The file can have any extension (`.md`, `.rst`, `.txt`) or no extension. We use `.md` for consistency.
+
+Where `<type>` is one of:
+- `feature` - New features
+- `bugfix` - Bug fixes
+- `doc` - Documentation improvements
+- `removal` - Deprecations or removal of public API
+- `misc` - Miscellaneous changes not of interest to users
 
 ## Example
 
 For PR #1234 that adds a new feature:
 
-**File**: `1234.added.md`
+**File**: `1234.feature.md`
 
 **Content**:
 ```markdown
-Added support for new component loading feature
+Added support for new component loading feature.
 ```
 
 ## Automated Generation
@@ -35,12 +36,18 @@ You can also manually create fragment files if needed. Just follow the naming co
 
 ## Processing
 
-During release preparation, all fragment files in this directory will be consolidated into the main CHANGELOG.md file and removed from this directory.
+During release preparation, use towncrier to build the changelog:
+
+```bash
+towncrier build --version X.Y.Z
+```
+
+This will consolidate all fragment files into the CHANGELOG.md file and remove the fragments from this directory.
 
 ## Example Files
 
 This directory contains example fragment files (starting with `.example`) that demonstrate the format:
-- `.example.added.md` - Example of a feature addition
-- `.example.fixed.md` - Example of a bug fix
+- `.example.feature.md` - Example of a feature addition
+- `.example.bugfix.md` - Example of a bug fix
 
-These example files should be ignored by any consolidation scripts.
+These example files should be ignored by towncrier (they start with `.` so they won't be picked up).

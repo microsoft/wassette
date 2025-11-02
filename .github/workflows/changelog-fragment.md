@@ -12,10 +12,8 @@ permissions:
 engine: copilot
 
 safe-outputs:
-  create-pull-request:
-    title-prefix: "[auto] "
-    labels: [automation, changelog]
-    draft: false
+  push-to-pull-request-branch:
+    commit-title-suffix: " [skip-ci]"
 
 tools:
   bash: [":*"]
@@ -26,7 +24,9 @@ timeout_minutes: 10
 
 # Changelog Fragment Generator
 
-You are a specialized agent for creating changelog fragment files. Your task is to analyze pull requests and create appropriate changelog fragment files in the `changelog.d/` directory.
+You are a specialized agent for creating changelog fragment files using the towncrier format. Your task is to analyze pull requests and create appropriate changelog fragment files in the `changelog.d/` directory.
+
+**Important**: This workflow uses the [towncrier](https://towncrier.readthedocs.io/) format for changelog fragments, not Keep a Changelog format.
 
 ## Security Notice
 
@@ -52,15 +52,14 @@ When a PR is opened or reopened, you need to:
    - Review the PR description for additional context
    - Look for keywords that indicate the change type (e.g., "fix", "add", "remove", "deprecate", "security")
 
-2. **Determine the Change Type**: Based on the analysis, determine which category this change falls into according to Keep a Changelog specification:
-   - **added** - New features (keywords: "add", "new", "introduce", "implement", "support for")
-   - **changed** - Changes in existing functionality (keywords: "change", "update", "modify", "refactor", "improve", "enhance")
-   - **deprecated** - Soon-to-be removed features (keywords: "deprecate", "obsolete")
-   - **removed** - Now removed features (keywords: "remove", "delete", "drop")
-   - **fixed** - Bug fixes (keywords: "fix", "bug", "issue", "resolve", "correct")
-   - **security** - Security vulnerability fixes (keywords: "security", "vulnerability", "CVE", "exploit")
+2. **Determine the Change Type**: Based on the analysis, determine which category this change falls into according to towncrier specification:
+   - **feature** - New features (keywords: "add", "new", "introduce", "implement", "support for")
+   - **bugfix** - Bug fixes (keywords: "fix", "bug", "issue", "resolve", "correct")
+   - **doc** - Documentation improvements (keywords: "document", "docs", "readme")
+   - **removal** - Deprecations or removal of public API (keywords: "deprecate", "remove", "delete", "drop")
+   - **misc** - Miscellaneous changes not of interest to users (keywords: "refactor", "internal", "cleanup")
 
-   If the PR title or description mentions multiple types, choose the most significant one. If you're unsure, default to "changed".
+   If the PR title or description mentions multiple types, choose the most significant one. If you're unsure, default to "misc".
 
 3. **Check if fragment already exists**: 
    - Use bash commands to check if a file already exists in `changelog.d/` with the pattern `${{ github.event.pull_request.number }}.*md`
@@ -68,28 +67,19 @@ When a PR is opened or reopened, you need to:
    - Only create a new fragment if none exists
 
 4. **Create the changelog fragment file**:
-   - Create a file named `changelog.d/${{ github.event.pull_request.number }}.<change_type>.md`
+   - Create a file named `changelog.d/${{ github.event.pull_request.number }}.<change_type>` (following towncrier format)
+   - The file can have any extension or no extension (e.g., `.md`, `.rst`, `.txt`, or none)
+   - Use `.md` extension for consistency: `changelog.d/${{ github.event.pull_request.number }}.<change_type>.md`
    - The file content should be a single line describing the change
    - Base the description on the PR title, making it concise and clear
-   - Use present tense (e.g., "Add feature X" not "Added feature X")
-   - Do not include the PR number or link in the fragment (this will be added during consolidation)
+   - Do not include the PR number or link in the fragment (towncrier will add this during build)
    - Keep it concise - typically one line, maximum two lines for complex changes
+   - For RST formatting, you can use inline markup like \`\`code\`\` if needed
 
-5. **Create a PR with the changes**:
+5. **Commit and push the changes**:
    - If you created a changelog fragment file, create a commit with the message "Add changelog fragment for PR #${{ github.event.pull_request.number }}"
-   - Use safe-outputs to create a pull request
-   - First, use git commands to determine the current branch name (e.g., `git branch --show-current`)
-   - The PR should target the same branch as the triggering PR
-   - The PR title should be: "[auto] Add changelog fragment for PR #${{ github.event.pull_request.number }}"
-   - The PR body should explain what was done and link to the original PR:
-     ```
-     This PR adds a changelog fragment for PR #${{ github.event.pull_request.number }}.
-     
-     **Change Type**: <change_type>
-     **Fragment File**: changelog.d/${{ github.event.pull_request.number }}.<change_type>.md
-     
-     Related PR: https://github.com/${{ github.repository }}/pull/${{ github.event.pull_request.number }}
-     ```
+   - The safe-outputs configuration will automatically push the commit to the PR branch with [skip-ci] suffix
+   - No need to create a separate PR - the fragment will be added directly to the triggering PR's branch
 
 6. **Exit conditions**:
    - If a changelog fragment already exists for this PR number, do nothing
@@ -101,41 +91,58 @@ When a PR is opened or reopened, you need to:
 
 - **Only create files in changelog.d/** - never modify other files
 - **One fragment per PR** - if a fragment exists, don't create another
-- **Use lowercase change types** in the filename (added, changed, fixed, etc.)
+- **Use lowercase change types** in the filename (feature, bugfix, doc, removal, misc)
+- **Follow towncrier naming**: `<pr_number>.<type>.md` (e.g., `1234.feature.md`)
 - **Be concise** - the fragment should be 1-2 lines maximum
-- **Present tense** - write as if describing what the change does, not what it did
-- **No PR links** - just the description, links will be added during consolidation
+- **No PR links** - just the description, towncrier will add PR references during build
 
 ## Examples
 
 **Example 1: Feature Addition**
 - PR Title: "Add support for loading components from OCI registries"
-- Change Type: `added`
-- Fragment File: `${{ github.event.pull_request.number }}.added.md`
-- Content: `Add support for loading components from OCI registries`
+- Change Type: `feature`
+- Fragment File: `${{ github.event.pull_request.number }}.feature.md`
+- Content: `Added support for loading components from OCI registries.`
 
 **Example 2: Bug Fix**
 - PR Title: "Fix crash when component fails to load"
-- Change Type: `fixed`
-- Fragment File: `${{ github.event.pull_request.number }}.fixed.md`
-- Content: `Fix crash when component fails to load`
+- Change Type: `bugfix`
+- Fragment File: `${{ github.event.pull_request.number }}.bugfix.md`
+- Content: `Fixed crash when component fails to load.`
 
-**Example 3: Breaking Change**
+**Example 3: Removal/Deprecation**
 - PR Title: "Remove deprecated API endpoint"
-- Change Type: `removed`
-- Fragment File: `${{ github.event.pull_request.number }}.removed.md`
-- Content: `**BREAKING CHANGE**: Remove deprecated API endpoint`
+- Change Type: `removal`
+- Fragment File: `${{ github.event.pull_request.number }}.removal.md`
+- Content: `Removed deprecated API endpoint.`
 
-**Example 4: Security Fix**
-- PR Title: "Update dependency to fix security vulnerability"
-- Change Type: `security`
-- Fragment File: `${{ github.event.pull_request.number }}.security.md`
-- Content: `Update dependency to fix security vulnerability`
+**Example 4: Documentation**
+- PR Title: "Update installation guide"
+- Change Type: `doc`
+- Fragment File: `${{ github.event.pull_request.number }}.doc.md`
+- Content: `Updated installation guide with new examples.`
+
+**Example 5: Miscellaneous**
+- PR Title: "Refactor internal component loader"
+- Change Type: `misc`
+- Fragment File: `${{ github.event.pull_request.number }}.misc.md`
+- Content: `Refactored internal component loader for better maintainability.`
 
 ## Tips
 
-- If the PR title starts with a verb, keep that verb in your fragment (e.g., "Add", "Fix", "Update")
+- If the PR title starts with a verb, keep that verb in your fragment but use past tense (e.g., "Added", "Fixed", "Updated")
 - If the PR title is vague, look at the description for more context
-- If you see "BREAKING CHANGE" mentioned, include it in the fragment with the `**BREAKING CHANGE**:` prefix
-- For security fixes, always use the `security` change type
-- Documentation-only changes might not need a changelog entry - use your judgment
+- If you see "BREAKING CHANGE" mentioned, include it in the fragment
+- For security fixes, you can use `bugfix` type with a note about security
+- Documentation-only changes should use the `doc` type
+- Use `misc` type for internal refactoring or changes not visible to users
+
+## Towncrier Reference
+
+Towncrier will automatically:
+- Group fragments by type (feature, bugfix, doc, removal, misc)
+- Add PR numbers to each entry (e.g., `(#1234)`)
+- Format the output according to the configured template
+- Remove fragment files after building the changelog
+
+For more information, see: https://towncrier.readthedocs.io/
