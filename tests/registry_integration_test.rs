@@ -25,7 +25,7 @@ impl RegistryTestContext {
         let plugin_dir = temp_dir.path().join("plugins");
         tokio::fs::create_dir_all(&plugin_dir).await?;
 
-        // Resolve the wassette binary path in a cross-platform friendly way
+        // Resolve the wassette binary path in a cross-platform friendly way.
         let exe_name = format!("wassette{}", env::consts::EXE_SUFFIX);
 
         let locate_binary = || -> Result<PathBuf> {
@@ -45,7 +45,7 @@ impl RegistryTestContext {
             };
 
             if !path.exists() {
-                // Build the binary on-demand
+                // Build the binary on-demand so subsequent calls can reuse it.
                 let status = Command::new("cargo")
                     .args(["build", "--bin", "wassette"])
                     .status()
@@ -76,7 +76,8 @@ impl RegistryTestContext {
     async fn run_command(&self, args: &[&str]) -> Result<(String, String, i32)> {
         let mut cmd = AsyncCommand::new(&self.wassette_bin);
         cmd.args(args);
-        // Only add plugin-dir for 'get' commands that support it
+        // Note: registry search doesn't require --plugin-dir, but registry get does.
+        // Only add plugin-dir for 'get' commands that support it.
         if args.contains(&"get") {
             cmd.arg("--plugin-dir").arg(&self.plugin_dir);
         }
