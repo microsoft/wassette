@@ -198,23 +198,23 @@ time-component | 1     | Provides time-related functions
 
 ### `wassette inspect`
 
-Inspect a WebAssembly component and display its JSON schema. This command is useful for debugging and understanding the structure of a component's inputs and outputs without loading it into the MCP server.
+Inspect a loaded WebAssembly component and display its JSON schema. This command is useful for debugging and understanding the structure of a component's inputs and outputs.
 
-The inspect command supports loading components from various sources:
-- **Local files**: `file:///absolute/path/to/component.wasm`
-- **OCI registries**: `oci://ghcr.io/microsoft/time-server-js:latest`
-- **HTTPS URLs**: `https://example.com/component.wasm`
+**Note:** The component must be loaded first using `wassette component load` before it can be inspected.
 
 **Basic usage:**
 ```bash
-# Inspect a local component file with file:// URI
-wassette inspect file:///path/to/component.wasm
+# First, load a component
+wassette component load oci://ghcr.io/microsoft/time-server-js:latest
 
-# Inspect from OCI registry
-wassette inspect oci://ghcr.io/microsoft/time-server-js:latest
+# Then inspect it by component ID
+wassette inspect time-server-js
 
-# Inspect a component in your project
-wassette inspect file://$(pwd)/target/wasm32-wasip2/debug/my-component.wasm
+# Or load from a local file
+wassette component load file:///path/to/my-component.wasm
+
+# Then inspect it
+wassette inspect my-component
 ```
 
 **Example output:**

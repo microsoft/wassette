@@ -4,9 +4,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
-### Added
+### Changed
 
-- Support for remote URIs (OCI registries and HTTPS) in `wassette inspect` command, matching the functionality of `component load` with support for `file://`, `oci://`, and `https://` schemes
+- Modified `wassette inspect` command to accept component ID instead of file path or URI. Components must now be loaded first using `component load` before inspection
 
 ## [v0.3.4] - 2025-11-02
 

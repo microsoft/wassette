@@ -703,11 +703,24 @@ async fn test_cli_inspect_component() -> Result<()> {
     let ctx = CliTestContext::new().await?;
     let component_path = build_fetch_component().await?;
 
-    // Run inspect command on the component with file:// URI
+    // First, load the component
     let file_uri = format!("file://{}", component_path.display());
-    let (stdout, stderr, exit_code) = ctx
-        .run_command_no_component_dir(&["inspect", &file_uri])
+    let (load_stdout, load_stderr, load_exit_code) = ctx
+        .run_command(&["component", "load", &file_uri])
         .await?;
+
+    assert_eq!(
+        load_exit_code, 0,
+        "Load command failed with stderr: {load_stderr}"
+    );
+
+    let load_output: Value = ctx.parse_json_output(&load_stdout)?;
+    let component_id = load_output["id"]
+        .as_str()
+        .expect("Component ID should be in load output");
+
+    // Now inspect the loaded component by ID
+    let (stdout, stderr, exit_code) = ctx.run_command(&["inspect", component_id]).await?;
 
     assert_eq!(exit_code, 0, "Inspect command failed with stderr: {stderr}");
 
@@ -729,81 +742,18 @@ async fn test_cli_inspect_component() -> Result<()> {
 }
 
 #[test(tokio::test)]
-async fn test_cli_inspect_invalid_path() -> Result<()> {
+async fn test_cli_inspect_invalid_component_id() -> Result<()> {
     let ctx = CliTestContext::new().await?;
 
-    // Try to inspect a non-existent file
+    // Try to inspect a non-existent component
     let (_, stderr, exit_code) = ctx
-        .run_command_no_component_dir(&["inspect", "/nonexistent/path.wasm"])
+        .run_command(&["inspect", "nonexistent-component"])
         .await?;
 
-    assert_ne!(exit_code, 0, "Command should fail for invalid path");
+    assert_ne!(exit_code, 0, "Command should fail for invalid component ID");
     assert!(
-        stderr.contains("Error") || stderr.contains("Failed"),
-        "Error message should indicate failure"
-    );
-
-    Ok(())
-}
-
-#[test(tokio::test)]
-async fn test_cli_inspect_component_with_file_uri() -> Result<()> {
-    let ctx = CliTestContext::new().await?;
-    let component_path = build_fetch_component().await?;
-
-    // Run inspect command with file:// URI
-    let file_uri = format!("file://{}", component_path.display());
-    let (stdout, stderr, exit_code) = ctx
-        .run_command_no_component_dir(&["inspect", &file_uri])
-        .await?;
-
-    assert_eq!(exit_code, 0, "Inspect command failed with stderr: {stderr}");
-
-    // Verify the output contains expected schema information
-    assert!(
-        stdout.contains("input schema:"),
-        "Output should contain input schema"
-    );
-    assert!(
-        stdout.contains("output schema:"),
-        "Output should contain output schema"
-    );
-    assert!(
-        stdout.contains("fetch"),
-        "Output should contain function name 'fetch'"
-    );
-
-    Ok(())
-}
-
-#[test(tokio::test)]
-async fn test_cli_inspect_component_with_oci_uri() -> Result<()> {
-    let ctx = CliTestContext::new().await?;
-
-    // Use a publicly available OCI component for testing
-    let oci_uri = "oci://ghcr.io/microsoft/time-server-js:latest";
-
-    // Run inspect command with oci:// URI (with longer timeout for network download)
-    let (stdout, stderr, exit_code) = ctx
-        .run_command_no_component_dir_with_timeout(&["inspect", oci_uri], 180)
-        .await?;
-
-    assert_eq!(exit_code, 0, "Inspect command failed with stderr: {stderr}");
-
-    // Verify the output contains expected schema information
-    assert!(
-        stdout.contains("input schema:"),
-        "Output should contain input schema"
-    );
-    assert!(
-        stdout.contains("output schema:"),
-        "Output should contain output schema"
-    );
-
-    // The time-server component should have a function related to time
-    assert!(
-        stdout.contains("get-current-time") || stdout.contains("time"),
-        "Output should contain time-related function name"
+        stderr.contains("not found") || stderr.contains("Error"),
+        "Error message should indicate component not found"
     );
 
     Ok(())

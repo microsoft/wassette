@@ -51,8 +51,11 @@ pub enum Commands {
     },
     /// Inspect a WebAssembly component and display its JSON schema (for debugging).
     Inspect {
-        /// URI to the WebAssembly component (file://, oci://, or https://)
-        uri: String,
+        /// Component ID to inspect
+        component_id: String,
+        /// Directory where plugins are stored. Defaults to $XDG_DATA_HOME/wassette/components
+        #[arg(long)]
+        plugin_dir: Option<PathBuf>,
     },
     /// Manage tools (list, read, invoke).
     Tool {
