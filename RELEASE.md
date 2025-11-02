@@ -92,11 +92,53 @@ The release process is now largely automated through GitHub Actions workflows an
 
    Simply review and merge the automatically created PR to complete the release process.
 
-   **Note**: If the workflow fails, you can manually trigger it:
-   1. Go to the [Actions tab](https://github.com/microsoft/wassette/actions/workflows/update-package-manifests.yml)
-   1. Click "Run workflow"
-   1. Enter the release tag name (e.g., `v0.4.0`)
-   1. Click "Run workflow"
+## Dry Run / Test Releases
+
+The release process supports dry run or test releases for validating the build and release process without updating the CHANGELOG or triggering package manifest updates. This is useful for:
+- Testing the release workflow with pre-release versions
+- Creating release candidates for testing
+- Publishing test builds for validation before the official release
+
+### How to Create a Dry Run Release
+
+To create a dry run release, push a tag with a hyphen suffix (e.g., `-test1`, `-rc1`, `-alpha`, `-beta`):
+
+```bash
+# Checkout the commit you want to test
+git checkout main
+git pull origin main
+
+# Create a prerelease tag (e.g., v0.3.4-test1)
+git tag -s v0.3.4-test1 -m "Test release v0.3.4-test1"
+
+# Push the tag
+git push origin v0.3.4-test1
+```
+
+When a prerelease tag (containing a hyphen) is pushed, the release workflow builds binaries for all platforms and creates a GitHub release marked as "Pre-release", but skips CHANGELOG updates and package manifest updates.
+
+### Dry Run Tag Examples
+
+Common prerelease tag patterns:
+- `v0.3.4-test1`, `v0.3.4-test2` - Test releases
+- `v0.4.0-rc1`, `v0.4.0-rc2` - Release candidates
+- `v0.4.0-alpha`, `v0.4.0-beta` - Pre-release versions
+- `v0.3.4-hotfix-test` - Testing a hotfix
+
+### Deleting Dry Run Releases
+
+After validation, you can delete the dry run release and tag:
+
+```bash
+# Delete the tag locally
+git tag -d v0.3.4-test1
+
+# Delete the tag remotely
+git push origin :refs/tags/v0.3.4-test1
+
+# Delete the GitHub release via the web UI or gh CLI
+gh release delete v0.3.4-test1 --yes
+```
 
 ## Release Branch Strategy
 

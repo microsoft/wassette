@@ -189,40 +189,6 @@ When making documentation changes that affect visual presentation:
 - Include screenshots in progress reports
 - This helps reviewers understand the visual impact
 
-## Changelog Management
-
-**All pull requests that change the codebase MUST update `CHANGELOG.md`** following [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) principles.
-
-### Change Categories
-
-Add entries under the `[Unreleased]` section:
-- **Added**: New features
-- **Changed**: Changes in existing functionality
-- **Deprecated**: Soon-to-be removed features
-- **Removed**: Now removed features
-- **Fixed**: Bug fixes
-- **Security**: Vulnerability fixes
-
-### Entry Format
-
-```markdown
-## [Unreleased]
-
-### Added
-- Support for new component loading feature ([#123](https://github.com/microsoft/wassette/pull/123))
-
-### Fixed
-- Issue with component lifecycle management ([#124](https://github.com/microsoft/wassette/pull/124))
-```
-
-### Important Notes
-
-- **Always update the `[Unreleased]` section** - never modify existing version entries
-- **Breaking changes** should be prefixed with `**BREAKING CHANGE**:`
-- **Documentation-only changes** typically don't require changelog entries unless they significantly impact user experience
-- Use present tense and be concise but descriptive
-- Reference the Pull Request number
-
 ## Contributing
 
 ### Contributor License Agreement
