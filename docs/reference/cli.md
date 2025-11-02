@@ -284,7 +284,7 @@ This is particularly useful for:
 
 ## Registry Management
 
-The registry commands provide convenient access to components defined in the `component-registry.json` file. This centralized registry makes it easy to discover and fetch commonly used components without needing to remember their full OCI URIs.
+The registry commands provide convenient access to a centralized catalog of commonly used components, making it easy to discover and fetch components without needing to remember their full OCI URIs.
 
 ### `wassette registry search`
 

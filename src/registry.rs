@@ -19,7 +19,7 @@ pub fn parse_registry(registry_json: &str) -> Result<Vec<RegistryComponent>> {
     serde_json::from_str(registry_json).context("Failed to parse component registry JSON")
 }
 
-/// Search for components matching a query string
+/// Search for components matching a query string with optimized full-text search
 pub fn search_components(
     components: &[RegistryComponent],
     query: Option<&str>,
@@ -27,12 +27,30 @@ pub fn search_components(
     match query {
         None => components.to_vec(),
         Some(q) => {
-            let query_lower = q.to_lowercase();
+            // Split query into words for multi-term matching
+            let query_terms: Vec<String> = q
+                .split_whitespace()
+                .map(|term| term.to_lowercase())
+                .collect();
+
+            if query_terms.is_empty() {
+                return components.to_vec();
+            }
+
             components
                 .iter()
                 .filter(|c| {
-                    c.name.to_lowercase().contains(&query_lower)
-                        || c.description.to_lowercase().contains(&query_lower)
+                    // Pre-compute lowercase versions once per component
+                    let name_lower = c.name.to_lowercase();
+                    let desc_lower = c.description.to_lowercase();
+                    let uri_lower = c.uri.to_lowercase();
+
+                    // Match if ANY query term is found in name, description, or URI
+                    query_terms.iter().any(|term| {
+                        name_lower.contains(term)
+                            || desc_lower.contains(term)
+                            || uri_lower.contains(term)
+                    })
                 })
                 .cloned()
                 .collect()
@@ -145,5 +163,51 @@ mod tests {
         let result = find_component_by_name_or_uri(&components, "oci://example.com/weather");
         assert!(result.is_some());
         assert_eq!(result.unwrap().name, "Weather Server");
+    }
+
+    #[test]
+    fn test_search_components_multi_term() {
+        let components = vec![
+            RegistryComponent {
+                name: "Weather Server".to_string(),
+                description: "JavaScript weather component".to_string(),
+                uri: "oci://example.com/weather-js".to_string(),
+            },
+            RegistryComponent {
+                name: "Time Server".to_string(),
+                description: "Rust time component".to_string(),
+                uri: "oci://example.com/time-rs".to_string(),
+            },
+        ];
+
+        // Multi-term search should match any term
+        let results = search_components(&components, Some("weather rust"));
+        assert_eq!(results.len(), 2); // Both match (weather matches first, rust matches second)
+    }
+
+    #[test]
+    fn test_search_components_matches_uri() {
+        let components = vec![RegistryComponent {
+            name: "Component".to_string(),
+            description: "A test component".to_string(),
+            uri: "oci://ghcr.io/microsoft/weather".to_string(),
+        }];
+
+        // Should match URI as well
+        let results = search_components(&components, Some("microsoft"));
+        assert_eq!(results.len(), 1);
+    }
+
+    #[test]
+    fn test_search_components_empty_query() {
+        let components = vec![RegistryComponent {
+            name: "Component".to_string(),
+            description: "Description".to_string(),
+            uri: "oci://example.com/comp".to_string(),
+        }];
+
+        // Empty string query should return all components
+        let results = search_components(&components, Some("   "));
+        assert_eq!(results.len(), 1);
     }
 }
