@@ -957,6 +957,14 @@ impl LifecycleManager {
         function_name: &str,
         parameters: &str,
     ) -> Result<String> {
+        let start_time = Instant::now();
+
+        debug!(
+            component_id = %component_id,
+            function_name = %function_name,
+            "Starting WebAssembly component execution"
+        );
+
         let component = self
             .get_component(component_id)
             .await
@@ -979,7 +987,15 @@ impl LifecycleManager {
             });
         }
 
+        let instantiation_start = Instant::now();
         let instance = component.instance_pre.instantiate_async(&mut store).await?;
+        let instantiation_duration = instantiation_start.elapsed();
+
+        debug!(
+            component_id = %component_id,
+            instantiation_ms = %instantiation_duration.as_millis(),
+            "Component instance created"
+        );
 
         // Use the new function identifier lookup instead of dot-splitting
         let function_id = self
@@ -1031,10 +1047,23 @@ impl LifecycleManager {
 
         let mut results = create_placeholder_results(&func.results(&store));
 
+        let execution_start = Instant::now();
         func.call_async(&mut store, &argument_vals, &mut results)
             .await?;
+        let execution_duration = execution_start.elapsed();
 
         let result_json = vals_to_json(&results);
+
+        let total_duration = start_time.elapsed();
+
+        info!(
+            component_id = %component_id,
+            function_name = %function_name,
+            total_duration_ms = %total_duration.as_millis(),
+            instantiation_ms = %instantiation_duration.as_millis(),
+            execution_ms = %execution_duration.as_millis(),
+            "WebAssembly component execution completed"
+        );
 
         if let Some(result_str) = result_json.as_str() {
             Ok(result_str.to_string())
