@@ -45,7 +45,18 @@ python3 test_changelog_utils.py
 The `.github/workflows/release.yml` workflow uses these scripts to:
 
 1. **During Release:** Extract CHANGELOG content for GitHub release notes
-2. **Post-Release:** Update CHANGELOG.md automatically (converts `[Unreleased]` to versioned section, adds new `[Unreleased]`, updates comparison links)
+2. **Post-Release:** Update CHANGELOG.md on the release branch (converts `[Unreleased]` to versioned section, adds new `[Unreleased]`, updates comparison links)
+3. **Create PR:** Automatically create a PR to merge the release branch with updated CHANGELOG back to main
+
+### Release Branch Strategy
+
+The release workflow now uses a release branch strategy to prevent blocking development:
+
+- CHANGELOG updates are made on the `release/vX.Y.Z` branch
+- A PR is automatically created to merge the release branch back to main
+- Development can continue on main without interruption during the release process
+
+See `RELEASE.md` for complete documentation of the release process.
 
 ## Manual Testing
 

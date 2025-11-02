@@ -93,6 +93,23 @@ impl CliTestContext {
         Ok((stdout, stderr, exit_code))
     }
 
+    /// Execute a wassette CLI command without --plugin-dir (for commands that don't need it)
+    async fn run_command_no_plugin_dir(&self, args: &[&str]) -> Result<(String, String, i32)> {
+        let mut cmd = AsyncCommand::new(&self.wassette_bin);
+        cmd.args(args);
+
+        let output = tokio::time::timeout(Duration::from_secs(120), cmd.output())
+            .await
+            .context("Command timed out")?
+            .context("Failed to execute command")?;
+
+        let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+        let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+        let exit_code = output.status.code().unwrap_or(-1);
+
+        Ok((stdout, stderr, exit_code))
+    }
+
     /// Parse JSON from stdout
     fn parse_json_output(&self, stdout: &str) -> Result<Value> {
         serde_json::from_str(stdout.trim()).context("Failed to parse JSON output")
@@ -668,6 +685,53 @@ async fn test_cli_secret_set_and_list() -> Result<()> {
         .collect();
     assert!(keys.contains(&"API_KEY"));
     assert!(keys.contains(&"REGION"));
+
+    Ok(())
+}
+
+#[test(tokio::test)]
+async fn test_cli_inspect_component() -> Result<()> {
+    let ctx = CliTestContext::new().await?;
+    let component_path = build_fetch_component().await?;
+
+    // Run inspect command on the component
+    let (stdout, stderr, exit_code) = ctx
+        .run_command_no_plugin_dir(&["inspect", component_path.to_str().unwrap()])
+        .await?;
+
+    assert_eq!(exit_code, 0, "Inspect command failed with stderr: {stderr}");
+
+    // Verify the output contains expected schema information
+    assert!(
+        stdout.contains("input schema:"),
+        "Output should contain input schema"
+    );
+    assert!(
+        stdout.contains("output schema:"),
+        "Output should contain output schema"
+    );
+    assert!(
+        stdout.contains("fetch"),
+        "Output should contain function name 'fetch'"
+    );
+
+    Ok(())
+}
+
+#[test(tokio::test)]
+async fn test_cli_inspect_invalid_path() -> Result<()> {
+    let ctx = CliTestContext::new().await?;
+
+    // Try to inspect a non-existent file
+    let (_, stderr, exit_code) = ctx
+        .run_command_no_plugin_dir(&["inspect", "/nonexistent/path.wasm"])
+        .await?;
+
+    assert_ne!(exit_code, 0, "Command should fail for invalid path");
+    assert!(
+        stderr.contains("Error") || stderr.contains("Failed"),
+        "Error message should indicate failure"
+    );
 
     Ok(())
 }
