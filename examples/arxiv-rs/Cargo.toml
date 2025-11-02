@@ -1,0 +1,26 @@
+[package]
+name = "arxiv-rs"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+
+[dependencies]
+serde = { version = "1.0", features = ["derive"] }
+spin-executor = "3.0.1"
+spin-sdk = "3.0.1"
+wit-bindgen-rt = { version = "0.26.0", features = ["bitflags"] }
+
+[lib]
+crate-type = ["cdylib"]
+
+[profile.release]
+codegen-units = 1
+opt-level = "s"
+debug = false
+strip = true
+lto = true
+
+[package.metadata.component]
+package = "component:arxiv-rs"
+
+[workspace]

@@ -33,7 +33,7 @@ Wassette uses semantic versioning. All releases follow the format `vX.Y.Z`, wher
 
 ## Steps to Cut a Release
 
-The release process is now largely automated through GitHub Actions workflows. Follow these steps:
+The release process is now largely automated through GitHub Actions workflows and uses a release branch strategy to prevent blocking development on main. Follow these steps:
 
 1. **Prepare the CHANGELOG**: Before creating a release, ensure that the `[Unreleased]` section in `CHANGELOG.md` contains all the changes for the upcoming release. Follow the [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) format with sections for:
    - `Added` - new features
@@ -53,11 +53,14 @@ The release process is now largely automated through GitHub Actions workflows. F
    1. Click "Run workflow"
 
    This will automatically:
+   - Create a release branch `release/vX.Y.Z`
    - Update the version in `Cargo.toml`
    - Update `Cargo.lock`
-   - Create a pull request with these changes
+   - Create a pull request to merge the release branch into main
 
 1. **Review and merge the version bump PR**: The workflow will create a pull request with the version changes. Review and merge this PR into the main branch.
+
+   **Important**: The release branch (`release/vX.Y.Z`) is preserved after merging and will be used during the release process.
 
 1. **Create and push a release tag**: Once the version bump PR is merged:
 
@@ -77,12 +80,14 @@ The release process is now largely automated through GitHub Actions workflows. F
    - Builds binaries for all platforms (Linux, macOS, Windows; AMD64 and ARM64)
    - Extracts the changelog content for the version from `CHANGELOG.md`
    - Creates a GitHub release with all compiled binaries and the changelog content as release notes
-   - Automatically updates `CHANGELOG.md`:
+   - Automatically updates `CHANGELOG.md` on the release branch:
      - Converts `[Unreleased]` section to the new version with release date
      - Adds a new empty `[Unreleased]` section
      - Updates version comparison links
-     - Commits and pushes changes back to main branch
+   - Creates a PR to merge the release branch back to main with the updated CHANGELOG
    - Monitor the workflow progress in the [Actions tab](https://github.com/microsoft/wassette/actions)
+
+1. **Merge the CHANGELOG update PR**: After the release workflow completes, a new PR will be created to merge the release branch back to main with the updated CHANGELOG. Review and merge this PR.
 
 1. **Package manifests are updated automatically**: After the release is published, the `update-package-manifests` workflow will automatically:
    - Download all release assets
@@ -92,6 +97,25 @@ The release process is now largely automated through GitHub Actions workflows. F
    - Create a pull request with these updates
 
    Simply review and merge the automatically created PR to complete the release process.
+
+## Release Branch Strategy
+
+The release process uses a dedicated release branch strategy to prevent blocking development:
+
+1. **Release branch creation**: When the `prepare-release` workflow is triggered, it creates a branch named `release/vX.Y.Z` (e.g., `release/v0.4.0`)
+
+2. **Release branch preservation**: Unlike typical feature branches, the release branch is not deleted after the initial version bump PR is merged. It remains available for the entire release process.
+
+3. **Release isolation**: All release-related activities (building binaries, updating CHANGELOG) happen on or reference the release branch, ensuring that ongoing development on `main` is not blocked or interrupted.
+
+4. **CHANGELOG updates**: After the release is published, the CHANGELOG is updated on the release branch (not on main), and a PR is created to merge these changes back to main.
+
+5. **Branch cleanup**: After the CHANGELOG update PR is merged, the release branch can be safely deleted as it has served its purpose.
+
+This strategy ensures that:
+- Development can continue on `main` without interruption during the release process
+- Release activities are isolated to dedicated branches
+- All release-related changes are properly tracked and reviewed through PRs
 
 ### Manual Release Process (If Automation Fails)
 

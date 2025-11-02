@@ -48,7 +48,7 @@ jobs:
           token: ${{ secrets.RELEASE_TOKEN }}
           commit-message: "chore(release): bump version to ${{ inputs.version }}"
           branch: release/v${{ inputs.version }}
-          delete-branch: true
+          delete-branch: false
           title: "chore(release): bump version to ${{ inputs.version }}"
           body: |
             This pull request prepares for the ${{ inputs.version }} release by updating the version in `Cargo.toml` and `Cargo.lock`.
@@ -58,11 +58,15 @@ jobs:
             - Updated `Cargo.lock` to reflect the version change
 
             ## Next Steps
-            1. Review and merge this PR
-            2. After merge, create and push a new tag: `git tag -s v${{ inputs.version }} -m "Release v${{ inputs.version }}"`
-            3. Push the tag: `git push origin v${{ inputs.version }}`
-            4. The release workflow will automatically trigger and create the GitHub release
-            5. The update-package-manifests workflow will automatically create a PR to update Homebrew and WinGet manifests
+            1. Review and merge this PR to main
+            2. After merge, the release branch `release/v${{ inputs.version }}` will be preserved for the release process
+            3. Create and push a new tag on main: `git tag -s v${{ inputs.version }} -m "Release v${{ inputs.version }}"`
+            4. Push the tag: `git push origin v${{ inputs.version }}`
+            5. The release workflow will automatically trigger and create the GitHub release
+            6. The release workflow will update CHANGELOG.md and create a PR to merge changes back to main
+            7. The update-package-manifests workflow will automatically create a PR to update Homebrew and WinGet manifests
+            
+            **Note:** The release branch will be kept for the release process and will be merged back to main after the release is complete.
           labels: |
             release
             automated

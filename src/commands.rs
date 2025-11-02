@@ -49,6 +49,11 @@ pub enum Commands {
         #[command(subcommand)]
         command: SecretCommands,
     },
+    /// Inspect a WebAssembly component and display its JSON schema (for debugging).
+    Inspect {
+        /// Path to the WebAssembly component file
+        path: PathBuf,
+    },
 }
 
 #[derive(Parser, Debug, Clone, Serialize, Deserialize)]

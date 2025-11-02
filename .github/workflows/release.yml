@@ -222,20 +222,70 @@ jobs:
             echo "Previous version: $PREV_TAG"
           fi
 
-      - name: Update CHANGELOG
+      - name: Extract version
         if: steps.prev_version.outputs.found == 'true'
+        id: version
         run: |
-          python3 scripts/changelog_utils.py update "${{ github.ref_name }}" "${{ steps.prev_version.outputs.tag }}"
+          VERSION=$(echo "${{ github.ref_name }}" | sed 's/^v//')
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
 
-      - name: Commit and push CHANGELOG changes
+      - name: Create or update release branch
         if: steps.prev_version.outputs.found == 'true'
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
+          
+          # Check if release branch exists
+          RELEASE_BRANCH="release/v${{ steps.version.outputs.version }}"
+          if git ls-remote --heads origin "$RELEASE_BRANCH" | grep -q "$RELEASE_BRANCH"; then
+            echo "Release branch $RELEASE_BRANCH exists, checking it out"
+            git fetch origin "$RELEASE_BRANCH"
+            git checkout "$RELEASE_BRANCH"
+          else
+            echo "Release branch $RELEASE_BRANCH does not exist, creating from current commit"
+            git checkout -b "$RELEASE_BRANCH"
+          fi
+          
+          # Update CHANGELOG
+          python3 scripts/changelog_utils.py update "${{ github.ref_name }}" "${{ steps.prev_version.outputs.tag }}"
+          
+          # Commit and push if there are changes
           git add CHANGELOG.md
           if git diff --staged --quiet; then
             echo "No changes to CHANGELOG.md"
+            echo "has_changes=false" >> $GITHUB_ENV
           else
             git commit -m "chore(release): update CHANGELOG for ${{ github.ref_name }}"
-            git push origin HEAD:main
+            git push origin "$RELEASE_BRANCH"
+            echo "has_changes=true" >> $GITHUB_ENV
+          fi
+
+      - name: Create PR to merge release branch to main
+        if: steps.prev_version.outputs.found == 'true' && env.has_changes == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_TOKEN }}
+        run: |
+          # Check if PR already exists
+          EXISTING_PR=$(gh pr list --head "release/v${{ steps.version.outputs.version }}" --base main --json number --jq '.[0].number')
+          
+          if [ -n "$EXISTING_PR" ]; then
+            echo "PR #$EXISTING_PR already exists, skipping creation"
+          else
+            gh pr create \
+              --base main \
+              --head "release/v${{ steps.version.outputs.version }}" \
+              --title "chore(release): merge release/v${{ steps.version.outputs.version }} back to main" \
+              --body "This PR merges the release branch \`release/v${{ steps.version.outputs.version }}\` back to main after the release process.
+
+            ## Changes
+            - Updated CHANGELOG.md with release date and version information for ${{ github.ref_name }}
+            - Added new empty [Unreleased] section for future changes
+            
+            ## Context
+            This PR is automatically created after the release workflow completes. The release branch was preserved during the release process to avoid blocking development on main.
+            
+            ## Next Steps
+            1. Review and merge this PR to complete the release process
+            2. The release branch can be deleted after merging" \
+              --label "release,automated"
           fi

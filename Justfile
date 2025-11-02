@@ -23,6 +23,23 @@ build mode="debug":
     cargo build --workspace {{ if mode == "release" { "--release" } else { "" } }}
     cp target/{{ mode }}/wassette bin/
 
+install mode="debug":
+    #!/usr/bin/env bash
+    set -e
+    # Ensure the binary is built
+    just build {{ mode }}
+    # Create the installation directory
+    mkdir -p "$HOME/.local/bin"
+    # Copy the binary
+    cp bin/wassette "$HOME/.local/bin/wassette"
+    # Make it executable
+    chmod +x "$HOME/.local/bin/wassette"
+    echo "✓ Installed wassette to $HOME/.local/bin/wassette"
+    echo ""
+    echo "Make sure $HOME/.local/bin is in your PATH."
+    echo "You can add it by running:"
+    echo '  export PATH="$HOME/.local/bin:$PATH"'
+
 # Check if wit-docs-inject is installed, if not install it
 ensure-wit-docs-inject:
     #!/usr/bin/env bash
@@ -51,10 +68,12 @@ build-examples mode="debug":
     (cd examples/brave-search-rs && just build {{ mode }})
     (cd examples/context7-rs && just build {{ mode }})
     (cd examples/get-open-meteo-weather-js && just build)
+    (cd examples/arxiv-rs && just build {{ mode }})
     # Inject docs for Rust examples
     just inject-docs examples/fetch-rs/target/wasm32-wasip2/{{ mode }}/fetch_rs.wasm examples/fetch-rs/wit
     just inject-docs examples/filesystem-rs/target/wasm32-wasip2/{{ mode }}/filesystem.wasm examples/filesystem-rs/wit
     just inject-docs examples/brave-search-rs/target/wasm32-wasip2/{{ mode }}/brave_search_rs.wasm examples/brave-search-rs/wit
+    just inject-docs examples/arxiv-rs/target/wasm32-wasip2/{{ mode }}/arxiv_rs.wasm examples/arxiv-rs/wit
     # Note: Skipping doc injection for context7-rs due to missing WIT dependencies (wasi:http@0.2.1)
     # Inject docs for JS examples
     just inject-docs examples/get-weather-js/weather.wasm examples/get-weather-js/wit
@@ -74,6 +93,7 @@ build-examples mode="debug":
     cp examples/eval-py/eval.wasm bin/eval-py.wasm
     cp examples/gomodule-go/gomodule.wasm bin/gomodule.wasm
     cp examples/brave-search-rs/target/wasm32-wasip2/{{ mode }}/brave_search_rs.wasm bin/brave-search-rs.wasm
+    cp examples/arxiv-rs/target/wasm32-wasip2/{{ mode }}/arxiv_rs.wasm bin/arxiv-rs.wasm
     cp examples/context7-rs/target/wasm32-wasip2/{{ mode }}/context7.wasm bin/context7-rs.wasm
     cp examples/get-open-meteo-weather-js/weather.wasm bin/get-open-meteo-weather-js.wasm
     
