@@ -25,7 +25,7 @@ struct CliTestContext {
 impl CliTestContext {
     async fn new() -> Result<Self> {
         let temp_dir = tempfile::tempdir().context("Failed to create temp directory")?;
-        let component_dir = temp_dir.path().join("plugins");
+        let component_dir = temp_dir.path().join("components");
         tokio::fs::create_dir_all(&component_dir).await?;
 
         // Resolve the wassette binary path in a cross-platform friendly way.

@@ -15,7 +15,7 @@ use common::build_fetch_component;
 
 async fn setup_lifecycle_manager() -> Result<(Arc<LifecycleManager>, TempDir)> {
     let temp_dir = tempfile::tempdir().context("Failed to create temp directory")?;
-    let component_dir = temp_dir.path().join("plugins");
+    let component_dir = temp_dir.path().join("components");
     tokio::fs::create_dir_all(&component_dir).await?;
 
     let manager = LifecycleManager::new(&component_dir)

@@ -534,7 +534,7 @@ async fn test_stdio_transport() -> Result<()> {
     let mut stdout = BufReader::new(stdout);
     let mut stderr = BufReader::new(stderr);
 
-    // Give the server time to start (less time needed with empty plugin dir)
+    // Give the server time to start (less time needed with empty component dir)
     tokio::time::sleep(Duration::from_millis(1000)).await;
 
     // Check if the process is still running
@@ -923,7 +923,7 @@ async fn test_http_transport() -> Result<()> {
         .spawn()
         .context("Failed to start wassette with HTTP transport")?;
 
-    // Give the server time to start (less time needed with empty plugin dir)
+    // Give the server time to start (less time needed with empty component dir)
     tokio::time::sleep(Duration::from_millis(1000)).await;
 
     // Create HTTP client
@@ -973,7 +973,7 @@ async fn test_default_stdio_transport() -> Result<()> {
     let mut stdin = stdin;
     let mut stdout = BufReader::new(stdout);
 
-    // Give the server time to start (less time needed with empty plugin dir)
+    // Give the server time to start (less time needed with empty component dir)
     tokio::time::sleep(Duration::from_millis(1000)).await;
 
     // Check if the process is still running
