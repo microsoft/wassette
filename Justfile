@@ -74,7 +74,7 @@ build-examples mode="debug":
     just inject-docs examples/filesystem-rs/target/wasm32-wasip2/{{ mode }}/filesystem.wasm examples/filesystem-rs/wit
     just inject-docs examples/brave-search-rs/target/wasm32-wasip2/{{ mode }}/brave_search_rs.wasm examples/brave-search-rs/wit
     just inject-docs examples/arxiv-rs/target/wasm32-wasip2/{{ mode }}/arxiv_rs.wasm examples/arxiv-rs/wit
-    # Note: Skipping doc injection for context7-rs due to missing WIT dependencies (wasi:http@0.2.1)
+    just inject-docs examples/context7-rs/target/wasm32-wasip2/{{ mode }}/context7.wasm examples/context7-rs/wit
     # Inject docs for JS examples
     just inject-docs examples/get-weather-js/weather.wasm examples/get-weather-js/wit
     just inject-docs examples/time-server-js/time.wasm examples/time-server-js/wit
