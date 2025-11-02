@@ -8,12 +8,22 @@ updates:
       wasmtime:
         patterns:
         - "wasmtime*"
-  - package-ecosystem: "github-actions"
-    directory: "/"
-    schedule:
-      interval: "weekly"
-    groups:
-      upload-download-artifact:
-        patterns:
-        - "upload-artifact"
-        - "download-artifact"
+  # GitHub Actions updates are temporarily disabled because agentic workflow
+  # lock files (*.lock.yml) are auto-generated from *.md source files.
+  # Dependabot cannot distinguish between regular workflows and generated lock files,
+  # so we must disable all GitHub Actions updates until a mechanism is implemented
+  # to keep .md and .lock.yml files in sync.
+  # 
+  # To update GitHub Actions versions in regular workflows: update them manually.
+  # To update GitHub Actions versions in agentic workflows: update the .md source
+  # files and recompile with 'gh aw compile'.
+  #
+  # - package-ecosystem: "github-actions"
+  #   directory: "/"
+  #   schedule:
+  #     interval: "weekly"
+  #   groups:
+  #     upload-download-artifact:
+  #       patterns:
+  #       - "upload-artifact"
+  #       - "download-artifact"
