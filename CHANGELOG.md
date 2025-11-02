@@ -64,7 +64,6 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Fixed
 
-- Fixed release workflow usage example to show correct command `wassette serve --streamable-http` instead of `wassette serve --sse --policy-file policy.yaml`, aligning with Docker defaults and simplifying the basic usage example
 - Fixed post-release workflows not triggering properly: Release workflow now uses `RELEASE_TOKEN` instead of `GITHUB_TOKEN` to allow triggering downstream workflows, and Publish Examples workflow corrected event type from `publish` to `published` ([#395](https://github.com/microsoft/wassette/pull/395))
 - Fixed invalid `workflows` permission in dependabot-automerge workflow file that caused GitHub Actions validation error ([#322](https://github.com/microsoft/wassette/pull/322))
 - Fixed Mermaid sequence diagram rendering in documentation by adding mdbook-mermaid preprocessor configuration ([#324](https://github.com/microsoft/wassette/pull/324))
