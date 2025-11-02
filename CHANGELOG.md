@@ -78,8 +78,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Security
 
-- **CRITICAL**: Fixed RUSTSEC-2025-0095/RUSTSEC-2025-0111 (CVE-2025-62518) - `tokio-tar` PAX extended headers file smuggling vulnerability by upgrading `testcontainers` from 0.25.0 to 0.25.2, which replaces the vulnerable and unmaintained `tokio-tar` v0.3.1 with the patched `astral-tokio-tar` v0.5.6. This vulnerability could allow attackers to craft malicious tar files that smuggle additional entries, potentially leading to arbitrary file overwrites or code execution
-- Fixed RUSTSEC-2025-0112 - `wasmtime` host-to-wasm component intrinsics vulnerability by upgrading wasmtime and related crates from 38.0.2 to 38.0.3
+- **CRITICAL**: Fixed RUSTSEC-2025-0095/RUSTSEC-2025-0111 (CVE-2025-62518) - `tokio-tar` PAX extended headers file smuggling vulnerability
+  - Upgraded `testcontainers` from 0.25.0 to 0.25.2
+  - Replaced vulnerable `tokio-tar` v0.3.1 with patched `astral-tokio-tar` v0.5.6
+  - Prevents malicious tar files from smuggling entries that could lead to arbitrary file overwrites or code execution
+- Fixed RUSTSEC-2025-0112 - `wasmtime` host-to-wasm component intrinsics vulnerability
+  - Upgraded wasmtime and related crates from 38.0.2 to 38.0.3
 
 ## [v0.3.0] - 2025-10-03
 
