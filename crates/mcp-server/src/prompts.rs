@@ -2,13 +2,605 @@
 // Licensed under the MIT license.
 
 use anyhow::Result;
-use rmcp::model::{ListPromptsRequest, ListPromptsResult};
+use rmcp::model::{
+    GetPromptRequestParam, GetPromptResult, ListPromptsResult, Prompt, PromptArgument,
+    PromptMessage, PromptMessageRole,
+};
 
-pub async fn handle_prompts_list(req: serde_json::Value) -> Result<serde_json::Value> {
-    let _parsed_req: ListPromptsRequest = serde_json::from_value(req)?;
+/// Get the list of available prompts
+pub async fn handle_prompts_list(_req: serde_json::Value) -> Result<serde_json::Value> {
     let response = ListPromptsResult {
-        prompts: vec![],
+        prompts: get_available_prompts(),
         next_cursor: None,
     };
     Ok(serde_json::to_value(response)?)
+}
+
+/// Get a specific prompt by name
+pub async fn handle_prompts_get(req: serde_json::Value) -> Result<serde_json::Value> {
+    let parsed_req: GetPromptRequestParam = serde_json::from_value(req)?;
+
+    let prompt_name = parsed_req.name.as_str();
+    let arguments = parsed_req.arguments.unwrap_or_default();
+
+    let result = match prompt_name {
+        "build-rust-component" => build_rust_component_prompt(arguments)?,
+        "build-javascript-component" => build_javascript_component_prompt(arguments)?,
+        "build-python-component" => build_python_component_prompt(arguments)?,
+        _ => {
+            return Err(anyhow::anyhow!("Unknown prompt: {}", prompt_name));
+        }
+    };
+
+    Ok(serde_json::to_value(result)?)
+}
+
+/// Returns the list of available prompts
+fn get_available_prompts() -> Vec<Prompt> {
+    vec![
+        Prompt::new(
+            "build-rust-component",
+            Some("Guide to building a WebAssembly component for Wassette using Rust"),
+            Some(vec![PromptArgument {
+                name: "component_name".to_string(),
+                description: Some("The name of the component to build".to_string()),
+                required: Some(false),
+            }]),
+        ),
+        Prompt::new(
+            "build-javascript-component",
+            Some("Guide to building a WebAssembly component for Wassette using JavaScript"),
+            Some(vec![PromptArgument {
+                name: "component_name".to_string(),
+                description: Some("The name of the component to build".to_string()),
+                required: Some(false),
+            }]),
+        ),
+        Prompt::new(
+            "build-python-component",
+            Some("Guide to building a WebAssembly component for Wassette using Python"),
+            Some(vec![PromptArgument {
+                name: "component_name".to_string(),
+                description: Some("The name of the component to build".to_string()),
+                required: Some(false),
+            }]),
+        ),
+    ]
+}
+
+/// Generate the Rust component building prompt
+fn build_rust_component_prompt(
+    arguments: serde_json::Map<String, serde_json::Value>,
+) -> Result<GetPromptResult> {
+    let component_name = arguments
+        .get("component_name")
+        .and_then(|v| v.as_str())
+        .unwrap_or("my-component");
+
+    let content = format!(
+        r#"# Building a Rust WebAssembly Component for Wassette
+
+I'll help you build a WebAssembly component named "{}" using Rust.
+
+## Prerequisites
+- Rust toolchain (1.75.0 or later)
+- WASI Preview 2 target
+
+## Step 1: Install Required Tools
+
+First, ensure you have the necessary tools installed:
+
+```bash
+# Install Rust (if not already installed)
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+source ~/.cargo/env
+
+# Add WASI target
+rustup target add wasm32-wasip2
+
+# Install wit-bindgen (optional, for manual binding generation)
+cargo install wit-bindgen-cli --version 0.37.0
+```
+
+## Step 2: Create Your Project
+
+```bash
+cargo new --lib {}
+cd {}
+```
+
+## Step 3: Configure Cargo.toml
+
+Update your `Cargo.toml`:
+
+```toml
+[package]
+name = "{}"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+wit-bindgen = {{ version = "0.37.0", default-features = false }}
+
+[profile.release]
+opt-level = "s"
+lto = true
+strip = true
+```
+
+## Step 4: Define Your WIT Interface
+
+Create `wit/world.wit`:
+
+```wit
+package local:{};
+
+world {} {{
+    // Define your exported functions here
+    export greet: func(name: string) -> string;
+}}
+```
+
+## Step 5: Generate Bindings
+
+```bash
+wit-bindgen rust wit/ --out-dir src/ --runtime-path wit_bindgen_rt --async none
+```
+
+## Step 6: Implement Your Component
+
+Create/update `src/lib.rs`:
+
+```rust
+// Copyright (c) Microsoft Corporation.
+// Licensed under the MIT license.
+
+mod bindings;
+
+use bindings::exports::local::{}::{}::Guest;
+
+struct Component;
+
+impl Guest for Component {{
+    fn greet(name: String) -> String {{
+        format!("Hello, {{}}!", name)
+    }}
+}}
+
+bindings::export!(Component with_types_in bindings);
+```
+
+## Step 7: Build Your Component
+
+```bash
+# Debug build
+cargo build --target wasm32-wasip2
+
+# Release build (recommended)
+cargo build --target wasm32-wasip2 --release
+
+# Output: target/wasm32-wasip2/release/{}.wasm
+```
+
+## Step 8: Inject WIT Documentation (Optional but Recommended)
+
+To make your component's documentation available to AI agents:
+
+```bash
+# Install wit-docs-inject (if not already installed)
+cargo install --git https://github.com/Mossaka/wit-docs-inject
+
+# Inject documentation into your component
+wit-docs-inject --component target/wasm32-wasip2/release/{}.wasm \
+                --wit-dir wit/ \
+                --inplace
+```
+
+## Step 9: Test Your Component
+
+```bash
+# Start Wassette with your component
+wassette serve --sse --plugin-dir target/wasm32-wasip2/release/
+
+# In another terminal, use an MCP client to test
+```
+
+## Best Practices
+
+1. **Use strong typing** - Leverage Rust's type system for safety
+2. **Handle errors properly** - Always use `Result<T, E>` for fallible operations
+3. **Optimize for size** - Use `opt-level = "s"` and enable LTO in release builds
+4. **Avoid unwrap/panic** - Return errors instead of panicking
+5. **Document your WIT interface** - Add comments to explain your functions
+
+## Additional Resources
+
+- [Rust Cookbook Guide](https://microsoft.github.io/wassette/latest/cookbook/rust.html)
+- [Example Components](https://github.com/microsoft/wassette/tree/main/examples)
+- [WebAssembly Component Model](https://component-model.bytecodealliance.org/)
+
+Would you like me to help you implement any specific functionality for your component?"#,
+        component_name,
+        component_name,
+        component_name,
+        component_name,
+        component_name,
+        component_name,
+        component_name,
+        component_name,
+        component_name,
+        component_name
+    );
+
+    Ok(GetPromptResult {
+        description: Some(format!(
+            "A step-by-step guide to building a Rust WebAssembly component named '{}'",
+            component_name
+        )),
+        messages: vec![PromptMessage::new_text(PromptMessageRole::User, content)],
+    })
+}
+
+/// Generate the JavaScript component building prompt
+fn build_javascript_component_prompt(
+    arguments: serde_json::Map<String, serde_json::Value>,
+) -> Result<GetPromptResult> {
+    let component_name = arguments
+        .get("component_name")
+        .and_then(|v| v.as_str())
+        .unwrap_or("my-component");
+
+    let content = format!(
+        r#"# Building a JavaScript WebAssembly Component for Wassette
+
+I'll help you build a WebAssembly component named "{}" using JavaScript.
+
+## Prerequisites
+- Node.js (version 18 or later)
+- npm or yarn package manager
+
+## Step 1: Install Tools
+
+```bash
+npm install -g @bytecodealliance/jco
+```
+
+## Step 2: Create Your Project
+
+```bash
+mkdir {}
+cd {}
+npm init -y
+```
+
+## Step 3: Install Dependencies
+
+Add to your `package.json`:
+
+```json
+{{
+  "type": "module",
+  "dependencies": {{
+    "@bytecodealliance/componentize-js": "^0.18.1",
+    "@bytecodealliance/jco": "^1.11.1"
+  }},
+  "scripts": {{
+    "build:component": "jco componentize -w ./wit main.js -o component.wasm"
+  }}
+}}
+```
+
+Then install:
+
+```bash
+npm install
+```
+
+## Step 4: Define Your WIT Interface
+
+Create `wit/world.wit`:
+
+```wit
+package local:{};
+
+interface operations {{
+    greet: func(name: string) -> string;
+}}
+
+world {}-component {{
+    export operations;
+}}
+```
+
+## Step 5: Implement Your Component
+
+Create `main.js`:
+
+```javascript
+export const operations = {{
+    greet(name) {{
+        return `Hello, ${{name}}!`;
+    }}
+}};
+```
+
+## Step 6: Build Your Component
+
+```bash
+# Basic build
+jco componentize main.js --wit ./wit -o component.wasm
+
+# Build with WASI dependencies (if needed)
+jco componentize main.js --wit ./wit -d http -d random -d stdio -o component.wasm
+```
+
+Common WASI dependencies:
+- `http` - HTTP client capabilities
+- `random` - Random number generation
+- `stdio` - Standard input/output
+- `filesystem` - File system access
+- `clocks` - Time and clock access
+
+## Step 7: Inject WIT Documentation (Optional but Recommended)
+
+To make your component's documentation available to AI agents:
+
+```bash
+# Install wit-docs-inject (if not already installed)
+cargo install --git https://github.com/Mossaka/wit-docs-inject
+
+# Inject documentation into your component
+wit-docs-inject --component component.wasm \
+                --wit-dir wit/ \
+                --inplace
+```
+
+## Step 8: Test Your Component
+
+```bash
+# Start Wassette with your component
+wassette serve --sse --plugin-dir .
+
+# In another terminal, use an MCP client to test
+```
+
+## Error Handling
+
+JavaScript components use WIT's `result` type for error handling:
+
+```javascript
+export const operations = {{
+    divide(a, b) {{
+        if (b === 0) {{
+            return {{ tag: "err", val: "Division by zero" }};
+        }}
+        return {{ tag: "ok", val: a / b }};
+    }}
+}};
+```
+
+## Best Practices
+
+1. **Use clear interface definitions** - Make your WIT interfaces descriptive
+2. **Handle errors properly** - Always use `result<T, string>` for operations that can fail
+3. **Keep components focused** - Each component should do one thing well
+4. **Test thoroughly** - Validate your component works before deploying
+5. **Document your interfaces** - Use WIT comments to explain your API
+
+## Additional Resources
+
+- [JavaScript Cookbook Guide](https://microsoft.github.io/wassette/latest/cookbook/javascript.html)
+- [Example Components](https://github.com/microsoft/wassette/tree/main/examples)
+- [componentize-js Documentation](https://github.com/bytecodealliance/componentize-js)
+
+Would you like me to help you implement any specific functionality for your component?"#,
+        component_name, component_name, component_name, component_name, component_name
+    );
+
+    Ok(GetPromptResult {
+        description: Some(format!(
+            "A step-by-step guide to building a JavaScript WebAssembly component named '{}'",
+            component_name
+        )),
+        messages: vec![PromptMessage::new_text(PromptMessageRole::User, content)],
+    })
+}
+
+/// Generate the Python component building prompt
+fn build_python_component_prompt(
+    arguments: serde_json::Map<String, serde_json::Value>,
+) -> Result<GetPromptResult> {
+    let component_name = arguments
+        .get("component_name")
+        .and_then(|v| v.as_str())
+        .unwrap_or("my-component");
+
+    let content = format!(
+        r#"# Building a Python WebAssembly Component for Wassette
+
+I'll help you build a WebAssembly component named "{}" using Python.
+
+## Prerequisites
+- Python 3.10 or higher
+- [uv](https://docs.astral.sh/uv/) - Fast Python package manager
+
+## Step 1: Install Tools
+
+```bash
+# Install uv
+curl -LsSf https://astral.sh/uv/install.sh | sh
+
+# Install componentize-py
+uv pip install componentize-py
+```
+
+## Step 2: Create Your Project
+
+```bash
+mkdir {}
+cd {}
+mkdir wit wit_world
+```
+
+## Step 3: Define Your WIT Interface
+
+Create `wit/world.wit`:
+
+```wit
+package local:{};
+
+/// Example component
+world {} {{
+    /// Greet someone by name
+    export greet: func(name: string) -> result<string, string>;
+}}
+```
+
+## Step 4: Generate Python Bindings
+
+```bash
+uv run componentize-py -d wit -w {} bindings .
+```
+
+This creates Python bindings in the `wit_world/` directory.
+
+## Step 5: Implement Your Component
+
+Create `main.py`:
+
+```python
+# Copyright (c) Microsoft Corporation.
+# Licensed under the MIT license.
+
+import wit_world
+from wit_world.types import Ok, Err
+
+def handle_error(e: Exception):
+    """Helper function to convert Python exceptions to WIT errors"""
+    message = str(e)
+    if message == "":
+        return Err(f"{{type(e).__name__}}")
+    else:
+        return Err(f"{{type(e).__name__}}: {{message}}")
+
+class {}(wit_world.{}):
+    def greet(self, name: str):
+        """Greet someone by name"""
+        try:
+            return Ok(f"Hello, {{name}}!")
+        except Exception as e:
+            return handle_error(e)
+```
+
+## Step 6: Build Your Component
+
+```bash
+# Build the WebAssembly component
+uv run componentize-py -d wit -w {} componentize -s main -o {}.wasm
+```
+
+## Step 7: Inject WIT Documentation (Optional but Recommended)
+
+To make your component's documentation available to AI agents:
+
+```bash
+# Install wit-docs-inject (if not already installed)
+cargo install --git https://github.com/Mossaka/wit-docs-inject
+
+# Inject documentation into your component
+wit-docs-inject --component {}.wasm \
+                --wit-dir wit/ \
+                --inplace
+```
+
+## Step 8: Test Your Component
+
+```bash
+# Start Wassette with your component
+wassette serve --sse --plugin-dir .
+
+# In another terminal, use an MCP client to test
+```
+
+## Error Handling
+
+Python components use WIT's `result` type for error handling:
+
+```python
+from wit_world.types import Ok, Err
+
+def divide(self, a: float, b: float):
+    if b == 0:
+        return Err("Division by zero")
+    return Ok(a / b)
+```
+
+## Best Practices
+
+1. **Use type hints** - Python type hints help catch errors early
+2. **Handle errors properly** - Always return `Ok` or `Err` for result types
+3. **Document your code** - Use docstrings to explain functionality
+4. **Test thoroughly** - Validate edge cases and error conditions
+5. **Keep it simple** - Avoid complex dependencies that might not work in Wasm
+6. **Avoid `eval()` for untrusted input** - Use `ast.literal_eval()` or proper parsers
+
+## Build Automation with Justfile
+
+Create `Justfile` for easy building:
+
+```just
+install-uv:
+    if ! command -v uv &> /dev/null; then curl -LsSf https://astral.sh/uv/install.sh | sh; fi
+
+install: install-uv
+    uv pip install componentize-py
+
+bindings:
+    uv run componentize-py -d wit -w {} bindings .
+
+build:
+    uv run componentize-py -d wit -w {} componentize -s main -o {}.wasm
+
+all: bindings build
+```
+
+Usage:
+```bash
+just install  # Install dependencies
+just all      # Generate bindings and build
+```
+
+## Additional Resources
+
+- [Python Cookbook Guide](https://microsoft.github.io/wassette/latest/cookbook/python.html)
+- [Example Components](https://github.com/microsoft/wassette/tree/main/examples)
+- [componentize-py Documentation](https://github.com/bytecodealliance/componentize-py)
+
+Would you like me to help you implement any specific functionality for your component?"#,
+        component_name,
+        component_name,
+        component_name,
+        component_name,
+        component_name,
+        component_name,
+        component_name,
+        component_name,
+        component_name,
+        component_name,
+        component_name,
+        component_name,
+        component_name,
+        component_name
+    );
+
+    Ok(GetPromptResult {
+        description: Some(format!(
+            "A step-by-step guide to building a Python WebAssembly component named '{}'",
+            component_name
+        )),
+        messages: vec![PromptMessage::new_text(PromptMessageRole::User, content)],
+    })
 }
