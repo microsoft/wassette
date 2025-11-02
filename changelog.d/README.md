@@ -36,3 +36,11 @@ You can also manually create fragment files if needed. Just follow the naming co
 ## Processing
 
 During release preparation, all fragment files in this directory will be consolidated into the main CHANGELOG.md file and removed from this directory.
+
+## Example Files
+
+This directory contains example fragment files (starting with `.example`) that demonstrate the format:
+- `.example.added.md` - Example of a feature addition
+- `.example.fixed.md` - Example of a bug fix
+
+These example files should be ignored by any consolidation scripts.
