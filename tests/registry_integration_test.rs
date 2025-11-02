@@ -110,10 +110,10 @@ async fn test_registry_search_all() -> Result<()> {
 
     let json = ctx.parse_json_output(&stdout)?;
     assert_eq!(json["status"], "success");
-    assert_eq!(json["count"], 5); // Total components in registry
+    assert_eq!(json["count"], 9); // Total components in registry
 
     let components = json["components"].as_array().unwrap();
-    assert_eq!(components.len(), 5);
+    assert_eq!(components.len(), 9);
 
     // Verify each component has required fields
     for component in components {
@@ -135,11 +135,14 @@ async fn test_registry_search_with_query() -> Result<()> {
 
     let json = ctx.parse_json_output(&stdout)?;
     assert_eq!(json["status"], "success");
-    assert_eq!(json["count"], 1);
+    assert_eq!(json["count"], 2); // Weather Server and Open-Meteo Weather
 
     let components = json["components"].as_array().unwrap();
-    assert_eq!(components.len(), 1);
-    assert_eq!(components[0]["name"], "Weather Server");
+    assert_eq!(components.len(), 2);
+    // Both components have "weather" in their name or description
+    assert!(components
+        .iter()
+        .any(|c| c["name"].as_str().unwrap().contains("Weather")));
 
     Ok(())
 }
@@ -154,7 +157,7 @@ async fn test_registry_search_case_insensitive() -> Result<()> {
 
     let json = ctx.parse_json_output(&stdout)?;
     assert_eq!(json["status"], "success");
-    assert_eq!(json["count"], 1);
+    assert_eq!(json["count"], 2); // Weather Server and Open-Meteo Weather
 
     Ok(())
 }
@@ -189,8 +192,8 @@ async fn test_registry_search_matches_description() -> Result<()> {
 
     let json = ctx.parse_json_output(&stdout)?;
     assert_eq!(json["status"], "success");
-    // Should match both "Fetch" and "Filesystem" which have "Rust" in description
-    assert_eq!(json["count"], 2);
+    // Should match "Fetch", "Filesystem", "Brave Search", and "Context7" which have "Rust" in description
+    assert_eq!(json["count"], 4);
 
     Ok(())
 }
