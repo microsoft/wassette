@@ -37,15 +37,16 @@ tokio-util = "0.7.16"
 tracing = "0.1"
 tracing-subscriber = "0.3"
 tracing-test = "0.2"
-wasmtime = "38.0.2"
-wasmtime-wasi = "38.0.2"
-wasmtime-wasi-http = "38.0.2"
-wasmtime-wasi-config = "38.0.2"
+wasmtime = "38.0.3"
+wasmtime-wasi = "38.0.3"
+wasmtime-wasi-http = "38.0.3"
+wasmtime-wasi-config = "38.0.3"
 
 [dependencies]
 anyhow = { workspace = true }
 axum = "0.8"
 clap = { version = "4.5", features = ["derive"] }
+component2json = { workspace = true }
 etcetera = { workspace = true }
 figment = { version = "0.10", features = ["env", "toml"] }
 wassette = { workspace = true }
@@ -65,6 +66,7 @@ serde_yaml = { workspace = true }
 tokio = { workspace = true, features = ["full"] }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true, features = ["env-filter"] }
+wasmtime = { workspace = true }
 
 [[bin]]
 name = "wassette"
@@ -82,7 +84,7 @@ tempfile = "3.8"
 test-log = { version = "0.2", features = ["trace"] }
 tokio-test = "0.4"
 tracing-test = "0.2"
-testcontainers = "0.25"
+testcontainers = "0.25.2"
 oci-wasm = "0.3"
 oci-client = "0.15"
 hyper = { version = "1.0", features = ["server", "http1"] }

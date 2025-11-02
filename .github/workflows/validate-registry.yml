@@ -1,0 +1,57 @@
+name: Validate Component Registry
+
+on:
+  pull_request:
+    branches: [ "main" ]
+    paths:
+      - 'component-registry.json'
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+    - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+      with:
+        fetch-depth: 0  # Fetch all history to compare with main branch
+
+    - name: Setup Node.js
+      uses: actions/setup-node@0a44ba7841725637a19e28fa30b79a866c81b0a6 # v4.0.4
+      with:
+        node-version: '20'
+
+    - name: Install build dependencies
+      run: ./scripts/install-protobuf.sh
+      shell: bash
+
+    - name: Setup Rust toolchain
+      uses: actions-rust-lang/setup-rust-toolchain@1780873c7b576612439a134613cc4cc74ce5538c # v1.15.2
+
+    - uses: ./.github/actions/rust-cache
+
+    - name: Setup Just
+      uses: extractions/setup-just@e33e0265a09d6d736e2ee1e0eb685ef1de4669ff # v3.0.0
+
+    - name: Build wassette
+      run: just build release
+
+    - name: Validate component registry
+      run: ./scripts/validate-component-registry.sh
+
+    - name: Summary
+      if: always()
+      run: |
+        if [ $? -eq 0 ]; then
+          echo "## ✓ Component Registry Validation Passed" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "All new and modified component URIs were successfully validated." >> $GITHUB_STEP_SUMMARY
+        else
+          echo "## ✗ Component Registry Validation Failed" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "One or more component URIs failed validation. Please check the logs above for details." >> $GITHUB_STEP_SUMMARY
+        fi

@@ -97,6 +97,83 @@ class TestChangelogUtils(unittest.TestCase):
         with self.assertRaises(FileNotFoundError):
             extract_changelog_content(Path('/nonexistent/file.md'), 'v0.3.0')
     
+    def test_extract_falls_back_to_unreleased(self):
+        """Test extracting falls back to [Unreleased] when version not found."""
+        self.changelog_path.write_text("""# Changelog
+
+## [Unreleased]
+
+### Added
+- Feature A
+- Feature B
+
+### Fixed
+- Bug C
+
+## [v0.3.0] - 2025-10-03
+
+### Added
+- Feature X
+""")
+        
+        # Version v0.4.0 doesn't exist, should extract from [Unreleased]
+        content = extract_changelog_content(self.changelog_path, 'v0.4.0')
+        
+        self.assertIn('### Added', content)
+        self.assertIn('- Feature A', content)
+        self.assertIn('- Feature B', content)
+        self.assertIn('### Fixed', content)
+        self.assertIn('- Bug C', content)
+        self.assertNotIn('## [Unreleased]', content)
+        self.assertNotIn('## [v0.3.0]', content)
+    
+    def test_extract_empty_unreleased_raises_error(self):
+        """Test that extracting non-existent version with empty [Unreleased] raises error."""
+        self.changelog_path.write_text("""# Changelog
+
+## [Unreleased]
+
+## [v0.3.0] - 2025-10-03
+
+### Added
+- Feature X
+""")
+        
+        # Version v0.9.9 doesn't exist and [Unreleased] is empty
+        with self.assertRaises(ValueError) as context:
+            extract_changelog_content(self.changelog_path, 'v0.9.9')
+        
+        self.assertIn('Unreleased', str(context.exception))
+        self.assertIn('empty', str(context.exception))
+    
+    def test_extract_prefers_existing_version_over_unreleased(self):
+        """Test that extraction prefers existing version over [Unreleased]."""
+        self.changelog_path.write_text("""# Changelog
+
+## [Unreleased]
+
+### Added
+- Future Feature
+
+## [v0.3.0] - 2025-10-03
+
+### Added
+- Feature X
+- Feature Y
+
+## [v0.2.0] - 2025-09-01
+
+### Added
+- Feature W
+""")
+        
+        # Should extract v0.3.0 content, not [Unreleased]
+        content = extract_changelog_content(self.changelog_path, 'v0.3.0')
+        
+        self.assertIn('- Feature X', content)
+        self.assertIn('- Feature Y', content)
+        self.assertNotIn('- Future Feature', content)
+    
     def test_update_changelog_adds_new_unreleased(self):
         """Test that update adds a new empty Unreleased section."""
         self.changelog_path.write_text("""# Changelog
