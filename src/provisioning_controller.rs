@@ -1,6 +1,10 @@
-use anyhow::{Context, Result, bail};
+// Copyright (c) Microsoft Corporation.
+// Licensed under the MIT license.
+
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+
+use anyhow::{bail, Context, Result};
 use wassette::{LifecycleManager, SecretsManager};
 
 use crate::manifest::{ComponentDeclaration, ProvisioningManifest};
@@ -10,7 +14,7 @@ use crate::permission_synthesis;
 pub struct ProvisioningController<'a> {
     manifest: &'a ProvisioningManifest,
     lifecycle_manager: &'a LifecycleManager,
-    #[allow(dead_code)]  // Reserved for future use in secrets seeding
+    #[allow(dead_code)] // Reserved for future use in secrets seeding
     secrets_manager: &'a SecretsManager,
     plugin_dir: &'a Path,
 }
@@ -41,10 +45,7 @@ impl<'a> ProvisioningController<'a> {
         let mut errors = Vec::new();
 
         for (idx, component) in self.manifest.components.iter().enumerate() {
-            let component_name = component
-                .name
-                .as_deref()
-                .unwrap_or(&component.uri);
+            let component_name = component.name.as_deref().unwrap_or(&component.uri);
 
             tracing::info!(
                 "[{}/{}] Provisioning component: {}",
@@ -54,11 +55,7 @@ impl<'a> ProvisioningController<'a> {
             );
 
             if let Err(e) = self.provision_component(component).await {
-                tracing::error!(
-                    "Failed to provision component {}: {}",
-                    component_name,
-                    e
-                );
+                tracing::error!("Failed to provision component {}: {}", component_name, e);
                 errors.push((component_name.to_string(), e));
             }
         }
@@ -177,14 +174,12 @@ impl<'a> ProvisioningController<'a> {
         // The lifecycle manager will rename it after loading
 
         // Create a temporary policy file that will be discovered by the loader
-        let temp_policy_name = format!(
-            "temp_{}.policy.yaml",
-            hash_string(&component.uri)
-        );
+        let temp_policy_name = format!("temp_{}.policy.yaml", hash_string(&component.uri));
         let policy_path = self.plugin_dir.join(temp_policy_name);
 
-        std::fs::write(&policy_path, policy_yaml)
-            .with_context(|| format!("Failed to write policy file to: {}", policy_path.display()))?;
+        std::fs::write(&policy_path, policy_yaml).with_context(|| {
+            format!("Failed to write policy file to: {}", policy_path.display())
+        })?;
 
         Ok(policy_path)
     }
@@ -195,38 +190,29 @@ impl<'a> ProvisioningController<'a> {
         // The digest format was validated during manifest validation,
         // but actual verification requires reading the downloaded component bytes
 
-        tracing::warn!(
-            "Digest verification is not yet implemented for component: {}. Expected: {}",
+        bail!(
+            "Digest verification is not yet implemented for component: {}. Expected digest: {}. Refusing to proceed for security reasons.",
             component.name.as_deref().unwrap_or(&component.uri),
             expected_digest
-        );
-
-        // TODO: Implement digest verification
-        // 1. Get the component bytes from the downloaded artifact
-        // 2. Compute SHA-256 hash
-        // 3. Compare with expected_digest (strip "sha256:" prefix)
-
-        Ok(())
+        )
     }
 }
 
 /// Hash a string to create a temporary filename
 fn hash_string(s: &str) -> String {
-    // Simple hash for temporary filenames
-    // In production, we'd use a proper hash function
-    let hash = s
-        .bytes()
-        .fold(0u64, |acc, b| acc.wrapping_mul(31).wrapping_add(b as u64));
+    use std::collections::hash_map::DefaultHasher;
+    use std::hash::{Hash, Hasher};
+
+    let mut hasher = DefaultHasher::new();
+    s.hash(&mut hasher);
+    let hash = hasher.finish();
     format!("{:016x}", hash)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::manifest::{
-        EnvironmentPermissions, EnvironmentRule, InlinePermissions,
-        NetworkPermissions, NetworkRule,
-    };
+    use crate::manifest::{InlinePermissions, NetworkPermissions, NetworkRule};
 
     #[test]
     fn test_hash_string() {
@@ -246,30 +232,6 @@ mod tests {
         // Set environment variable for testing
         std::env::set_var("TEST_API_KEY", "secret123");
 
-        let component = ComponentDeclaration {
-            uri: "oci://example.com/test:latest".to_string(),
-            name: Some("test".to_string()),
-            digest: None,
-            permissions: InlinePermissions {
-                environment: Some(EnvironmentPermissions {
-                    allow: vec![EnvironmentRule {
-                        key: "API_KEY".to_string(),
-                        value_from: Some("TEST_API_KEY".to_string()),
-                    }],
-                }),
-                network: None,
-                storage: None,
-                resources: None,
-            },
-            retry_policy: None,
-        };
-
-        let temp_dir = tempfile::tempdir().unwrap();
-        let manifest = ProvisioningManifest {
-            version: 1,
-            components: vec![component.clone()],
-        };
-
         // We can't fully test this without a real lifecycle manager,
         // but we can verify the seed_secrets logic doesn't panic
         // In a full integration test, we'd verify the secrets are set
@@ -280,8 +242,6 @@ mod tests {
 
     #[test]
     fn test_synthesize_policy() {
-        let temp_dir = tempfile::tempdir().unwrap();
-
         let component = ComponentDeclaration {
             uri: "oci://example.com/test:latest".to_string(),
             name: Some("test".to_string()),
@@ -297,11 +257,6 @@ mod tests {
                 resources: None,
             },
             retry_policy: None,
-        };
-
-        let manifest = ProvisioningManifest {
-            version: 1,
-            components: vec![component.clone()],
         };
 
         // Create a mock provisioning controller
