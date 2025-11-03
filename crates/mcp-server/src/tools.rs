@@ -91,13 +91,15 @@ fn sanitize_args_for_logging(args: &Option<serde_json::Map<String, Value>>) -> S
                     _ => value.clone(),
                 };
 
-                sanitized.insert(key.clone(), sanitized_value);
-                total_length += key.len() + 20; // Approximate
-
-                if total_length > MAX_TOTAL_LENGTH {
+                // Check if adding this key-value pair would exceed the total length before insertion
+                // The +20 accounts for JSON overhead (quotes, colons, commas, braces)
+                if total_length + key.len() + 20 > MAX_TOTAL_LENGTH {
                     sanitized.insert("...".to_string(), json!("(truncated)"));
                     break;
                 }
+
+                sanitized.insert(key.clone(), sanitized_value);
+                total_length += key.len() + 20;
             }
 
             serde_json::to_string(&sanitized).unwrap_or_else(|_| "{}".to_string())

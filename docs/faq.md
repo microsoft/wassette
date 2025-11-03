@@ -196,7 +196,7 @@ Each invocation is logged with:
 - Success/failure outcome
 - Sanitized arguments (sensitive data redacted)
 
-For detailed information, see the [Invocation Logs Reference](./reference/invocation-logs.md).
+For detailed information, see the [Operations Guide](./deployment/operations.md#invocation-logging).
 
 ### Are there performance implications of using WebAssembly?
 

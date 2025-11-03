@@ -132,33 +132,29 @@ pub(crate) async fn handle_component_call(
 ) -> Result<CallToolResult> {
     let args = extract_args_from_request(req)?;
 
-    let method_name = req.name.to_string();
-
     let component_id = lifecycle_manager
-        .get_component_id_for_tool(&method_name)
+        .get_component_id_for_tool(&req.name)
         .await
-        .map_err(|e| {
-            anyhow::anyhow!("Failed to find component for tool '{}': {}", method_name, e)
-        })?;
+        .map_err(|e| anyhow::anyhow!("Failed to find component for tool '{}': {}", req.name, e))?;
 
     info!(
-        function_name = %method_name,
+        function_name = %req.name,
         component_id = %component_id,
         "Component function invocation started"
     );
 
     let tool_schema = lifecycle_manager
-        .get_tool_schema_for_component(&component_id, &method_name)
+        .get_tool_schema_for_component(&component_id, &req.name)
         .await;
 
     let result = lifecycle_manager
-        .execute_component_call(&component_id, &method_name, &serde_json::to_string(&args)?)
+        .execute_component_call(&component_id, &req.name, &serde_json::to_string(&args)?)
         .await;
 
     match result {
         Ok(result_str) => {
             info!(
-                function_name = %method_name,
+                function_name = %req.name,
                 component_id = %component_id,
                 "Component function invocation completed successfully"
             );
@@ -186,7 +182,7 @@ pub(crate) async fn handle_component_call(
         }
         Err(e) => {
             error!(
-                function_name = %method_name,
+                function_name = %req.name,
                 component_id = %component_id,
                 error = %e,
                 "Component function invocation failed"
