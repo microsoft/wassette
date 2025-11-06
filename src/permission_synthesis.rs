@@ -1,8 +1,10 @@
+// Copyright (c) Microsoft Corporation.
+// Licensed under the MIT license.
+
 use anyhow::{Context, Result};
 use policy::{
     AccessType as PolicyAccessType, EnvironmentPermission, EnvironmentPermissions,
-    NetworkHostPermission, NetworkPermission, PermissionList, PolicyDocument,
-    StoragePermission,
+    NetworkHostPermission, NetworkPermission, PermissionList, PolicyDocument, StoragePermission,
 };
 
 use crate::manifest::{AccessType, InlinePermissions};

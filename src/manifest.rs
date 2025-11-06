@@ -1,7 +1,11 @@
-use anyhow::{Context, Result, bail};
-use serde::{Deserialize, Serialize};
+// Copyright (c) Microsoft Corporation.
+// Licensed under the MIT license.
+
 use std::collections::HashSet;
 use std::path::Path;
+
+use anyhow::{bail, Context, Result};
+use serde::{Deserialize, Serialize};
 
 /// Provisioning manifest for headless deployment mode
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -154,15 +158,17 @@ impl ProvisioningManifest {
 
     /// Parse manifest from YAML string
     pub fn from_yaml(content: &str) -> Result<Self> {
-        serde_yaml::from_str(content)
-            .context("Failed to deserialize manifest YAML")
+        serde_yaml::from_str(content).context("Failed to deserialize manifest YAML")
     }
 
     /// Validate the manifest
     pub fn validate(&self) -> Result<()> {
         // Check version
         if self.version != 1 {
-            bail!("Unsupported manifest version: {}. Only version 1 is supported.", self.version);
+            bail!(
+                "Unsupported manifest version: {}. Only version 1 is supported.",
+                self.version
+            );
         }
 
         // Check for components
@@ -183,7 +189,8 @@ impl ProvisioningManifest {
         if !duplicate_uris.is_empty() {
             bail!(
                 "Duplicate component URIs found: {}",
-                duplicate_uris.iter()
+                duplicate_uris
+                    .iter()
                     .map(|s| s.as_str())
                     .collect::<Vec<_>>()
                     .join(", ")
@@ -192,7 +199,8 @@ impl ProvisioningManifest {
 
         // Validate each component
         for (idx, component) in self.components.iter().enumerate() {
-            component.validate()
+            component
+                .validate()
                 .with_context(|| format!("Invalid component at index {}", idx))?;
         }
 
@@ -210,7 +218,10 @@ impl ComponentDeclaration {
 
         // Validate URI scheme
         let valid_schemes = ["file://", "oci://", "https://", "http://"];
-        if !valid_schemes.iter().any(|scheme| self.uri.starts_with(scheme)) {
+        if !valid_schemes
+            .iter()
+            .any(|scheme| self.uri.starts_with(scheme))
+        {
             bail!(
                 "Component URI must start with one of: {}. Got: {}",
                 valid_schemes.join(", "),
@@ -226,7 +237,10 @@ impl ComponentDeclaration {
 
             let hex_part = &digest[7..]; // Skip "sha256:"
             if hex_part.len() != 64 {
-                bail!("SHA-256 digest must be 64 hex characters. Got: {} characters", hex_part.len());
+                bail!(
+                    "SHA-256 digest must be 64 hex characters. Got: {} characters",
+                    hex_part.len()
+                );
             }
 
             if !hex_part.chars().all(|c| c.is_ascii_hexdigit()) {
@@ -235,7 +249,8 @@ impl ComponentDeclaration {
         }
 
         // Validate permissions
-        self.permissions.validate()
+        self.permissions
+            .validate()
             .context("Invalid permissions configuration")?;
 
         Ok(())
@@ -249,7 +264,8 @@ impl InlinePermissions {
         if self.network.is_none()
             && self.storage.is_none()
             && self.environment.is_none()
-            && self.resources.is_none() {
+            && self.resources.is_none()
+        {
             bail!("Inline permissions must specify at least one permission type (network, storage, environment, or resources)");
         }
 
@@ -333,7 +349,10 @@ components:
         let manifest = ProvisioningManifest::from_yaml(yaml).unwrap();
         assert_eq!(manifest.version, 1);
         assert_eq!(manifest.components.len(), 1);
-        assert_eq!(manifest.components[0].uri, "oci://ghcr.io/microsoft/get-weather-js:1.2.3");
+        assert_eq!(
+            manifest.components[0].uri,
+            "oci://ghcr.io/microsoft/get-weather-js:1.2.3"
+        );
 
         // Validation should pass
         manifest.validate().unwrap();

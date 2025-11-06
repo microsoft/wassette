@@ -84,7 +84,10 @@ async fn main() -> Result<()> {
                     let m = manifest::ProvisioningManifest::from_file(manifest_path)
                         .context("Failed to parse provisioning manifest")?;
 
-                    tracing::info!("Validating provisioning manifest from: {}", manifest_path.display());
+                    tracing::info!(
+                        "Validating provisioning manifest from: {}",
+                        manifest_path.display()
+                    );
                     m.validate().context("Manifest validation failed")?;
 
                     tracing::info!(

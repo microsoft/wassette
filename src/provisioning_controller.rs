@@ -1,6 +1,10 @@
-use anyhow::{Context, Result, bail};
+// Copyright (c) Microsoft Corporation.
+// Licensed under the MIT license.
+
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+
+use anyhow::{bail, Context, Result};
 use wassette::{LifecycleManager, SecretsManager};
 
 use crate::manifest::{ComponentDeclaration, ProvisioningManifest};
@@ -10,7 +14,7 @@ use crate::permission_synthesis;
 pub struct ProvisioningController<'a> {
     manifest: &'a ProvisioningManifest,
     lifecycle_manager: &'a LifecycleManager,
-    #[allow(dead_code)]  // Reserved for future use in secrets seeding
+    #[allow(dead_code)] // Reserved for future use in secrets seeding
     secrets_manager: &'a SecretsManager,
     plugin_dir: &'a Path,
 }
@@ -41,10 +45,7 @@ impl<'a> ProvisioningController<'a> {
         let mut errors = Vec::new();
 
         for (idx, component) in self.manifest.components.iter().enumerate() {
-            let component_name = component
-                .name
-                .as_deref()
-                .unwrap_or(&component.uri);
+            let component_name = component.name.as_deref().unwrap_or(&component.uri);
 
             tracing::info!(
                 "[{}/{}] Provisioning component: {}",
@@ -54,11 +55,7 @@ impl<'a> ProvisioningController<'a> {
             );
 
             if let Err(e) = self.provision_component(component).await {
-                tracing::error!(
-                    "Failed to provision component {}: {}",
-                    component_name,
-                    e
-                );
+                tracing::error!("Failed to provision component {}: {}", component_name, e);
                 errors.push((component_name.to_string(), e));
             }
         }
@@ -177,14 +174,12 @@ impl<'a> ProvisioningController<'a> {
         // The lifecycle manager will rename it after loading
 
         // Create a temporary policy file that will be discovered by the loader
-        let temp_policy_name = format!(
-            "temp_{}.policy.yaml",
-            hash_string(&component.uri)
-        );
+        let temp_policy_name = format!("temp_{}.policy.yaml", hash_string(&component.uri));
         let policy_path = self.plugin_dir.join(temp_policy_name);
 
-        std::fs::write(&policy_path, policy_yaml)
-            .with_context(|| format!("Failed to write policy file to: {}", policy_path.display()))?;
+        std::fs::write(&policy_path, policy_yaml).with_context(|| {
+            format!("Failed to write policy file to: {}", policy_path.display())
+        })?;
 
         Ok(policy_path)
     }
@@ -224,8 +219,7 @@ fn hash_string(s: &str) -> String {
 mod tests {
     use super::*;
     use crate::manifest::{
-        EnvironmentPermissions, EnvironmentRule, InlinePermissions,
-        NetworkPermissions, NetworkRule,
+        EnvironmentPermissions, EnvironmentRule, InlinePermissions, NetworkPermissions, NetworkRule,
     };
 
     #[test]
@@ -264,8 +258,8 @@ mod tests {
             retry_policy: None,
         };
 
-        let temp_dir = tempfile::tempdir().unwrap();
-        let manifest = ProvisioningManifest {
+        let _temp_dir = tempfile::tempdir().unwrap();
+        let _manifest = ProvisioningManifest {
             version: 1,
             components: vec![component.clone()],
         };
@@ -280,7 +274,7 @@ mod tests {
 
     #[test]
     fn test_synthesize_policy() {
-        let temp_dir = tempfile::tempdir().unwrap();
+        let _temp_dir = tempfile::tempdir().unwrap();
 
         let component = ComponentDeclaration {
             uri: "oci://example.com/test:latest".to_string(),
@@ -299,7 +293,7 @@ mod tests {
             retry_policy: None,
         };
 
-        let manifest = ProvisioningManifest {
+        let _manifest = ProvisioningManifest {
             version: 1,
             components: vec![component.clone()],
         };
