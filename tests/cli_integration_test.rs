@@ -94,11 +94,13 @@ impl CliTestContext {
     }
 
     /// Execute a wassette CLI command without --component-dir (for commands that don't need it)
+    #[allow(dead_code)]
     async fn run_command_no_component_dir(&self, args: &[&str]) -> Result<(String, String, i32)> {
         self.run_command_no_component_dir_with_timeout(args, 120).await
     }
 
     /// Execute a wassette CLI command without --component-dir with a custom timeout
+    #[allow(dead_code)]
     async fn run_command_no_component_dir_with_timeout(
         &self,
         args: &[&str],
