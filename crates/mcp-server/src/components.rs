@@ -97,7 +97,7 @@ pub(crate) async fn handle_unload_component(
 }
 
 #[instrument(skip(lifecycle_manager))]
-pub(crate) async fn handle_component_call(
+pub async fn handle_component_call(
     req: &CallToolRequestParam,
     lifecycle_manager: &LifecycleManager,
 ) -> Result<CallToolResult> {

@@ -54,6 +54,11 @@ pub enum Commands {
         /// Path to the WebAssembly component file
         path: PathBuf,
     },
+    /// Manage tools (list, read, invoke).
+    Tool {
+        #[command(subcommand)]
+        command: ToolCommands,
+    },
 }
 
 #[derive(Parser, Debug, Clone, Serialize, Deserialize)]
@@ -312,5 +317,43 @@ pub enum SecretCommands {
         /// Directory where components are stored. Defaults to $XDG_DATA_HOME/wassette/components
         #[arg(long)]
         component_dir: Option<PathBuf>,
+    },
+}
+
+#[derive(Subcommand, Debug)]
+pub enum ToolCommands {
+    /// List all available tools.
+    List {
+        /// Directory where components are stored. Defaults to $XDG_DATA_HOME/wassette/components
+        #[arg(long)]
+        component_dir: Option<PathBuf>,
+        /// Output format
+        #[arg(short = 'o', long = "output-format", default_value = "json")]
+        output_format: OutputFormat,
+    },
+    /// Read details of a specific tool.
+    Read {
+        /// Name of the tool to read
+        name: String,
+        /// Directory where components are stored. Defaults to $XDG_DATA_HOME/wassette/components
+        #[arg(long)]
+        component_dir: Option<PathBuf>,
+        /// Output format
+        #[arg(short = 'o', long = "output-format", default_value = "json")]
+        output_format: OutputFormat,
+    },
+    /// Invoke a tool with parameters.
+    Invoke {
+        /// Name of the tool to invoke
+        name: String,
+        /// Arguments in JSON format (e.g., '{"key": "value"}')
+        #[arg(long)]
+        args: Option<String>,
+        /// Directory where components are stored. Defaults to $XDG_DATA_HOME/wassette/components
+        #[arg(long)]
+        component_dir: Option<PathBuf>,
+        /// Output format
+        #[arg(short = 'o', long = "output-format", default_value = "json")]
+        output_format: OutputFormat,
     },
 }
