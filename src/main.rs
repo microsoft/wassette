@@ -40,7 +40,7 @@ mod format;
 
 use commands::{
     Cli, Commands, ComponentCommands, GrantPermissionCommands, PermissionCommands, PolicyCommands,
-    RevokePermissionCommands, SecretCommands, Serve, Transport,
+    RevokePermissionCommands, SecretCommands, Serve, ToolCommands, Transport,
 };
 use format::{print_result, OutputFormat};
 
@@ -989,6 +989,118 @@ async fn main() -> Result<()> {
                         },
                         OutputFormat::Json,
                     )?;
+                }
+            },
+            Commands::Tool { command } => match command {
+                ToolCommands::List {
+                    component_dir,
+                    output_format,
+                } => {
+                    let component_dir = component_dir.clone().or_else(|| cli.component_dir.clone());
+                    let lifecycle_manager = create_lifecycle_manager(component_dir).await?;
+
+                    let result = handle_tools_list(&lifecycle_manager, false).await?;
+
+                    let tools_result: rmcp::model::ListToolsResult = serde_json::from_value(result)?;
+
+                    let content = serde_json::to_string_pretty(&json!({
+                        "tools": tools_result.tools.iter().map(|t| {
+                            json!({
+                                "name": t.name,
+                                "description": t.description,
+                                "input_schema": t.input_schema,
+                                "output_schema": t.output_schema,
+                            })
+                        }).collect::<Vec<_>>()
+                    }))?;
+
+                    print_result(
+                        &rmcp::model::CallToolResult {
+                            content: Some(vec![rmcp::model::Content::text(content)]),
+                            structured_content: None,
+                            is_error: None,
+                        },
+                        *output_format,
+                    )?;
+                }
+                ToolCommands::Read {
+                    name,
+                    component_dir,
+                    output_format,
+                } => {
+                    let component_dir = component_dir.clone().or_else(|| cli.component_dir.clone());
+                    let lifecycle_manager = create_lifecycle_manager(component_dir).await?;
+
+                    let result = handle_tools_list(&lifecycle_manager, false).await?;
+                    let tools_result: rmcp::model::ListToolsResult = serde_json::from_value(result)?;
+
+                    let tool = tools_result.tools.iter()
+                        .find(|t| t.name == name.as_str())
+                        .ok_or_else(|| anyhow::anyhow!("Tool not found: {}", name))?;
+
+                    let content = serde_json::to_string_pretty(&json!({
+                        "name": tool.name,
+                        "description": tool.description,
+                        "input_schema": tool.input_schema,
+                        "output_schema": tool.output_schema,
+                    }))?;
+
+                    print_result(
+                        &rmcp::model::CallToolResult {
+                            content: Some(vec![rmcp::model::Content::text(content)]),
+                            structured_content: None,
+                            is_error: None,
+                        },
+                        *output_format,
+                    )?;
+                }
+                ToolCommands::Invoke {
+                    name,
+                    args,
+                    component_dir,
+                    output_format,
+                } => {
+                    let component_dir = component_dir.clone().or_else(|| cli.component_dir.clone());
+                    let lifecycle_manager = create_lifecycle_manager(component_dir).await?;
+
+                    let arguments = if let Some(args_str) = args {
+                        let parsed: serde_json::Value = serde_json::from_str(args_str)
+                            .context("Failed to parse arguments as JSON")?;
+
+                        if let serde_json::Value::Object(map) = parsed {
+                            map
+                        } else {
+                            bail!("Arguments must be a JSON object");
+                        }
+                    } else {
+                        serde_json::Map::new()
+                    };
+
+                    if let Ok(tool_name) = ToolName::try_from(name.as_str()) {
+                        handle_tool_cli_command(&lifecycle_manager, tool_name.as_str(), arguments, *output_format).await?;
+                    } else {
+                        let req = rmcp::model::CallToolRequestParam {
+                            name: name.clone().into(),
+                            arguments: Some(arguments),
+                        };
+
+                        use mcp_server::components::handle_component_call;
+                        let result = handle_component_call(&req, &lifecycle_manager).await;
+
+                        match result {
+                            Ok(tool_result) => {
+                                print_result(&tool_result, *output_format)?;
+
+                                if tool_result.is_error.unwrap_or(false) {
+                                    std::process::exit(1);
+                                }
+                            }
+                            Err(e) => {
+                                eprintln!("Error invoking tool '{}': {}", name, e);
+                                std::process::exit(1);
+                            }
+                        }
+                    }
                 }
             },
             Commands::Inspect { path } => {
