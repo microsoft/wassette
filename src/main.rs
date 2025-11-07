@@ -601,6 +601,10 @@ async fn main() -> Result<()> {
 
                         let router = axum::Router::new().nest_service("/mcp", service);
                         let tcp_listener = tokio::net::TcpListener::bind(&bind_address).await?;
+                        tracing::info!(
+                            "MCP server is ready and listening on http://{}/mcp",
+                            bind_address
+                        );
                         let _ = axum::serve(tcp_listener, router)
                             .with_graceful_shutdown(async {
                                 tokio::signal::ctrl_c().await.unwrap()
@@ -615,6 +619,10 @@ async fn main() -> Result<()> {
                         let ct = SseServer::serve(bind_address.parse().unwrap())
                             .await?
                             .with_service(move || server.clone());
+                        tracing::info!(
+                            "MCP server is ready and listening on http://{}/sse",
+                            bind_address
+                        );
 
                         tokio::signal::ctrl_c().await?;
                         ct.cancel();
