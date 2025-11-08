@@ -1001,7 +1001,8 @@ async fn main() -> Result<()> {
 
                     let result = handle_tools_list(&lifecycle_manager, false).await?;
 
-                    let tools_result: rmcp::model::ListToolsResult = serde_json::from_value(result)?;
+                    let tools_result: rmcp::model::ListToolsResult =
+                        serde_json::from_value(result)?;
 
                     let content = serde_json::to_string_pretty(&json!({
                         "tools": tools_result.tools.iter().map(|t| {
@@ -1032,9 +1033,12 @@ async fn main() -> Result<()> {
                     let lifecycle_manager = create_lifecycle_manager(component_dir).await?;
 
                     let result = handle_tools_list(&lifecycle_manager, false).await?;
-                    let tools_result: rmcp::model::ListToolsResult = serde_json::from_value(result)?;
+                    let tools_result: rmcp::model::ListToolsResult =
+                        serde_json::from_value(result)?;
 
-                    let tool = tools_result.tools.iter()
+                    let tool = tools_result
+                        .tools
+                        .iter()
                         .find(|t| t.name == name.as_str())
                         .ok_or_else(|| anyhow::anyhow!("Tool not found: {}", name))?;
 
@@ -1077,7 +1081,13 @@ async fn main() -> Result<()> {
                     };
 
                     if let Ok(tool_name) = ToolName::try_from(name.as_str()) {
-                        handle_tool_cli_command(&lifecycle_manager, tool_name.as_str(), arguments, *output_format).await?;
+                        handle_tool_cli_command(
+                            &lifecycle_manager,
+                            tool_name.as_str(),
+                            arguments,
+                            *output_format,
+                        )
+                        .await?;
                     } else {
                         let req = rmcp::model::CallToolRequestParam {
                             name: name.clone().into(),
