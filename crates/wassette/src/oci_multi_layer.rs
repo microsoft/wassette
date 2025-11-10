@@ -98,9 +98,21 @@ pub async fn pull_multi_layer_artifact(
     reference: &Reference,
     client: &Client,
 ) -> Result<MultiLayerArtifact> {
+    pull_multi_layer_artifact_with_progress(reference, client, false).await
+}
+
+/// Pull a multi-layer OCI artifact and extract all relevant layers with optional progress reporting
+pub async fn pull_multi_layer_artifact_with_progress(
+    reference: &Reference,
+    client: &Client,
+    show_progress: bool,
+) -> Result<MultiLayerArtifact> {
     let auth = oci_client::secrets::RegistryAuth::Anonymous;
 
     // Pull just the manifest first
+    if show_progress {
+        eprintln!("Pulling manifest for {}...", reference);
+    }
     info!("Pulling OCI manifest: {}", reference);
     let (manifest, manifest_digest) = client
         .pull_manifest(reference, &auth)
@@ -177,13 +189,36 @@ pub async fn pull_multi_layer_artifact(
         image_manifest.layers.len()
     );
 
+    if show_progress && !image_manifest.layers.is_empty() {
+        eprintln!(
+            "Downloading {} layer{}...",
+            image_manifest.layers.len(),
+            if image_manifest.layers.len() == 1 {
+                ""
+            } else {
+                "s"
+            }
+        );
+    }
+
     for (index, layer) in image_manifest.layers.iter().enumerate() {
         let media_type = &layer.media_type;
         let expected_digest = &layer.digest;
+        let layer_size = layer.size;
         debug!(
             "Layer {}: media_type={}, size={}, digest={}",
-            index, media_type, layer.size, expected_digest
+            index, media_type, layer_size, expected_digest
         );
+
+        if show_progress {
+            eprintln!(
+                "  Layer {}/{}: {} ({} bytes)",
+                index + 1,
+                image_manifest.layers.len(),
+                media_type,
+                layer_size
+            );
+        }
 
         // Pull the layer blob into a vector
         let mut blob_data = Vec::new();
@@ -227,6 +262,10 @@ pub async fn pull_multi_layer_artifact(
     let wasm_data =
         wasm_data.ok_or_else(|| anyhow::anyhow!("No WASM layer found in OCI artifact"))?;
 
+    if show_progress {
+        eprintln!("✓ Download complete");
+    }
+
     Ok(MultiLayerArtifact {
         wasm_data,
         policy_data,
@@ -262,7 +301,7 @@ pub async fn pull_multi_layer_artifact_secure(
 ) -> Result<MultiLayerArtifact> {
     // This uses the same implementation as pull_multi_layer_artifact
     // since we've already added digest verification there
-    pull_multi_layer_artifact(reference, client).await
+    pull_multi_layer_artifact_with_progress(reference, client, false).await
 }
 
 #[cfg(test)]

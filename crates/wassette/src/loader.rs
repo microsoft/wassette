@@ -153,9 +153,10 @@ pub trait Loadable: Sized {
     const RESOURCE_TYPE: &'static str;
 
     async fn from_local_file(path: &Path) -> Result<DownloadedResource>;
-    async fn from_oci_reference(
+    async fn from_oci_reference_with_progress(
         reference: &str,
         oci_client: &oci_client::Client,
+        show_progress: bool,
     ) -> Result<DownloadedResource>;
     async fn from_url(url: &str, http_client: &reqwest::Client) -> Result<DownloadedResource>;
 }
@@ -187,12 +188,17 @@ impl Loadable for ComponentResource {
         Ok(DownloadedResource::Local(path.to_path_buf()))
     }
 
-    async fn from_oci_reference(
+    async fn from_oci_reference_with_progress(
         reference: &str,
         oci_client: &oci_client::Client,
+        show_progress: bool,
     ) -> Result<DownloadedResource> {
         let reference: oci_client::Reference =
             reference.parse().context("Failed to parse OCI reference")?;
+
+        if show_progress {
+            eprintln!("Downloading component from {}...", reference);
+        }
 
         // First try oci-wasm for backwards compatibility with single-layer artifacts
         let wasm_client = oci_wasm::WasmClient::from(oci_client.clone());
@@ -204,6 +210,9 @@ impl Loadable for ComponentResource {
             Ok(data) => {
                 // Successfully pulled with oci-wasm - this is a single-layer WASM artifact
                 debug!("Successfully pulled single-layer WASM artifact");
+                if show_progress {
+                    eprintln!("✓ Downloaded {} bytes", data.layers[0].data.len());
+                }
                 let (downloaded_resource, mut file) = DownloadedResource::new_temp_file(
                     reference.repository().replace('/', "_"),
                     Self::FILE_EXTENSION,
@@ -225,10 +234,13 @@ impl Loadable for ComponentResource {
                     info!("Multi-layer OCI artifact detected, using direct OCI client");
 
                     // Use our new multi-layer support to get ALL layers
-                    let artifact =
-                        crate::oci_multi_layer::pull_multi_layer_artifact(&reference, oci_client)
-                            .await
-                            .context("Failed to extract layers from multi-layer OCI artifact")?;
+                    let artifact = crate::oci_multi_layer::pull_multi_layer_artifact_with_progress(
+                        &reference,
+                        oci_client,
+                        show_progress,
+                    )
+                    .await
+                    .context("Failed to extract layers from multi-layer OCI artifact")?;
 
                     // Save the WASM data
                     let component_name = reference.repository().replace('/', "_");
@@ -321,9 +333,10 @@ impl Loadable for PolicyResource {
         }
     }
 
-    async fn from_oci_reference(
+    async fn from_oci_reference_with_progress(
         _reference: &str,
         _oci_client: &oci_client::Client,
+        _show_progress: bool,
     ) -> Result<DownloadedResource> {
         bail!("OCI references are not supported for policy resources. Use 'file://' or 'https://' schemes instead.")
     }
@@ -367,6 +380,16 @@ pub(crate) async fn load_resource<T: Loadable>(
     oci_client: &oci_wasm::WasmClient,
     http_client: &reqwest::Client,
 ) -> Result<DownloadedResource> {
+    load_resource_with_progress::<T>(uri, oci_client, http_client, false).await
+}
+
+/// Generic resource loading function with optional progress reporting
+pub(crate) async fn load_resource_with_progress<T: Loadable>(
+    uri: &str,
+    oci_client: &oci_wasm::WasmClient,
+    http_client: &reqwest::Client,
+    show_progress: bool,
+) -> Result<DownloadedResource> {
     let uri = uri.trim();
     let error_message = format!(
         "Invalid {} reference. Should be of the form scheme://reference",
@@ -376,7 +399,7 @@ pub(crate) async fn load_resource<T: Loadable>(
 
     match scheme {
         "file" => T::from_local_file(Path::new(reference)).await,
-        "oci" => T::from_oci_reference(reference, oci_client).await,
+        "oci" => T::from_oci_reference_with_progress(reference, oci_client, show_progress).await,
         "https" => T::from_url(uri, http_client).await,
         _ => bail!("Unsupported {} scheme: {}", T::RESOURCE_TYPE, scheme),
     }

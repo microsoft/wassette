@@ -422,9 +422,18 @@ impl LifecycleManager {
     }
 
     async fn resolve_component_resource(&self, uri: &str) -> Result<(String, DownloadedResource)> {
+        // Show progress when running in CLI mode (stderr is a TTY)
+        use std::io::IsTerminal;
+        let show_progress = std::io::stderr().is_terminal();
+        
         let resource =
-            loader::load_resource::<ComponentResource>(uri, &self.oci_client, &self.http_client)
-                .await?;
+            loader::load_resource_with_progress::<ComponentResource>(
+                uri,
+                &self.oci_client,
+                &self.http_client,
+                show_progress,
+            )
+            .await?;
         let id = resource.id()?;
         Ok((id, resource))
     }
