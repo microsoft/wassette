@@ -1056,7 +1056,7 @@ impl LifecycleManager {
 
         let total_duration = start_time.elapsed();
 
-        info!(
+        debug!(
             component_id = %component_id,
             function_name = %function_name,
             total_duration_ms = %total_duration.as_millis(),

@@ -23,18 +23,25 @@ Wassette uses Rust's `tracing` crate for structured logging, producing logs in a
 TIMESTAMP LEVEL span_info: message field1=value1 field2=value2
 ```
 
-**Example - Successful Invocation:**
+**Example - Successful Invocation (with DEBUG level enabled):**
 ```
-2025-11-02T18:32:15.123Z INFO tool_name="fetch" arguments="{\"url\":\"example.com\"}" Tool invocation started
-2025-11-02T18:32:15.124Z INFO component_id="fetch_rs" function_name="fetch" Component function invocation started
+2025-11-02T18:32:15.123Z DEBUG tool_name="fetch" arguments="{\"url\":\"example.com\"}" Tool invocation started
+2025-11-02T18:32:15.124Z DEBUG component_id="fetch_rs" function_name="fetch" Component function invocation started
 2025-11-02T18:32:15.125Z DEBUG component_id="fetch_rs" instantiation_ms=5 Component instance created
-2025-11-02T18:32:15.245Z INFO component_id="fetch_rs" function_name="fetch" total_duration_ms=125 instantiation_ms=5 execution_ms=120 WebAssembly component execution completed
-2025-11-02T18:32:15.247Z INFO tool_name="fetch" duration_ms=125 outcome="success" Tool invocation completed successfully
+2025-11-02T18:32:15.245Z DEBUG component_id="fetch_rs" function_name="fetch" total_duration_ms=125 instantiation_ms=5 execution_ms=120 WebAssembly component execution completed
+2025-11-02T18:32:15.246Z DEBUG component_id="fetch_rs" function_name="fetch" Component function invocation completed successfully
+2025-11-02T18:32:15.247Z DEBUG tool_name="fetch" duration_ms=125 outcome="success" Tool invocation completed successfully
+```
+
+**Example - Component Lifecycle (INFO level):**
+```
+2025-11-02T18:32:10.123Z INFO path="oci://ghcr.io/microsoft/fetch-rs:latest" component_id="fetch_rs" operation="load-component" Component loaded successfully
+2025-11-02T18:35:20.456Z INFO component_id="fetch_rs" operation="unload-component" Component unloaded successfully
 ```
 
 **Example - Failed Invocation:**
 ```
-2025-11-02T18:32:20.123Z INFO tool_name="fetch" arguments="{\"url\":\"blocked.com\"}" Tool invocation started
+2025-11-02T18:32:20.123Z DEBUG tool_name="fetch" arguments="{\"url\":\"blocked.com\"}" Tool invocation started
 2025-11-02T18:32:20.125Z ERROR tool_name="fetch" duration_ms=2 outcome="error" error="Network access denied: host 'blocked.com' not in allow list" Tool invocation failed
 ```
 
@@ -44,9 +51,11 @@ Control the verbosity of logs using the `RUST_LOG` environment variable:
 
 ```bash
 # Show only INFO and above (recommended for production)
+# Shows component lifecycle events (load/unload) and errors only
 RUST_LOG=info wassette serve
 
-# Show DEBUG logs for detailed information
+# Show DEBUG logs for detailed invocation tracking
+# Shows all tool invocations, component calls, and timing information
 RUST_LOG=debug wassette serve
 
 # Show TRACE logs for maximum verbosity
@@ -55,6 +64,12 @@ RUST_LOG=trace wassette serve
 # Filter logs by crate
 RUST_LOG=mcp_server=debug,wassette=info wassette serve
 ```
+
+**Log Level Breakdown:**
+- **INFO**: Component lifecycle events (load/unload success), errors
+- **DEBUG**: Tool invocations, component calls, execution timing, detailed operation tracking
+- **ERROR**: All failures and error conditions
+- **WARN**: Non-critical issues (e.g., built-in tools disabled)
 
 ### Log Output Location
 
@@ -82,18 +97,19 @@ Wassette automatically sanitizes arguments to prevent logging sensitive informat
 
 ### Log Fields Reference
 
-| Field | Description | Example |
-|-------|-------------|---------|
-| `tool_name` | Name of the tool being invoked | `"fetch"` |
-| `component_id` | ID of the component being executed | `"fetch_rs"` |
-| `function_name` | Name of the function being called | `"fetch"` |
-| `arguments` | Sanitized tool arguments | `"{\"url\":\"example.com\"}"` |
-| `duration_ms` | Total execution time in milliseconds | `125` |
-| `instantiation_ms` | Time to instantiate the component | `5` |
-| `execution_ms` | Time to execute the function | `120` |
-| `outcome` | Result of invocation | `"success"` or `"error"` |
-| `error` | Error message (only present on failure) | `"Network access denied"` |
-| `operation` | Type of lifecycle operation | `"load-component"` or `"unload-component"` |
+| Field | Description | Log Level | Example |
+|-------|-------------|-----------|---------|
+| `tool_name` | Name of the tool being invoked | DEBUG | `"fetch"` |
+| `component_id` | ID of the component being executed | DEBUG/INFO | `"fetch_rs"` |
+| `function_name` | Name of the function being called | DEBUG | `"fetch"` |
+| `arguments` | Sanitized tool arguments | DEBUG | `"{\"url\":\"example.com\"}"` |
+| `duration_ms` | Total execution time in milliseconds | DEBUG | `125` |
+| `instantiation_ms` | Time to instantiate the component | DEBUG | `5` |
+| `execution_ms` | Time to execute the function | DEBUG | `120` |
+| `outcome` | Result of invocation | DEBUG/ERROR | `"success"` or `"error"` |
+| `error` | Error message (only present on failure) | ERROR | `"Network access denied"` |
+| `operation` | Type of lifecycle operation | DEBUG/INFO | `"load-component"` or `"unload-component"` |
+| `path` | Component path for load operations | DEBUG/INFO | `"oci://ghcr.io/..."` |
 
 ### Common Operations
 

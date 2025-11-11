@@ -52,7 +52,7 @@ pub(crate) async fn handle_load_component(
         .and_then(|v| v.as_str())
         .ok_or_else(|| anyhow::anyhow!("Missing required argument: 'path'"))?;
 
-    info!(
+    debug!(
         path = %path,
         operation = "load-component",
         "Component load operation started"
@@ -97,7 +97,7 @@ pub(crate) async fn handle_unload_component(
         .and_then(|v| v.as_str())
         .ok_or_else(|| anyhow::anyhow!("Missing 'id' in arguments"))?;
 
-    info!(
+    debug!(
         component_id = %id,
         operation = "unload-component",
         "Component unload operation started"
@@ -137,7 +137,7 @@ pub(crate) async fn handle_component_call(
         .await
         .map_err(|e| anyhow::anyhow!("Failed to find component for tool '{}': {}", req.name, e))?;
 
-    info!(
+    debug!(
         function_name = %req.name,
         component_id = %component_id,
         "Component function invocation started"
@@ -153,7 +153,7 @@ pub(crate) async fn handle_component_call(
 
     match result {
         Ok(result_str) => {
-            info!(
+            debug!(
                 function_name = %req.name,
                 component_id = %component_id,
                 "Component function invocation completed successfully"

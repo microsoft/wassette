@@ -119,7 +119,7 @@ pub async fn handle_tools_call(
     let tool_name = req.name.to_string();
     let sanitized_args = sanitize_args_for_logging(&req.arguments);
 
-    info!(
+    debug!(
         tool_name = %tool_name,
         arguments = %sanitized_args,
         "Tool invocation started"
@@ -179,7 +179,7 @@ pub async fn handle_tools_call(
 
     match &result {
         Ok(_) => {
-            info!(
+            debug!(
                 tool_name = %tool_name,
                 duration_ms = %duration.as_millis(),
                 outcome = "success",
