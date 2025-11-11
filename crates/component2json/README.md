@@ -1,6 +1,6 @@
 # component2json
 
-A Rust library for converting WebAssembly Components to JSON Schema and handling WebAssembly Interface Type (WIT) value conversions.
+A Rust library for converting WebAssembly Components to JSON Schema and handling [WebAssembly Interface Type (WIT)](https://component-model.bytecodealliance.org/design/wit.html) value conversions.
 
 ## Usage
 
