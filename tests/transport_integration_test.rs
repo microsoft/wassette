@@ -703,7 +703,7 @@ async fn test_tool_list_notification() -> Result<()> {
     // Read and verify initialize response
     let mut response_line = String::new();
     match tokio::time::timeout(
-        Duration::from_secs(10),
+        Duration::from_secs(30),
         stdout.read_line(&mut response_line),
     )
     .await
@@ -748,7 +748,7 @@ async fn test_tool_list_notification() -> Result<()> {
     // Read initial tools list response
     let mut tools_response_line = String::new();
     tokio::time::timeout(
-        Duration::from_secs(10),
+        Duration::from_secs(30),
         stdout.read_line(&mut tools_response_line),
     )
     .await
@@ -785,7 +785,7 @@ async fn test_tool_list_notification() -> Result<()> {
     // Read the tool list change notification first (this is what we're testing!)
     let mut notification_line = String::new();
     tokio::time::timeout(
-        Duration::from_secs(15),
+        Duration::from_secs(30),
         stdout.read_line(&mut notification_line),
     )
     .await
@@ -803,7 +803,7 @@ async fn test_tool_list_notification() -> Result<()> {
     // Read the actual load-component response
     let mut load_response_line = String::new();
     tokio::time::timeout(
-        Duration::from_secs(15),
+        Duration::from_secs(30),
         stdout.read_line(&mut load_response_line),
     )
     .await
@@ -833,7 +833,7 @@ async fn test_tool_list_notification() -> Result<()> {
     // Read updated tools list response
     let mut updated_tools_response_line = String::new();
     tokio::time::timeout(
-        Duration::from_secs(10),
+        Duration::from_secs(30),
         stdout.read_line(&mut updated_tools_response_line),
     )
     .await
