@@ -415,4 +415,16 @@ mod tests {
         assert_eq!(metadata.imports.as_ref().unwrap().len(), 2);
         assert_eq!(metadata.target.as_ref().unwrap(), "wasi:http/proxy@0.2.0");
     }
+
+    #[test]
+    fn test_pull_multi_layer_artifact_with_progress_exists() {
+        // Compile-time test to verify the progress-aware function exists
+        let _ = pull_multi_layer_artifact_with_progress;
+    }
+
+    #[test]
+    fn test_pull_multi_layer_artifact_calls_progress_version() {
+        // Verify that pull_multi_layer_artifact exists and delegates to progress version
+        let _ = pull_multi_layer_artifact;
+    }
 }

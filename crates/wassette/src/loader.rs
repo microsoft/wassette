@@ -404,3 +404,27 @@ pub(crate) async fn load_resource_with_progress<T: Loadable>(
         _ => bail!("Unsupported {} scheme: {}", T::RESOURCE_TYPE, scheme),
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_load_resource_with_progress_api_exists() {
+        // Compile-time test to verify the progress-aware API exists
+        // Just check that we can reference the function
+        let _ = load_resource_with_progress::<ComponentResource>;
+    }
+
+    #[test]
+    fn test_component_resource_has_progress_method() {
+        // Verify that ComponentResource implements from_oci_reference_with_progress
+        let _ = ComponentResource::from_oci_reference_with_progress;
+    }
+
+    #[test]
+    fn test_policy_resource_has_progress_method() {
+        // Verify that PolicyResource implements from_oci_reference_with_progress
+        let _ = PolicyResource::from_oci_reference_with_progress;
+    }
+}
