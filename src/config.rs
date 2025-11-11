@@ -9,6 +9,8 @@ use etcetera::BaseStrategy;
 use figment::providers::{Env, Format, Serialized, Toml};
 use serde::{Deserialize, Serialize};
 
+use crate::commands::Serve;
+
 /// Get the default component directory path based on the OS
 pub fn get_component_dir() -> Result<PathBuf, anyhow::Error> {
     let dir_strategy = etcetera::choose_base_strategy().context("Unable to get home directory")?;
@@ -96,13 +98,13 @@ impl Config {
     }
 
     /// Creates a new config from a Serve struct that includes environment variable handling
-    pub fn from_serve(serve_config: &crate::Serve) -> Result<Self, anyhow::Error> {
+    pub fn from_serve(serve_config: &Serve) -> Result<Self, anyhow::Error> {
         // Start with the base config using existing logic
         let mut config = Self::new(serve_config)?;
 
         // Load environment variables from file if specified
         if let Some(env_file) = &serve_config.env_file {
-            let file_env_vars = crate::load_env_file(env_file).with_context(|| {
+            let file_env_vars = crate::utils::load_env_file(env_file).with_context(|| {
                 format!("Failed to load environment file: {}", env_file.display())
             })?;
 
@@ -136,8 +138,8 @@ mod tests {
 
     use super::*;
 
-    fn create_test_cli_config() -> crate::Serve {
-        crate::Serve {
+    fn create_test_cli_config() -> Serve {
+        Serve {
             component_dir: Some(PathBuf::from("/test/component/dir")),
             transport: Default::default(),
             env_vars: vec![],
@@ -147,8 +149,8 @@ mod tests {
         }
     }
 
-    fn empty_test_cli_config() -> crate::Serve {
-        crate::Serve {
+    fn empty_test_cli_config() -> Serve {
+        Serve {
             component_dir: None,
             transport: Default::default(),
             env_vars: vec![],
@@ -359,7 +361,7 @@ bind_address = "0.0.0.0:8080"
         fs::write(&config_file, toml_content).unwrap();
 
         // CLI provides a different bind address
-        let serve_config = crate::Serve {
+        let serve_config = Serve {
             component_dir: None,
             transport: Default::default(),
             env_vars: vec![],
@@ -402,7 +404,7 @@ bind_address = "0.0.0.0:8080"
             fs::write(&config_file, toml_content).unwrap();
 
             // CLI provides bind address
-            let serve_config = crate::Serve {
+            let serve_config = Serve {
                 component_dir: None,
                 transport: Default::default(),
                 env_vars: vec![],
