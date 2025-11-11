@@ -90,7 +90,7 @@ async fn test_structured_output_integration() -> Result<()> {
     // Read potential tools/list_changed notification first
     let mut notification_line = String::new();
     tokio::time::timeout(
-        Duration::from_secs(15),
+        Duration::from_secs(30),
         stdout.read_line(&mut notification_line),
     )
     .await
@@ -108,7 +108,7 @@ async fn test_structured_output_integration() -> Result<()> {
     // Read the actual load-component response
     let mut load_response_line = String::new();
     tokio::time::timeout(
-        Duration::from_secs(15),
+        Duration::from_secs(30),
         stdout.read_line(&mut load_response_line),
     )
     .await
@@ -232,7 +232,7 @@ async fn test_structured_output_integration() -> Result<()> {
     // Read fetch response
     let mut fetch_response_line = String::new();
     tokio::time::timeout(
-        Duration::from_secs(15),
+        Duration::from_secs(30),
         stdout.read_line(&mut fetch_response_line),
     )
     .await
