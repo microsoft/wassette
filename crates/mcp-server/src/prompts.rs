@@ -141,16 +141,14 @@ mod tests {
         assert_eq!(get_result.messages[0].role, PromptMessageRole::User);
 
         // Check content includes expected sections
-        if let PromptMessageRole::User = get_result.messages[0].role {
-            let content_text = match &get_result.messages[0].content {
-                rmcp::model::PromptMessageContent::Text { text } => text,
-                _ => panic!("Expected text content"),
-            };
-            assert!(content_text.contains("Building a Rust WebAssembly Component"));
-            assert!(content_text.contains("test-component"));
-            assert!(content_text.contains("cargo build"));
-            assert!(content_text.contains("wasm32-wasip2"));
-        }
+        let content_text = match &get_result.messages[0].content {
+            rmcp::model::PromptMessageContent::Text { text } => text,
+            _ => panic!("Expected text content"),
+        };
+        assert!(content_text.contains("Building a Rust WebAssembly Component"));
+        assert!(content_text.contains("test-component"));
+        assert!(content_text.contains("cargo build"));
+        assert!(content_text.contains("wasm32-wasip2"));
     }
 
     #[tokio::test]

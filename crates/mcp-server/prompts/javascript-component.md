@@ -45,7 +45,7 @@ npm install
 
 ## Step 4: Define Your WIT Interface
 
-Create `wit/world.wit`:
+Create `wit/world.wit` (see [WIT reference](https://component-model.bytecodealliance.org/design/wit.html) and [WIT by example](https://component-model.bytecodealliance.org/design/wit-example.html)):
 
 ```wit
 package local:{component_name};
@@ -109,6 +109,90 @@ wit-docs-inject --component component.wasm \
 wassette serve --sse --plugin-dir .
 
 # In another terminal, use an MCP client to test
+```
+
+## Working with HTTP Requests
+
+To make HTTP requests using the `fetch()` function, add the WASI HTTP dependency when building:
+
+```bash
+jco componentize main.js --wit ./wit -d http -o component.wasm
+```
+
+Update your WIT interface to import the HTTP handler:
+
+```wit
+package local:{component_name};
+
+interface operations {{
+    fetch-data: func(url: string) -> result<string, string>;
+}}
+
+world {component_name}-component {{
+    import wasi:http/outgoing-handler@0.2.0;
+    export operations;
+}}
+```
+
+Then use `fetch()` in your JavaScript code:
+
+```javascript
+export const operations = {{
+    async fetchData(url) {{
+        try {{
+            const response = await fetch(url);
+            const text = await response.text();
+            return {{ tag: "ok", val: text }};
+        }} catch (error) {{
+            return {{ tag: "err", val: error.message }};
+        }}
+    }}
+}};
+```
+
+## Reading Environment Variables
+
+To access environment variables, add the WASI CLI dependency:
+
+```bash
+jco componentize main.js --wit ./wit -d cli -o component.wasm
+```
+
+Update your WIT interface:
+
+```wit
+package local:{component_name};
+
+interface operations {{
+    get-config: func() -> result<string, string>;
+}}
+
+world {component_name}-component {{
+    import wasi:cli/environment@0.2.0;
+    export operations;
+}}
+```
+
+Then read environment variables in your JavaScript code:
+
+```javascript
+import {{ getEnvironment }} from 'wasi:cli/environment@0.2.0';
+
+export const operations = {{
+    getConfig() {{
+        try {{
+            const env = getEnvironment();
+            const config = env.find(([key]) => key === 'MY_CONFIG');
+            
+            if (config) {{
+                return {{ tag: "ok", val: config[1] }};
+            }}
+            return {{ tag: "err", val: "MY_CONFIG not found" }};
+        }} catch (error) {{
+            return {{ tag: "err", val: error.message }};
+        }}
+    }}
+}};
 ```
 
 ## Error Handling

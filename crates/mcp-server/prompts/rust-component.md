@@ -53,7 +53,7 @@ strip = true
 
 ## Step 4: Define Your WIT Interface
 
-Create `wit/world.wit`:
+Create `wit/world.wit` (see [WIT reference](https://component-model.bytecodealliance.org/design/wit.html) and [WIT by example](https://component-model.bytecodealliance.org/design/wit-example.html)):
 
 ```wit
 package local:{component_name};
@@ -126,6 +126,73 @@ wit-docs-inject --component target/wasm32-wasip2/release/{component_name}.wasm \
 wassette serve --sse --plugin-dir target/wasm32-wasip2/release/
 
 # In another terminal, use an MCP client to test
+```
+
+## Working with HTTP Requests
+
+To make HTTP requests, import the WASI HTTP interface in your WIT:
+
+```wit
+package local:{component_name};
+
+world {component_name} {{
+    import wasi:http/outgoing-handler@0.2.0;
+    
+    export fetch-url: func(url: string) -> result<string, string>;
+}}
+```
+
+Then use it in your Rust code:
+
+```rust
+use bindings::wasi::http::outgoing_handler;
+use bindings::wasi::http::types::{{Method, Scheme, OutgoingRequest}};
+
+impl Guest for Component {{
+    fn fetch_url(url: String) -> Result<String, String> {{
+        let request = OutgoingRequest::new(Method::Get, Some(&url), Scheme::Https, None);
+        
+        match outgoing_handler::handle(request, None) {{
+            Ok(response) => Ok("Success".to_string()),
+            Err(e) => Err(format!("HTTP error: {{:?}}", e)),
+        }}
+    }}
+}}
+```
+
+## Reading Environment Variables
+
+To access environment variables, import the WASI environment interface in your WIT:
+
+```wit
+package local:{component_name};
+
+world {component_name} {{
+    import wasi:cli/environment@0.2.0;
+    
+    export get-config: func() -> result<string, string>;
+}}
+```
+
+Then use it in your Rust code:
+
+```rust
+use bindings::wasi::cli::environment;
+
+impl Guest for Component {{
+    fn get_config() -> Result<String, String> {{
+        let env_vars = environment::get_environment();
+        
+        // Find a specific variable
+        for (key, value) in env_vars {{
+            if key == "MY_CONFIG" {{
+                return Ok(value);
+            }}
+        }}
+        
+        Err("MY_CONFIG not found".to_string())
+    }}
+}}
 ```
 
 ## Best Practices
