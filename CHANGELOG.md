@@ -4,10 +4,6 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
-### Changed
-
-- Modified `wassette inspect` command to accept component ID instead of file path or URI. Components must now be loaded first using `component load` before inspection
-
 ## [v0.3.4] - 2025-11-02
 
 ### Added
