@@ -1125,9 +1125,9 @@ async fn main() -> Result<()> {
                     .get_component_schema(component_id)
                     .await
                     .context(format!(
-                        "Component '{}' not found. Use 'component load' to load the component first.",
-                        component_id
-                    ))?;
+                    "Component '{}' not found. Use 'component load' to load the component first.",
+                    component_id
+                ))?;
 
                 // Display tools information
                 if let Some(arr) = schema["tools"].as_array() {

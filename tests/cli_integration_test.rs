@@ -96,7 +96,8 @@ impl CliTestContext {
     /// Execute a wassette CLI command without --component-dir (for commands that don't need it)
     #[allow(dead_code)]
     async fn run_command_no_component_dir(&self, args: &[&str]) -> Result<(String, String, i32)> {
-        self.run_command_no_component_dir_with_timeout(args, 120).await
+        self.run_command_no_component_dir_with_timeout(args, 120)
+            .await
     }
 
     /// Execute a wassette CLI command without --component-dir with a custom timeout
@@ -707,9 +708,8 @@ async fn test_cli_inspect_component() -> Result<()> {
 
     // First, load the component
     let file_uri = format!("file://{}", component_path.display());
-    let (load_stdout, load_stderr, load_exit_code) = ctx
-        .run_command(&["component", "load", &file_uri])
-        .await?;
+    let (load_stdout, load_stderr, load_exit_code) =
+        ctx.run_command(&["component", "load", &file_uri]).await?;
 
     assert_eq!(
         load_exit_code, 0,

@@ -53,9 +53,9 @@ pub enum Commands {
     Inspect {
         /// Component ID to inspect
         component_id: String,
-        /// Directory where plugins are stored. Defaults to $XDG_DATA_HOME/wassette/components
+        /// Directory where components are stored. Defaults to $XDG_DATA_HOME/wassette/components
         #[arg(long)]
-        plugin_dir: Option<PathBuf>,
+        component_dir: Option<PathBuf>,
     },
     /// Manage tools (list, read, invoke).
     Tool {
