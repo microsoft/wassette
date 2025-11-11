@@ -47,7 +47,8 @@ use runtime_context::RuntimeContext;
 pub use secrets::SecretsManager;
 use wasistate::WasiState;
 pub use wasistate::{
-    create_wasi_state_template_from_policy, CustomResourceLimiter, WasiStateTemplate,
+    create_wasi_state_template_from_policy, CustomResourceLimiter, PermissionError,
+    WasiStateTemplate,
 };
 
 const DOWNLOADS_DIR: &str = "downloads";
@@ -1056,9 +1057,24 @@ impl LifecycleManager {
         let mut results = create_placeholder_results(&func.results(&store));
 
         let execution_start = Instant::now();
-        func.call_async(&mut store, &argument_vals, &mut results)
-            .await?;
+
+        // Execute the WASM function and capture any errors
+        let call_result = func
+            .call_async(&mut store, &argument_vals, &mut results)
+            .await;
+
         let execution_duration = execution_start.elapsed();
+
+        // If the call failed, check if it was due to a permission denial
+        if let Err(e) = call_result {
+            // Check if there was a permission error recorded during execution
+            if let Some(perm_error) = store.data().get_last_permission_error() {
+                // Return a more informative error with instructions
+                return Err(anyhow!(perm_error.to_user_message(component_id)));
+            }
+            // Otherwise, return the original WASM execution error
+            return Err(e.into());
+        }
 
         let result_json = vals_to_json(&results);
 

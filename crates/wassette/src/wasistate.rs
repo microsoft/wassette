@@ -3,12 +3,56 @@
 
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex};
 
 use policy::{AccessType, PolicyDocument};
 use wasmtime::component::ResourceTable;
 use wasmtime_wasi::{WasiCtx, WasiCtxBuilder, WasiCtxView};
 use wasmtime_wasi_config::WasiConfigVariables;
 use wasmtime_wasi_http::{WasiHttpCtx, WasiHttpView};
+
+/// Represents a permission-related error that occurred during component execution
+#[derive(Debug, Clone)]
+pub enum PermissionError {
+    /// Network access was denied for a specific host
+    NetworkDenied {
+        /// The host that was denied
+        host: String,
+        /// The full URI that was requested
+        uri: String,
+    },
+    /// Storage access was denied for a specific path
+    StorageDenied {
+        /// The path that was denied
+        path: String,
+        /// The access type that was requested (read/write)
+        access_type: String,
+    },
+}
+
+impl PermissionError {
+    /// Get a user-friendly error message with instructions on how to fix
+    pub fn to_user_message(&self, component_id: &str) -> String {
+        match self {
+            PermissionError::NetworkDenied { host, uri } => {
+                format!(
+                    "Network permission denied: Component '{}' attempted to access '{}' but does not have permission for host '{}'.\n\n\
+                    To grant network access, use:\n  \
+                    grant-network-permission --component-id=\"{}\" --host=\"{}\"",
+                    component_id, uri, host, component_id, host
+                )
+            }
+            PermissionError::StorageDenied { path, access_type } => {
+                format!(
+                    "Storage permission denied: Component '{}' attempted to {} '{}' but does not have permission.\n\n\
+                    To grant storage access, use:\n  \
+                    grant-storage-permission --component-id=\"{}\" --uri=\"{}\" --access=\"{}\"",
+                    component_id, access_type, path, component_id, path, access_type
+                )
+            }
+        }
+    }
+}
 
 /// Custom resource limiter that stores the limits
 #[derive(Clone)]
@@ -49,6 +93,8 @@ pub struct WasiState {
     pub http: wasmtime_wasi_http::WasiHttpCtx,
     pub wasi_config_vars: WasiConfigVariables,
     pub resource_limiter: Option<CustomResourceLimiter>,
+    /// Tracks the last permission error that occurred during execution
+    pub last_permission_error: Arc<Mutex<Option<PermissionError>>>,
 }
 
 impl wasmtime_wasi::WasiView for WasiState {
@@ -119,6 +165,7 @@ impl WasiStateTemplate {
                 .store_limits
                 .as_ref()
                 .map(|limits| CustomResourceLimiter::new(limits.clone())),
+            last_permission_error: Arc::new(Mutex::new(None)),
         })
     }
 }
