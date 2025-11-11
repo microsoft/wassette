@@ -12,6 +12,8 @@ use wasmtime_wasi_http::bindings::http::types;
 use wasmtime_wasi_http::types::{HostFutureIncomingResponse, OutgoingRequestConfig};
 use wasmtime_wasi_http::{HttpResult, WasiHttpView};
 
+use crate::wasistate::PermissionError;
+
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 struct AllowedHost {
     scheme: Option<String>,
@@ -55,6 +57,9 @@ pub struct WassetteWasiState<T> {
 
     /// Set of allowed hosts for network requests (extracted from policy document)
     allowed_hosts: HashSet<AllowedHost>,
+
+    /// Last permission error (for tracking network denials)
+    last_network_denial: std::sync::Arc<std::sync::Mutex<Option<(String, String)>>>,
 }
 
 impl<T> WassetteWasiState<T> {
@@ -77,6 +82,7 @@ impl<T> WassetteWasiState<T> {
         Ok(Self {
             inner,
             allowed_hosts: parsed_hosts,
+            last_network_denial: std::sync::Arc::new(std::sync::Mutex::new(None)),
         })
     }
 
@@ -98,6 +104,29 @@ impl<T> WassetteWasiState<T> {
         }
 
         false
+    }
+}
+
+// Add helper methods specifically for WassetteWasiState<crate::wasistate::WasiState>
+impl WassetteWasiState<crate::wasistate::WasiState> {
+    /// Get the last permission error if any occurred (checks both sources)
+    pub fn get_last_permission_error(&self) -> Option<PermissionError> {
+        // First check if there was a network denial recorded
+        if let Ok(denial) = self.last_network_denial.lock() {
+            if let Some((host, uri)) = denial.as_ref() {
+                return Some(PermissionError::NetworkDenied {
+                    host: host.clone(),
+                    uri: uri.clone(),
+                });
+            }
+        }
+
+        // Otherwise check the WasiState's permission error field
+        self.inner
+            .last_permission_error
+            .lock()
+            .ok()
+            .and_then(|guard| guard.clone())
     }
 }
 
@@ -138,29 +167,26 @@ impl<T: WasiHttpView> WasiHttpView for WassetteWasiState<T> {
         }
 
         if !self.is_host_allowed(uri) {
+            let host = uri.host().unwrap_or("").to_string();
+            let uri_str = uri.to_string();
+
             warn!(
                 uri = %uri,
                 allowed_hosts = ?self.allowed_hosts,
                 "HTTP request blocked by network policy"
             );
+
+            // Record the network denial for later retrieval
+            if let Ok(mut denial) = self.last_network_denial.lock() {
+                *denial = Some((host, uri_str));
+            }
+
             return Err(types::ErrorCode::HttpRequestDenied.into());
         }
 
         debug!(uri = %uri, "HTTP request allowed by network policy");
 
         self.inner.send_request(request, config)
-    }
-
-    fn is_forbidden_header(&mut self, name: &hyper::header::HeaderName) -> bool {
-        self.inner.is_forbidden_header(name)
-    }
-
-    fn outgoing_body_buffer_chunks(&mut self) -> usize {
-        self.inner.outgoing_body_buffer_chunks()
-    }
-
-    fn outgoing_body_chunk_size(&mut self) -> usize {
-        self.inner.outgoing_body_chunk_size()
     }
 }
 

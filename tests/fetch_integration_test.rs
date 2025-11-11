@@ -50,7 +50,29 @@ async fn test_fetch_with_network_policy_enforcement() -> Result<()> {
             }
         }
         Err(e) => {
-            panic!("Expected network request to be blocked, but got successful response: {e}");
+            let error_msg = e.to_string();
+            println!("Error response: {error_msg}");
+
+            // With the new error handling, if the component doesn't handle the error,
+            // we should get a user-friendly message
+            if error_msg.contains("Network permission denied") {
+                assert!(
+                    error_msg.contains(&component_id),
+                    "Expected error to mention component ID, got: {error_msg}"
+                );
+                assert!(
+                    error_msg.contains("grant-network-permission"),
+                    "Expected error to include instructions on granting permission, got: {error_msg}"
+                );
+                println!("✅ Network request properly blocked with informative error message!");
+            } else {
+                // Fallback check for older error format
+                assert!(
+                    error_msg.contains("HttpRequestDenied") || error_msg.contains("permission"),
+                    "Expected permission-related error, got: {error_msg}"
+                );
+                println!("✅ Network request properly blocked!");
+            }
         }
     }
 
