@@ -1,17 +1,21 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT license.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::{env, fs};
 
 fn main() {
     let out_dir = env::var("OUT_DIR").unwrap();
     let dest_path = Path::new(&out_dir).join("prompt_templates.rs");
 
-    // Read the markdown template files
-    let rust_template =
-        fs::read_to_string("prompts/rust-component.md").expect("Failed to read rust-component.md");
-    let javascript_template = fs::read_to_string("prompts/javascript-component.md")
+    // Get the manifest directory (crate root) to construct absolute paths
+    let manifest_dir = env::var("CARGO_MANIFEST_DIR").unwrap();
+    let prompts_dir = PathBuf::from(manifest_dir).join("prompts");
+
+    // Read the markdown template files using absolute paths
+    let rust_template = fs::read_to_string(prompts_dir.join("rust-component.md"))
+        .expect("Failed to read rust-component.md");
+    let javascript_template = fs::read_to_string(prompts_dir.join("javascript-component.md"))
         .expect("Failed to read javascript-component.md");
 
     // Generate Rust code that includes the templates as constants
