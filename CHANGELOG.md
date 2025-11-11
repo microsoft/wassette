@@ -6,7 +6,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
-- MCP prompts for building WebAssembly components: Added three interactive prompts (`build-rust-component`, `build-javascript-component`, `build-python-component`) that guide users through building Wassette components in their preferred language. Each prompt includes step-by-step instructions, prerequisites, setup, implementation examples, and best practices based on the cookbook documentation. Prompts support an optional `component_name` argument for customization.
+- MCP prompts for building WebAssembly components: Added two interactive prompts (`build-rust-component`, `build-javascript-component`) that guide users through building Wassette components in Rust and JavaScript. Each prompt includes step-by-step instructions, prerequisites, setup, implementation examples, and best practices based on the cookbook documentation. Prompts support an optional `component_name` argument for customization.
 
 ## [v0.3.4] - 2025-11-02
 

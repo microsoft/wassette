@@ -26,7 +26,6 @@ pub async fn handle_prompts_get(req: serde_json::Value) -> Result<serde_json::Va
     let result = match prompt_name {
         "build-rust-component" => build_rust_component_prompt(arguments)?,
         "build-javascript-component" => build_javascript_component_prompt(arguments)?,
-        "build-python-component" => build_python_component_prompt(arguments)?,
         _ => {
             return Err(anyhow::anyhow!("Unknown prompt: {}", prompt_name));
         }
@@ -50,15 +49,6 @@ fn get_available_prompts() -> Vec<Prompt> {
         Prompt::new(
             "build-javascript-component",
             Some("Guide to building a WebAssembly component for Wassette using JavaScript"),
-            Some(vec![PromptArgument {
-                name: "component_name".to_string(),
-                description: Some("The name of the component to build".to_string()),
-                required: Some(false),
-            }]),
-        ),
-        Prompt::new(
-            "build-python-component",
-            Some("Guide to building a WebAssembly component for Wassette using Python"),
             Some(vec![PromptArgument {
                 name: "component_name".to_string(),
                 description: Some("The name of the component to build".to_string()),
@@ -409,202 +399,6 @@ Would you like me to help you implement any specific functionality for your comp
     })
 }
 
-/// Generate the Python component building prompt
-fn build_python_component_prompt(
-    arguments: serde_json::Map<String, serde_json::Value>,
-) -> Result<GetPromptResult> {
-    let component_name = arguments
-        .get("component_name")
-        .and_then(|v| v.as_str())
-        .unwrap_or("my-component");
-
-    let content = format!(
-        r#"# Building a Python WebAssembly Component for Wassette
-
-I'll help you build a WebAssembly component named "{}" using Python.
-
-## Prerequisites
-- Python 3.10 or higher
-- [uv](https://docs.astral.sh/uv/) - Fast Python package manager
-
-## Step 1: Install Tools
-
-```bash
-# Install uv
-curl -LsSf https://astral.sh/uv/install.sh | sh
-
-# Install componentize-py
-uv pip install componentize-py
-```
-
-## Step 2: Create Your Project
-
-```bash
-mkdir {}
-cd {}
-mkdir wit wit_world
-```
-
-## Step 3: Define Your WIT Interface
-
-Create `wit/world.wit`:
-
-```wit
-package local:{};
-
-/// Example component
-world {} {{
-    /// Greet someone by name
-    export greet: func(name: string) -> result<string, string>;
-}}
-```
-
-## Step 4: Generate Python Bindings
-
-```bash
-uv run componentize-py -d wit -w {} bindings .
-```
-
-This creates Python bindings in the `wit_world/` directory.
-
-## Step 5: Implement Your Component
-
-Create `main.py`:
-
-```python
-# Copyright (c) Microsoft Corporation.
-# Licensed under the MIT license.
-
-import wit_world
-from wit_world.types import Ok, Err
-
-def handle_error(e: Exception):
-    """Helper function to convert Python exceptions to WIT errors"""
-    message = str(e)
-    if message == "":
-        return Err(f"{{type(e).__name__}}")
-    else:
-        return Err(f"{{type(e).__name__}}: {{message}}")
-
-class {}(wit_world.{}):
-    def greet(self, name: str):
-        """Greet someone by name"""
-        try:
-            return Ok(f"Hello, {{name}}!")
-        except Exception as e:
-            return handle_error(e)
-```
-
-## Step 6: Build Your Component
-
-```bash
-# Build the WebAssembly component
-uv run componentize-py -d wit -w {} componentize -s main -o {}.wasm
-```
-
-## Step 7: Inject WIT Documentation (Optional but Recommended)
-
-To make your component's documentation available to AI agents:
-
-```bash
-# Install wit-docs-inject (if not already installed)
-cargo install --git https://github.com/Mossaka/wit-docs-inject
-
-# Inject documentation into your component
-wit-docs-inject --component {}.wasm \
-                --wit-dir wit/ \
-                --inplace
-```
-
-## Step 8: Test Your Component
-
-```bash
-# Start Wassette with your component
-wassette serve --sse --plugin-dir .
-
-# In another terminal, use an MCP client to test
-```
-
-## Error Handling
-
-Python components use WIT's `result` type for error handling:
-
-```python
-from wit_world.types import Ok, Err
-
-def divide(self, a: float, b: float):
-    if b == 0:
-        return Err("Division by zero")
-    return Ok(a / b)
-```
-
-## Best Practices
-
-1. **Use type hints** - Python type hints help catch errors early
-2. **Handle errors properly** - Always return `Ok` or `Err` for result types
-3. **Document your code** - Use docstrings to explain functionality
-4. **Test thoroughly** - Validate edge cases and error conditions
-5. **Keep it simple** - Avoid complex dependencies that might not work in Wasm
-6. **Avoid `eval()` for untrusted input** - Use `ast.literal_eval()` or proper parsers
-
-## Build Automation with Justfile
-
-Create `Justfile` for easy building:
-
-```just
-install-uv:
-    if ! command -v uv &> /dev/null; then curl -LsSf https://astral.sh/uv/install.sh | sh; fi
-
-install: install-uv
-    uv pip install componentize-py
-
-bindings:
-    uv run componentize-py -d wit -w {} bindings .
-
-build:
-    uv run componentize-py -d wit -w {} componentize -s main -o {}.wasm
-
-all: bindings build
-```
-
-Usage:
-```bash
-just install  # Install dependencies
-just all      # Generate bindings and build
-```
-
-## Additional Resources
-
-- [Python Cookbook Guide](https://microsoft.github.io/wassette/latest/cookbook/python.html)
-- [Example Components](https://github.com/microsoft/wassette/tree/main/examples)
-- [componentize-py Documentation](https://github.com/bytecodealliance/componentize-py)
-
-Would you like me to help you implement any specific functionality for your component?"#,
-        component_name,
-        component_name,
-        component_name,
-        component_name,
-        component_name,
-        component_name,
-        component_name,
-        component_name,
-        component_name,
-        component_name,
-        component_name,
-        component_name,
-        component_name,
-        component_name
-    );
-
-    Ok(GetPromptResult {
-        description: Some(format!(
-            "A step-by-step guide to building a Python WebAssembly component named '{}'",
-            component_name
-        )),
-        messages: vec![PromptMessage::new_text(PromptMessageRole::User, content)],
-    })
-}
-
 #[cfg(test)]
 mod tests {
     use serde_json::json;
@@ -616,10 +410,9 @@ mod tests {
         let result = handle_prompts_list(json!(null)).await.unwrap();
         let list_result: ListPromptsResult = serde_json::from_value(result).unwrap();
 
-        assert_eq!(list_result.prompts.len(), 3);
+        assert_eq!(list_result.prompts.len(), 2);
         assert_eq!(list_result.prompts[0].name, "build-rust-component");
         assert_eq!(list_result.prompts[1].name, "build-javascript-component");
-        assert_eq!(list_result.prompts[2].name, "build-python-component");
 
         // Check that all prompts have descriptions
         for prompt in &list_result.prompts {
@@ -681,26 +474,6 @@ mod tests {
         assert!(content_text.contains("Building a JavaScript WebAssembly Component"));
         assert!(content_text.contains("js-tool"));
         assert!(content_text.contains("jco componentize"));
-    }
-
-    #[tokio::test]
-    async fn test_handle_prompts_get_python() {
-        let req = json!({
-            "name": "build-python-component"
-        });
-
-        let result = handle_prompts_get(req).await.unwrap();
-        let get_result: GetPromptResult = serde_json::from_value(result).unwrap();
-
-        assert!(get_result.description.is_some());
-        assert_eq!(get_result.messages.len(), 1);
-
-        let content_text = match &get_result.messages[0].content {
-            rmcp::model::PromptMessageContent::Text { text } => text,
-            _ => panic!("Expected text content"),
-        };
-        assert!(content_text.contains("Building a Python WebAssembly Component"));
-        assert!(content_text.contains("componentize-py"));
     }
 
     #[tokio::test]
