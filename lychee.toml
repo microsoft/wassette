@@ -1,0 +1,20 @@
+# Lychee link checker configuration
+# See: https://lychee.cli.rs/#/usage/config
+
+# Accept status codes
+# By default, lychee only accepts 200 OK
+# We need to accept 302 Found for VS Code protocol handler redirects
+accept = [200, 302]
+
+# Maximum number of concurrent network requests
+max_concurrency = 10
+
+# Don't check these URLs
+exclude = [
+    # VS Code protocol handler links return 302 redirects - these are intentional
+    'https://vscode.dev/redirect?url=vscode:mcp/install*',
+    'https://vscode.dev/redirect?url=vscode-insiders:mcp/install*',
+]
+
+# Exclude link patterns
+exclude_link_local = true

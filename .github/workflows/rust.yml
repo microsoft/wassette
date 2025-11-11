@@ -183,3 +183,4 @@ jobs:
         fail: false # don't fail the build on broken links
         format: markdown
         jobSummary: true
+        args: '--config lychee.toml .'
