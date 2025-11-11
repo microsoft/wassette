@@ -1199,9 +1199,8 @@ async fn test_disable_builtin_tools() -> Result<()> {
     assert_eq!(call_response["id"], 3);
     assert!(call_response["result"].is_object());
     let result = &call_response["result"];
-    assert_eq!(
+    assert!(
         result["isError"].as_bool().unwrap_or(false),
-        true,
         "Tool call should have failed"
     );
 

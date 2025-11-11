@@ -1215,7 +1215,7 @@ async fn main() -> Result<()> {
                             })?;
 
                     // Use the existing load-component functionality
-                    let plugin_dir = plugin_dir.clone().or_else(|| cli.plugin_dir.clone());
+                    let plugin_dir = plugin_dir.clone().or_else(|| cli.component_dir.clone());
                     let lifecycle_manager = create_lifecycle_manager(plugin_dir).await?;
                     let mut args = Map::new();
                     args.insert("path".to_string(), json!(registry_component.uri));
