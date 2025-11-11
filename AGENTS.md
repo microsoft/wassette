@@ -117,6 +117,25 @@ Check if a file has the correct copyright header:
 grep -q "Copyright (c) Microsoft Corporation" your_file.rs
 ```
 
+## Testing Changes Before Commit
+
+**CRITICAL**: Always test your changes with the MCP Inspector before committing. This ensures that:
+- The server starts correctly with your changes
+- Tools are properly exposed via MCP
+- Tool calls work as expected
+- No regressions have been introduced
+
+### Testing Workflow
+
+For **every change** you make to Wassette, follow this workflow:
+
+1. **Build your changes**: `just build`
+2. **Start the Wassette server**: `just run` (or use a specific example like `just run-fetch-rs`)
+3. **Test with MCP Inspector**: Use inspector commands to verify functionality
+4. **Show the output**: Include inspector output in your commit/PR description
+
+This workflow applies to all changes: bug fixes, new features, refactoring, documentation updates that include code changes, etc.
+
 ## Debugging
 
 ### Running the MCP Server
@@ -134,22 +153,158 @@ just run RUST_LOG='debug'
 just run-filesystem
 just run-get-weather  # Requires OPENWEATHER_API_KEY environment variable
 just run-fetch-rs
+just run-memory
 ```
 
-### Using MCP Inspector
+### Testing with MCP Inspector
 
-Connect to the running server using the MCP Inspector:
+The MCP Inspector is your primary tool for testing and validating changes. Always use it before committing.
+
+#### Basic Inspector Usage
+
+Connect to the running Wassette server and interact with it:
 
 ```bash
-# Connect to remote MCP server (default SSE transport)
+# Connect to local Wassette server (default SSE transport)
 npx @modelcontextprotocol/inspector --cli http://127.0.0.1:9001/sse
 
+# List available tools (always run this first to see what's available)
+npx @modelcontextprotocol/inspector --cli http://127.0.0.1:9001/sse --method tools/list
+
+# List available resources
+npx @modelcontextprotocol/inspector --cli http://127.0.0.1:9001/sse --method resources/list
+
+# List available prompts
+npx @modelcontextprotocol/inspector --cli http://127.0.0.1:9001/sse --method prompts/list
+```
+
+#### Calling Tools
+
+Test tool functionality by calling them with various arguments:
+
+```bash
+# Call a tool with simple arguments
+npx @modelcontextprotocol/inspector --cli http://127.0.0.1:9001/sse --method tools/call --tool-name mytool --tool-arg param=value
+
+# Call a tool with multiple arguments
+npx @modelcontextprotocol/inspector --cli http://127.0.0.1:9001/sse --method tools/call --tool-name mytool --tool-arg key1=value1 --tool-arg key2=value2
+
+# Call a tool with JSON arguments (for complex parameters)
+npx @modelcontextprotocol/inspector --cli http://127.0.0.1:9001/sse --method tools/call --tool-name mytool --tool-arg 'options={"format": "json", "max_tokens": 100}'
+```
+
+#### Testing with Different Transports
+
+Wassette supports multiple transport protocols. Test with both:
+
+```bash
+# SSE transport (default, recommended for development)
+npx @modelcontextprotocol/inspector --cli http://127.0.0.1:9001/sse
+
+# Streamable HTTP transport
+just run-streamable  # Start server with streamable HTTP transport
+npx @modelcontextprotocol/inspector --cli http://127.0.0.1:9001 --transport http --method tools/list
+```
+
+#### Testing with Custom Headers
+
+If testing authentication or custom headers:
+
+```bash
+# Add custom headers to requests
+npx @modelcontextprotocol/inspector --cli http://127.0.0.1:9001/sse --transport http --method tools/list --header "X-API-Key: your-api-key"
+```
+
+#### Testing with Configuration Files
+
+For complex setups, use configuration files:
+
+```bash
+# Use a config file to specify server and settings
+npx @modelcontextprotocol/inspector --cli --config path/to/config.json --server myserver
+```
+
+### Practical Testing Examples
+
+#### Example 1: Testing the Fetch Component
+
+```bash
+# Terminal 1: Start Wassette with fetch-rs component
+just run-fetch-rs
+
+# Terminal 2: Test the component
 # List available tools
 npx @modelcontextprotocol/inspector --cli http://127.0.0.1:9001/sse --method tools/list
 
-# Call a specific tool
-npx @modelcontextprotocol/inspector --cli http://127.0.0.1:9001/sse --method tools/call --tool-name remotetool --tool-arg param=value
+# Call the fetch tool
+npx @modelcontextprotocol/inspector --cli http://127.0.0.1:9001/sse --method tools/call --tool-name fetch --tool-arg url=https://api.github.com/repos/microsoft/wassette
 ```
+
+#### Example 2: Testing the Filesystem Component
+
+```bash
+# Terminal 1: Start Wassette with filesystem-rs component
+just run-filesystem
+
+# Terminal 2: Test filesystem operations
+# List tools
+npx @modelcontextprotocol/inspector --cli http://127.0.0.1:9001/sse --method tools/list
+
+# Test reading a file
+npx @modelcontextprotocol/inspector --cli http://127.0.0.1:9001/sse --method tools/call --tool-name read_file --tool-arg path=/tmp/test.txt
+
+# Test listing directory
+npx @modelcontextprotocol/inspector --cli http://127.0.0.1:9001/sse --method tools/call --tool-name list_directory --tool-arg path=/tmp
+```
+
+#### Example 3: Testing After Code Changes
+
+```bash
+# 1. Make your code changes
+vim src/my_file.rs
+
+# 2. Rebuild
+just build
+
+# 3. Start server (choose appropriate example or use default)
+just run-fetch-rs
+
+# 4. Verify tools are available
+npx @modelcontextprotocol/inspector --cli http://127.0.0.1:9001/sse --method tools/list
+
+# 5. Test specific functionality you changed
+npx @modelcontextprotocol/inspector --cli http://127.0.0.1:9001/sse --method tools/call --tool-name your-tool --tool-arg test=value
+
+# 6. Include output in your commit message or PR description
+```
+
+### Capturing and Sharing Inspector Output
+
+Always capture the inspector output to demonstrate that your changes work:
+
+```bash
+# Save inspector output to a file
+npx @modelcontextprotocol/inspector --cli http://127.0.0.1:9001/sse --method tools/list > inspector-output.txt
+
+# Or capture a full testing session
+npx @modelcontextprotocol/inspector --cli http://127.0.0.1:9001/sse --method tools/call --tool-name mytool --tool-arg test=value 2>&1 | tee test-results.txt
+```
+
+Include this output in:
+- Your commit messages for significant changes
+- Pull request descriptions
+- Progress reports using the `report_progress` tool
+- Issue comments when demonstrating fixes
+
+### Troubleshooting with Inspector
+
+If tools aren't working as expected:
+
+1. **Verify server is running**: Check that `just run` or equivalent is running without errors
+2. **List tools**: Run `tools/list` to see what tools are actually available
+3. **Check logs**: Look at server logs (RUST_LOG=debug for detailed logs)
+4. **Test incrementally**: Start with simple tool calls, then add complexity
+5. **Compare with working examples**: Test known-good examples like `fetch-rs` first
 
 ## Documentation
 
@@ -268,6 +423,11 @@ just test               # Run tests
 just run                # Start MCP server
 cargo +nightly fmt      # Format code
 cargo clippy            # Run linter
+
+# Testing with Inspector (ALWAYS do this before committing)
+just run                # Terminal 1: Start server
+npx @modelcontextprotocol/inspector --cli http://127.0.0.1:9001/sse --method tools/list    # Terminal 2: List tools
+npx @modelcontextprotocol/inspector --cli http://127.0.0.1:9001/sse --method tools/call --tool-name TOOL_NAME --tool-arg key=value    # Test a tool
 
 # Documentation
 just docs-serve         # View docs locally
