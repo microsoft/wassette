@@ -1,0 +1,70 @@
+{
+  "component_id": "fetch_rs",
+  "tool_schemas": [
+    {
+      "description": "Auto-generated schema for function 'fetch'",
+      "inputSchema": {
+        "properties": {
+          "url": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "url"
+        ],
+        "type": "object"
+      },
+      "name": "fetch",
+      "outputSchema": {
+        "properties": {
+          "result": {
+            "oneOf": [
+              {
+                "properties": {
+                  "ok": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "ok"
+                ],
+                "type": "object"
+              },
+              {
+                "properties": {
+                  "err": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "err"
+                ],
+                "type": "object"
+              }
+            ]
+          }
+        },
+        "required": [
+          "result"
+        ],
+        "type": "object"
+      }
+    }
+  ],
+  "function_identifiers": [
+    {
+      "package_name": null,
+      "interface_name": null,
+      "function_name": "fetch"
+    }
+  ],
+  "tool_names": [
+    "fetch"
+  ],
+  "validation_stamp": {
+    "file_size": 18123689,
+    "mtime": 1762878688,
+    "content_hash": null
+  },
+  "created_at": 1762879837
+}
