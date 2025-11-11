@@ -1073,7 +1073,7 @@ impl LifecycleManager {
                 return Err(anyhow!(perm_error.to_user_message(component_id)));
             }
             // Otherwise, return the original WASM execution error
-            return Err(e.into());
+            return Err(e);
         }
 
         let result_json = vals_to_json(&results);
