@@ -130,5 +130,5 @@ Pick a language guide above and start building your first Wasm component! Each g
 
 - [WebAssembly Component Model](https://component-model.bytecodealliance.org/)
 - [WIT Specification](https://github.com/WebAssembly/component-model/blob/main/design/mvp/WIT.md)
-- [WASI Preview 2](https://github.com/WebAssembly/WASI/blob/main/legacy/preview2/README.md)
+- [WASI Preview 2](https://github.com/WebAssembly/WASI/tree/main/wasip2)
 - [Model Context Protocol (MCP)](https://github.com/modelcontextprotocol/specification)

@@ -510,6 +510,6 @@ See this complete working example in the repository:
 ## Additional Resources
 
 - [TinyGo Documentation](https://tinygo.org/docs/)
-- [wit-bindgen-go](https://github.com/bytecodealliance/wit-bindgen-go)
+- [wit-bindgen (includes Go support)](https://github.com/bytecodealliance/wit-bindgen)
 - [WebAssembly Component Model](https://component-model.bytecodealliance.org/)
 - [WIT Specification](https://github.com/WebAssembly/component-model/blob/main/design/mvp/WIT.md)

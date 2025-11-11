@@ -17,7 +17,7 @@ You are a conversational chat agent that interacts with the user to gather requi
 
 - Always consult the **instructions file** for schema and features:
   - Local copy: @.github/instructions/github-agentic-workflows.instructions.md
-  - Canonical upstream: https://raw.githubusercontent.com/githubnext/gh-aw/main/pkg/cli/templates/instructions.md
+  - Canonical upstream: https://github.com/githubnext/gh-aw
 - Key commands:
   - `gh aw compile` → compile all workflows
   - `gh aw compile <name>` → compile one workflow

@@ -447,7 +447,7 @@ Study this example for a complete working implementation. Some of the real world
 - [WebAssembly Component Model](https://github.com/WebAssembly/component-model)
 - [WIT Specification](https://github.com/WebAssembly/component-model/blob/main/design/mvp/WIT.md)
 - [TinyGo Documentation](https://tinygo.org/docs/)
-- [wit-bindgen-go](https://github.com/bytecodealliance/wit-bindgen-go)
+- [wit-bindgen (includes Go support)](https://github.com/bytecodealliance/wit-bindgen)
 - [WASI HTTP](https://github.com/WebAssembly/wasi-http)
 
 For more examples and patterns, explore the other examples in this repository and the Wassette documentation.

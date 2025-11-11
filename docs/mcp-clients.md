@@ -26,9 +26,18 @@ You can list and configure MCP servers in VS Code by running the command `MCP: L
 
 ## Cursor
 
-Click the below button to use the [one-click installation](https://docs.cursor.com/en/context/mcp#one-click-installation) to add Wassette to Cursor.
+To add Wassette to Cursor, you'll need to manually configure it in your MCP settings. Follow the [Cursor MCP setup guide](https://docs.cursor.com/en/context/mcp#setup) to add the following configuration:
 
-[![Install MCP Server](https://cursor.com/deeplink/mcp-install-light.svg)](https://cursor.com/install-mcp?name=wassette&config=JTdCJTIyY29tbWFuZCUyMiUzQSUyMndhc3NldHRlJTIwc2VydmUlMjAtLXN0ZGlvJTIyJTdE)
+```json
+{
+  "mcpServers": {
+    "wassette": {
+      "command": "wassette",
+      "args": ["serve", "--stdio"]
+    }
+  }
+}
+```
 
 ## Claude Code
 

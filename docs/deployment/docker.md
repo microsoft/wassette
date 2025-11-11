@@ -392,7 +392,7 @@ This approach is faster as it doesn't require compiling from source.
 
 ## Next Steps
 
-- Learn about [Wassette's permission system](../using/permissions.md)
+- Learn about [Wassette's permission system](../reference/permissions.md)
 - Explore [component examples](https://github.com/microsoft/wassette/tree/main/examples)
 - Read the [CLI reference](../reference/cli.md) for all available commands
 - Check the [FAQ](../faq.md) for common questions

@@ -47,7 +47,7 @@ Wassette addresses the security and interoperability challenges of current MCP d
 
 Wassette implements a **centralized trusted computing base (TCB)** through a single, open-source MCP server implementation built with memory-safe, high-performance runtimes like [Wasmtime](https://github.com/bytecodealliance/wasmtime), maintaining a minimal attack surface through reduced complexity.
 
-The system enforces **capability-based security** with allow/deny lists for file system paths, network endpoint access control, system call restrictions, and a policy engine similar to [policy-mcp-rs](https://github.com/microsoft/policy-mcp-rs).
+The system enforces **capability-based security** with allow/deny lists for file system paths, network endpoint access control, system call restrictions, and a policy engine similar to [policy-mcp](https://github.com/microsoft/policy-mcp).
 
 For **secure distribution**, WebAssembly components are distributed as OCI artifacts with cryptographic signature verification, registry-based tool distribution, and granular capability declarations per tool.
 

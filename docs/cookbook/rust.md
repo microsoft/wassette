@@ -430,4 +430,4 @@ See these complete working examples in the repository:
 - [WebAssembly Component Model](https://component-model.bytecodealliance.org/)
 - [Rust Language Support](https://component-model.bytecodealliance.org/language-support/rust.html)
 - [WIT Specification](https://github.com/WebAssembly/component-model/blob/main/design/mvp/WIT.md)
-- [WASI Preview 2](https://github.com/WebAssembly/WASI/blob/main/legacy/preview2/README.md)
+- [WASI Preview 2](https://github.com/WebAssembly/WASI/tree/main/wasip2)
