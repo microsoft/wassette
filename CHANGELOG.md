@@ -4,10 +4,6 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
-### Added
-
-- Comprehensive invocation logging for all tool and component calls, including timestamp, tool name, component ID, execution duration, and success/failure outcome to improve transparency and debuggability of Wassette workflows
-
 ## [v0.3.4] - 2025-11-02
 
 ### Added
