@@ -573,7 +573,7 @@ fn calculate_relevance_score(component: &Value, query_terms: &[String]) -> u32 {
 }
 
 #[instrument(skip(_lifecycle_manager))]
-async fn handle_search_component(
+pub(crate) async fn handle_search_component(
     req: &CallToolRequestParam,
     _lifecycle_manager: &LifecycleManager,
 ) -> Result<CallToolResult> {
@@ -1628,6 +1628,68 @@ mod tests {
             "Second result should have 'server' in name: {}",
             second_name
         );
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_search_component_integration_end_to_end() -> Result<()> {
+        let tempdir = tempfile::tempdir()?;
+        let lifecycle_manager = wassette::LifecycleManager::new(&tempdir).await?;
+
+        // Test 1: No query returns all components
+        let req1 = CallToolRequestParam {
+            name: "search-components".into(),
+            arguments: Some(serde_json::Map::new()),
+        };
+        let result1 = handle_search_component(&req1, &lifecycle_manager).await?;
+        let content1_json = serde_json::to_value(&result1.content)?;
+        let text1 = content1_json[0]["text"].as_str().unwrap();
+        let response1: Value = serde_json::from_str(text1)?;
+        assert_eq!(response1["components"].as_array().unwrap().len(), 9);
+
+        // Test 2: Query with single term
+        let mut args2 = serde_json::Map::new();
+        args2.insert("query".to_string(), json!("python"));
+        let req2 = CallToolRequestParam {
+            name: "search-components".into(),
+            arguments: Some(args2),
+        };
+        let result2 = handle_search_component(&req2, &lifecycle_manager).await?;
+        let content2_json = serde_json::to_value(&result2.content)?;
+        let text2 = content2_json[0]["text"].as_str().unwrap();
+        let response2: Value = serde_json::from_str(text2)?;
+        let components2 = response2["components"].as_array().unwrap();
+        assert_eq!(components2.len(), 1);
+        assert!(components2[0]["name"].as_str().unwrap().contains("Python"));
+
+        // Test 3: Query with no matches
+        let mut args3 = serde_json::Map::new();
+        args3.insert("query".to_string(), json!("xyz123notfound"));
+        let req3 = CallToolRequestParam {
+            name: "search-components".into(),
+            arguments: Some(args3),
+        };
+        let result3 = handle_search_component(&req3, &lifecycle_manager).await?;
+        let content3_json = serde_json::to_value(&result3.content)?;
+        let text3 = content3_json[0]["text"].as_str().unwrap();
+        let response3: Value = serde_json::from_str(text3)?;
+        assert_eq!(response3["components"].as_array().unwrap().len(), 0);
+
+        // Test 4: Verify ranking - exact name match should come first
+        let mut args4 = serde_json::Map::new();
+        args4.insert("query".to_string(), json!("fetch"));
+        let req4 = CallToolRequestParam {
+            name: "search-components".into(),
+            arguments: Some(args4),
+        };
+        let result4 = handle_search_component(&req4, &lifecycle_manager).await?;
+        let content4_json = serde_json::to_value(&result4.content)?;
+        let text4 = content4_json[0]["text"].as_str().unwrap();
+        let response4: Value = serde_json::from_str(text4)?;
+        let components4 = response4["components"].as_array().unwrap();
+        // "Fetch" component should be first (exact name match)
+        assert_eq!(components4[0]["name"].as_str().unwrap(), "Fetch");
 
         Ok(())
     }
