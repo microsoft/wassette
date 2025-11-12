@@ -6,7 +6,8 @@
 #![warn(missing_docs)]
 
 use anyhow::{bail, Context, Result};
-use clap::Parser;
+use clap::{CommandFactory, Parser};
+use clap_complete::{generate, shells};
 use mcp_server::{handle_tools_list, LifecycleManager};
 use rmcp::service::serve_server;
 use rmcp::transport::streamable_http_server::session::local::LocalSessionManager;
@@ -28,7 +29,7 @@ mod utils;
 use cli_handlers::{create_lifecycle_manager, handle_tool_cli_command};
 use commands::{
     Cli, Commands, ComponentCommands, GrantPermissionCommands, PermissionCommands, PolicyCommands,
-    RegistryCommands, RevokePermissionCommands, SecretCommands, ToolCommands, Transport,
+    RegistryCommands, RevokePermissionCommands, SecretCommands, Shell, ToolCommands, Transport,
 };
 use format::{print_result, OutputFormat};
 use server::McpServer;
@@ -769,6 +770,33 @@ async fn main() -> Result<()> {
                     .await?;
                 }
             },
+            Commands::Autocomplete { shell } => {
+                let mut cmd = Cli::command();
+                let bin_name = cmd.get_name().to_string();
+
+                match shell {
+                    Shell::Bash => {
+                        generate(shells::Bash, &mut cmd, &bin_name, &mut std::io::stdout());
+                    }
+                    Shell::Zsh => {
+                        generate(shells::Zsh, &mut cmd, &bin_name, &mut std::io::stdout());
+                    }
+                    Shell::Fish => {
+                        generate(shells::Fish, &mut cmd, &bin_name, &mut std::io::stdout());
+                    }
+                    Shell::PowerShell => {
+                        generate(
+                            shells::PowerShell,
+                            &mut cmd,
+                            &bin_name,
+                            &mut std::io::stdout(),
+                        );
+                    }
+                    Shell::Elvish => {
+                        generate(shells::Elvish, &mut cmd, &bin_name, &mut std::io::stdout());
+                    }
+                }
+            }
         },
         None => {
             eprintln!("No command provided. Use --help for usage information.");
@@ -878,6 +906,54 @@ mod cli_tests {
             assert_eq!(host, "example.com");
         } else {
             panic!("Expected network revoke command");
+        }
+    }
+
+    #[test]
+    fn test_autocomplete_parsing() {
+        // Test autocomplete bash
+        let args = vec!["wassette", "autocomplete", "bash"];
+        let cli = Cli::try_parse_from(args).unwrap();
+        if let Some(Commands::Autocomplete { shell }) = cli.command {
+            matches!(shell, Shell::Bash);
+        } else {
+            panic!("Expected autocomplete command");
+        }
+
+        // Test autocomplete zsh
+        let args = vec!["wassette", "autocomplete", "zsh"];
+        let cli = Cli::try_parse_from(args).unwrap();
+        if let Some(Commands::Autocomplete { shell }) = cli.command {
+            matches!(shell, Shell::Zsh);
+        } else {
+            panic!("Expected autocomplete command");
+        }
+
+        // Test autocomplete fish
+        let args = vec!["wassette", "autocomplete", "fish"];
+        let cli = Cli::try_parse_from(args).unwrap();
+        if let Some(Commands::Autocomplete { shell }) = cli.command {
+            matches!(shell, Shell::Fish);
+        } else {
+            panic!("Expected autocomplete command");
+        }
+
+        // Test autocomplete powershell
+        let args = vec!["wassette", "autocomplete", "power-shell"];
+        let cli = Cli::try_parse_from(args).unwrap();
+        if let Some(Commands::Autocomplete { shell }) = cli.command {
+            matches!(shell, Shell::PowerShell);
+        } else {
+            panic!("Expected autocomplete command");
+        }
+
+        // Test autocomplete elvish
+        let args = vec!["wassette", "autocomplete", "elvish"];
+        let cli = Cli::try_parse_from(args).unwrap();
+        if let Some(Commands::Autocomplete { shell }) = cli.command {
+            matches!(shell, Shell::Elvish);
+        } else {
+            panic!("Expected autocomplete command");
         }
     }
 }

@@ -5,10 +5,26 @@
 
 use std::path::PathBuf;
 
-use clap::{Args, Parser, Subcommand};
+use clap::{Args, Parser, Subcommand, ValueEnum};
 use serde::{Deserialize, Serialize};
 
 use crate::format::OutputFormat;
+
+/// Supported shell types for completion generation
+#[derive(ValueEnum, Clone, Debug)]
+#[allow(clippy::enum_variant_names)]
+pub enum Shell {
+    /// Bash shell
+    Bash,
+    /// Zsh shell
+    Zsh,
+    /// Fish shell
+    Fish,
+    /// PowerShell
+    PowerShell,
+    /// Elvish shell
+    Elvish,
+}
 
 #[derive(Parser, Debug)]
 #[command(name = "wassette-mcp-server", about, long_about = None)]
@@ -66,6 +82,12 @@ pub enum Commands {
     Registry {
         #[command(subcommand)]
         command: RegistryCommands,
+    },
+    /// Generate shell completion scripts.
+    Autocomplete {
+        /// Shell type to generate completions for
+        #[arg(value_enum)]
+        shell: Shell,
     },
 }
 
