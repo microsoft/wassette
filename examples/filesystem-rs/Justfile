@@ -1,16 +1,8 @@
 install-wasi-target:
     rustup target add wasm32-wasip2
 
-ensure-wit-docs-inject:
-    @if ! command -v wit-docs-inject &> /dev/null; then \
-        echo "wit-docs-inject not found, installing from https://github.com/Mossaka/wit-docs-inject"; \
-        cargo install --git https://github.com/Mossaka/wit-docs-inject; \
-    fi
-
-build mode="debug": install-wasi-target ensure-wit-docs-inject
+build mode="debug": install-wasi-target
     cargo build --target wasm32-wasip2 {{ if mode == "release" { "--release" } else { "" } }} 
-    wit-docs-inject --component target/wasm32-wasip2/{{ if mode == "release" { "release" } else { "debug" } }}/filesystem.wasm --wit-dir wit --inplace
 
-build-auditable mode="debug": install-wasi-target ensure-wit-docs-inject
+build-auditable mode="debug": install-wasi-target
     cargo auditable build --target wasm32-wasip2 {{ if mode == "release" { "--release" } else { "" } }}
-    wit-docs-inject --component target/wasm32-wasip2/{{ if mode == "release" { "release" } else { "debug" } }}/filesystem.wasm --wit-dir wit --inplace

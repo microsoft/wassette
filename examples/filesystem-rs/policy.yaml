@@ -7,14 +7,11 @@ permissions:
   storage:
     allow:
       # Allow read access to the wassette project directory
-      - uri: "fs:///Users/USERNAME/github/wassette"
+      - uri: "fs:///home/runner/work/wassette/wassette"
         access: ["read"]
-      # Allow read access to the user's home directory
-      - uri: "fs:///Users/USERNAME"
-        access: ["read"]
-      # Allow read access to the root filesystem
-      - uri: "fs:///"
-        access: ["read"]
+      # Allow read and write access to tmp for testing
+      - uri: "fs:///tmp"
+        access: ["read", "write"]
       # Example: Allow read and write access to a specific directory
       # Uncomment and modify the path below to enable write operations
       # - uri: "fs:///Users/USERNAME/tmp"
