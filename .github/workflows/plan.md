@@ -16,7 +16,6 @@ tools:
 safe-outputs:
   create-issue:
     title-prefix: "[subtask] "
-    labels: [sub-issue, planned]
     max: 5
   add-comment:
     max: 1
