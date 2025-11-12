@@ -46,7 +46,7 @@ Then connect to `http://localhost:9001` from your MCP client.
 For use with MCP clients that expect stdio, override the default command:
 
 ```bash
-docker run -i --rm wassette:latest wassette serve --stdio
+docker run -i --rm wassette:latest wassette run
 ```
 
 ### Run with SSE Transport
@@ -89,7 +89,7 @@ docker run --rm -p 9001:9001 \
 # For stdio transport, override the default:
 # docker run -i --rm \
 #   -v $(pwd)/examples/filesystem-rs/target/wasm32-wasip2/release:/home/wassette/.local/share/wassette/components:ro \
-#   wassette:latest wassette serve --stdio
+#   wassette:latest wassette run
 ```
 
 ### Example: Running with Multiple Component Directories

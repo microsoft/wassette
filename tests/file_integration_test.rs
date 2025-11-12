@@ -48,7 +48,7 @@ async fn test_filesystem_component_integration() -> Result<()> {
         .join("target/debug/wassette");
 
     let mut child = tokio::process::Command::new(&binary_path)
-        .args(["serve", "--stdio", &component_dir_arg])
+        .args(["run", &component_dir_arg])
         .env("RUST_LOG", "off")
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())

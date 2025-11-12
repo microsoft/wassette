@@ -45,7 +45,7 @@ Default: `$XDG_CONFIG_HOME/wassette/config.toml`
 
 ```bash
 export OPENWEATHER_API_KEY="your_key"
-wassette serve --stdio
+wassette run
 wassette permission grant environment-variable weather-tool OPENWEATHER_API_KEY
 ```
 

@@ -44,7 +44,7 @@ services:
     # Uses the default CMD from Dockerfile - no need to specify
     
     # Option 1: Override with stdio transport
-    # command: ["wassette", "serve", "--stdio"]
+    # command: ["wassette", "run"]
     
     # Option 2: Override with SSE transport
     # command: ["wassette", "serve", "--sse"]

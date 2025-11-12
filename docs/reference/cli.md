@@ -30,8 +30,8 @@ wassette component load oci://ghcr.io/microsoft/time-server-js:latest
 # Load a component from a local file
 wassette component load file:///path/to/component.wasm
 
-# Start the MCP server (traditional mode)
-wassette serve --stdio
+# Start the MCP server for local development (stdio transport)
+wassette run
 ```
 
 ## Command Structure
@@ -40,7 +40,8 @@ Wassette uses a hierarchical command structure organized around functional areas
 
 ```
 wassette
-├── serve          # Start MCP server
+├── run            # Start MCP server with stdio transport (local development)
+├── serve          # Start MCP server with HTTP transports (remote access)
 ├── component      # Component lifecycle management
 │   ├── load       # Load components
 │   ├── unload     # Remove components
@@ -63,28 +64,35 @@ wassette
 
 ## Server Commands
 
-### `wassette serve`
+### `wassette run`
 
-Start the Wassette MCP server to handle client requests.
+Start the Wassette MCP server with stdio transport for local development and testing. This is the recommended mode for MCP clients.
 
-**Stdio Transport (recommended for MCP clients):**
+**Basic usage:**
 ```bash
 # Start server with stdio transport
-wassette serve --stdio
+wassette run
 
 # Use with specific configuration directory
-wassette serve --stdio --component-dir /custom/components
+wassette run --component-dir /custom/components
 ```
 
-**HTTP Transport (for development and debugging):**
+**Options:**
+- `--component-dir <PATH>`: Set component storage directory (default: `$XDG_DATA_HOME/wassette/components`)
+- `--env <KEY=VALUE>`: Set environment variables (can be specified multiple times)
+- `--env-file <PATH>`: Load environment variables from a file
+- `--disable-builtin-tools`: Disable built-in tools (load-component, unload-component, etc.)
+
+### `wassette serve`
+
+Start the Wassette MCP server with HTTP transports for remote access. This is intended for remote deployment scenarios.
+
+**Server-Sent Events (SSE) transport:**
 ```bash
-# Start server with HTTP transport
-wassette serve --http
+# Start server with SSE transport (default)
+wassette serve
 
-# Use Server-Sent Events (SSE) transport
-wassette serve --sse
-
-# Use custom bind address
+# Use SSE with custom bind address
 wassette serve --sse --bind-address 0.0.0.0:8080
 
 # Use environment variables for bind address
@@ -93,12 +101,20 @@ export BIND_HOST=0.0.0.0
 wassette serve --sse
 ```
 
+**Streamable HTTP transport:**
+```bash
+# Start server with streamable HTTP transport
+wassette serve --streamable-http
+```
+
 **Options:**
-- `--stdio`: Use stdio transport (recommended for MCP clients)
-- `--http`: Use HTTP transport on 127.0.0.1:9001
-- `--sse`: Use Server-Sent Events transport
-- `--bind-address <ADDRESS>`: Set bind address for HTTP-based transports (default: `127.0.0.1:9001`)
+- `--sse`: Use Server-Sent Events transport (default)
+- `--streamable-http`: Use streamable HTTP transport
+- `--bind-address <ADDRESS>`: Set bind address for HTTP transports (default: `127.0.0.1:9001`)
 - `--component-dir <PATH>`: Set component storage directory (default: `$XDG_DATA_HOME/wassette/components`)
+- `--env <KEY=VALUE>`: Set environment variables (can be specified multiple times)
+- `--env-file <PATH>`: Load environment variables from a file
+- `--disable-builtin-tools`: Disable built-in tools (load-component, unload-component, etc.)
 
 ## Component Management
 

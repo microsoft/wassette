@@ -6,20 +6,20 @@ If you haven't installed Wassette yet, follow the [installation instructions](ht
 
 Add the Wassette MCP Server to GitHub Copilot in Visual Studio Code by clicking the **Install in VS Code** or **Install in VS Code Insiders** badge below:
 
-[![Install in VS Code](https://img.shields.io/badge/VS_Code-Install_Server-0098FF?style=flat-square&logo=visualstudiocode&logoColor=white)](https://vscode.dev/redirect?url=vscode:mcp/install?%7B%22name%22%3A%22wassette%22%2C%22gallery%22%3Afalse%2C%22command%22%3A%22wassette%22%2C%22args%22%3A%5B%22serve%22%2C%22--stdio%22%5D%7D) [![Install in VS Code Insiders](https://img.shields.io/badge/VS_Code_Insiders-Install_Server-24bfa5?style=flat-square&logo=visualstudiocode&logoColor=white)](https://vscode.dev/redirect?url=vscode-insiders:mcp/install?%7B%22name%22%3A%22wassette%22%2C%22gallery%22%3Afalse%2C%22command%22%3A%22wassette%22%2C%22args%22%3A%5B%22serve%22%2C%22--stdio%22%5D%7D)
+[![Install in VS Code](https://img.shields.io/badge/VS_Code-Install_Server-0098FF?style=flat-square&logo=visualstudiocode&logoColor=white)](https://vscode.dev/redirect?url=vscode:mcp/install?%7B%22name%22%3A%22wassette%22%2C%22gallery%22%3Afalse%2C%22command%22%3A%22wassette%22%2C%22args%22%3A%5B%22run%22%5D%7D) [![Install in VS Code Insiders](https://img.shields.io/badge/VS_Code_Insiders-Install_Server-24bfa5?style=flat-square&logo=visualstudiocode&logoColor=white)](https://vscode.dev/redirect?url=vscode-insiders:mcp/install?%7B%22name%22%3A%22wassette%22%2C%22gallery%22%3Afalse%2C%22command%22%3A%22wassette%22%2C%22args%22%3A%5B%22run%22%5D%7D)
 
 Alternatively, you can add the Wassete MCP server to VS Code from the command line using the `code` command in a bash/zsh or PowerShell terminal:
 
 ### bash/zsh
 
 ```bash
-code --add-mcp '{"name":"Wassette","command":"wassette","args":["serve","--stdio"]}'
+code --add-mcp '{"name":"Wassette","command":"wassette","args":["run"]}'
 ```
 
 ### PowerShell
 
 ```powershell
- code --% --add-mcp "{\"name\":\"wassette\",\"command\":\"wassette\",\"args\":[\"serve\",\"--stdio\"]}"
+ code --% --add-mcp "{\"name\":\"wassette\",\"command\":\"wassette\",\"args\":[\"run\"]}"
 ```
 
 You can list and configure MCP servers in VS Code by running the command `MCP: List Servers` in the command palette (Ctrl+Shift+P or Cmd+Shift+P).
@@ -33,7 +33,7 @@ To add Wassette to Cursor, you'll need to manually configure it in your MCP sett
   "mcpServers": {
     "wassette": {
       "command": "wassette",
-      "args": ["serve", "--stdio"]
+      "args": ["run"]
     }
   }
 }
@@ -50,7 +50,7 @@ npm install -g @anthropic-ai/claude-code
 Add the Wassette MCP server to Claude Code using the following command:
 
 ```bash
-claude mcp add -- wassette wassette serve --stdio
+claude mcp add -- wassette wassette run
 ```
 
 This will configure the Wassette MCP server as a local stdio server that Claude Code can use to execute Wassette commands and interact with your data infrastructure.
@@ -80,7 +80,7 @@ To add the Wassette MCP server to Gemini CLI, you need to configure it in your s
   "mcpServers": {
     "wassette": {
       "command": "wassette",
-      "args": ["serve", "--stdio"]
+      "args": ["run"]
     }
   }
 }
@@ -107,7 +107,7 @@ brew install codex
 Add the Wassette MCP server to Codex CLI using the following command:
 
 ```bash
-codex mcp add wassette wassette serve --stdio
+codex mcp add wassette wassette run
 ```
 
 Run `codex` to start the CLI.
