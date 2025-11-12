@@ -1,7 +1,7 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT license.
 
-//! The main `wassette(1)` command.
+//! The main `weld(1)` command.
 
 #![warn(missing_docs)]
 
@@ -79,7 +79,7 @@ async fn main() -> Result<()> {
 
     match &cli.command {
         Some(command) => match command {
-            Commands::Serve(cfg) => {
+            Commands::Run(cfg) => {
                 // Configure logging - use stderr for stdio transport to avoid interfering with MCP protocol
                 let env_filter = tracing_subscriber::EnvFilter::try_from_default_env()
                 .unwrap_or_else(|_| {
@@ -88,22 +88,84 @@ async fn main() -> Result<()> {
                     .into()
                 });
 
-                let registry = tracing_subscriber::registry().with(env_filter);
+                tracing_subscriber::registry()
+                    .with(env_filter)
+                    .with(
+                        tracing_subscriber::fmt::layer()
+                            .with_writer(std::io::stderr)
+                            .with_ansi(false),
+                    )
+                    .init();
 
-                // Initialize logging based on transport type
-                let transport: Transport = (&cfg.transport).into();
-                match transport {
-                    Transport::Stdio => {
-                        registry
-                            .with(
-                                tracing_subscriber::fmt::layer()
-                                    .with_writer(std::io::stderr)
-                                    .with_ansi(false),
-                            )
-                            .init();
+                let config =
+                    config::Config::from_run(cfg).context("Failed to load configuration")?;
+
+                // Build the lifecycle manager without eagerly loading components so the
+                // background loader is the single source of tool registration.
+                let config::Config {
+                    component_dir,
+                    secrets_dir,
+                    environment_vars,
+                    bind_address: _,
+                } = config;
+
+                let lifecycle_manager = LifecycleManager::builder(component_dir)
+                    .with_environment_vars(environment_vars)
+                    .with_secrets_dir(secrets_dir)
+                    .with_oci_client(oci_client::Client::default())
+                    .with_http_client(reqwest::Client::default())
+                    .with_eager_loading(false)
+                    .build()
+                    .await?;
+
+                let server = McpServer::new(lifecycle_manager.clone(), cfg.disable_builtin_tools);
+
+                // Start background component loading
+                let server_clone = server.clone();
+                let lifecycle_manager_clone = lifecycle_manager.clone();
+                tokio::spawn(async move {
+                    let notify_fn = move || {
+                        // Notify clients when a new component is loaded (if peer is available)
+                        if let Some(peer) = server_clone.get_peer() {
+                            let peer_clone = peer.clone();
+                            tokio::spawn(async move {
+                                if let Err(e) = peer_clone.notify_tool_list_changed().await {
+                                    tracing::warn!("Failed to notify tool list changed: {}", e);
+                                }
+                            });
+                        }
+                    };
+
+                    if let Err(e) = lifecycle_manager_clone
+                        .load_existing_components_async(None, Some(notify_fn))
+                        .await
+                    {
+                        tracing::error!("Background component loading failed: {}", e);
                     }
-                    _ => registry.with(tracing_subscriber::fmt::layer()).init(),
-                }
+                });
+
+                tracing::info!("Starting MCP server with stdio transport. Components will load in the background.");
+                let transport = stdio_transport();
+                let running_service = serve_server(server, transport).await?;
+
+                tokio::signal::ctrl_c().await?;
+                let _ = running_service.cancel().await;
+
+                tracing::info!("MCP server shutting down");
+            }
+            Commands::Serve(cfg) => {
+                // Configure logging for HTTP-based transports
+                let env_filter = tracing_subscriber::EnvFilter::try_from_default_env()
+                .unwrap_or_else(|_| {
+                    "info,cranelift_codegen=warn,cranelift_entity=warn,cranelift_bforest=warn,cranelift_frontend=warn"
+                    .to_string()
+                    .into()
+                });
+
+                tracing_subscriber::registry()
+                    .with(env_filter)
+                    .with(tracing_subscriber::fmt::layer())
+                    .init();
 
                 let config =
                     config::Config::from_serve(cfg).context("Failed to load configuration")?;
@@ -194,15 +256,8 @@ async fn main() -> Result<()> {
                     }
                 });
 
+                let transport: Transport = (&cfg.transport).into();
                 match transport {
-                    Transport::Stdio => {
-                        tracing::info!("Starting MCP server with stdio transport. Components will load in the background.");
-                        let transport = stdio_transport();
-                        let running_service = serve_server(server, transport).await?;
-
-                        tokio::signal::ctrl_c().await?;
-                        let _ = running_service.cancel().await;
-                    }
                     Transport::StreamableHttp => {
                         tracing::info!(
                         "Starting MCP server on {} with streamable HTTP transport. Components will load in the background.",
@@ -840,7 +895,7 @@ async fn main() -> Result<()> {
                         registry::find_component_by_name_or_uri(&components, component)
                             .ok_or_else(|| {
                                 anyhow::anyhow!(
-                                    "Component '{}' not found in registry. Use 'wassette registry search' to list available components.",
+                                    "Component '{}' not found in registry. Use 'weld registry search' to list available components.",
                                     component
                                 )
                             })?;
@@ -905,18 +960,18 @@ mod cli_tests {
     #[test]
     fn test_cli_command_parsing() {
         // Test component commands
-        let args = vec!["wassette", "component", "list"];
+        let args = vec!["weld", "component", "list"];
         let cli = Cli::try_parse_from(args).unwrap();
         matches!(cli.command, Some(Commands::Component { .. }));
 
         // Test policy commands
-        let args = vec!["wassette", "policy", "get", "test-component"];
+        let args = vec!["weld", "policy", "get", "test-component"];
         let cli = Cli::try_parse_from(args).unwrap();
         matches!(cli.command, Some(Commands::Policy { .. }));
 
         // Test permission commands
         let args = vec![
-            "wassette",
+            "weld",
             "permission",
             "grant",
             "storage",
@@ -928,8 +983,13 @@ mod cli_tests {
         let cli = Cli::try_parse_from(args).unwrap();
         matches!(cli.command, Some(Commands::Permission { .. }));
 
-        // Test serve command still works
-        let args = vec!["wassette", "serve", "--sse"];
+        // Test run command (local stdio)
+        let args = vec!["weld", "run"];
+        let cli = Cli::try_parse_from(args).unwrap();
+        matches!(cli.command, Some(Commands::Run(_)));
+
+        // Test serve command (remote HTTP)
+        let args = vec!["weld", "serve", "--sse"];
         let cli = Cli::try_parse_from(args).unwrap();
         matches!(cli.command, Some(Commands::Serve(_)));
     }
@@ -937,7 +997,7 @@ mod cli_tests {
     #[test]
     fn test_permission_grant_storage_parsing() {
         let args = vec![
-            "wassette",
+            "weld",
             "permission",
             "grant",
             "storage",
@@ -972,7 +1032,7 @@ mod cli_tests {
     #[test]
     fn test_permission_revoke_network_parsing() {
         let args = vec![
-            "wassette",
+            "weld",
             "permission",
             "revoke",
             "network",

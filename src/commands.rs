@@ -47,7 +47,9 @@ pub struct Cli {
 
 #[derive(Subcommand, Debug)]
 pub enum Commands {
-    /// Start a MCP Server
+    /// Run locally with stdio transport (for local development and testing).
+    Run(Run),
+    /// Serve remotely over HTTP transports (SSE or StreamableHttp).
     Serve(Serve),
     /// Manage WebAssembly components.
     Component {
@@ -95,6 +97,31 @@ pub enum Commands {
     },
 }
 
+/// Configuration for running locally with stdio transport
+#[derive(Parser, Debug, Clone, Serialize, Deserialize)]
+pub struct Run {
+    /// Directory where components are stored. Defaults to $XDG_DATA_HOME/wassette/components
+    #[arg(long)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub component_dir: Option<PathBuf>,
+
+    /// Set environment variables (KEY=VALUE format). Can be specified multiple times.
+    #[arg(long = "env", value_parser = crate::parse_env_var)]
+    #[serde(skip)]
+    pub env_vars: Vec<(String, String)>,
+
+    /// Load environment variables from a file (supports .env format)
+    #[arg(long = "env-file")]
+    #[serde(skip)]
+    pub env_file: Option<PathBuf>,
+
+    /// Disable built-in tools (load-component, unload-component, list-components, etc.)
+    #[arg(long)]
+    #[serde(default)]
+    pub disable_builtin_tools: bool,
+}
+
+/// Configuration for serving remotely over HTTP transports
 #[derive(Parser, Debug, Clone, Serialize, Deserialize)]
 pub struct Serve {
     /// Directory where components are stored. Defaults to $XDG_DATA_HOME/wassette/components
@@ -103,7 +130,7 @@ pub struct Serve {
     pub component_dir: Option<PathBuf>,
 
     #[command(flatten)]
-    pub transport: TransportFlags,
+    pub transport: HttpTransportFlags,
 
     /// Set environment variables (KEY=VALUE format). Can be specified multiple times.
     #[arg(long = "env", value_parser = crate::parse_env_var)]
@@ -131,18 +158,14 @@ pub struct Serve {
     pub manifest: Option<PathBuf>,
 }
 
+/// HTTP transport options for the Serve command
 #[derive(Args, Debug, Clone, Serialize, Deserialize, Default)]
 #[group(required = false, multiple = false)]
-pub struct TransportFlags {
+pub struct HttpTransportFlags {
     /// Serving with SSE transport
     #[arg(long)]
     #[serde(skip)]
     pub sse: bool,
-
-    /// Serving with stdio transport
-    #[arg(long)]
-    #[serde(skip)]
-    pub stdio: bool,
 
     /// Serving with streamable HTTP transport  
     #[arg(long)]
@@ -153,17 +176,15 @@ pub struct TransportFlags {
 #[derive(Debug)]
 pub enum Transport {
     Sse,
-    Stdio,
     StreamableHttp,
 }
 
-impl From<&TransportFlags> for Transport {
-    fn from(f: &TransportFlags) -> Self {
-        match (f.sse, f.stdio, f.streamable_http) {
-            (true, false, false) => Transport::Sse,
-            (false, true, false) => Transport::Stdio,
-            (false, false, true) => Transport::StreamableHttp,
-            _ => Transport::Stdio, // Default case: use stdio transport
+impl From<&HttpTransportFlags> for Transport {
+    fn from(f: &HttpTransportFlags) -> Self {
+        match (f.sse, f.streamable_http) {
+            (true, false) => Transport::Sse,
+            (false, true) => Transport::StreamableHttp,
+            _ => Transport::Sse, // Default case: use SSE transport for serve
         }
     }
 }

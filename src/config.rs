@@ -9,7 +9,7 @@ use etcetera::BaseStrategy;
 use figment::providers::{Env, Format, Serialized, Toml};
 use serde::{Deserialize, Serialize};
 
-use crate::commands::Serve;
+use crate::commands::{Run, Serve};
 
 /// Get the default component directory path based on the OS
 pub fn get_component_dir() -> Result<PathBuf, anyhow::Error> {
@@ -107,6 +107,37 @@ impl Config {
             .context("Unable to merge configs")
     }
 
+    /// Creates a new config from a Run struct for local stdio transport
+    pub fn from_run(run_config: &Run) -> Result<Self, anyhow::Error> {
+        // Start with the base config using existing logic
+        let mut config = Self::new(run_config)?;
+
+        // Load environment variables from file if specified
+        if let Some(env_file) = &run_config.env_file {
+            let file_env_vars = crate::utils::load_env_file(env_file).with_context(|| {
+                format!("Failed to load environment file: {}", env_file.display())
+            })?;
+
+            // Merge file environment variables (they have lower precedence than CLI args)
+            for (key, value) in file_env_vars {
+                config.environment_vars.insert(key, value);
+            }
+        }
+
+        // Apply CLI environment variables (highest precedence)
+        for (key, value) in &run_config.env_vars {
+            config.environment_vars.insert(key.clone(), value.clone());
+        }
+
+        // Also include system environment variables that aren't overridden
+        // This maintains backward compatibility
+        for (key, value) in std::env::vars() {
+            config.environment_vars.entry(key).or_insert(value);
+        }
+
+        Ok(config)
+    }
+
     /// Creates a new config from a Serve struct that includes environment variable handling
     pub fn from_serve(serve_config: &Serve) -> Result<Self, anyhow::Error> {
         // Start with the base config using existing logic
@@ -147,6 +178,26 @@ mod tests {
     use tempfile::TempDir;
 
     use super::*;
+
+    #[allow(dead_code)]
+    fn create_test_run_config() -> Run {
+        Run {
+            component_dir: Some(PathBuf::from("/test/component/dir")),
+            env_vars: vec![],
+            env_file: None,
+            disable_builtin_tools: false,
+        }
+    }
+
+    #[allow(dead_code)]
+    fn empty_test_run_config() -> Run {
+        Run {
+            component_dir: None,
+            env_vars: vec![],
+            env_file: None,
+            disable_builtin_tools: false,
+        }
+    }
 
     fn create_test_cli_config() -> Serve {
         Serve {
