@@ -27,7 +27,7 @@ pub struct Cli {
 
 #[derive(Subcommand, Debug)]
 pub enum Commands {
-    /// Begin handling requests over the specified protocol.
+    /// Start a MCP Server
     Serve(Serve),
     /// Manage WebAssembly components.
     Component {
