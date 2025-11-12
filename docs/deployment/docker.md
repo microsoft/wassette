@@ -123,9 +123,27 @@ docker run --rm -p 9001:9001 \
 Pass environment variables to the container:
 
 ```bash
-docker run --rm -p 9001:9001 \
+docker run --rm -p 8080:8080 \
+  -e PORT=8080 \
+  -e BIND_HOST=0.0.0.0 \
   -e RUST_LOG=debug \
   -e OPENWEATHER_API_KEY=your_api_key \
+  wassette:latest
+```
+
+**Twelve-Factor App Compliance**: Wassette supports `PORT` and `BIND_HOST` environment variables for flexible port binding. The Docker image defaults to `BIND_HOST=0.0.0.0` to allow external connections.
+
+#### Server Configuration Variables
+
+- **PORT**: Port number to listen on (default: 9001)
+- **BIND_HOST**: Host address to bind to (default: 0.0.0.0 in Docker, 127.0.0.1 elsewhere)
+- **WASSETTE_BIND_ADDRESS**: Full bind address (takes precedence over PORT and BIND_HOST)
+
+Example with custom port:
+
+```bash
+docker run --rm -p 3000:3000 \
+  -e PORT=3000 \
   wassette:latest
 ```
 
@@ -284,7 +302,13 @@ FROM your-custom-base:latest
 
 ### Health Checks
 
-Add health checks when running with HTTP/SSE transport:
+Wassette provides health and readiness endpoints when running with StreamableHttp transport:
+
+- **`/health`**: Returns 200 OK if server is running
+- **`/ready`**: Returns JSON with readiness status
+- **`/info`**: Returns version and build information
+
+Add health checks in Docker Compose:
 
 ```yaml
 # docker-compose.yml
@@ -298,6 +322,19 @@ services:
       retries: 3
       start_period: 40s
 ```
+
+Or with Docker CLI:
+
+```bash
+docker run --rm -p 9001:9001 \
+  --health-cmd="curl -f http://localhost:9001/health || exit 1" \
+  --health-interval=30s \
+  --health-timeout=10s \
+  --health-retries=3 \
+  wassette:latest
+```
+
+**Note**: Health endpoints are only available with `--streamable-http` transport (the default for the Docker image).
 
 ### Persistent Component Storage
 

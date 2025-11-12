@@ -2,7 +2,51 @@
 
 Pass environment variables to Wassette components using shell exports or config files. Components need explicit permission to access variables.
 
-## Quick Start
+## Server Configuration
+
+Wassette supports the following environment variables for server configuration (following the [twelve-factor app](https://12factor.net/) methodology):
+
+### PORT
+Sets the port number for HTTP-based transports (SSE and StreamableHttp).
+
+```bash
+PORT=8080 wassette serve --streamable-http
+```
+
+Default: `9001`
+
+### BIND_HOST
+Sets the host address to bind to for HTTP-based transports.
+
+```bash
+BIND_HOST=0.0.0.0 wassette serve --streamable-http
+```
+
+Default: `127.0.0.1` (localhost only)
+
+**Note:** In Docker containers, use `BIND_HOST=0.0.0.0` to allow external connections.
+
+### WASSETTE_BIND_ADDRESS
+Full bind address (host:port) for HTTP-based transports. Takes precedence over `PORT` and `BIND_HOST`.
+
+```bash
+WASSETTE_BIND_ADDRESS=0.0.0.0:8080 wassette serve --sse
+```
+
+Default: Constructed from `BIND_HOST` and `PORT`
+
+### WASSETTE_CONFIG_FILE
+Path to custom configuration file.
+
+```bash
+WASSETTE_CONFIG_FILE=/path/to/config.toml wassette serve
+```
+
+Default: `$XDG_CONFIG_HOME/wassette/config.toml`
+
+## Component Environment Variables
+
+### Quick Start
 
 ```bash
 export OPENWEATHER_API_KEY="your_key"
