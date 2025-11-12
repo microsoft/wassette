@@ -6,7 +6,7 @@
     <img src="https://dcbadge.limes.pink/api/server/microsoft-open-source" alt="Discord" style="height: 25px;">
   </a> -->
 
-[Getting started][setup guide] | [FAQ] | [Documentation] | [Releases] | [Contributing] | [Discord]
+[Quick Start] | [FAQ] | [Documentation] | [Releases] | [Contributing] | [Discord]
 </div>
 
 > [!WARNING]
@@ -37,7 +37,7 @@ curl -fsSL https://raw.githubusercontent.com/microsoft/wassette/main/install.sh 
 
 ## Using Wassette
 
-With Wassette installed, the next step is to register it with your agent of choice. We have a [complete setup guide][setup guide] for configuring Wassette with popular AI agents, including GitHub Copilot, Cursor, Claude Code, and Gemini CLI.
+With Wassette installed, the next step is to register it with your agent of choice. See our [Quick Start] guide to get started in 3 simple steps, or check the [MCP Clients guide](https://microsoft.github.io/wassette/latest/mcp-clients.html) for detailed setup instructions for GitHub Copilot, Cursor, Claude Code, and Gemini CLI.
 
 Once configured, you can start loading WebAssembly components. To teach your agent to tell the time, ask it to load a time component:
 
@@ -81,7 +81,7 @@ This project is licensed under the <a href="LICENSE">MIT License</a>.
 
 This project may contain trademarks or logos for projects, products, or services. Authorized use of Microsoft trademarks or logos is subject to and must follow [Microsoft’s Trademark & Brand Guidelines](https://www.microsoft.com/en-us/legal/intellectualproperty/trademarks). Use of Microsoft trademarks or logos in modified versions of this project must not cause confusion or imply Microsoft sponsorship. Any use of third-party trademarks or logos are subject to those third-party’s policies.
 
-[setup guide]: https://github.com/microsoft/wassette/blob/main/docs/mcp-clients.md
+[Quick Start]: https://microsoft.github.io/wassette/latest/quick-start.html
 [FAQ]: https://microsoft.github.io/wassette/latest/faq.html
 [Documentation]: https://microsoft.github.io/wassette
 [Contributing]: CONTRIBUTING.md
