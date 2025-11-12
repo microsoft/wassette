@@ -9,7 +9,17 @@ use anyhow::{Context, Result};
 use mcp_server::components::{
     handle_list_components, handle_load_component_cli, handle_unload_component_cli,
 };
-use mcp_server::tools::*;
+use mcp_server::tools::{
+    handle_get_policy,
+    handle_grant_storage_permission,
+    handle_grant_network_permission,
+    handle_grant_environment_variable_permission,
+    handle_grant_memory_permission,
+    handle_revoke_storage_permission,
+    handle_revoke_network_permission,
+    handle_revoke_environment_variable_permission,
+    handle_reset_permission,
+};
 use mcp_server::LifecycleManager;
 use rmcp::model::CallToolRequestParam;
 use serde_json::{Map, Value};
