@@ -513,12 +513,17 @@ fn get_builtin_tools() -> Vec<Tool> {
         Tool {
             name: Cow::Borrowed("search-components"),
             description: Some(Cow::Borrowed(
-                "Lists all known components that can be fetched and loaded",
+                "Lists all known components that can be fetched and loaded. Optionally filter by a search query.",
             )),
             input_schema: Arc::new(
                 serde_json::from_value(json!({
                     "type": "object",
-                    "properties": {},
+                    "properties": {
+                        "query": {
+                            "type": "string",
+                            "description": "Optional search query to filter components by name, description, or URI"
+                        }
+                    },
                     "required": []
                 }))
                 .unwrap_or_default(),
@@ -551,13 +556,56 @@ fn get_builtin_tools() -> Vec<Tool> {
 
 #[instrument(skip(_lifecycle_manager))]
 async fn handle_search_component(
-    _req: &CallToolRequestParam,
+    req: &CallToolRequestParam,
     _lifecycle_manager: &LifecycleManager,
 ) -> Result<CallToolResult> {
+    let args = extract_args_from_request(req)?;
+
+    // Extract the optional query parameter
+    let query = args.get("query").and_then(|v| v.as_str());
+
+    // Parse the component list
     let components_value: Value = serde_json::from_str(COMPONENT_LIST)?;
+    let all_components = components_value
+        .as_array()
+        .ok_or_else(|| anyhow::anyhow!("Component registry is not an array"))?;
+
+    // Filter components based on query
+    let filtered_components: Vec<&Value> = if let Some(q) = query {
+        // Split query into words for multi-term matching
+        let query_terms: Vec<String> = q
+            .split_whitespace()
+            .map(|term| term.to_lowercase())
+            .collect();
+
+        if query_terms.is_empty() {
+            all_components.iter().collect()
+        } else {
+            all_components
+                .iter()
+                .filter(|component| {
+                    // Extract fields from component
+                    let name = component["name"].as_str().unwrap_or("").to_lowercase();
+                    let description = component["description"]
+                        .as_str()
+                        .unwrap_or("")
+                        .to_lowercase();
+                    let uri = component["uri"].as_str().unwrap_or("").to_lowercase();
+
+                    // Match if ANY query term is found in name, description, or URI
+                    query_terms.iter().any(|term| {
+                        name.contains(term) || description.contains(term) || uri.contains(term)
+                    })
+                })
+                .collect()
+        }
+    } else {
+        all_components.iter().collect()
+    };
+
     let status_text = serde_json::to_string(&json!({
         "status": "Component list found",
-        "components": components_value,
+        "components": filtered_components,
     }))?;
 
     let contents = vec![Content::text(status_text)];
@@ -1306,5 +1354,209 @@ mod tests {
         assert!(sanitized.contains("42"));
         assert!(sanitized.contains("\"enabled\""));
         assert!(sanitized.contains("true"));
+    }
+
+    #[tokio::test]
+    async fn test_search_component_without_query() -> Result<()> {
+        let tempdir = tempfile::tempdir()?;
+        let lifecycle_manager = wassette::LifecycleManager::new(&tempdir).await?;
+
+        // Test without query - should return all components
+        let args = serde_json::Map::new();
+        let req = CallToolRequestParam {
+            name: "search-components".into(),
+            arguments: Some(args),
+        };
+
+        let result = handle_search_component(&req, &lifecycle_manager).await?;
+
+        // Parse the result
+        let content = result
+            .content
+            .as_ref()
+            .ok_or_else(|| anyhow::anyhow!("No content in result"))?;
+
+        let content_json = serde_json::to_value(content)?;
+        let text = content_json[0]["text"]
+            .as_str()
+            .ok_or_else(|| anyhow::anyhow!("No text in content"))?;
+
+        let response: Value = serde_json::from_str(text)?;
+        assert_eq!(response["status"], "Component list found");
+
+        let components = response["components"]
+            .as_array()
+            .ok_or_else(|| anyhow::anyhow!("Components is not an array"))?;
+
+        // Should return all 9 components from component-registry.json
+        assert_eq!(components.len(), 9);
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_search_component_with_query() -> Result<()> {
+        let tempdir = tempfile::tempdir()?;
+        let lifecycle_manager = wassette::LifecycleManager::new(&tempdir).await?;
+
+        // Test with query - search for "weather"
+        let mut args = serde_json::Map::new();
+        args.insert("query".to_string(), json!("weather"));
+        let req = CallToolRequestParam {
+            name: "search-components".into(),
+            arguments: Some(args),
+        };
+
+        let result = handle_search_component(&req, &lifecycle_manager).await?;
+
+        // Parse the result
+        let content = result
+            .content
+            .as_ref()
+            .ok_or_else(|| anyhow::anyhow!("No content in result"))?;
+
+        let content_json = serde_json::to_value(content)?;
+        let text = content_json[0]["text"]
+            .as_str()
+            .ok_or_else(|| anyhow::anyhow!("No text in content"))?;
+
+        let response: Value = serde_json::from_str(text)?;
+        assert_eq!(response["status"], "Component list found");
+
+        let components = response["components"]
+            .as_array()
+            .ok_or_else(|| anyhow::anyhow!("Components is not an array"))?;
+
+        // Should return 2 weather components
+        assert_eq!(components.len(), 2);
+
+        // Verify both have "weather" in their name or description
+        for component in components {
+            let name = component["name"].as_str().unwrap_or("").to_lowercase();
+            let description = component["description"]
+                .as_str()
+                .unwrap_or("")
+                .to_lowercase();
+            let uri = component["uri"].as_str().unwrap_or("").to_lowercase();
+
+            assert!(
+                name.contains("weather")
+                    || description.contains("weather")
+                    || uri.contains("weather"),
+                "Component should contain 'weather': {:?}",
+                component
+            );
+        }
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_search_component_case_insensitive() -> Result<()> {
+        let tempdir = tempfile::tempdir()?;
+        let lifecycle_manager = wassette::LifecycleManager::new(&tempdir).await?;
+
+        // Test case insensitivity - search with uppercase
+        let mut args = serde_json::Map::new();
+        args.insert("query".to_string(), json!("WEATHER"));
+        let req = CallToolRequestParam {
+            name: "search-components".into(),
+            arguments: Some(args),
+        };
+
+        let result = handle_search_component(&req, &lifecycle_manager).await?;
+
+        let content = result
+            .content
+            .as_ref()
+            .ok_or_else(|| anyhow::anyhow!("No content in result"))?;
+
+        let content_json = serde_json::to_value(content)?;
+        let text = content_json[0]["text"]
+            .as_str()
+            .ok_or_else(|| anyhow::anyhow!("No text in content"))?;
+
+        let response: Value = serde_json::from_str(text)?;
+        let components = response["components"]
+            .as_array()
+            .ok_or_else(|| anyhow::anyhow!("Components is not an array"))?;
+
+        // Should still return 2 weather components
+        assert_eq!(components.len(), 2);
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_search_component_no_results() -> Result<()> {
+        let tempdir = tempfile::tempdir()?;
+        let lifecycle_manager = wassette::LifecycleManager::new(&tempdir).await?;
+
+        // Test with query that matches nothing
+        let mut args = serde_json::Map::new();
+        args.insert("query".to_string(), json!("nonexistent"));
+        let req = CallToolRequestParam {
+            name: "search-components".into(),
+            arguments: Some(args),
+        };
+
+        let result = handle_search_component(&req, &lifecycle_manager).await?;
+
+        let content = result
+            .content
+            .as_ref()
+            .ok_or_else(|| anyhow::anyhow!("No content in result"))?;
+
+        let content_json = serde_json::to_value(content)?;
+        let text = content_json[0]["text"]
+            .as_str()
+            .ok_or_else(|| anyhow::anyhow!("No text in content"))?;
+
+        let response: Value = serde_json::from_str(text)?;
+        let components = response["components"]
+            .as_array()
+            .ok_or_else(|| anyhow::anyhow!("Components is not an array"))?;
+
+        // Should return no components
+        assert_eq!(components.len(), 0);
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_search_component_multi_term() -> Result<()> {
+        let tempdir = tempfile::tempdir()?;
+        let lifecycle_manager = wassette::LifecycleManager::new(&tempdir).await?;
+
+        // Test multi-term search
+        let mut args = serde_json::Map::new();
+        args.insert("query".to_string(), json!("weather rust"));
+        let req = CallToolRequestParam {
+            name: "search-components".into(),
+            arguments: Some(args),
+        };
+
+        let result = handle_search_component(&req, &lifecycle_manager).await?;
+
+        let content = result
+            .content
+            .as_ref()
+            .ok_or_else(|| anyhow::anyhow!("No content in result"))?;
+
+        let content_json = serde_json::to_value(content)?;
+        let text = content_json[0]["text"]
+            .as_str()
+            .ok_or_else(|| anyhow::anyhow!("No text in content"))?;
+
+        let response: Value = serde_json::from_str(text)?;
+        let components = response["components"]
+            .as_array()
+            .ok_or_else(|| anyhow::anyhow!("Components is not an array"))?;
+
+        // Should match components with either "weather" or "rust"
+        // Weather Server (2), Fetch (Rust), Filesystem (Rust), Brave Search (Rust), Context7 (Rust)
+        assert_eq!(components.len(), 6);
+
+        Ok(())
     }
 }
