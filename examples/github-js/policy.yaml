@@ -1,0 +1,10 @@
+$schema: https://raw.githubusercontent.com/microsoft/policy-mcp/main/schema/policy-v1.0.schema.json
+version: "1.0"
+description: "Permission policy for GitHub API integration"
+permissions:
+  network:
+    allow:
+      - host: "api.github.com"
+  environment:
+    allow:
+      - key: "GITHUB_TOKEN"

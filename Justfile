@@ -69,6 +69,7 @@ build-examples mode="debug":
     (cd examples/context7-rs && just build {{ mode }})
     (cd examples/get-open-meteo-weather-js && just build)
     (cd examples/arxiv-rs && just build {{ mode }})
+    (cd examples/github-js && just build)
     # Inject docs for Rust examples
     just inject-docs examples/fetch-rs/target/wasm32-wasip2/{{ mode }}/fetch_rs.wasm examples/fetch-rs/wit
     just inject-docs examples/filesystem-rs/target/wasm32-wasip2/{{ mode }}/filesystem.wasm examples/filesystem-rs/wit
@@ -80,6 +81,7 @@ build-examples mode="debug":
     just inject-docs examples/time-server-js/time.wasm examples/time-server-js/wit
     just inject-docs examples/memory-js/memory.wasm examples/memory-js/wit
     just inject-docs examples/get-open-meteo-weather-js/weather.wasm examples/get-open-meteo-weather-js/wit
+    just inject-docs examples/github-js/github.wasm examples/github-js/wit
     # Inject docs for Python examples
     just inject-docs examples/eval-py/eval.wasm examples/eval-py/wit
     # Inject docs for Go examples
@@ -96,6 +98,7 @@ build-examples mode="debug":
     cp examples/arxiv-rs/target/wasm32-wasip2/{{ mode }}/arxiv_rs.wasm bin/arxiv-rs.wasm
     cp examples/context7-rs/target/wasm32-wasip2/{{ mode }}/context7.wasm bin/context7-rs.wasm
     cp examples/get-open-meteo-weather-js/weather.wasm bin/get-open-meteo-weather-js.wasm
+    cp examples/github-js/github.wasm bin/github-js.wasm
     
 clean:
     cargo clean

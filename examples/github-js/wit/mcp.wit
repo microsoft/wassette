@@ -1,0 +1,133 @@
+package mossaka:mcp@0.1.0;
+
+/// GitHub API integration for Model Context Protocol
+world github-mcp {
+    import wasi:config/store@0.2.0-draft;
+    
+    // Repository operations
+    export get-repository: func(owner: string, repo: string) -> result<string, string>;
+    export create-repository: func(name: string, description: option<string>, private: bool) -> result<string, string>;
+    export fork-repository: func(owner: string, repo: string) -> result<string, string>;
+    export get-file-contents: func(owner: string, repo: string, path: string, ref: option<string>) -> result<string, string>;
+    export create-or-update-file: func(owner: string, repo: string, path: string, content: string, message: string, branch: option<string>) -> result<string, string>;
+    export delete-file: func(owner: string, repo: string, path: string, message: string, branch: option<string>) -> result<string, string>;
+    export list-branches: func(owner: string, repo: string, page: option<u32>, per-page: option<u32>) -> result<string, string>;
+    export create-branch: func(owner: string, repo: string, branch: string, from-branch: option<string>) -> result<string, string>;
+    export list-commits: func(owner: string, repo: string, sha: option<string>, page: option<u32>, per-page: option<u32>) -> result<string, string>;
+    export get-commit: func(owner: string, repo: string, sha: string) -> result<string, string>;
+    export list-tags: func(owner: string, repo: string, page: option<u32>, per-page: option<u32>) -> result<string, string>;
+    export get-tag: func(owner: string, repo: string, tag: string) -> result<string, string>;
+    export list-releases: func(owner: string, repo: string, page: option<u32>, per-page: option<u32>) -> result<string, string>;
+    export get-latest-release: func(owner: string, repo: string) -> result<string, string>;
+    export get-release-by-tag: func(owner: string, repo: string, tag: string) -> result<string, string>;
+    export get-repository-tree: func(owner: string, repo: string, tree-sha: option<string>, recursive: bool) -> result<string, string>;
+    export search-code: func(query: string, page: option<u32>, per-page: option<u32>) -> result<string, string>;
+    export search-repositories: func(query: string, page: option<u32>, per-page: option<u32>) -> result<string, string>;
+    export push-files: func(owner: string, repo: string, branch: string, files: string, message: string) -> result<string, string>;
+    
+    // Issue operations
+    export list-issues: func(owner: string, repo: string, state: option<string>, labels: option<string>, page: option<u32>, per-page: option<u32>) -> result<string, string>;
+    export issue-read: func(owner: string, repo: string, issue-number: u32, method: string) -> result<string, string>;
+    export issue-write: func(owner: string, repo: string, method: string, params: string) -> result<string, string>;
+    export add-issue-comment: func(owner: string, repo: string, issue-number: u32, body: string) -> result<string, string>;
+    export search-issues: func(query: string, page: option<u32>, per-page: option<u32>) -> result<string, string>;
+    export list-issue-types: func(owner: string) -> result<string, string>;
+    export sub-issue-write: func(owner: string, repo: string, issue-number: u32, action: string, sub-issue-number: option<u32>) -> result<string, string>;
+    export assign-copilot-to-issue: func(owner: string, repo: string, issue-number: u32, task: option<string>) -> result<string, string>;
+    
+    // Pull Request operations
+    export list-pull-requests: func(owner: string, repo: string, state: option<string>, head: option<string>, base: option<string>, page: option<u32>, per-page: option<u32>) -> result<string, string>;
+    export create-pull-request: func(owner: string, repo: string, title: string, head: string, base: string, body: option<string>, draft: bool) -> result<string, string>;
+    export pull-request-read: func(owner: string, repo: string, pull-number: u32, method: string) -> result<string, string>;
+    export update-pull-request: func(owner: string, repo: string, pull-number: u32, params: string) -> result<string, string>;
+    export merge-pull-request: func(owner: string, repo: string, pull-number: u32, merge-method: option<string>) -> result<string, string>;
+    export search-pull-requests: func(query: string, page: option<u32>, per-page: option<u32>) -> result<string, string>;
+    export pull-request-review-write: func(owner: string, repo: string, pull-number: u32, action: string, params: string) -> result<string, string>;
+    export add-comment-to-pending-review: func(owner: string, repo: string, pull-number: u32, path: string, body: string, line: option<u32>) -> result<string, string>;
+    export request-copilot-review: func(owner: string, repo: string, pull-number: u32) -> result<string, string>;
+    export update-pull-request-branch: func(owner: string, repo: string, pull-number: u32) -> result<string, string>;
+    
+    // GitHub Actions / Workflows
+    export list-workflows: func(owner: string, repo: string, page: option<u32>, per-page: option<u32>) -> result<string, string>;
+    export list-workflow-runs: func(owner: string, repo: string, workflow-id: string, page: option<u32>, per-page: option<u32>) -> result<string, string>;
+    export get-workflow-run: func(owner: string, repo: string, run-id: u32) -> result<string, string>;
+    export get-workflow-run-usage: func(owner: string, repo: string, run-id: u32) -> result<string, string>;
+    export cancel-workflow-run: func(owner: string, repo: string, run-id: u32) -> result<string, string>;
+    export rerun-workflow-run: func(owner: string, repo: string, run-id: u32) -> result<string, string>;
+    export rerun-failed-jobs: func(owner: string, repo: string, run-id: u32) -> result<string, string>;
+    export run-workflow: func(owner: string, repo: string, workflow-id: string, ref: string, inputs: option<string>) -> result<string, string>;
+    export list-workflow-jobs: func(owner: string, repo: string, run-id: u32, page: option<u32>, per-page: option<u32>) -> result<string, string>;
+    export get-job-logs: func(owner: string, repo: string, job-id: u32, run-id: option<u32>) -> result<string, string>;
+    export list-workflow-run-artifacts: func(owner: string, repo: string, run-id: u32, page: option<u32>, per-page: option<u32>) -> result<string, string>;
+    export download-workflow-run-artifact: func(owner: string, repo: string, artifact-id: u32) -> result<string, string>;
+    export get-workflow-run-logs: func(owner: string, repo: string, run-id: u32) -> result<string, string>;
+    export delete-workflow-run-logs: func(owner: string, repo: string, run-id: u32) -> result<string, string>;
+    
+    // Labels
+    export list-label: func(owner: string, repo: string, page: option<u32>, per-page: option<u32>) -> result<string, string>;
+    export get-label: func(owner: string, repo: string, name: string) -> result<string, string>;
+    export label-write: func(owner: string, repo: string, action: string, params: string) -> result<string, string>;
+    
+    // User operations
+    export get-me: func() -> result<string, string>;
+    export search-users: func(query: string, page: option<u32>, per-page: option<u32>) -> result<string, string>;
+    
+    // Organization operations
+    export search-orgs: func(query: string, page: option<u32>, per-page: option<u32>) -> result<string, string>;
+    export get-teams: func(org: string, page: option<u32>, per-page: option<u32>) -> result<string, string>;
+    export get-team-members: func(org: string, team-slug: string, page: option<u32>, per-page: option<u32>) -> result<string, string>;
+    
+    // Gist operations
+    export list-gists: func(page: option<u32>, per-page: option<u32>) -> result<string, string>;
+    export get-gist: func(gist-id: string) -> result<string, string>;
+    export create-gist: func(description: option<string>, files: string, public: bool) -> result<string, string>;
+    export update-gist: func(gist-id: string, description: option<string>, files: option<string>) -> result<string, string>;
+    
+    // Discussions
+    export list-discussions: func(owner: string, repo: string, category: option<string>, page: option<u32>, per-page: option<u32>) -> result<string, string>;
+    export get-discussion: func(owner: string, repo: string, discussion-number: u32) -> result<string, string>;
+    export get-discussion-comments: func(owner: string, repo: string, discussion-number: u32, page: option<u32>, per-page: option<u32>) -> result<string, string>;
+    export list-discussion-categories: func(owner: string, repo: string) -> result<string, string>;
+    
+    // Notifications
+    export list-notifications: func(all: bool, page: option<u32>, per-page: option<u32>) -> result<string, string>;
+    export get-notification-details: func(thread-id: string) -> result<string, string>;
+    export mark-all-notifications-read: func() -> result<string, string>;
+    export dismiss-notification: func(thread-id: string) -> result<string, string>;
+    export manage-notification-subscription: func(thread-id: string, subscribed: bool) -> result<string, string>;
+    export manage-repository-notification-subscription: func(owner: string, repo: string, subscribed: bool) -> result<string, string>;
+    
+    // Security - Code Scanning
+    export list-code-scanning-alerts: func(owner: string, repo: string, state: option<string>, ref: option<string>, page: option<u32>, per-page: option<u32>) -> result<string, string>;
+    export get-code-scanning-alert: func(owner: string, repo: string, alert-number: u32) -> result<string, string>;
+    
+    // Security - Secret Scanning
+    export list-secret-scanning-alerts: func(owner: string, repo: string, state: option<string>, page: option<u32>, per-page: option<u32>) -> result<string, string>;
+    export get-secret-scanning-alert: func(owner: string, repo: string, alert-number: u32) -> result<string, string>;
+    
+    // Security - Dependabot
+    export list-dependabot-alerts: func(owner: string, repo: string, state: option<string>, page: option<u32>, per-page: option<u32>) -> result<string, string>;
+    export get-dependabot-alert: func(owner: string, repo: string, alert-number: u32) -> result<string, string>;
+    
+    // Security - Security Advisories
+    export list-global-security-advisories: func(cve-id: option<string>, ghsa-id: option<string>, page: option<u32>, per-page: option<u32>) -> result<string, string>;
+    export get-global-security-advisory: func(advisory-id: string) -> result<string, string>;
+    export list-repository-security-advisories: func(owner: string, repo: string, state: option<string>, page: option<u32>, per-page: option<u32>) -> result<string, string>;
+    export list-org-repository-security-advisories: func(org: string, state: option<string>, page: option<u32>, per-page: option<u32>) -> result<string, string>;
+    
+    // Stars
+    export list-starred-repositories: func(page: option<u32>, per-page: option<u32>) -> result<string, string>;
+    export star-repository: func(owner: string, repo: string) -> result<string, string>;
+    export unstar-repository: func(owner: string, repo: string) -> result<string, string>;
+    
+    // Projects
+    export list-projects: func(owner: string, owner-type: string, page: option<u32>, per-page: option<u32>) -> result<string, string>;
+    export get-project: func(owner: string, owner-type: string, project-number: u32) -> result<string, string>;
+    export list-project-fields: func(owner: string, owner-type: string, project-number: u32, page: option<u32>, per-page: option<u32>) -> result<string, string>;
+    export get-project-field: func(owner: string, owner-type: string, project-number: u32, field-id: string) -> result<string, string>;
+    export list-project-items: func(owner: string, owner-type: string, project-number: u32, query: option<string>, page: option<u32>, per-page: option<u32>) -> result<string, string>;
+    export get-project-item: func(owner: string, owner-type: string, project-number: u32, item-id: u32) -> result<string, string>;
+    export add-project-item: func(owner: string, owner-type: string, project-number: u32, content-id: string) -> result<string, string>;
+    export update-project-item: func(owner: string, owner-type: string, project-number: u32, item-id: u32, field-id: string, value: string) -> result<string, string>;
+    export delete-project-item: func(owner: string, owner-type: string, project-number: u32, item-id: u32) -> result<string, string>;
+}
