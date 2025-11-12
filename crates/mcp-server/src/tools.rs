@@ -528,27 +528,7 @@ fn get_builtin_tools() -> Vec<Tool> {
                 }))
                 .unwrap_or_default(),
             ),
-            output_schema: Some(Arc::new(
-                serde_json::from_value(json!({
-                    "type": "object",
-                    "properties": {
-                        "name": {
-                            "type": "string",
-                            "description": "The human-readable name of the component"
-                        },
-                        "description": {
-                            "type": "string",
-                            "description": "Describes what the component does"
-                        },
-                        "uri": {
-                            "type": "string",
-                            "description": "The canonical OCI URI, including the leading `oci://` and `:version` suffix. This string can be directly passed to Wassette's `load component` tool call."
-                        },
-                    },
-                    "required": ["name", "description", "uri"]
-                }))
-                .unwrap_or_default(),
-            )),
+            output_schema: None,
             annotations: None,
         },
     ]
