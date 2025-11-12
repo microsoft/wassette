@@ -137,7 +137,6 @@ docker run --rm -p 8080:8080 \
 
 - **PORT**: Port number to listen on (default: 9001)
 - **BIND_HOST**: Host address to bind to (default: 0.0.0.0 in Docker, 127.0.0.1 elsewhere)
-- **WASSETTE_BIND_ADDRESS**: Full bind address (takes precedence over PORT and BIND_HOST)
 
 Example with custom port:
 

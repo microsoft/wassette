@@ -26,15 +26,6 @@ Default: `127.0.0.1` (localhost only)
 
 **Note:** In Docker containers, use `BIND_HOST=0.0.0.0` to allow external connections.
 
-### WASSETTE_BIND_ADDRESS
-Full bind address (host:port) for HTTP-based transports. Takes precedence over `PORT` and `BIND_HOST`.
-
-```bash
-WASSETTE_BIND_ADDRESS=0.0.0.0:8080 wassette serve --sse
-```
-
-Default: Constructed from `BIND_HOST` and `PORT`
-
 ### WASSETTE_CONFIG_FILE
 Path to custom configuration file.
 

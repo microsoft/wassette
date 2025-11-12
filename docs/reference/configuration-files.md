@@ -102,8 +102,9 @@ You can override any configuration value using environment variables with the `W
 # Override component directory
 export WASSETTE_COMPONENT_DIR=/custom/components
 
-# Override bind address
-export WASSETTE_BIND_ADDRESS=0.0.0.0:8080
+# Override bind address using PORT and BIND_HOST
+export PORT=8080
+export BIND_HOST=0.0.0.0
 
 # Override config file location
 export WASSETTE_CONFIG_FILE=/etc/wassette/config.toml
