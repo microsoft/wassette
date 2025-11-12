@@ -74,6 +74,13 @@ jobs:
       env:
         GH_TOKEN: ${{ github.token }}
     
+    # Setup kind cluster for Kubernetes development
+    - name: Setup kind cluster
+      uses: helm/kind-action@0025e74a8c7512023d06dc019c617aa3cf561fde # v1.10.0
+      with:
+        cluster_name: wassette-dev
+        wait: 5m
+    
     # Verify installations
     - name: Verify tool installations
       run: |
@@ -101,11 +108,16 @@ jobs:
         echo "GitHub extensions:"
         gh extension list
         echo ""
+        echo "Kubernetes cluster:"
+        kubectl cluster-info
+        kubectl get nodes
+        echo ""
         echo "=== Ready for development! ==="
         echo "You can now run:"
         echo "  - just build     # Build the project"
         echo "  - just test      # Run tests"
         echo "  - just run       # Start MCP server"
         echo "  - cargo clippy   # Run linter"
+        echo "  - kubectl get pods -A   # Check Kubernetes cluster"
       env:
         GH_TOKEN: ${{ github.token }}
