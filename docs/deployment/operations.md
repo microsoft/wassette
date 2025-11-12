@@ -189,10 +189,12 @@ curl http://localhost:9001/info | jq .
 **Example Response from `/info`:**
 ```json
 {
-  "version": "0.3.4",
-  "build_info": "0.3.4 version.BuildInfo{RustVersion:\"1.90.0\", BuildProfile:\"release\", BuildStatus:\"Clean\", GitTag:\"v0.3.4\", Version:\"abc123\", GitRevision:\"abc123\"}"
+  "version": "0.3.5",
+  "build_info": "0.3.5 version.BuildInfo{RustVersion:\"1.90.0\", BuildProfile:\"release\", BuildStatus:\"Clean\", GitTag:\"v0.3.5\", Version:\"abc1234\", GitRevision:\"abc1234\"}"
 }
 ```
+
+*Note: The version and build_info fields reflect the actual build and may differ from this example.*
 
 #### Integration with Container Orchestration
 
@@ -225,7 +227,7 @@ readinessProbe:
   periodSeconds: 10
 ```
 
-**Note**: Health endpoints are only available with `--streamable-http` transport. For stdio transport, monitor the process status instead.
+**Note**: Health endpoints are only available with `--streamable-http` transport. SSE transport (`--sse`) also uses HTTP but is designed solely for event streaming and does not provide a general HTTP request/response interface. For stdio or SSE transports, monitor the process status instead.
 
 ## Performance Tuning
 

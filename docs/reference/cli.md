@@ -647,6 +647,15 @@ component_dir = "/opt/wassette/components"
 - **`XDG_CONFIG_HOME`**: Base directory for configuration files (Linux/macOS)
 - **`XDG_DATA_HOME`**: Base directory for data storage (Linux/macOS)
 
+#### Bind Address Configuration
+
+The bind address can be configured via multiple methods with the following precedence:
+
+1. CLI option `--bind-address` (highest priority)
+2. Configuration file `bind_address` field
+3. PORT and BIND_HOST environment variables (used as defaults when above are not set)
+4. Built-in defaults: 127.0.0.1:9001 (or 0.0.0.0:9001 in Docker)
+
 ### Component Storage
 
 By default, Wassette stores components in `$XDG_DATA_HOME/wassette/components` (typically `~/.local/share/wassette/components` on Linux/macOS). You can override this with the `--component-dir` option:

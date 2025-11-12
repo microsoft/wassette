@@ -38,7 +38,8 @@ fn default_secrets_dir() -> PathBuf {
 }
 
 fn default_bind_address() -> String {
-    // Support PORT and BIND_HOST environment variables for twelve-factor app compliance
+    // Default bind address using PORT and BIND_HOST environment variables (twelve-factor app compliance).
+    // This is only used when bind_address is not set via CLI, config file, or other higher-precedence sources.
     let host = std::env::var("BIND_HOST").unwrap_or_else(|_| "127.0.0.1".to_string());
     let port = std::env::var("PORT").unwrap_or_else(|_| "9001".to_string());
     format!("{}:{}", host, port)
@@ -93,8 +94,9 @@ impl Config {
         cli_config: &T,
         config_file_path: impl AsRef<Path>,
     ) -> Result<Self, anyhow::Error> {
-        // Build figment config, excluding bind_address from WASSETTE_ environment variables
-        // bind_address is set via PORT and BIND_HOST or CLI/config file only
+        // Build figment config, excluding bind_address from WASSETTE_ environment variables.
+        // Instead, bind_address uses PORT and BIND_HOST env vars as defaults (via default_bind_address())
+        // when not explicitly set via CLI or config file.
         let env_provider = Env::prefixed("WASSETTE_").filter(|key| key != "bind_address");
 
         figment::Figment::new()

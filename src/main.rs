@@ -259,7 +259,8 @@ async fn main() -> Result<()> {
                             bind_address
                         );
                         tracing::info!(
-                            "Note: Health endpoints (/health, /ready, /info) are available with --streamable-http transport"
+                            "Note: Health endpoints (/health, /ready, /info) are only available with --streamable-http transport. \
+                            SSE transport is designed solely for event streaming and does not provide a general HTTP request/response interface."
                         );
 
                         tokio::signal::ctrl_c().await?;

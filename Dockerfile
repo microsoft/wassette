@@ -47,7 +47,8 @@ ENV XDG_DATA_HOME=/home/wassette/.local/share
 ENV XDG_CONFIG_HOME=/home/wassette/.config
 
 # Twelve-factor app compliance: support PORT and BIND_HOST environment variables
-# Default PORT is 9001, default BIND_HOST is 0.0.0.0 (for container networking)
+# Default PORT is 9001; default BIND_HOST in containers is 0.0.0.0 
+# (required for external connections; differs from non-containerized default of 127.0.0.1)
 ENV PORT=9001
 ENV BIND_HOST=0.0.0.0
 

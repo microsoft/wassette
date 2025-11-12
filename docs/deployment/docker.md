@@ -135,8 +135,12 @@ docker run --rm -p 8080:8080 \
 
 #### Server Configuration Variables
 
+These environment variables set the default bind address when not specified via CLI (`--bind-address`) or config file:
+
 - **PORT**: Port number to listen on (default: 9001)
-- **BIND_HOST**: Host address to bind to (default: 0.0.0.0 in Docker, 127.0.0.1 elsewhere)
+- **BIND_HOST**: Host address to bind to (default: 127.0.0.1; Docker image overrides to 0.0.0.0)
+
+**Precedence:** CLI > Config file > PORT/BIND_HOST > Defaults (127.0.0.1:9001)
 
 Example with custom port:
 
@@ -333,7 +337,7 @@ docker run --rm -p 9001:9001 \
   wassette:latest
 ```
 
-**Note**: Health endpoints are only available with `--streamable-http` transport (the default for the Docker image).
+**Note**: Health endpoints are only available with `--streamable-http` transport (the default for the Docker image). SSE transport (`--sse`) is designed solely for event streaming and does not expose standard HTTP endpoints like `/health`.
 
 ### Persistent Component Storage
 
