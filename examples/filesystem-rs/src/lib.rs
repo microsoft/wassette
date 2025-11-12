@@ -4,10 +4,10 @@
 #[allow(warnings)]
 mod bindings;
 
-use std::{env, fs, path::{Path, PathBuf}};
+use std::path::{Path, PathBuf};
+use std::{env, fs};
 
-use anyhow::{Result, anyhow};
-
+use anyhow::{anyhow, Result};
 use bindings::Guest;
 
 struct Component;
@@ -20,7 +20,11 @@ impl Guest for Component {
                 let entries = match fs::read_dir(&path) {
                     Ok(e) => e,
                     Err(e) => {
-                        return Err(format!("Failed to read directory '{}': {}", path.display(), e));
+                        return Err(format!(
+                            "Failed to read directory '{}': {}",
+                            path.display(),
+                            e
+                        ));
                     }
                 };
                 for entry_result in entries {
@@ -32,10 +36,7 @@ impl Guest for Component {
                                 Err(_) => "[UNKNOWN]",
                             };
                             let file_name = entry.file_name();
-                            text.push(format!(
-                                "{prefix} {}\n",
-                                file_name.to_string_lossy()
-                            ));
+                            text.push(format!("{prefix} {}\n", file_name.to_string_lossy()));
                         }
                         Err(e) => {
                             text.push(format!("Error reading entry: {e}\n"));
@@ -44,9 +45,7 @@ impl Guest for Component {
                 }
                 Ok(text)
             }
-            Err(e) => {
-                Err(e.to_string())
-            }
+            Err(e) => Err(e.to_string()),
         }
     }
 
@@ -82,7 +81,11 @@ impl Guest for Component {
 
                 match fs::write(&path, content.as_bytes()) {
                     Ok(_) => Ok(format!("Successfully wrote to file '{}'", path.display())),
-                    Err(e) => Err(format!("Failed to write to file '{}': {}", path.display(), e)),
+                    Err(e) => Err(format!(
+                        "Failed to write to file '{}': {}",
+                        path.display(),
+                        e
+                    )),
                 }
             }
             Err(e) => Err(e.to_string()),
@@ -92,7 +95,10 @@ impl Guest for Component {
     fn create_directory(path: String) -> Result<String, String> {
         match get_path(&path) {
             Ok(path) => match fs::create_dir_all(&path) {
-                Ok(_) => Ok(format!("Successfully created directory '{}'", path.display())),
+                Ok(_) => Ok(format!(
+                    "Successfully created directory '{}'",
+                    path.display()
+                )),
                 Err(e) => Err(format!(
                     "Failed to create directory '{}': {}",
                     path.display(),
@@ -115,7 +121,10 @@ impl Guest for Component {
         };
 
         if !source_path.exists() {
-            return Err(format!("Source path '{}' does not exist", source_path.display()));
+            return Err(format!(
+                "Source path '{}' does not exist",
+                source_path.display()
+            ));
         }
 
         // Ensure parent directory of destination exists
@@ -184,7 +193,10 @@ impl Guest for Component {
                 }
 
                 match fs::remove_dir(&path) {
-                    Ok(_) => Ok(format!("Successfully deleted directory '{}'", path.display())),
+                    Ok(_) => Ok(format!(
+                        "Successfully deleted directory '{}'",
+                        path.display()
+                    )),
                     Err(e) => {
                         // Provide helpful error message for non-empty directories
                         if e.kind() == std::io::ErrorKind::Other {
@@ -246,9 +258,13 @@ impl Guest for Component {
         if let Err(e) = search_directory(&path, &pattern, &mut matches) {
             return Err(format!("Failed to search directory: {}", e));
         }
-        
+
         if matches.is_empty() {
-            Ok(format!("No files matching pattern '{}' found in '{}'", pattern, path.display()))
+            Ok(format!(
+                "No files matching pattern '{}' found in '{}'",
+                pattern,
+                path.display()
+            ))
         } else {
             Ok(matches.join("\n"))
         }
@@ -270,7 +286,7 @@ impl Guest for Component {
 
                     let size = metadata.len();
                     let size_str = format_size(size);
-                    
+
                     let permissions = metadata.permissions();
 
                     let modified = metadata
@@ -283,11 +299,7 @@ impl Guest for Component {
                         })
                         .unwrap_or_else(|| "Unknown".to_string());
 
-                    let readonly = if permissions.readonly() {
-                        "yes"
-                    } else {
-                        "no"
-                    };
+                    let readonly = if permissions.readonly() { "yes" } else { "no" };
 
                     Ok(format!(
                         "Path: {}\nType: {}\nSize: {} ({} bytes)\nRead-only: {}\nModified: {}",
@@ -299,15 +311,16 @@ impl Guest for Component {
                         modified
                     ))
                 }
-                Err(e) => {
-                    Err(format!("Failed to get metadata for '{}': {}", path.display(), e))
-                }
+                Err(e) => Err(format!(
+                    "Failed to get metadata for '{}': {}",
+                    path.display(),
+                    e
+                )),
             },
-            Err(e) => Err(e.to_string())
+            Err(e) => Err(e.to_string()),
         }
     }
 }
-
 
 fn build_tree(
     dir: &Path,
@@ -322,7 +335,13 @@ fn build_tree(
 
     let entries = match fs::read_dir(dir) {
         Ok(e) => e,
-        Err(e) => return Err(anyhow!("Failed to read directory '{}': {}", dir.display(), e)),
+        Err(e) => {
+            return Err(anyhow!(
+                "Failed to read directory '{}': {}",
+                dir.display(),
+                e
+            ))
+        }
     };
 
     let mut entries: Vec<_> = entries.collect();
@@ -360,7 +379,13 @@ fn build_tree(
 
         if entry.path().is_dir() {
             let new_prefix = format!("{}{}", prefix, extension);
-            build_tree(&entry.path(), output, current_depth + 1, max_depth, &new_prefix)?;
+            build_tree(
+                &entry.path(),
+                output,
+                current_depth + 1,
+                max_depth,
+                &new_prefix,
+            )?;
         }
     }
 
@@ -406,8 +431,8 @@ fn search_directory(dir: &Path, pattern: &str, matches: &mut Vec<String>) -> Res
 
 fn get_path(path_str: &str) -> Result<PathBuf> {
     if path_str == "~" || path_str.starts_with("~/") {
-        let home_dir = env::var("HOME")
-            .map_err(|_| anyhow!("Cannot determine home directory from $HOME"))?;
+        let home_dir =
+            env::var("HOME").map_err(|_| anyhow!("Cannot determine home directory from $HOME"))?;
 
         if path_str == "~" {
             return Ok(PathBuf::from(home_dir));
@@ -419,6 +444,5 @@ fn get_path(path_str: &str) -> Result<PathBuf> {
 
     Ok(PathBuf::from(path_str))
 }
-
 
 bindings::export!(Component with_types_in bindings);
