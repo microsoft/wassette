@@ -38,7 +38,10 @@ fn default_secrets_dir() -> PathBuf {
 }
 
 fn default_bind_address() -> String {
-    "127.0.0.1:9001".to_string()
+    // Support PORT and BIND_HOST environment variables for twelve-factor app compliance
+    let host = std::env::var("BIND_HOST").unwrap_or_else(|_| "127.0.0.1".to_string());
+    let port = std::env::var("PORT").unwrap_or_else(|_| "9001".to_string());
+    format!("{}:{}", host, port)
 }
 
 /// Configuration for the Wasette MCP server
@@ -423,5 +426,89 @@ bind_address = "0.0.0.0:8080"
             // CLI value should take highest precedence
             assert_eq!(config.bind_address, "192.168.1.100:9090");
         });
+    }
+
+    #[test]
+    fn test_port_env_var() {
+        temp_env::with_vars(
+            vec![
+                ("PORT", Some("8080")),
+                ("WASSETTE_BIND_ADDRESS", None),
+                ("BIND_HOST", None),
+            ],
+            || {
+                let temp_dir = TempDir::new().unwrap();
+                let non_existent_config = temp_dir.path().join("non_existent_config.toml");
+
+                let config = Config::new_from_path(&empty_test_cli_config(), &non_existent_config)
+                    .expect("Failed to create config");
+
+                // PORT environment variable should be used with default host
+                assert_eq!(config.bind_address, "127.0.0.1:8080");
+            },
+        );
+    }
+
+    #[test]
+    fn test_bind_host_env_var() {
+        temp_env::with_vars(
+            vec![
+                ("BIND_HOST", Some("0.0.0.0")),
+                ("WASSETTE_BIND_ADDRESS", None),
+                ("PORT", None),
+            ],
+            || {
+                let temp_dir = TempDir::new().unwrap();
+                let non_existent_config = temp_dir.path().join("non_existent_config.toml");
+
+                let config = Config::new_from_path(&empty_test_cli_config(), &non_existent_config)
+                    .expect("Failed to create config");
+
+                // BIND_HOST should be used with default port
+                assert_eq!(config.bind_address, "0.0.0.0:9001");
+            },
+        );
+    }
+
+    #[test]
+    fn test_port_and_bind_host_env_vars() {
+        temp_env::with_vars(
+            vec![
+                ("PORT", Some("3000")),
+                ("BIND_HOST", Some("0.0.0.0")),
+                ("WASSETTE_BIND_ADDRESS", None),
+            ],
+            || {
+                let temp_dir = TempDir::new().unwrap();
+                let non_existent_config = temp_dir.path().join("non_existent_config.toml");
+
+                let config = Config::new_from_path(&empty_test_cli_config(), &non_existent_config)
+                    .expect("Failed to create config");
+
+                // Both PORT and BIND_HOST should be used together
+                assert_eq!(config.bind_address, "0.0.0.0:3000");
+            },
+        );
+    }
+
+    #[test]
+    fn test_wassette_bind_address_takes_precedence_over_port_and_host() {
+        temp_env::with_vars(
+            vec![
+                ("PORT", Some("3000")),
+                ("BIND_HOST", Some("0.0.0.0")),
+                ("WASSETTE_BIND_ADDRESS", Some("10.0.0.1:4000")),
+            ],
+            || {
+                let temp_dir = TempDir::new().unwrap();
+                let non_existent_config = temp_dir.path().join("non_existent_config.toml");
+
+                let config = Config::new_from_path(&empty_test_cli_config(), &non_existent_config)
+                    .expect("Failed to create config");
+
+                // WASSETTE_BIND_ADDRESS should take precedence over PORT and BIND_HOST
+                assert_eq!(config.bind_address, "10.0.0.1:4000");
+            },
+        );
     }
 }

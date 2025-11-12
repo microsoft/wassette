@@ -39,6 +39,34 @@ use server::McpServer;
 use tools::ToolName;
 use utils::{format_build_info, load_component_registry, parse_env_var};
 
+// Health and info endpoint handlers
+mod endpoints {
+    use axum::http::StatusCode;
+    use axum::Json;
+    use serde_json::{json, Value};
+
+    /// Health check endpoint - returns 200 OK if server is running
+    pub async fn health() -> StatusCode {
+        StatusCode::OK
+    }
+
+    /// Readiness check endpoint - returns 200 OK with JSON payload
+    pub async fn ready() -> Json<Value> {
+        Json(json!({
+            "status": "ready"
+        }))
+    }
+
+    /// Build info endpoint - returns build information
+    pub async fn info() -> Json<Value> {
+        let build_info = crate::utils::format_build_info();
+        Json(json!({
+            "version": env!("CARGO_PKG_VERSION"),
+            "build_info": build_info
+        }))
+    }
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
     let cli = Cli::parse();
@@ -186,7 +214,11 @@ async fn main() -> Result<()> {
                             Default::default(),
                         );
 
-                        let router = axum::Router::new().nest_service("/mcp", service);
+                        let router = axum::Router::new()
+                            .nest_service("/mcp", service)
+                            .route("/health", axum::routing::get(endpoints::health))
+                            .route("/ready", axum::routing::get(endpoints::ready))
+                            .route("/info", axum::routing::get(endpoints::info));
                         let tcp_listener = tokio::net::TcpListener::bind(&bind_address).await?;
 
                         // Spawn the server in a background task
@@ -202,6 +234,12 @@ async fn main() -> Result<()> {
                             "MCP server is ready and listening on http://{}/mcp",
                             bind_address
                         );
+                        tracing::info!("Health check available at http://{}/health", bind_address);
+                        tracing::info!(
+                            "Readiness check available at http://{}/ready",
+                            bind_address
+                        );
+                        tracing::info!("Build info available at http://{}/info", bind_address);
 
                         // Wait for the server task to complete
                         let _ = server_handle.await;
@@ -211,12 +249,17 @@ async fn main() -> Result<()> {
                         "Starting MCP server on {} with SSE HTTP transport. Components will load in the background.",
                         bind_address
                     );
+
                         let ct = SseServer::serve(bind_address.parse().unwrap())
                             .await?
                             .with_service(move || server.clone());
+
                         tracing::info!(
                             "MCP server is ready and listening on http://{}/sse",
                             bind_address
+                        );
+                        tracing::info!(
+                            "Note: Health endpoints (/health, /ready, /info) are available with --streamable-http transport"
                         );
 
                         tokio::signal::ctrl_c().await?;

@@ -46,11 +46,16 @@ ENV HOME=/home/wassette
 ENV XDG_DATA_HOME=/home/wassette/.local/share
 ENV XDG_CONFIG_HOME=/home/wassette/.config
 
+# Twelve-factor app compliance: support PORT and BIND_HOST environment variables
+# Default PORT is 9001, default BIND_HOST is 0.0.0.0 (for container networking)
+ENV PORT=9001
+ENV BIND_HOST=0.0.0.0
+
 # Switch to the non-root user
 USER wassette
 WORKDIR /home/wassette
 
-# Expose the default HTTP port (when using --http or --sse)
+# Expose the default HTTP port (configurable via PORT env var)
 EXPOSE 9001
 
 # Default command: start Wassette with streamable-http transport
