@@ -11,9 +11,36 @@ world fs {
     /// Read the complete contents of a file from the file system.
     export read-file: func(path: string) -> result<string, string>;
 
+    /// Write content to a file. Creates the file if it doesn't exist, or overwrites if it does. \
+    /// Requires write permission in the policy configuration.
+    export write-file: func(path: string, content: string) -> result<string, string>;
+
+    /// Create a new directory at the specified path. Creates parent directories if needed. \
+    /// Requires write permission in the policy configuration.
+    export create-directory: func(path: string) -> result<string, string>;
+
+    /// Move or rename a file or directory from source to destination path. \
+    /// Requires write permission in the policy configuration.
+    export move-path: func(source: string, destination: string) -> result<string, string>;
+
+    /// Delete a file at the specified path. Will not delete directories. \
+    /// Requires write permission in the policy configuration.
+    export delete-file: func(path: string) -> result<string, string>;
+
+    /// Delete an empty directory at the specified path. \
+    /// Requires write permission in the policy configuration.
+    export delete-directory: func(path: string) -> result<string, string>;
+
+    /// Check if a file or directory exists at the specified path.
+    export file-exists: func(path: string) -> result<bool, string>;
+
+    /// Get a recursive tree view of a directory structure. \
+    /// Useful for understanding nested directory hierarchies.
+    export get-directory-tree: func(path: string, max-depth: u32) -> result<string, string>;
+
     /// Recursively search for files and directories matching a pattern.
     export search-file: func(path: string, pattern: string) -> result<string, string>;
 
-    /// Retrieve detailed metadata about a file or directory.
+    /// Retrieve detailed metadata about a file or directory including size, permissions, and timestamps.
     export get-file-info: func(path: string) -> result<string, string>;
 }
