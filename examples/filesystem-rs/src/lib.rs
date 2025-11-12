@@ -198,19 +198,13 @@ impl Guest for Component {
                         path.display()
                     )),
                     Err(e) => {
-                        // Provide helpful error message for non-empty directories
-                        if e.kind() == std::io::ErrorKind::Other {
-                            Err(format!(
-                                "Failed to delete directory '{}': Directory is not empty. \
-                                 Remove all contents first.",
-                                path.display()
-                            ))
+                        let error_msg =
+                            format!("Failed to delete directory '{}': {}", path.display(), e);
+                        // Directory not empty errors often contain "not empty" in the message
+                        if e.to_string().to_lowercase().contains("not empty") {
+                            Err(format!("{} Remove all contents first.", error_msg))
                         } else {
-                            Err(format!(
-                                "Failed to delete directory '{}': {}",
-                                path.display(),
-                                e
-                            ))
+                            Err(error_msg)
                         }
                     }
                 }
@@ -272,7 +266,7 @@ impl Guest for Component {
 
     fn get_file_info(path: String) -> Result<String, String> {
         match get_path(&path) {
-            Ok(path) => match fs::metadata(&path) {
+            Ok(path) => match fs::symlink_metadata(&path) {
                 Ok(metadata) => {
                     let file_type = if metadata.is_dir() {
                         "Directory"
