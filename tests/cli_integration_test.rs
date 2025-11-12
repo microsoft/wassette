@@ -760,3 +760,139 @@ async fn test_cli_inspect_invalid_component_id() -> Result<()> {
 
     Ok(())
 }
+
+#[test(tokio::test)]
+async fn test_cli_autocomplete_bash() -> Result<()> {
+    let ctx = CliTestContext::new().await?;
+
+    let (stdout, stderr, exit_code) = ctx
+        .run_command_no_component_dir(&["autocomplete", "bash"])
+        .await?;
+
+    assert_eq!(
+        exit_code, 0,
+        "Autocomplete bash command failed with stderr: {stderr}"
+    );
+
+    // Verify the output contains bash completion script markers
+    assert!(
+        stdout.contains("_wassette-mcp-server"),
+        "Bash completion should contain completion function"
+    );
+    assert!(
+        stdout.contains("COMPREPLY"),
+        "Bash completion should contain COMPREPLY"
+    );
+
+    Ok(())
+}
+
+#[test(tokio::test)]
+async fn test_cli_autocomplete_zsh() -> Result<()> {
+    let ctx = CliTestContext::new().await?;
+
+    let (stdout, stderr, exit_code) = ctx
+        .run_command_no_component_dir(&["autocomplete", "zsh"])
+        .await?;
+
+    assert_eq!(
+        exit_code, 0,
+        "Autocomplete zsh command failed with stderr: {stderr}"
+    );
+
+    // Verify the output contains zsh completion script markers
+    assert!(
+        stdout.contains("#compdef"),
+        "Zsh completion should start with #compdef"
+    );
+    assert!(
+        stdout.contains("_arguments"),
+        "Zsh completion should contain _arguments"
+    );
+
+    Ok(())
+}
+
+#[test(tokio::test)]
+async fn test_cli_autocomplete_fish() -> Result<()> {
+    let ctx = CliTestContext::new().await?;
+
+    let (stdout, stderr, exit_code) = ctx
+        .run_command_no_component_dir(&["autocomplete", "fish"])
+        .await?;
+
+    assert_eq!(
+        exit_code, 0,
+        "Autocomplete fish command failed with stderr: {stderr}"
+    );
+
+    // Verify the output contains fish completion script markers
+    assert!(
+        stdout.contains("__fish_"),
+        "Fish completion should contain fish helper functions"
+    );
+    assert!(
+        stdout.contains("complete -c wassette"),
+        "Fish completion should contain complete commands"
+    );
+
+    Ok(())
+}
+
+#[test(tokio::test)]
+async fn test_cli_autocomplete_powershell() -> Result<()> {
+    let ctx = CliTestContext::new().await?;
+
+    let (stdout, stderr, exit_code) = ctx
+        .run_command_no_component_dir(&["autocomplete", "power-shell"])
+        .await?;
+
+    assert_eq!(
+        exit_code, 0,
+        "Autocomplete powershell command failed with stderr: {stderr}"
+    );
+
+    // Verify the output contains powershell completion script markers
+    assert!(
+        stdout.contains("Register-ArgumentCompleter") || stdout.contains("param("),
+        "PowerShell completion should contain PowerShell syntax"
+    );
+
+    Ok(())
+}
+
+#[test(tokio::test)]
+async fn test_cli_autocomplete_includes_all_commands() -> Result<()> {
+    let ctx = CliTestContext::new().await?;
+
+    let (stdout, stderr, exit_code) = ctx
+        .run_command_no_component_dir(&["autocomplete", "bash"])
+        .await?;
+
+    assert_eq!(
+        exit_code, 0,
+        "Autocomplete bash command failed with stderr: {stderr}"
+    );
+
+    // Verify all major subcommands are included in the completion
+    let commands = vec![
+        "autocomplete",
+        "component",
+        "permission",
+        "policy",
+        "registry",
+        "secret",
+        "serve",
+        "tool",
+    ];
+
+    for cmd in commands {
+        assert!(
+            stdout.contains(cmd),
+            "Bash completion should include '{}' command",
+            cmd
+        );
+    }
+
+    Ok(())
+}
