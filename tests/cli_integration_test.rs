@@ -19,7 +19,7 @@ struct CliTestContext {
     #[allow(dead_code)] // Needed to keep temp directory alive
     temp_dir: TempDir,
     component_dir: PathBuf,
-    weld_bin: PathBuf,
+    wassette_bin: PathBuf,
 }
 
 impl CliTestContext {
@@ -28,11 +28,11 @@ impl CliTestContext {
         let component_dir = temp_dir.path().join("components");
         tokio::fs::create_dir_all(&component_dir).await?;
 
-        // Resolve the weld binary path in a cross-platform friendly way.
-        let exe_name = format!("weld{}", env::consts::EXE_SUFFIX);
+        // Resolve the wassette binary path in a cross-platform friendly way.
+        let exe_name = format!("wassette{}", env::consts::EXE_SUFFIX);
 
         let locate_binary = || -> Result<PathBuf> {
-            if let Some(path) = env::var_os("CARGO_BIN_EXE_weld") {
+            if let Some(path) = env::var_os("CARGO_BIN_EXE_wassette") {
                 return Ok(PathBuf::from(path));
             }
 
@@ -50,34 +50,34 @@ impl CliTestContext {
             if !path.exists() {
                 // Build the binary on-demand so subsequent calls can reuse it.
                 let status = Command::new("cargo")
-                    .args(["build", "--bin", "weld"])
+                    .args(["build", "--bin", "wassette"])
                     .status()
-                    .context("Failed to build weld binary")?;
+                    .context("Failed to build wassette binary")?;
 
                 if !status.success() {
-                    anyhow::bail!("Failed to build weld binary");
+                    anyhow::bail!("Failed to build wassette binary");
                 }
             }
 
             Ok(path)
         };
 
-        let weld_bin = locate_binary()?;
+        let wassette_bin = locate_binary()?;
 
-        if !weld_bin.exists() {
-            anyhow::bail!("Weld binary not found at {}", weld_bin.display());
+        if !wassette_bin.exists() {
+            anyhow::bail!("Wassette binary not found at {}", wassette_bin.display());
         }
 
         Ok(Self {
             temp_dir,
             component_dir,
-            weld_bin,
+            wassette_bin,
         })
     }
 
-    /// Execute a weld CLI command
+    /// Execute a wassette CLI command
     async fn run_command(&self, args: &[&str]) -> Result<(String, String, i32)> {
-        let mut cmd = AsyncCommand::new(&self.weld_bin);
+        let mut cmd = AsyncCommand::new(&self.wassette_bin);
         cmd.args(args);
         cmd.arg("--component-dir").arg(&self.component_dir);
 
@@ -93,21 +93,21 @@ impl CliTestContext {
         Ok((stdout, stderr, exit_code))
     }
 
-    /// Execute a weld CLI command without --component-dir (for commands that don't need it)
+    /// Execute a wassette CLI command without --component-dir (for commands that don't need it)
     #[allow(dead_code)]
     async fn run_command_no_component_dir(&self, args: &[&str]) -> Result<(String, String, i32)> {
         self.run_command_no_component_dir_with_timeout(args, 120)
             .await
     }
 
-    /// Execute a weld CLI command without --component-dir with a custom timeout
+    /// Execute a wassette CLI command without --component-dir with a custom timeout
     #[allow(dead_code)]
     async fn run_command_no_component_dir_with_timeout(
         &self,
         args: &[&str],
         timeout_secs: u64,
     ) -> Result<(String, String, i32)> {
-        let mut cmd = AsyncCommand::new(&self.weld_bin);
+        let mut cmd = AsyncCommand::new(&self.wassette_bin);
         cmd.args(args);
 
         let output = tokio::time::timeout(Duration::from_secs(timeout_secs), cmd.output())

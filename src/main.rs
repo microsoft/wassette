@@ -1,7 +1,7 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT license.
 
-//! The main `weld(1)` command.
+//! The main `wassette(1)` command.
 
 #![warn(missing_docs)]
 
@@ -895,7 +895,7 @@ async fn main() -> Result<()> {
                         registry::find_component_by_name_or_uri(&components, component)
                             .ok_or_else(|| {
                                 anyhow::anyhow!(
-                                    "Component '{}' not found in registry. Use 'weld registry search' to list available components.",
+                                    "Component '{}' not found in registry. Use 'wassette registry search' to list available components.",
                                     component
                                 )
                             })?;
@@ -960,18 +960,18 @@ mod cli_tests {
     #[test]
     fn test_cli_command_parsing() {
         // Test component commands
-        let args = vec!["weld", "component", "list"];
+        let args = vec!["wassette", "component", "list"];
         let cli = Cli::try_parse_from(args).unwrap();
         matches!(cli.command, Some(Commands::Component { .. }));
 
         // Test policy commands
-        let args = vec!["weld", "policy", "get", "test-component"];
+        let args = vec!["wassette", "policy", "get", "test-component"];
         let cli = Cli::try_parse_from(args).unwrap();
         matches!(cli.command, Some(Commands::Policy { .. }));
 
         // Test permission commands
         let args = vec![
-            "weld",
+            "wassette",
             "permission",
             "grant",
             "storage",
@@ -984,12 +984,12 @@ mod cli_tests {
         matches!(cli.command, Some(Commands::Permission { .. }));
 
         // Test run command (local stdio)
-        let args = vec!["weld", "run"];
+        let args = vec!["wassette", "run"];
         let cli = Cli::try_parse_from(args).unwrap();
         matches!(cli.command, Some(Commands::Run(_)));
 
         // Test serve command (remote HTTP)
-        let args = vec!["weld", "serve", "--sse"];
+        let args = vec!["wassette", "serve", "--sse"];
         let cli = Cli::try_parse_from(args).unwrap();
         matches!(cli.command, Some(Commands::Serve(_)));
     }
@@ -997,7 +997,7 @@ mod cli_tests {
     #[test]
     fn test_permission_grant_storage_parsing() {
         let args = vec![
-            "weld",
+            "wassette",
             "permission",
             "grant",
             "storage",
@@ -1032,7 +1032,7 @@ mod cli_tests {
     #[test]
     fn test_permission_revoke_network_parsing() {
         let args = vec![
-            "weld",
+            "wassette",
             "permission",
             "revoke",
             "network",
