@@ -206,6 +206,15 @@ pub enum PermissionCommands {
 #[derive(Subcommand, Debug)]
 pub enum GrantPermissionCommands {
     /// Grant storage permission to a component.
+    #[command(after_help = "EXAMPLES:
+    # Grant read-only access to a directory
+    wassette permission grant storage my-component fs:///tmp/cache --access read
+
+    # Grant read and write access to a directory
+    wassette permission grant storage my-component fs:///tmp/output --access read,write
+
+    # Grant write-only access to a workspace
+    wassette permission grant storage my-component fs:///home/user/workspace --access write")]
     Storage {
         /// Component ID to grant permission to
         component_id: String,
@@ -219,6 +228,15 @@ pub enum GrantPermissionCommands {
         component_dir: Option<PathBuf>,
     },
     /// Grant network permission to a component.
+    #[command(after_help = "EXAMPLES:
+    # Grant access to a specific API endpoint
+    wassette permission grant network my-component api.example.com
+
+    # Grant access to a backup server
+    wassette permission grant network my-component backup.example.com
+
+    # Grant access to a CDN
+    wassette permission grant network my-component cdn.example.com")]
     Network {
         /// Component ID to grant permission to
         component_id: String,
@@ -229,7 +247,18 @@ pub enum GrantPermissionCommands {
         component_dir: Option<PathBuf>,
     },
     /// Grant environment variable permission to a component.
-    #[command(name = "environment-variable")]
+    #[command(
+        name = "environment-variable",
+        after_help = "EXAMPLES:
+    # Grant access to an API key environment variable
+    wassette permission grant environment-variable my-component API_KEY
+
+    # Grant access to a configuration URL
+    wassette permission grant environment-variable my-component CONFIG_URL
+
+    # Grant access to a database connection string
+    wassette permission grant environment-variable my-component DATABASE_URL"
+    )]
     EnvironmentVariable {
         /// Component ID to grant permission to
         component_id: String,
@@ -240,6 +269,15 @@ pub enum GrantPermissionCommands {
         component_dir: Option<PathBuf>,
     },
     /// Grant memory permission to a component.
+    #[command(after_help = "EXAMPLES:
+    # Grant 512 MiB memory limit
+    wassette permission grant memory my-component 512Mi
+
+    # Grant 1 GiB memory limit
+    wassette permission grant memory my-component 1Gi
+
+    # Grant 2048 KiB memory limit
+    wassette permission grant memory my-component 2048Ki")]
     Memory {
         /// Component ID to grant permission to
         component_id: String,
