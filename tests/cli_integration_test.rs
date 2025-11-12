@@ -583,6 +583,10 @@ async fn test_cli_help_command() -> Result<()> {
 
     assert_eq!(exit_code, 0, "Help command failed with stderr: {stderr}");
     assert!(
+        stdout.contains("A security-oriented runtime that runs WebAssembly Components via MCP"),
+        "Help should contain the description"
+    );
+    assert!(
         stdout.contains("component"),
         "Help should contain component subcommand"
     );

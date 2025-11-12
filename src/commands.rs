@@ -11,7 +11,11 @@ use serde::{Deserialize, Serialize};
 use crate::format::OutputFormat;
 
 #[derive(Parser, Debug)]
-#[command(name = "wassette-mcp-server", about, long_about = None)]
+#[command(
+    name = "wassette-mcp-server",
+    about = "A security-oriented runtime that runs WebAssembly Components via MCP",
+    long_about = None
+)]
 pub struct Cli {
     /// Print version information
     #[arg(long, short = 'V')]
