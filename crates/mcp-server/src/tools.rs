@@ -534,6 +534,44 @@ fn get_builtin_tools() -> Vec<Tool> {
     ]
 }
 
+/// Calculate a relevance score for a component based on query terms
+/// Higher scores indicate better matches
+fn calculate_relevance_score(component: &Value, query_terms: &[String]) -> u32 {
+    let name = component["name"].as_str().unwrap_or("").to_lowercase();
+    let description = component["description"]
+        .as_str()
+        .unwrap_or("")
+        .to_lowercase();
+    let uri = component["uri"].as_str().unwrap_or("").to_lowercase();
+
+    let mut score = 0u32;
+
+    for term in query_terms {
+        // Exact name match gets highest score
+        if name == term.as_str() {
+            score += 100;
+        } else if name.starts_with(term) {
+            score += 50;
+        } else if name.contains(term) {
+            score += 20;
+        }
+
+        // Description matches get medium score
+        if description.starts_with(term) {
+            score += 15;
+        } else if description.contains(term) {
+            score += 10;
+        }
+
+        // URI matches get lower score
+        if uri.contains(term) {
+            score += 5;
+        }
+    }
+
+    score
+}
+
 #[instrument(skip(_lifecycle_manager))]
 async fn handle_search_component(
     req: &CallToolRequestParam,
@@ -550,8 +588,8 @@ async fn handle_search_component(
         .as_array()
         .ok_or_else(|| anyhow::anyhow!("Component registry is not an array"))?;
 
-    // Filter components based on query
-    let filtered_components: Vec<&Value> = if let Some(q) = query {
+    // Filter and rank components based on query
+    let filtered_components: Vec<Value> = if let Some(q) = query {
         // Split query into words for multi-term matching
         let query_terms: Vec<String> = q
             .split_whitespace()
@@ -559,28 +597,29 @@ async fn handle_search_component(
             .collect();
 
         if query_terms.is_empty() {
-            all_components.iter().collect()
+            all_components.to_vec()
         } else {
-            all_components
+            // Calculate relevance scores and filter out non-matches
+            let mut scored_components: Vec<(u32, &Value)> = all_components
                 .iter()
-                .filter(|component| {
-                    // Extract fields from component
-                    let name = component["name"].as_str().unwrap_or("").to_lowercase();
-                    let description = component["description"]
-                        .as_str()
-                        .unwrap_or("")
-                        .to_lowercase();
-                    let uri = component["uri"].as_str().unwrap_or("").to_lowercase();
-
-                    // Match if ANY query term is found in name, description, or URI
-                    query_terms.iter().any(|term| {
-                        name.contains(term) || description.contains(term) || uri.contains(term)
-                    })
+                .map(|component| {
+                    let score = calculate_relevance_score(component, &query_terms);
+                    (score, component)
                 })
+                .filter(|(score, _)| *score > 0)
+                .collect();
+
+            // Sort by relevance score (descending)
+            scored_components.sort_by(|a, b| b.0.cmp(&a.0));
+
+            // Extract components in ranked order
+            scored_components
+                .into_iter()
+                .map(|(_, component)| (*component).clone())
                 .collect()
         }
     } else {
-        all_components.iter().collect()
+        all_components.to_vec()
     };
 
     let status_text = serde_json::to_string(&json!({
@@ -1536,6 +1575,59 @@ mod tests {
         // Should match components with either "weather" or "rust"
         // Weather Server (2), Fetch (Rust), Filesystem (Rust), Brave Search (Rust), Context7 (Rust)
         assert_eq!(components.len(), 6);
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_search_component_relevance_ranking() -> Result<()> {
+        let tempdir = tempfile::tempdir()?;
+        let lifecycle_manager = wassette::LifecycleManager::new(&tempdir).await?;
+
+        // Test relevance ranking - search for "server"
+        // "Weather Server" and "Time Server" have "server" in the name
+        // Other components might have it in description
+        let mut args = serde_json::Map::new();
+        args.insert("query".to_string(), json!("server"));
+        let req = CallToolRequestParam {
+            name: "search-components".into(),
+            arguments: Some(args),
+        };
+
+        let result = handle_search_component(&req, &lifecycle_manager).await?;
+
+        let content = result
+            .content
+            .as_ref()
+            .ok_or_else(|| anyhow::anyhow!("No content in result"))?;
+
+        let content_json = serde_json::to_value(content)?;
+        let text = content_json[0]["text"]
+            .as_str()
+            .ok_or_else(|| anyhow::anyhow!("No text in content"))?;
+
+        let response: Value = serde_json::from_str(text)?;
+        let components = response["components"]
+            .as_array()
+            .ok_or_else(|| anyhow::anyhow!("Components is not an array"))?;
+
+        // Should have at least 2 components (Weather Server, Time Server)
+        assert!(components.len() >= 2);
+
+        // First two results should have "server" in the name (highest relevance)
+        let first_name = components[0]["name"].as_str().unwrap_or("").to_lowercase();
+        let second_name = components[1]["name"].as_str().unwrap_or("").to_lowercase();
+
+        assert!(
+            first_name.contains("server"),
+            "First result should have 'server' in name: {}",
+            first_name
+        );
+        assert!(
+            second_name.contains("server"),
+            "Second result should have 'server' in name: {}",
+            second_name
+        );
 
         Ok(())
     }
