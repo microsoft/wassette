@@ -1,6 +1,7 @@
 {
   "name": "github-mcp",
   "version": "1.0.0",
+  "description": "GitHub REST API integration as a WebAssembly component",
   "type": "module",
   "main": "github.js",
   "scripts": {

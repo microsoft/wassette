@@ -1,133 +1,409 @@
 package mossaka:mcp@0.1.0;
 
 /// GitHub API integration for Model Context Protocol
+///
+/// This world provides comprehensive access to GitHub's API functionality,
+/// including repository management, issues, pull requests, workflows, and more.
+/// All functions return JSON-encoded results or error messages.
 world github-mcp {
     import wasi:config/store@0.2.0-draft;
-    
+
     // Repository operations
+
+    /// Get detailed information about a repository
+    ///
+    /// Returns repository metadata including description, stars, forks, etc.
     export get-repository: func(owner: string, repo: string) -> result<string, string>;
+
+    /// Create a new repository for the authenticated user
+    ///
+    /// Creates a new repository with the specified name and optional description.
     export create-repository: func(name: string, description: option<string>, private: bool) -> result<string, string>;
+
+    /// Fork a repository to the authenticated user's account
     export fork-repository: func(owner: string, repo: string) -> result<string, string>;
+
+    /// Get the contents of a file in a repository
+    ///
+    /// Retrieves file contents at the specified path, optionally at a specific ref (branch, tag, or commit).
     export get-file-contents: func(owner: string, repo: string, path: string, ref: option<string>) -> result<string, string>;
+
+    /// Create or update a file in a repository
+    ///
+    /// Creates a new file or updates an existing one with the provided content and commit message.
     export create-or-update-file: func(owner: string, repo: string, path: string, content: string, message: string, branch: option<string>) -> result<string, string>;
+
+    /// Delete a file from a repository
     export delete-file: func(owner: string, repo: string, path: string, message: string, branch: option<string>) -> result<string, string>;
+
+    /// List branches in a repository
+    ///
+    /// Returns a paginated list of branches for the specified repository.
     export list-branches: func(owner: string, repo: string, page: option<u32>, per-page: option<u32>) -> result<string, string>;
+
+    /// Create a new branch in a repository
+    ///
+    /// Creates a new branch, optionally from an existing branch (defaults to default branch).
     export create-branch: func(owner: string, repo: string, branch: string, from-branch: option<string>) -> result<string, string>;
+
+    /// List commits in a repository
+    ///
+    /// Returns a paginated list of commits, optionally filtered by SHA.
     export list-commits: func(owner: string, repo: string, sha: option<string>, page: option<u32>, per-page: option<u32>) -> result<string, string>;
+
+    /// Get details of a specific commit
     export get-commit: func(owner: string, repo: string, sha: string) -> result<string, string>;
+
+    /// List tags in a repository
     export list-tags: func(owner: string, repo: string, page: option<u32>, per-page: option<u32>) -> result<string, string>;
+
+    /// Get details of a specific tag
     export get-tag: func(owner: string, repo: string, tag: string) -> result<string, string>;
+
+    /// List releases in a repository
     export list-releases: func(owner: string, repo: string, page: option<u32>, per-page: option<u32>) -> result<string, string>;
+
+    /// Get the latest published release
     export get-latest-release: func(owner: string, repo: string) -> result<string, string>;
+
+    /// Get a release by its tag name
     export get-release-by-tag: func(owner: string, repo: string, tag: string) -> result<string, string>;
+
+    /// Get the repository's directory tree
+    ///
+    /// Returns the tree structure, optionally recursively fetching all subdirectories.
     export get-repository-tree: func(owner: string, repo: string, tree-sha: option<string>, recursive: bool) -> result<string, string>;
+
+    /// Search for code across GitHub
+    ///
+    /// Performs a code search using GitHub's search syntax.
     export search-code: func(query: string, page: option<u32>, per-page: option<u32>) -> result<string, string>;
+
+    /// Search for repositories
+    ///
+    /// Searches for repositories matching the query string.
     export search-repositories: func(query: string, page: option<u32>, per-page: option<u32>) -> result<string, string>;
+
+    /// Push multiple files to a repository in a single commit
+    ///
+    /// The files parameter should be a JSON-encoded array of file objects.
     export push-files: func(owner: string, repo: string, branch: string, files: string, message: string) -> result<string, string>;
-    
+
     // Issue operations
+
+    /// List issues in a repository
+    ///
+    /// Returns a paginated list of issues, optionally filtered by state and labels.
     export list-issues: func(owner: string, repo: string, state: option<string>, labels: option<string>, page: option<u32>, per-page: option<u32>) -> result<string, string>;
+
+    /// Read issue information
+    ///
+    /// Performs various read operations on an issue. Method can be "get", "list-comments", "list-events", etc.
     export issue-read: func(owner: string, repo: string, issue-number: u32, method: string) -> result<string, string>;
+
+    /// Perform write operations on issues
+    ///
+    /// Methods include "create", "update", "close", "reopen", etc. Params should be JSON-encoded.
     export issue-write: func(owner: string, repo: string, method: string, params: string) -> result<string, string>;
+
+    /// Add a comment to an issue
     export add-issue-comment: func(owner: string, repo: string, issue-number: u32, body: string) -> result<string, string>;
+
+    /// Search for issues and pull requests
+    ///
+    /// Uses GitHub's issue search syntax to find matching issues.
     export search-issues: func(query: string, page: option<u32>, per-page: option<u32>) -> result<string, string>;
+
+    /// List available issue types for an organization
     export list-issue-types: func(owner: string) -> result<string, string>;
+
+    /// Manage sub-issues (tasklists)
+    ///
+    /// Actions include "add", "remove", "convert", etc.
     export sub-issue-write: func(owner: string, repo: string, issue-number: u32, action: string, sub-issue-number: option<u32>) -> result<string, string>;
+
+    /// Assign GitHub Copilot to work on an issue
     export assign-copilot-to-issue: func(owner: string, repo: string, issue-number: u32, task: option<string>) -> result<string, string>;
-    
+
     // Pull Request operations
+
+    /// List pull requests in a repository
+    ///
+    /// Returns a paginated list of pull requests, optionally filtered by state, head, and base branch.
     export list-pull-requests: func(owner: string, repo: string, state: option<string>, head: option<string>, base: option<string>, page: option<u32>, per-page: option<u32>) -> result<string, string>;
+
+    /// Create a new pull request
+    ///
+    /// Creates a PR from the head branch to the base branch with the given title and optional body.
     export create-pull-request: func(owner: string, repo: string, title: string, head: string, base: string, body: option<string>, draft: bool) -> result<string, string>;
+
+    /// Read pull request information
+    ///
+    /// Performs various read operations. Method can be "get", "list-commits", "list-files", "list-reviews", etc.
     export pull-request-read: func(owner: string, repo: string, pull-number: u32, method: string) -> result<string, string>;
+
+    /// Update pull request properties
+    ///
+    /// Updates PR details like title, body, state, etc. Params should be JSON-encoded.
     export update-pull-request: func(owner: string, repo: string, pull-number: u32, params: string) -> result<string, string>;
+
+    /// Merge a pull request
+    ///
+    /// Merges the PR using the specified method ("merge", "squash", or "rebase").
     export merge-pull-request: func(owner: string, repo: string, pull-number: u32, merge-method: option<string>) -> result<string, string>;
+
+    /// Search for pull requests
     export search-pull-requests: func(query: string, page: option<u32>, per-page: option<u32>) -> result<string, string>;
+
+    /// Perform review operations on a pull request
+    ///
+    /// Actions include "submit", "dismiss", "request-changes", "approve", etc.
     export pull-request-review-write: func(owner: string, repo: string, pull-number: u32, action: string, params: string) -> result<string, string>;
+
+    /// Add a comment to a pending review
+    ///
+    /// Adds a line comment to a review that hasn't been submitted yet.
     export add-comment-to-pending-review: func(owner: string, repo: string, pull-number: u32, path: string, body: string, line: option<u32>) -> result<string, string>;
+
+    /// Request GitHub Copilot to review a pull request
     export request-copilot-review: func(owner: string, repo: string, pull-number: u32) -> result<string, string>;
+
+    /// Update a pull request branch with the latest from base
+    ///
+    /// Merges or rebases the base branch into the PR branch.
     export update-pull-request-branch: func(owner: string, repo: string, pull-number: u32) -> result<string, string>;
-    
+
     // GitHub Actions / Workflows
+
+    /// List workflows in a repository
+    ///
+    /// Returns all workflow files configured in the repository.
     export list-workflows: func(owner: string, repo: string, page: option<u32>, per-page: option<u32>) -> result<string, string>;
+
+    /// List runs for a specific workflow
+    ///
+    /// Returns execution history for the specified workflow.
     export list-workflow-runs: func(owner: string, repo: string, workflow-id: string, page: option<u32>, per-page: option<u32>) -> result<string, string>;
+
+    /// Get details of a specific workflow run
     export get-workflow-run: func(owner: string, repo: string, run-id: u32) -> result<string, string>;
+
+    /// Get billable usage information for a workflow run
     export get-workflow-run-usage: func(owner: string, repo: string, run-id: u32) -> result<string, string>;
+
+    /// Cancel a running workflow
     export cancel-workflow-run: func(owner: string, repo: string, run-id: u32) -> result<string, string>;
+
+    /// Re-run a workflow execution
     export rerun-workflow-run: func(owner: string, repo: string, run-id: u32) -> result<string, string>;
+
+    /// Re-run only failed jobs from a workflow run
     export rerun-failed-jobs: func(owner: string, repo: string, run-id: u32) -> result<string, string>;
+
+    /// Trigger a workflow dispatch event
+    ///
+    /// Manually triggers a workflow with optional inputs (JSON-encoded).
     export run-workflow: func(owner: string, repo: string, workflow-id: string, ref: string, inputs: option<string>) -> result<string, string>;
+
+    /// List jobs in a workflow run
     export list-workflow-jobs: func(owner: string, repo: string, run-id: u32, page: option<u32>, per-page: option<u32>) -> result<string, string>;
+
+    /// Get logs for a specific job
     export get-job-logs: func(owner: string, repo: string, job-id: u32, run-id: option<u32>) -> result<string, string>;
+
+    /// List artifacts produced by a workflow run
     export list-workflow-run-artifacts: func(owner: string, repo: string, run-id: u32, page: option<u32>, per-page: option<u32>) -> result<string, string>;
+
+    /// Download a workflow artifact
+    ///
+    /// Returns a download URL or the artifact content.
     export download-workflow-run-artifact: func(owner: string, repo: string, artifact-id: u32) -> result<string, string>;
+
+    /// Get combined logs for all jobs in a workflow run
     export get-workflow-run-logs: func(owner: string, repo: string, run-id: u32) -> result<string, string>;
+
+    /// Delete logs for a workflow run
     export delete-workflow-run-logs: func(owner: string, repo: string, run-id: u32) -> result<string, string>;
-    
+
     // Labels
+
+    /// List labels in a repository
     export list-label: func(owner: string, repo: string, page: option<u32>, per-page: option<u32>) -> result<string, string>;
+
+    /// Get details of a specific label
     export get-label: func(owner: string, repo: string, name: string) -> result<string, string>;
+
+    /// Perform write operations on labels
+    ///
+    /// Actions include "create", "update", "delete". Params should be JSON-encoded.
     export label-write: func(owner: string, repo: string, action: string, params: string) -> result<string, string>;
-    
+
     // User operations
+
+    /// Get the authenticated user's profile
     export get-me: func() -> result<string, string>;
+
+    /// Search for users on GitHub
     export search-users: func(query: string, page: option<u32>, per-page: option<u32>) -> result<string, string>;
-    
+
     // Organization operations
+
+    /// Search for organizations on GitHub
     export search-orgs: func(query: string, page: option<u32>, per-page: option<u32>) -> result<string, string>;
+
+    /// List teams in an organization
     export get-teams: func(org: string, page: option<u32>, per-page: option<u32>) -> result<string, string>;
+
+    /// List members of a specific team
     export get-team-members: func(org: string, team-slug: string, page: option<u32>, per-page: option<u32>) -> result<string, string>;
-    
+
     // Gist operations
+
+    /// List gists for the authenticated user
     export list-gists: func(page: option<u32>, per-page: option<u32>) -> result<string, string>;
+
+    /// Get a specific gist by ID
     export get-gist: func(gist-id: string) -> result<string, string>;
+
+    /// Create a new gist
+    ///
+    /// Files parameter should be a JSON-encoded object mapping filenames to content.
     export create-gist: func(description: option<string>, files: string, public: bool) -> result<string, string>;
+
+    /// Update an existing gist
     export update-gist: func(gist-id: string, description: option<string>, files: option<string>) -> result<string, string>;
-    
+
     // Discussions
+
+    /// List discussions in a repository
+    ///
+    /// Optionally filter by category.
     export list-discussions: func(owner: string, repo: string, category: option<string>, page: option<u32>, per-page: option<u32>) -> result<string, string>;
+
+    /// Get details of a specific discussion
     export get-discussion: func(owner: string, repo: string, discussion-number: u32) -> result<string, string>;
+
+    /// Get comments on a discussion
     export get-discussion-comments: func(owner: string, repo: string, discussion-number: u32, page: option<u32>, per-page: option<u32>) -> result<string, string>;
+
+    /// List available discussion categories
     export list-discussion-categories: func(owner: string, repo: string) -> result<string, string>;
-    
+
     // Notifications
+
+    /// List notifications for the authenticated user
+    ///
+    /// Set all=true to include read notifications.
     export list-notifications: func(all: bool, page: option<u32>, per-page: option<u32>) -> result<string, string>;
+
+    /// Get details of a specific notification thread
     export get-notification-details: func(thread-id: string) -> result<string, string>;
+
+    /// Mark all notifications as read
     export mark-all-notifications-read: func() -> result<string, string>;
+
+    /// Dismiss a notification thread
     export dismiss-notification: func(thread-id: string) -> result<string, string>;
+
+    /// Subscribe or unsubscribe from a notification thread
     export manage-notification-subscription: func(thread-id: string, subscribed: bool) -> result<string, string>;
+
+    /// Subscribe or unsubscribe from repository notifications
     export manage-repository-notification-subscription: func(owner: string, repo: string, subscribed: bool) -> result<string, string>;
-    
+
     // Security - Code Scanning
+
+    /// List code scanning alerts for a repository
+    ///
+    /// Returns security vulnerabilities found by code scanning tools like CodeQL.
     export list-code-scanning-alerts: func(owner: string, repo: string, state: option<string>, ref: option<string>, page: option<u32>, per-page: option<u32>) -> result<string, string>;
+
+    /// Get details of a specific code scanning alert
     export get-code-scanning-alert: func(owner: string, repo: string, alert-number: u32) -> result<string, string>;
-    
+
     // Security - Secret Scanning
+
+    /// List secret scanning alerts for a repository
+    ///
+    /// Returns exposed secrets detected in the repository.
     export list-secret-scanning-alerts: func(owner: string, repo: string, state: option<string>, page: option<u32>, per-page: option<u32>) -> result<string, string>;
+
+    /// Get details of a specific secret scanning alert
     export get-secret-scanning-alert: func(owner: string, repo: string, alert-number: u32) -> result<string, string>;
-    
+
     // Security - Dependabot
+
+    /// List Dependabot alerts for a repository
+    ///
+    /// Returns known security vulnerabilities in dependencies.
     export list-dependabot-alerts: func(owner: string, repo: string, state: option<string>, page: option<u32>, per-page: option<u32>) -> result<string, string>;
+
+    /// Get details of a specific Dependabot alert
     export get-dependabot-alert: func(owner: string, repo: string, alert-number: u32) -> result<string, string>;
-    
+
     // Security - Security Advisories
+
+    /// List global security advisories
+    ///
+    /// Search the GitHub Advisory Database for known vulnerabilities.
     export list-global-security-advisories: func(cve-id: option<string>, ghsa-id: option<string>, page: option<u32>, per-page: option<u32>) -> result<string, string>;
+
+    /// Get a specific global security advisory
     export get-global-security-advisory: func(advisory-id: string) -> result<string, string>;
+
+    /// List security advisories for a repository
     export list-repository-security-advisories: func(owner: string, repo: string, state: option<string>, page: option<u32>, per-page: option<u32>) -> result<string, string>;
+
+    /// List security advisories for all repositories in an organization
     export list-org-repository-security-advisories: func(org: string, state: option<string>, page: option<u32>, per-page: option<u32>) -> result<string, string>;
-    
+
     // Stars
+
+    /// List repositories starred by the authenticated user
     export list-starred-repositories: func(page: option<u32>, per-page: option<u32>) -> result<string, string>;
+
+    /// Star a repository
     export star-repository: func(owner: string, repo: string) -> result<string, string>;
+
+    /// Unstar a repository
     export unstar-repository: func(owner: string, repo: string) -> result<string, string>;
-    
+
     // Projects
+
+    /// List projects for a user or organization
+    ///
+    /// Owner-type should be "user" or "organization".
     export list-projects: func(owner: string, owner-type: string, page: option<u32>, per-page: option<u32>) -> result<string, string>;
+
+    /// Get details of a specific project
     export get-project: func(owner: string, owner-type: string, project-number: u32) -> result<string, string>;
+
+    /// List fields (columns) in a project
+    ///
+    /// Returns custom fields configured for the project board.
     export list-project-fields: func(owner: string, owner-type: string, project-number: u32, page: option<u32>, per-page: option<u32>) -> result<string, string>;
+
+    /// Get details of a specific project field
     export get-project-field: func(owner: string, owner-type: string, project-number: u32, field-id: string) -> result<string, string>;
+
+    /// List items in a project
+    ///
+    /// Optionally filter items using a query string.
     export list-project-items: func(owner: string, owner-type: string, project-number: u32, query: option<string>, page: option<u32>, per-page: option<u32>) -> result<string, string>;
+
+    /// Get details of a specific project item
     export get-project-item: func(owner: string, owner-type: string, project-number: u32, item-id: u32) -> result<string, string>;
+
+    /// Add an item to a project
+    ///
+    /// Content-id is the node ID of the issue or pull request to add.
     export add-project-item: func(owner: string, owner-type: string, project-number: u32, content-id: string) -> result<string, string>;
+
+    /// Update a project item's field value
+    ///
+    /// Updates custom field values for an item in the project.
     export update-project-item: func(owner: string, owner-type: string, project-number: u32, item-id: u32, field-id: string, value: string) -> result<string, string>;
+
+    /// Remove an item from a project
     export delete-project-item: func(owner: string, owner-type: string, project-number: u32, item-id: u32) -> result<string, string>;
 }

@@ -6,47 +6,49 @@ import { get } from "wasi:config/store@0.2.0-draft";
 // Helper function to get GitHub token
 async function getGitHubToken() {
   const token = await get("GITHUB_TOKEN");
-  if (token === undefined) {
-    throw new Error("GITHUB_TOKEN is not set");
+  if (token === undefined || token === null) {
+    throw "GITHUB_TOKEN is not set";
   }
-  return token;
+  // Ensure token is a string
+  return String(token);
 }
 
 // Helper function to make GitHub API requests
 async function githubApiRequest(endpoint, options = {}) {
   const token = await getGitHubToken();
   const baseUrl = "https://api.github.com";
-  
+
   const headers = {
     "Authorization": `Bearer ${token}`,
     "Accept": "application/vnd.github+json",
     "X-GitHub-Api-Version": "2022-11-28",
+    "User-Agent": "wasmtime-mcp-github",
     ...options.headers
   };
-  
+
   const url = `${baseUrl}${endpoint}`;
   const fetchOptions = {
     ...options,
     headers
   };
-  
+
   try {
     const response = await fetch(url, fetchOptions);
-    
+
     if (!response.ok) {
       const errorText = await response.text();
-      throw new Error(`GitHub API error (${response.status}): ${errorText}`);
+      throw `GitHub API error (${response.status}): ${errorText}`;
     }
-    
+
     // Handle empty responses (like 204 No Content)
     if (response.status === 204) {
       return JSON.stringify({ success: true });
     }
-    
+
     const data = await response.json();
     return JSON.stringify(data, null, 2);
   } catch (error) {
-    throw new Error(`Failed to fetch ${endpoint}: ${error.message}`);
+    throw `Failed to fetch ${endpoint}: ${error}`;
   }
 }
 
