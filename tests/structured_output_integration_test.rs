@@ -34,7 +34,7 @@ async fn test_structured_output_integration() -> Result<()> {
 
     // Start wassette mcp server with stdio transport (default)
     let mut child = Command::new(&binary_path)
-        .args(["serve", &component_dir_arg])
+        .args(["run", &component_dir_arg])
         .env("RUST_LOG", "off") // Disable logs to avoid stdout pollution
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())

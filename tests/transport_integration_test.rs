@@ -453,9 +453,9 @@ async fn test_mixed_transport_fails() -> Result<()> {
         .context("Failed to get current directory")?
         .join("target/debug/wassette");
 
+    // Test mixing HTTP transport flags (--sse and --streamable-http)
+    // Note: --stdio is no longer part of serve command, it's now in the run command
     let combinations = [
-        ["--sse", "--stdio"],
-        ["--stdio", "--streamable-http"],
         ["--sse", "--streamable-http"],
     ];
 
@@ -518,7 +518,7 @@ async fn test_stdio_transport() -> Result<()> {
 
     // Start the server with stdio transport (disable logs to avoid stdout pollution)
     let mut child = tokio::process::Command::new(&binary_path)
-        .args(["serve", &component_dir_arg])
+        .args(["run", &component_dir_arg])
         .env("RUST_LOG", "off")
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
@@ -663,7 +663,7 @@ async fn test_tool_list_notification() -> Result<()> {
 
     // Start the server with stdio transport (disable logs to avoid stdout pollution)
     let mut child = tokio::process::Command::new(&binary_path)
-        .args(["serve", &component_dir_arg])
+        .args(["run", &component_dir_arg])
         .env("RUST_LOG", "off")
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
@@ -957,15 +957,15 @@ async fn test_default_stdio_transport() -> Result<()> {
         .context("Failed to get current directory")?
         .join("target/debug/wassette");
 
-    // Start the server without any transport flags (should default to stdio)
+    // Start the server with run command (uses stdio transport)
     let mut child = tokio::process::Command::new(&binary_path)
-        .args(["serve", &component_dir_arg])
+        .args(["run", &component_dir_arg])
         .env("RUST_LOG", "off")
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
-        .context("Failed to start wassette with default transport")?;
+        .context("Failed to start wassette with stdio transport")?;
 
     let stdin = child.stdin.take().context("Failed to get stdin handle")?;
     let stdout = child.stdout.take().context("Failed to get stdout handle")?;
@@ -1063,7 +1063,7 @@ async fn test_disable_builtin_tools() -> Result<()> {
 
     // Start the server with stdio transport and disable-builtin-tools flag
     let mut child = tokio::process::Command::new(&binary_path)
-        .args(["serve", &component_dir_arg, "--disable-builtin-tools"])
+        .args(["run", &component_dir_arg, "--disable-builtin-tools"])
         .env("RUST_LOG", "off")
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
