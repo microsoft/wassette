@@ -915,7 +915,7 @@ mod cli_tests {
         let args = vec!["wassette", "autocomplete", "bash"];
         let cli = Cli::try_parse_from(args).unwrap();
         if let Some(Commands::Autocomplete { shell }) = cli.command {
-            matches!(shell, Shell::Bash);
+            assert!(matches!(shell, Shell::Bash));
         } else {
             panic!("Expected autocomplete command");
         }
@@ -924,7 +924,7 @@ mod cli_tests {
         let args = vec!["wassette", "autocomplete", "zsh"];
         let cli = Cli::try_parse_from(args).unwrap();
         if let Some(Commands::Autocomplete { shell }) = cli.command {
-            matches!(shell, Shell::Zsh);
+            assert!(matches!(shell, Shell::Zsh));
         } else {
             panic!("Expected autocomplete command");
         }
@@ -933,7 +933,7 @@ mod cli_tests {
         let args = vec!["wassette", "autocomplete", "fish"];
         let cli = Cli::try_parse_from(args).unwrap();
         if let Some(Commands::Autocomplete { shell }) = cli.command {
-            matches!(shell, Shell::Fish);
+            assert!(matches!(shell, Shell::Fish));
         } else {
             panic!("Expected autocomplete command");
         }
@@ -942,7 +942,7 @@ mod cli_tests {
         let args = vec!["wassette", "autocomplete", "power-shell"];
         let cli = Cli::try_parse_from(args).unwrap();
         if let Some(Commands::Autocomplete { shell }) = cli.command {
-            matches!(shell, Shell::PowerShell);
+            assert!(matches!(shell, Shell::PowerShell));
         } else {
             panic!("Expected autocomplete command");
         }
@@ -951,7 +951,7 @@ mod cli_tests {
         let args = vec!["wassette", "autocomplete", "elvish"];
         let cli = Cli::try_parse_from(args).unwrap();
         if let Some(Commands::Autocomplete { shell }) = cli.command {
-            matches!(shell, Shell::Elvish);
+            assert!(matches!(shell, Shell::Elvish));
         } else {
             panic!("Expected autocomplete command");
         }
