@@ -455,9 +455,7 @@ async fn test_mixed_transport_fails() -> Result<()> {
 
     // Test mixing HTTP transport flags (--sse and --streamable-http)
     // Note: --stdio is no longer part of serve command, it's now in the run command
-    let combinations = [
-        ["--sse", "--streamable-http"],
-    ];
+    let combinations = [["--sse", "--streamable-http"]];
 
     for combo in combinations {
         // Start the server with the current combination of transports (should fail)
