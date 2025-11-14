@@ -186,12 +186,6 @@ impl IpcClient {
     }
 }
 
-impl Default for IpcClient {
-    fn default() -> Self {
-        Self::new().expect("Failed to create default IPC client")
-    }
-}
-
 /// Read secrets from stdin in KEY=VALUE format
 pub fn read_secrets_from_stdin() -> Result<Vec<(String, String)>> {
     let mut secrets = Vec::new();
