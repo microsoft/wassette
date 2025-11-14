@@ -21,7 +21,7 @@ mod cli_handlers;
 mod commands;
 mod config;
 mod format;
-mod ipc_client;
+pub mod ipc_client;
 mod manifest;
 mod permission_synthesis;
 mod provisioning_controller;
@@ -525,13 +525,14 @@ async fn main() -> Result<()> {
                 } => {
                     // Try IPC first
                     let ipc_client = ipc_client::IpcClient::new()?;
-                    
+
                     // Prompt for confirmation if showing values
-                    if *show_values && !*yes {
-                        if !ipc_client::prompt_confirmation("Show secret values?")? {
-                            println!("Cancelled.");
-                            return Ok(());
-                        }
+                    if *show_values
+                        && !*yes
+                        && !ipc_client::prompt_confirmation("Show secret values?")?
+                    {
+                        println!("Cancelled.");
+                        return Ok(());
                     }
 
                     let response = ipc_client.list_secrets(component_id, *show_values).await?;
@@ -544,7 +545,9 @@ async fn main() -> Result<()> {
                     let result = if *show_values {
                         // Response has { "secrets": { "key": "value", ... } }
                         if let Some(data) = response.data {
-                            if let Some(secrets_obj) = data.get("secrets").and_then(|v| v.as_object()) {
+                            if let Some(secrets_obj) =
+                                data.get("secrets").and_then(|v| v.as_object())
+                            {
                                 secrets_obj
                                     .iter()
                                     .map(|(k, v)| {
@@ -600,7 +603,9 @@ async fn main() -> Result<()> {
                     // Read secrets from stdin if --stdin flag is set
                     let secrets_to_set = if *stdin {
                         if !secrets.is_empty() {
-                            eprintln!("Warning: Ignoring command-line secrets when --stdin is used");
+                            eprintln!(
+                                "Warning: Ignoring command-line secrets when --stdin is used"
+                            );
                         }
                         ipc_client::read_secrets_from_stdin()?
                     } else {
@@ -613,7 +618,7 @@ async fn main() -> Result<()> {
 
                     // Try IPC
                     let ipc_client = ipc_client::IpcClient::new()?;
-                    
+
                     // Send each secret via IPC
                     for (key, value) in &secrets_to_set {
                         let response = ipc_client.set_secret(component_id, key, value).await?;
@@ -660,7 +665,7 @@ async fn main() -> Result<()> {
 
                     // Try IPC
                     let ipc_client = ipc_client::IpcClient::new()?;
-                    
+
                     // Delete each secret via IPC
                     for key in keys {
                         let response = ipc_client.delete_secret(component_id, key).await?;

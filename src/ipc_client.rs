@@ -33,7 +33,6 @@ impl IpcClient {
     }
 
     /// Create a new IPC client with a custom socket path
-    #[allow(dead_code)]
     pub fn with_socket_path(socket_path: PathBuf) -> Self {
         Self {
             socket_path,
@@ -42,7 +41,6 @@ impl IpcClient {
     }
 
     /// Set the timeout duration for requests
-    #[allow(dead_code)]
     pub fn with_timeout(mut self, duration: Duration) -> Self {
         self.timeout_duration = duration;
         self
@@ -105,8 +103,8 @@ impl IpcClient {
         let mut reader = BufReader::new(stream);
 
         // Serialize and send command
-        let command_json = serde_json::to_string(&command)
-            .context("Failed to serialize command to JSON")?;
+        let command_json =
+            serde_json::to_string(&command).context("Failed to serialize command to JSON")?;
 
         timeout(
             self.timeout_duration,
@@ -116,32 +114,22 @@ impl IpcClient {
         .context("Write timeout")?
         .context("Failed to write command to socket")?;
 
-        timeout(
-            self.timeout_duration,
-            reader.get_mut().write_all(b"\n"),
-        )
-        .await
-        .context("Write timeout")?
-        .context("Failed to write newline to socket")?;
+        timeout(self.timeout_duration, reader.get_mut().write_all(b"\n"))
+            .await
+            .context("Write timeout")?
+            .context("Failed to write newline to socket")?;
 
         // Read response
         let mut response_line = String::new();
-        timeout(
-            self.timeout_duration,
-            reader.read_line(&mut response_line),
-        )
-        .await
-        .context("Response timeout - server may be unresponsive")?
-        .context("Failed to read response from socket")?;
+        timeout(self.timeout_duration, reader.read_line(&mut response_line))
+            .await
+            .context("Response timeout - server may be unresponsive")?
+            .context("Failed to read response from socket")?;
 
         // Parse response
-        let response: IpcResponse = serde_json::from_str(&response_line)
-            .with_context(|| {
-                format!(
-                    "Failed to parse server response as JSON: {}",
-                    response_line
-                )
-            })?;
+        let response: IpcResponse = serde_json::from_str(&response_line).with_context(|| {
+            format!("Failed to parse server response as JSON: {}", response_line)
+        })?;
 
         Ok(response)
     }
@@ -183,11 +171,7 @@ impl IpcClient {
     }
 
     /// Helper method to list secrets
-    pub async fn list_secrets(
-        &self,
-        component_id: &str,
-        show_values: bool,
-    ) -> Result<IpcResponse> {
+    pub async fn list_secrets(&self, component_id: &str, show_values: bool) -> Result<IpcResponse> {
         let command = IpcCommand::ListSecrets {
             component_id: component_id.to_string(),
             show_values,
@@ -196,7 +180,6 @@ impl IpcClient {
     }
 
     /// Helper method to ping the server
-    #[allow(dead_code)]
     pub async fn ping(&self) -> Result<IpcResponse> {
         let command = IpcCommand::Ping;
         self.send_command(command).await
@@ -218,7 +201,7 @@ pub fn read_secrets_from_stdin() -> Result<Vec<(String, String)>> {
     loop {
         buffer.clear();
         let bytes_read = std::io::BufRead::read_line(&mut stdin.lock(), &mut buffer)?;
-        
+
         // EOF reached
         if bytes_read == 0 {
             break;
@@ -243,7 +226,10 @@ pub fn read_secrets_from_stdin() -> Result<Vec<(String, String)>> {
 
             secrets.push((key, value));
         } else {
-            eprintln!("Warning: Skipping invalid line (expected KEY=VALUE): {}", line);
+            eprintln!(
+                "Warning: Skipping invalid line (expected KEY=VALUE): {}",
+                line
+            );
         }
     }
 
@@ -280,7 +266,9 @@ mod tests {
 
     #[test]
     fn test_ipc_client_with_timeout() {
-        let client = IpcClient::new().unwrap().with_timeout(Duration::from_secs(10));
+        let client = IpcClient::new()
+            .unwrap()
+            .with_timeout(Duration::from_secs(10));
         assert_eq!(client.timeout_duration, Duration::from_secs(10));
     }
 }
