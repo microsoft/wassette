@@ -6,8 +6,6 @@ on:
 
 permissions: read-all
 
-network: defaults
-
 safe-outputs:
   add-labels:
     max: 5
