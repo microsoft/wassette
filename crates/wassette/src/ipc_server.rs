@@ -24,83 +24,12 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use anyhow::{Context, Result};
-use serde::{Deserialize, Serialize};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::sync::mpsc;
 use tracing::{debug, error, info, warn};
 
+use crate::ipc_protocol::{IpcCommand, IpcResponse};
 use crate::SecretsManager;
-
-/// IPC request format
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(tag = "command")]
-pub enum IpcRequest {
-    /// Ping command for testing
-    #[serde(rename = "ping")]
-    Ping,
-    /// Set a secret for a component
-    #[serde(rename = "set_secret")]
-    SetSecret {
-        /// Component identifier
-        component_id: String,
-        /// Secret key
-        key: String,
-        /// Secret value
-        value: String,
-    },
-    /// Delete a secret from a component
-    #[serde(rename = "delete_secret")]
-    DeleteSecret {
-        /// Component identifier
-        component_id: String,
-        /// Secret key
-        key: String,
-    },
-    /// List secrets for a component
-    #[serde(rename = "list_secrets")]
-    ListSecrets {
-        /// Component identifier
-        component_id: String,
-    },
-}
-
-/// IPC response format
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct IpcResponse {
-    /// Response status ("success" or "error")
-    pub status: String,
-    /// Response message
-    pub message: String,
-    /// Optional response data
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub data: Option<serde_json::Value>,
-}
-
-impl IpcResponse {
-    fn success(message: impl Into<String>) -> Self {
-        Self {
-            status: "success".to_string(),
-            message: message.into(),
-            data: None,
-        }
-    }
-
-    fn success_with_data(message: impl Into<String>, data: serde_json::Value) -> Self {
-        Self {
-            status: "success".to_string(),
-            message: message.into(),
-            data: Some(data),
-        }
-    }
-
-    fn error(message: impl Into<String>) -> Self {
-        Self {
-            status: "error".to_string(),
-            message: message.into(),
-            data: None,
-        }
-    }
-}
 
 /// IPC server configuration
 #[derive(Debug, Clone)]
@@ -194,12 +123,12 @@ impl IpcServer {
 
 /// Handle a single IPC request
 async fn handle_request(
-    request: IpcRequest,
+    request: IpcCommand,
     secrets_manager: &SecretsManager,
 ) -> Result<IpcResponse> {
     match &request {
-        IpcRequest::Ping => debug!("Handling IPC request: Ping"),
-        IpcRequest::SetSecret {
+        IpcCommand::Ping => debug!("Handling IPC request: Ping"),
+        IpcCommand::SetSecret {
             component_id, key, ..
         } => {
             debug!(
@@ -207,13 +136,13 @@ async fn handle_request(
                 component_id, key
             )
         }
-        IpcRequest::DeleteSecret { component_id, key } => {
+        IpcCommand::DeleteSecret { component_id, key } => {
             debug!(
                 "Handling IPC request: DeleteSecret for component: {}, key: {}",
                 component_id, key
             )
         }
-        IpcRequest::ListSecrets { component_id } => {
+        IpcCommand::ListSecrets { component_id, .. } => {
             debug!(
                 "Handling IPC request: ListSecrets for component: {}",
                 component_id
@@ -222,9 +151,9 @@ async fn handle_request(
     }
 
     match request {
-        IpcRequest::Ping => Ok(IpcResponse::success("pong")),
+        IpcCommand::Ping => Ok(IpcResponse::success("pong")),
 
-        IpcRequest::SetSecret {
+        IpcCommand::SetSecret {
             component_id,
             key,
             value,
@@ -239,7 +168,7 @@ async fn handle_request(
             )))
         }
 
-        IpcRequest::DeleteSecret { component_id, key } => {
+        IpcCommand::DeleteSecret { component_id, key } => {
             secrets_manager
                 .delete_component_secrets(&component_id, std::slice::from_ref(&key))
                 .await
@@ -250,16 +179,31 @@ async fn handle_request(
             )))
         }
 
-        IpcRequest::ListSecrets { component_id } => {
+        IpcCommand::ListSecrets {
+            component_id,
+            show_values,
+        } => {
             let secrets = secrets_manager
-                .list_component_secrets(&component_id, false)
+                .list_component_secrets(&component_id, show_values)
                 .await
                 .context("Failed to list secrets")?;
-            let keys: Vec<String> = secrets.into_keys().collect();
-            Ok(IpcResponse::success_with_data(
-                format!("Listed {} secret(s)", keys.len()),
-                serde_json::json!({ "keys": keys }),
-            ))
+
+            if show_values {
+                let secrets_map: std::collections::HashMap<String, String> = secrets
+                    .into_iter()
+                    .filter_map(|(k, v)| v.map(|val| (k, val)))
+                    .collect();
+                Ok(IpcResponse::success_with_data(
+                    format!("Listed {} secret(s) with values", secrets_map.len()),
+                    serde_json::json!({ "secrets": secrets_map }),
+                ))
+            } else {
+                let keys: Vec<String> = secrets.into_keys().collect();
+                Ok(IpcResponse::success_with_data(
+                    format!("Listed {} secret(s)", keys.len()),
+                    serde_json::json!({ "keys": keys }),
+                ))
+            }
         }
     }
 }
@@ -375,7 +319,7 @@ mod unix_impl {
                     break;
                 }
                 Ok(_) => {
-                    let request: IpcRequest = match serde_json::from_str(&line) {
+                    let request: IpcCommand = match serde_json::from_str(&line) {
                         Ok(req) => req,
                         Err(e) => {
                             error!("Failed to parse request: {}", e);
@@ -542,18 +486,18 @@ mod tests {
 
     #[tokio::test]
     async fn test_ipc_request_serialization() {
-        let request = IpcRequest::Ping;
+        let request = IpcCommand::Ping;
         let json = serde_json::to_string(&request).unwrap();
         assert_eq!(json, r#"{"command":"ping"}"#);
 
-        let request = IpcRequest::SetSecret {
+        let request = IpcCommand::SetSecret {
             component_id: "test".to_string(),
             key: "API_KEY".to_string(),
             value: "secret123".to_string(),
         };
         let json = serde_json::to_string(&request).unwrap();
-        let parsed: IpcRequest = serde_json::from_str(&json).unwrap();
-        assert!(matches!(parsed, IpcRequest::SetSecret { .. }));
+        let parsed: IpcCommand = serde_json::from_str(&json).unwrap();
+        assert!(matches!(parsed, IpcCommand::SetSecret { .. }));
     }
 
     #[tokio::test]
@@ -574,7 +518,7 @@ mod tests {
         let secrets_dir = temp_dir.path().join("secrets");
         let secrets_manager = SecretsManager::new(secrets_dir);
 
-        let request = IpcRequest::Ping;
+        let request = IpcCommand::Ping;
         let response = handle_request(request, &secrets_manager).await.unwrap();
 
         assert_eq!(response.status, "success");
@@ -588,7 +532,7 @@ mod tests {
         let secrets_manager = SecretsManager::new(secrets_dir);
         secrets_manager.ensure_secrets_dir().await.unwrap();
 
-        let request = IpcRequest::SetSecret {
+        let request = IpcCommand::SetSecret {
             component_id: "test-component".to_string(),
             key: "API_KEY".to_string(),
             value: "secret123".to_string(),
@@ -624,8 +568,9 @@ mod tests {
             .await
             .unwrap();
 
-        let request = IpcRequest::ListSecrets {
+        let request = IpcCommand::ListSecrets {
             component_id: "test-component".to_string(),
+            show_values: false,
         };
 
         let response = handle_request(request, &secrets_manager).await.unwrap();
@@ -653,7 +598,7 @@ mod tests {
             .await
             .unwrap();
 
-        let request = IpcRequest::DeleteSecret {
+        let request = IpcCommand::DeleteSecret {
             component_id: "test-component".to_string(),
             key: "API_KEY".to_string(),
         };

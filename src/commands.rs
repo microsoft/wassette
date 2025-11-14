@@ -377,10 +377,14 @@ pub enum SecretCommands {
     /// Set secrets for a component.
     Set {
         /// Component ID to set secrets for
+        #[arg(long)]
         component_id: String,
         /// Secrets in KEY=VALUE format. Can be specified multiple times.
         #[arg(value_parser = crate::parse_env_var)]
         secrets: Vec<(String, String)>,
+        /// Read secrets from stdin (one per line in KEY=VALUE format)
+        #[arg(long)]
+        stdin: bool,
         /// Directory where components are stored. Defaults to $XDG_DATA_HOME/wassette/components
         #[arg(long)]
         component_dir: Option<PathBuf>,
@@ -388,9 +392,13 @@ pub enum SecretCommands {
     /// Delete secrets for a component.
     Delete {
         /// Component ID to delete secrets from
+        #[arg(long)]
         component_id: String,
         /// Secret keys to delete
         keys: Vec<String>,
+        /// Skip confirmation prompt
+        #[arg(long)]
+        yes: bool,
         /// Directory where components are stored. Defaults to $XDG_DATA_HOME/wassette/components
         #[arg(long)]
         component_dir: Option<PathBuf>,

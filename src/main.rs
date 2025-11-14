@@ -21,6 +21,7 @@ mod cli_handlers;
 mod commands;
 mod config;
 mod format;
+mod ipc_client;
 mod manifest;
 mod permission_synthesis;
 mod provisioning_controller;
@@ -519,42 +520,60 @@ async fn main() -> Result<()> {
                     component_id,
                     show_values,
                     yes,
-                    component_dir,
+                    component_dir: _,
                     output_format,
                 } => {
-                    let lifecycle_manager = create_lifecycle_manager(component_dir.clone()).await?;
-
+                    // Try IPC first
+                    let ipc_client = ipc_client::IpcClient::new()?;
+                    
                     // Prompt for confirmation if showing values
                     if *show_values && !*yes {
-                        print!("Show secret values? [y/N]: ");
-                        std::io::Write::flush(&mut std::io::stdout())?;
-                        let mut input = String::new();
-                        std::io::stdin().read_line(&mut input)?;
-                        if !input.trim().eq_ignore_ascii_case("y") {
+                        if !ipc_client::prompt_confirmation("Show secret values?")? {
                             println!("Cancelled.");
                             return Ok(());
                         }
                     }
 
-                    let secrets = lifecycle_manager
-                        .list_component_secrets(component_id, *show_values)
-                        .await?;
+                    let response = ipc_client.list_secrets(component_id, *show_values).await?;
 
+                    if response.is_error() {
+                        bail!("Failed to list secrets: {}", response.message);
+                    }
+
+                    // Extract secrets from response data
                     let result = if *show_values {
-                        secrets
-                            .into_iter()
-                            .map(|(k, v)| {
-                                json!({
-                                    "key": k,
-                                    "value": v.unwrap_or_else(|| "<not found>".to_string())
-                                })
-                            })
-                            .collect::<Vec<_>>()
+                        // Response has { "secrets": { "key": "value", ... } }
+                        if let Some(data) = response.data {
+                            if let Some(secrets_obj) = data.get("secrets").and_then(|v| v.as_object()) {
+                                secrets_obj
+                                    .iter()
+                                    .map(|(k, v)| {
+                                        json!({
+                                            "key": k,
+                                            "value": v.as_str().unwrap_or("<invalid>")
+                                        })
+                                    })
+                                    .collect::<Vec<_>>()
+                            } else {
+                                Vec::new()
+                            }
+                        } else {
+                            Vec::new()
+                        }
                     } else {
-                        secrets
-                            .into_keys()
-                            .map(|k| json!({"key": k}))
-                            .collect::<Vec<_>>()
+                        // Response has { "keys": ["key1", "key2", ...] }
+                        if let Some(data) = response.data {
+                            if let Some(keys) = data.get("keys").and_then(|v| v.as_array()) {
+                                keys.iter()
+                                    .filter_map(|k| k.as_str())
+                                    .map(|k| json!({"key": k}))
+                                    .collect::<Vec<_>>()
+                            } else {
+                                Vec::new()
+                            }
+                        } else {
+                            Vec::new()
+                        }
                     };
 
                     print_result(
@@ -562,7 +581,8 @@ async fn main() -> Result<()> {
                             content: Some(vec![rmcp::model::Content::text(
                                 serde_json::to_string_pretty(&json!({
                                     "component_id": component_id,
-                                    "secrets": result
+                                    "secrets": result,
+                                    "message": response.message
                                 }))?,
                             )]),
                             structured_content: None,
@@ -574,17 +594,38 @@ async fn main() -> Result<()> {
                 SecretCommands::Set {
                     component_id,
                     secrets,
-                    component_dir,
+                    stdin,
+                    component_dir: _,
                 } => {
-                    let lifecycle_manager = create_lifecycle_manager(component_dir.clone()).await?;
-                    lifecycle_manager
-                        .set_component_secrets(component_id, secrets)
-                        .await?;
+                    // Read secrets from stdin if --stdin flag is set
+                    let secrets_to_set = if *stdin {
+                        if !secrets.is_empty() {
+                            eprintln!("Warning: Ignoring command-line secrets when --stdin is used");
+                        }
+                        ipc_client::read_secrets_from_stdin()?
+                    } else {
+                        secrets.clone()
+                    };
+
+                    if secrets_to_set.is_empty() {
+                        bail!("No secrets provided. Use KEY=VALUE arguments or --stdin to read from stdin.");
+                    }
+
+                    // Try IPC
+                    let ipc_client = ipc_client::IpcClient::new()?;
+                    
+                    // Send each secret via IPC
+                    for (key, value) in &secrets_to_set {
+                        let response = ipc_client.set_secret(component_id, key, value).await?;
+                        if response.is_error() {
+                            bail!("Failed to set secret '{}': {}", key, response.message);
+                        }
+                    }
 
                     let result = json!({
                         "status": "success",
                         "component_id": component_id,
-                        "message": format!("Set {} secret(s) for component", secrets.len())
+                        "message": format!("Set {} secret(s) for component", secrets_to_set.len())
                     });
 
                     print_result(
@@ -601,12 +642,32 @@ async fn main() -> Result<()> {
                 SecretCommands::Delete {
                     component_id,
                     keys,
-                    component_dir,
+                    yes,
+                    component_dir: _,
                 } => {
-                    let lifecycle_manager = create_lifecycle_manager(component_dir.clone()).await?;
-                    lifecycle_manager
-                        .delete_component_secrets(component_id, keys)
-                        .await?;
+                    // Prompt for confirmation unless --yes flag is set
+                    if !*yes {
+                        let message = format!(
+                            "Delete {} secret(s) from component '{}'?",
+                            keys.len(),
+                            component_id
+                        );
+                        if !ipc_client::prompt_confirmation(&message)? {
+                            println!("Cancelled.");
+                            return Ok(());
+                        }
+                    }
+
+                    // Try IPC
+                    let ipc_client = ipc_client::IpcClient::new()?;
+                    
+                    // Delete each secret via IPC
+                    for key in keys {
+                        let response = ipc_client.delete_secret(component_id, key).await?;
+                        if response.is_error() {
+                            bail!("Failed to delete secret '{}': {}", key, response.message);
+                        }
+                    }
 
                     let result = json!({
                         "status": "success",
