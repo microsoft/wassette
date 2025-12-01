@@ -14,7 +14,7 @@ license-file = "LICENSE"
 [workspace.dependencies]
 anyhow = "1.0"
 component2json = { path = "crates/component2json" }
-etcetera = "0.10"
+etcetera = "0.11"
 futures = "0.3"
 wassette = { path = "crates/wassette" }
 mcp-sdk = "0.0.3"

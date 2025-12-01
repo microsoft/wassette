@@ -1146,6 +1146,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "etcetera"
+version = "0.11.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "de48cc4d1c1d97a20fd819def54b890cadde72ed3ad0c614822a0a433361be96"
+dependencies = [
+ "cfg-if",
+ "windows-sys 0.61.2",
+]
+
+[[package]]
 name = "fallible-iterator"
 version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3709,7 +3719,7 @@ dependencies = [
  "bytes",
  "docker_credential",
  "either",
- "etcetera",
+ "etcetera 0.10.0",
  "futures",
  "log",
  "memchr",
@@ -4845,7 +4855,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "component2json",
- "etcetera",
+ "etcetera 0.11.0",
  "futures",
  "hex",
  "http",
@@ -4886,7 +4896,7 @@ dependencies = [
  "bytes",
  "clap",
  "clap_complete",
- "etcetera",
+ "etcetera 0.11.0",
  "figment",
  "futures-util",
  "hex",
