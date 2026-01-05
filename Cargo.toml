@@ -22,7 +22,7 @@ mcp-server = { path = "crates/mcp-server" }
 oci-client = "0.15"
 oci-wasm = "0.3"
 policy = { path = "crates/policy" }
-reqwest = "0.12"
+reqwest = "0.13"
 rmcp = "0.9.1"
 serde = "1.0"
 serde_json = "1.0"
