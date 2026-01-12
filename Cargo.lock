@@ -1212,7 +1212,18 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "39cab71617ae0d63f51a36d69f866391735b51691dbda63cf6f96d042b63efeb"
 dependencies = [
  "libc",
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
+]
+
+[[package]]
+name = "etcetera"
+version = "0.10.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "26c7b13d0780cb82722fd59f6f57f925e143427e4a75313a6c77243bf5326ae6"
+dependencies = [
+ "cfg-if",
+ "home",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -1246,17 +1257,6 @@ dependencies = [
  "cfg-if",
  "rustix 1.1.3",
  "windows-sys 0.59.0",
-]
-
-[[package]]
-name = "ferroid"
-version = "0.8.9"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bb330bbd4cb7a5b9f559427f06f98a4f853a137c8298f3bd3f8ca57663e21986"
-dependencies = [
- "portable-atomic",
- "rand 0.9.2",
- "web-time",
 ]
 
 [[package]]
@@ -2317,7 +2317,7 @@ version = "0.50.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7957b9740744892f114936ab4a57b3f487491bbeafaf8083688b16841a4240e5"
 dependencies = [
- "windows-sys 0.59.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -3138,16 +3138,20 @@ checksum = "eddd3ca559203180a307f12d114c268abf583f59b03cb906fd0b3ff8646c1147"
 dependencies = [
  "base64 0.22.1",
  "bytes",
+ "encoding_rs",
  "futures-core",
  "futures-util",
+ "h2",
  "http",
  "http-body",
  "http-body-util",
  "hyper",
+ "hyper-rustls",
  "hyper-tls",
  "hyper-util",
  "js-sys",
  "log",
+ "mime",
  "native-tls",
  "percent-encoding",
  "pin-project-lite",
@@ -3195,8 +3199,6 @@ dependencies = [
  "rustls 0.23.35",
  "rustls-pki-types",
  "rustls-platform-verifier",
- "serde",
- "serde_json",
  "sync_wrapper",
  "tokio",
  "tokio-rustls 0.26.4",
@@ -3312,7 +3314,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys 0.11.0",
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -3934,7 +3936,7 @@ dependencies = [
  "getrandom 0.3.4",
  "once_cell",
  "rustix 1.1.3",
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -3970,9 +3972,9 @@ dependencies = [
 
 [[package]]
 name = "testcontainers"
-version = "0.26.3"
+version = "0.25.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a81ec0158db5fbb9831e09d1813fe5ea9023a2b5e6e8e0a5fe67e2a820733629"
+checksum = "3f3ac71069f20ecfa60c396316c283fbf35e6833a53dff551a31b5458da05edc"
 dependencies = [
  "astral-tokio-tar",
  "async-trait",
@@ -3980,10 +3982,8 @@ dependencies = [
  "bytes",
  "docker_credential",
  "either",
- "etcetera",
- "ferroid",
+ "etcetera 0.10.0",
  "futures",
- "itertools 0.14.0",
  "log",
  "memchr",
  "parse-display",
@@ -3995,6 +3995,7 @@ dependencies = [
  "tokio",
  "tokio-stream",
  "tokio-util",
+ "ulid",
  "url",
 ]
 
@@ -4423,6 +4424,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "562d481066bde0658276a35467c4af00bdc6ee726305698a55b86e61d7ad82bb"
 
 [[package]]
+name = "ulid"
+version = "1.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "470dbf6591da1b39d43c14523b2b469c86879a53e8b758c8e090a470fe7b1fbe"
+dependencies = [
+ "rand 0.9.2",
+ "web-time",
+]
+
+[[package]]
 name = "unarray"
 version = "0.1.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4692,12 +4703,12 @@ dependencies = [
 
 [[package]]
 name = "wasm-encoder"
-version = "0.243.0"
+version = "0.244.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c55db9c896d70bd9fa535ce83cd4e1f2ec3726b0edd2142079f594fc3be1cb35"
+checksum = "990065f2fe63003fe337b932cfb5e3b80e0b4d0f5ff650e6985b1048f62c8319"
 dependencies = [
  "leb128fmt",
- "wasmparser 0.243.0",
+ "wasmparser 0.244.0",
 ]
 
 [[package]]
@@ -4761,6 +4772,17 @@ dependencies = [
  "indexmap 2.12.0",
  "semver",
  "serde",
+]
+
+[[package]]
+name = "wasmparser"
+version = "0.244.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "47b807c72e1bac69382b3a6fb3dbe8ea4c0ed87ff5629b8685ae6b9a611028fe"
+dependencies = [
+ "bitflags",
+ "indexmap 2.12.0",
+ "semver",
 ]
 
 [[package]]
@@ -5117,7 +5139,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "component2json",
- "etcetera",
+ "etcetera 0.11.0",
  "futures",
  "hex",
  "http",
@@ -5158,7 +5180,7 @@ dependencies = [
  "bytes",
  "clap",
  "clap_complete",
- "etcetera",
+ "etcetera 0.11.0",
  "figment",
  "futures-util",
  "hex",
@@ -5172,6 +5194,7 @@ dependencies = [
  "proptest",
  "rand 0.9.2",
  "rcgen",
+ "reqwest 0.12.28",
  "reqwest 0.13.1",
  "rmcp",
  "rustls 0.23.35",
@@ -5203,24 +5226,24 @@ dependencies = [
 
 [[package]]
 name = "wast"
-version = "243.0.0"
+version = "244.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "df21d01c2d91e46cb7a221d79e58a2d210ea02020d57c092e79255cc2999ca7f"
+checksum = "b2e7b9f9e23311275920e3d6b56d64137c160cf8af4f84a7283b36cfecbf4acb"
 dependencies = [
  "bumpalo",
  "leb128fmt",
  "memchr",
  "unicode-width",
- "wasm-encoder 0.243.0",
+ "wasm-encoder 0.244.0",
 ]
 
 [[package]]
 name = "wat"
-version = "1.243.0"
+version = "1.244.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "226a9a91cd80a50449312fef0c75c23478fcecfcc4092bdebe1dc8e760ef521b"
+checksum = "bbf35b87ed352f9ab6cd0732abde5a67dd6153dfd02c493e61459218b19456fa"
 dependencies = [
- "wast 243.0.0",
+ "wast 244.0.0",
 ]
 
 [[package]]
@@ -5333,7 +5356,7 @@ version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22"
 dependencies = [
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
