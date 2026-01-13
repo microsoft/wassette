@@ -1,0 +1,99 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "wassette.fullname" . }}
+  labels:
+    {{- include "wassette.labels" . | nindent 4 }}
+spec:
+  {{- if not .Values.autoscaling.enabled }}
+  replicas: {{ .Values.replicaCount }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "wassette.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      {{- with .Values.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      labels:
+        {{- include "wassette.selectorLabels" . | nindent 8 }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ include "wassette.serviceAccountName" . }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+      - name: {{ .Chart.Name }}
+        securityContext:
+          {{- toYaml .Values.securityContext | nindent 12 }}
+        image: "{{ .Values.image.repository }}:{{ include "wassette.imageTag" . }}"
+        imagePullPolicy: {{ .Values.image.pullPolicy }}
+        command:
+          {{- include "wassette.command" . | nindent 10 }}
+        ports:
+        - name: http
+          containerPort: {{ .Values.service.targetPort }}
+          protocol: TCP
+        env:
+        - name: HOME
+          value: "/home/wassette"
+        - name: XDG_DATA_HOME
+          value: "/home/wassette/.local/share"
+        - name: XDG_CONFIG_HOME
+          value: "/home/wassette/.config"
+        {{- range $key, $value := .Values.wassette.env }}
+        - name: {{ $key }}
+          value: {{ $value | quote }}
+        {{- end }}
+        {{- with .Values.wassette.envFrom }}
+        envFrom:
+          {{- toYaml . | nindent 10 }}
+        {{- end }}
+        {{- if or (eq .Values.wassette.transport "streamable-http") (eq .Values.wassette.transport "sse") }}
+        livenessProbe:
+          {{- toYaml .Values.livenessProbe | nindent 12 }}
+        readinessProbe:
+          {{- toYaml .Values.readinessProbe | nindent 12 }}
+        {{- end }}
+        resources:
+          {{- toYaml .Values.resources | nindent 12 }}
+        volumeMounts:
+        - name: components
+          mountPath: /home/wassette/.local/share/wassette/components
+          readOnly: false
+        {{- if or .Values.secrets.create .Values.secrets.name }}
+        - name: secrets
+          mountPath: /home/wassette/.config/wassette/secrets
+          readOnly: true
+        {{- end }}
+      volumes:
+      - name: components
+        {{- if .Values.persistence.enabled }}
+        persistentVolumeClaim:
+          claimName: {{ .Values.persistence.existingClaim | default (include "wassette.fullname" .) }}
+        {{- else }}
+        emptyDir: {}
+        {{- end }}
+      {{- if or .Values.secrets.create .Values.secrets.name }}
+      - name: secrets
+        secret:
+          secretName: {{ .Values.secrets.name | default (printf "%s-secrets" (include "wassette.fullname" .)) }}
+          optional: {{ not .Values.secrets.create }}
+      {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

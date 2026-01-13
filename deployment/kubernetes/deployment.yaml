@@ -1,0 +1,110 @@
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: wassette
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: wassette
+  namespace: wassette
+  labels:
+    app: wassette
+    component: mcp-server
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: wassette
+  template:
+    metadata:
+      labels:
+        app: wassette
+        component: mcp-server
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        fsGroup: 1000
+      containers:
+        - name: wassette
+          image: ghcr.io/microsoft/wassette:latest
+          imagePullPolicy: IfNotPresent
+          command: ["wassette", "serve", "--streamable-http"]
+          ports:
+            - containerPort: 9001
+              name: http
+              protocol: TCP
+          env:
+            - name: RUST_LOG
+              value: "info"
+            - name: HOME
+              value: "/home/wassette"
+            - name: XDG_DATA_HOME
+              value: "/home/wassette/.local/share"
+            - name: XDG_CONFIG_HOME
+              value: "/home/wassette/.config"
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 9001
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 9001
+            initialDelaySeconds: 10
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 3
+          volumeMounts:
+            - name: components
+              mountPath: /home/wassette/.local/share/wassette/components
+              readOnly: false
+            - name: secrets
+              mountPath: /home/wassette/.config/wassette/secrets
+              readOnly: true
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: false
+            capabilities:
+              drop:
+                - ALL
+      volumes:
+        - name: components
+          emptyDir: {}
+        - name: secrets
+          secret:
+            secretName: wassette-secrets
+            optional: true
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: wassette
+  namespace: wassette
+  labels:
+    app: wassette
+    component: mcp-server
+spec:
+  type: ClusterIP
+  ports:
+    - port: 9001
+      targetPort: 9001
+      protocol: TCP
+      name: http
+  selector:
+    app: wassette

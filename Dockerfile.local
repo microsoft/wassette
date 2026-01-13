@@ -1,0 +1,34 @@
+FROM debian:bookworm-slim
+
+# Install runtime dependencies
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+        ca-certificates \
+        libssl3 && \
+    rm -rf /var/lib/apt/lists/*
+
+# Create a non-root user for running Wassette
+RUN useradd -m -u 1000 -s /bin/bash wassette
+
+# Create necessary directories with proper permissions
+RUN mkdir -p /home/wassette/.local/share/wassette/components && \
+    mkdir -p /home/wassette/.config/wassette/secrets && \
+    chown -R wassette:wassette /home/wassette
+
+# Copy the pre-built binary
+COPY target/release/wassette /usr/local/bin/wassette
+
+# Set up environment
+ENV HOME=/home/wassette
+ENV XDG_DATA_HOME=/home/wassette/.local/share
+ENV XDG_CONFIG_HOME=/home/wassette/.config
+
+# Switch to the non-root user
+USER wassette
+WORKDIR /home/wassette
+
+# Expose the default HTTP port
+EXPOSE 9001
+
+# Default command: start Wassette with streamable-http transport
+CMD ["wassette", "serve", "--streamable-http"]

@@ -10,6 +10,7 @@
 # Deployment
 
 - [Docker](./deployment/docker.md)
+- [Kubernetes](./deployment/kubernetes.md)
 - [Operations](./deployment/operations.md)
 
 # Developer Guide

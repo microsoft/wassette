@@ -1,0 +1,43 @@
+---
+# Example RemoteMCPServer resource for integrating Wassette with Kagent
+# This resource tells Kagent how to connect to a Wassette MCP server
+apiVersion: kagent.dev/v1alpha2
+kind: RemoteMCPServer
+metadata:
+  name: wassette-mcp
+  namespace: kagent
+  labels:
+    app: wassette
+    component: mcp-server
+spec:
+  # Human-readable description of this MCP server
+  description: "Wassette MCP server providing secure WebAssembly-based tools"
+
+  # Protocol to use for communication
+  # Wassette supports both SSE and STREAMABLE_HTTP
+  # STREAMABLE_HTTP is recommended for better performance
+  protocol: STREAMABLE_HTTP
+
+  # URL of the Wassette service
+  # Use the full service DNS name if Wassette is in a different namespace
+  # Format: http://<service-name>.<namespace>.svc.cluster.local:<port>
+  url: "http://wassette.wassette.svc.cluster.local:9001"
+
+  # Optional: Timeout for requests to the MCP server
+  timeout: "30s"
+
+  # Optional: Close the MCP server connection when the agent disconnects
+  terminateOnClose: true
+
+  # Optional: Timeout for SSE reads (only relevant if using SSE protocol)
+  # sseReadTimeout: "60s"
+
+  # Optional: Custom headers for authentication or other purposes
+  # headersFrom:
+  # - name: "Authorization"
+  #   value: "Bearer token"
+  # - name: "X-API-Key"
+  #   valueFrom:
+  #     type: Secret
+  #     name: wassette-auth
+  #     key: api-key

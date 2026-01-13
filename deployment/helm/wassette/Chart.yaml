@@ -1,0 +1,20 @@
+apiVersion: v2
+name: wassette
+description: A Helm chart for deploying Wassette MCP server on Kubernetes
+type: application
+version: 0.1.0
+appVersion: "0.3.4"
+keywords:
+  - mcp
+  - model-context-protocol
+  - webassembly
+  - wasm
+  - ai
+  - agents
+home: https://microsoft.github.io/wassette
+sources:
+  - https://github.com/microsoft/wassette
+maintainers:
+  - name: Wassette Team
+    url: https://github.com/microsoft/wassette
+icon: https://raw.githubusercontent.com/microsoft/wassette/main/assets/architecture.png

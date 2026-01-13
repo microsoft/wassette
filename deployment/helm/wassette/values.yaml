@@ -1,0 +1,205 @@
+# Default values for wassette Helm chart
+# This is a YAML-formatted file.
+# Declare variables to be passed into your templates.
+
+# Number of Wassette replicas
+replicaCount: 1
+
+image:
+  # Docker image repository
+  repository: ghcr.io/microsoft/wassette
+  # Pull policy for the image
+  pullPolicy: IfNotPresent
+  # Overrides the image tag whose default is the chart appVersion
+  tag: ""
+
+# Image pull secrets for private registries
+imagePullSecrets: []
+
+# Override the default name
+nameOverride: ""
+# Override the full name
+fullnameOverride: ""
+
+# Service account settings
+serviceAccount:
+  # Specifies whether a service account should be created
+  create: true
+  # Annotations to add to the service account
+  annotations: {}
+  # The name of the service account to use.
+  # If not set and create is true, a name is generated using the fullname template
+  name: ""
+
+# Pod annotations
+podAnnotations: {}
+
+# Pod security context
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  fsGroup: 1000
+
+# Container security context
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: false
+  capabilities:
+    drop:
+    - ALL
+
+# Service configuration
+service:
+  # Service type
+  type: ClusterIP
+  # Service port
+  port: 9001
+  # Target port on the container
+  targetPort: 9001
+  # Annotations for the service
+  annotations: {}
+
+# Ingress configuration
+ingress:
+  # Enable ingress
+  enabled: false
+  # Ingress class name
+  className: ""
+  # Ingress annotations
+  annotations: {}
+    # kubernetes.io/ingress.class: nginx
+    # cert-manager.io/cluster-issuer: letsencrypt-prod
+  # Ingress hosts
+  hosts:
+    - host: wassette.example.com
+      paths:
+        - path: /
+          pathType: Prefix
+  # TLS configuration
+  tls: []
+  #  - secretName: wassette-tls
+  #    hosts:
+  #      - wassette.example.com
+
+# Resource limits and requests
+resources:
+  limits:
+    cpu: 500m
+    memory: 512Mi
+  requests:
+    cpu: 100m
+    memory: 128Mi
+
+# Liveness probe configuration
+livenessProbe:
+  httpGet:
+    path: /health
+    port: http
+  initialDelaySeconds: 30
+  periodSeconds: 10
+  timeoutSeconds: 5
+  failureThreshold: 3
+
+# Readiness probe configuration
+readinessProbe:
+  httpGet:
+    path: /health
+    port: http
+  initialDelaySeconds: 10
+  periodSeconds: 5
+  timeoutSeconds: 3
+  failureThreshold: 3
+
+# Autoscaling configuration
+autoscaling:
+  enabled: false
+  minReplicas: 1
+  maxReplicas: 10
+  targetCPUUtilizationPercentage: 80
+  # targetMemoryUtilizationPercentage: 80
+
+# Node selector
+nodeSelector: {}
+
+# Tolerations
+tolerations: []
+
+# Affinity rules
+affinity: {}
+
+# Wassette-specific configuration
+wassette:
+  # Transport protocol: streamable-http, sse, or stdio
+  transport: streamable-http
+  
+  # Environment variables
+  env:
+    # Logging level: trace, debug, info, warn, error
+    RUST_LOG: "info"
+  
+  # Additional environment variables from secrets or configmaps
+  envFrom: []
+  # - secretRef:
+  #     name: wassette-secrets
+  # - configMapRef:
+  #     name: wassette-config
+
+# Persistent storage for components
+persistence:
+  # Enable persistent volume for components
+  enabled: false
+  # Storage class name
+  storageClassName: ""
+  # Access mode
+  accessMode: ReadWriteOnce
+  # Size of the volume
+  size: 1Gi
+  # Existing claim name (if you want to use an existing PVC)
+  existingClaim: ""
+  # Annotations for the PVC
+  annotations: {}
+
+# Secrets configuration
+secrets:
+  # Create a secret for API keys and credentials
+  create: false
+  # Secret name
+  name: ""
+  # Secret data (will be base64 encoded)
+  data: {}
+    # OPENWEATHER_API_KEY: "your-api-key"
+
+# ConfigMap for component configuration
+configMap:
+  # Create a configmap for component configuration
+  create: false
+  # ConfigMap name
+  name: wassette-config
+  # ConfigMap data
+  data: {}
+
+# Network policy configuration
+networkPolicy:
+  # Enable network policy
+  enabled: false
+  # Ingress rules
+  ingress:
+    # Allow ingress from specific namespaces
+    - from:
+      - namespaceSelector:
+          matchLabels:
+            name: kagent
+      ports:
+      - protocol: TCP
+        port: 9001
+  # Egress rules
+  egress: []
+
+# Pod Disruption Budget
+podDisruptionBudget:
+  # Enable PDB
+  enabled: false
+  # Minimum available pods
+  minAvailable: 1
+  # Maximum unavailable pods
+  # maxUnavailable: 1
