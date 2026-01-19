@@ -1,5 +1,20 @@
 [
     {
+        "name": "arXiv Research",
+        "description": "An arXiv research component for searching and downloading papers written in Rust",
+        "uri": "oci://ghcr.io/microsoft/arxiv-rs:latest"
+    },
+    {
+        "name": "GitHub API",
+        "description": "A comprehensive GitHub REST API component written in JavaScript",
+        "uri": "oci://ghcr.io/microsoft/github-js:latest"
+    },
+    {
+        "name": "Memory Server",
+        "description": "A knowledge graph memory storage component written in JavaScript",
+        "uri": "oci://ghcr.io/microsoft/memory-js:latest"
+    },
+    {
         "name": "Weather Server",
         "description": "A weather component written in JavaScript",
         "uri": "oci://ghcr.io/microsoft/get-weather-js:latest"
