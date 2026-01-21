@@ -63,6 +63,10 @@ jobs:
     strategy:
       matrix:
         component:
+          - name: arxiv-rs
+            file: arxiv-rs.wasm
+          - name: github-js
+            file: github-js.wasm
           - name: gomodule-go
             file: gomodule.wasm
           - name: eval-py
