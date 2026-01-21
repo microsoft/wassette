@@ -1,123 +1,56 @@
-name: "Copilot Setup Steps"
-
-# Automatically run the setup steps when they are changed to allow for easy validation, and
-# allow manual testing through the repository's "Actions" tab
-on:
-  workflow_dispatch:
-  push:
-    paths:
-      - .github/workflows/copilot-setup-steps.yml
+name: Copilot Setup Steps
+"on":
   pull_request:
     paths:
-      - .github/workflows/copilot-setup-steps.yml
-
+    - .github/workflows/copilot-setup-steps.yml
+  push:
+    paths:
+    - .github/workflows/copilot-setup-steps.yml
+  workflow_dispatch: null
 jobs:
-  # The job MUST be called `copilot-setup-steps` or it will not be picked up by Copilot.
   copilot-setup-steps:
     runs-on: ubuntu-latest
-
-    # Set the permissions to the lowest permissions possible needed for your steps.
-    # Copilot will be given its own token for its operations.
     permissions:
-      # If you want to clone the repository as part of your setup steps, for example to install dependencies, you'll need the `contents: read` permission. If you don't clone the repository in your setup steps, Copilot will do this for you automatically after the steps complete.
       contents: read
-    
     steps:
-    # Checkout the repository
+    - name: Install gh-aw extension
+      run: curl -fsSL https://raw.githubusercontent.com/githubnext/gh-aw/refs/heads/main/install-gh-aw.sh | bash
+    - name: Verify gh-aw installation
+      run: gh aw version
     - name: Checkout repository
-      uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
-    
-    # Install protobuf compiler (required for building)
+      uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8
     - name: Install protobuf
       run: ./scripts/install-protobuf.sh
-      shell: bash
-    
-    # Setup Rust toolchain
     - name: Setup Rust toolchain
-      uses: actions-rust-lang/setup-rust-toolchain@1780873c7b576612439a134613cc4cc74ce5538c # v1.15.2
+      uses: actions-rust-lang/setup-rust-toolchain@1780873c7b576612439a134613cc4cc74ce5538c
       with:
         components: rustfmt, clippy
-    
-    # Install nightly toolchain for formatting
     - name: Install nightly Rust for formatting
       run: rustup toolchain install nightly --component rustfmt
-    
-    # Add wasm32-wasip2 target for WebAssembly components
     - name: Add wasm32-wasip2 target
       run: rustup target add wasm32-wasip2
-    
-    # Install just command runner
     - name: Setup just
-      uses: extractions/setup-just@e33e0265a09d6d736e2ee1e0eb685ef1de4669ff # v3.0.0
-    
-    # Install wasm-tools for WebAssembly manipulation
+      uses: extractions/setup-just@e33e0265a09d6d736e2ee1e0eb685ef1de4669ff
     - name: Setup wasm-tools
-      uses: bytecodealliance/actions/wasm-tools/setup@3b93676295fd6f7eaa7af2c2785539e052fa8349 # v1.1.1
-    
-    # Install uv for Python package management
+      uses: bytecodealliance/actions/wasm-tools/setup@3b93676295fd6f7eaa7af2c2785539e052fa8349
     - name: Setup uv
-      uses: astral-sh/setup-uv@3259c6206f993105e3a61b142c2d97bf4b9ef83d # v7.1.0
-    
-    # Install TinyGo for Go WebAssembly examples
+      uses: astral-sh/setup-uv@3259c6206f993105e3a61b142c2d97bf4b9ef83d
     - name: Setup TinyGo
-      uses: acifani/setup-tinygo@db56321a62b9a67922bb9ac8f9d085e218807bb3 # v0.2.1
+      uses: acifani/setup-tinygo@db56321a62b9a67922bb9ac8f9d085e218807bb3
       with:
-        tinygo-version: '0.36.0'
-    
-    # Cache Rust dependencies
+        tinygo-version: 0.36.0
     - name: Cache Rust dependencies
       uses: ./.github/actions/rust-cache
-    
-    # Install gh-aw extension for agentic workflows
     - name: Install gh-aw extension
-      run: gh extension install githubnext/gh-aw
+      run: gh extension install githubnext/gh-aw || true
       env:
         GH_TOKEN: ${{ github.token }}
-    
-    # Setup kind cluster for Kubernetes development
     - name: Setup kind cluster
-      uses: helm/kind-action@0025e74a8c7512023d06dc019c617aa3cf561fde # v1.10.0
+      uses: helm/kind-action@0025e74a8c7512023d06dc019c617aa3cf561fde
       with:
         cluster_name: wassette-dev
         wait: 300s
-    
-    # Verify installations
     - name: Verify tool installations
-      run: |
-        echo "=== Development Environment Setup Complete ==="
-        echo ""
-        echo "Rust toolchain:"
-        rustc --version
-        cargo --version
-        echo ""
-        echo "Nightly formatter:"
-        cargo +nightly fmt --version
-        echo ""
-        echo "Build tools:"
-        just --version
-        protoc --version
-        wasm-tools --version
-        echo ""
-        echo "Language support:"
-        uv --version
-        tinygo version
-        echo ""
-        echo "WASM target installed:"
-        rustup target list --installed | grep wasm32-wasip2
-        echo ""
-        echo "GitHub extensions:"
-        gh extension list
-        echo ""
-        echo "Kubernetes cluster:"
-        kubectl cluster-info || true
-        kubectl get nodes || true
-        echo ""
-        echo "=== Ready for development! ==="
-        echo "You can now run:"
-        echo "  - just build     # Build the project"
-        echo "  - just test      # Run tests"
-        echo "  - just run       # Start MCP server"
-        echo "  - cargo clippy   # Run linter"
-        echo "  - kubectl get pods -A   # Check Kubernetes cluster"
+      run: "echo \"=== Development Environment Setup Complete ===\"\necho \"\"\necho \"Rust toolchain:\"\nrustc --version\ncargo --version\necho \"\"\necho \"Nightly formatter:\"\ncargo +nightly fmt --version\necho \"\"\necho \"Build tools:\"\njust --version\nprotoc --version\nwasm-tools --version\necho \"\"\necho \"Language support:\"\nuv --version\ntinygo version\necho \"\"\necho \"WASM target installed:\"\nrustup target list --installed | grep wasm32-wasip2\necho \"\"\necho \"GitHub extensions:\"\ngh extension list\necho \"\"\necho \"Kubernetes cluster:\"\nkubectl cluster-info || true\nkubectl get nodes || true\necho \"\"\necho \"=== Ready for development! ===\"\necho \"You can now run:\"\necho \"  - just build     # Build the project\"\necho \"  - just test      # Run tests\"\necho \"  - just run       # Start MCP server\"\necho \"  - cargo clippy   # Run linter\"\necho \"  - kubectl get pods -A   # Check Kubernetes cluster\"\n"
       env:
         GH_TOKEN: ${{ github.token }}
