@@ -626,14 +626,15 @@ async fn main() -> Result<()> {
 
                     print_result(
                         &rmcp::model::CallToolResult {
-                            content: Some(vec![rmcp::model::Content::text(
+                            content: vec![rmcp::model::Content::text(
                                 serde_json::to_string_pretty(&json!({
                                     "component_id": component_id,
                                     "secrets": result
                                 }))?,
-                            )]),
+                            )],
                             structured_content: None,
                             is_error: None,
+                            meta: None,
                         },
                         *output_format,
                     )?;
@@ -656,11 +657,12 @@ async fn main() -> Result<()> {
 
                     print_result(
                         &rmcp::model::CallToolResult {
-                            content: Some(vec![rmcp::model::Content::text(
+                            content: vec![rmcp::model::Content::text(
                                 serde_json::to_string_pretty(&result)?,
-                            )]),
+                            )],
                             structured_content: None,
                             is_error: None,
+                            meta: None,
                         },
                         OutputFormat::Json,
                     )?;
@@ -683,11 +685,12 @@ async fn main() -> Result<()> {
 
                     print_result(
                         &rmcp::model::CallToolResult {
-                            content: Some(vec![rmcp::model::Content::text(
+                            content: vec![rmcp::model::Content::text(
                                 serde_json::to_string_pretty(&result)?,
-                            )]),
+                            )],
                             structured_content: None,
                             is_error: None,
+                            meta: None,
                         },
                         OutputFormat::Json,
                     )?;
@@ -719,9 +722,10 @@ async fn main() -> Result<()> {
 
                     print_result(
                         &rmcp::model::CallToolResult {
-                            content: Some(vec![rmcp::model::Content::text(content)]),
+                            content: vec![rmcp::model::Content::text(content)],
                             structured_content: None,
                             is_error: None,
+                            meta: None,
                         },
                         *output_format,
                     )?;
@@ -753,9 +757,10 @@ async fn main() -> Result<()> {
 
                     print_result(
                         &rmcp::model::CallToolResult {
-                            content: Some(vec![rmcp::model::Content::text(content)]),
+                            content: vec![rmcp::model::Content::text(content)],
                             structured_content: None,
                             is_error: None,
+                            meta: None,
                         },
                         *output_format,
                     )?;
@@ -875,11 +880,12 @@ async fn main() -> Result<()> {
 
                     print_result(
                         &rmcp::model::CallToolResult {
-                            content: Some(vec![rmcp::model::Content::text(
+                            content: vec![rmcp::model::Content::text(
                                 serde_json::to_string_pretty(&result)?,
-                            )]),
+                            )],
                             structured_content: None,
                             is_error: None,
+                            meta: None,
                         },
                         *output_format,
                     )?;

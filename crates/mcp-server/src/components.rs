@@ -175,9 +175,10 @@ pub async fn handle_component_call(
             let contents = vec![Content::text(response_text)];
 
             Ok(CallToolResult {
-                content: Some(contents),
+                content: contents,
                 structured_content,
                 is_error: Some(false),
+                meta: None,
             })
         }
         Err(e) => {
@@ -276,9 +277,10 @@ pub async fn handle_list_components(
     let contents = vec![Content::text(result_text)];
 
     Ok(CallToolResult {
-        content: Some(contents),
+        content: contents,
         structured_content: None,
         is_error: None,
+        meta: None,
     })
 }
 
@@ -312,9 +314,10 @@ fn create_component_success_result(
     let contents = vec![Content::text(status_text)];
 
     Ok(CallToolResult {
-        content: Some(contents),
+        content: contents,
         structured_content: None,
         is_error: None,
+        meta: None,
     })
 }
 
@@ -333,9 +336,10 @@ fn create_load_component_success_result(outcome: &ComponentLoadOutcome) -> Resul
     let contents = vec![Content::text(status_text)];
 
     Ok(CallToolResult {
-        content: Some(contents),
+        content: contents,
         structured_content: None,
         is_error: None,
+        meta: None,
     })
 }
 
@@ -357,9 +361,10 @@ fn create_component_error_result(
     let contents = vec![Content::text(error_text)];
 
     CallToolResult {
-        content: Some(contents),
+        content: contents,
         structured_content: None,
         is_error: Some(true),
+        meta: None,
     }
 }
 
@@ -477,6 +482,9 @@ pub(crate) fn parse_tool_schema(tool_json: &Value) -> Option<Tool> {
         input_schema: Arc::new(serde_json::from_value(input_schema).unwrap_or_default()),
         output_schema: output_schema_arc,
         annotations: None,
+        title: None,
+        icons: None,
+        meta: None,
     })
 }
 

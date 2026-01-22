@@ -483,6 +483,7 @@ fn get_available_prompts() -> Vec<Prompt> {
             Some("Guide to building a WebAssembly component for Wassette using Rust"),
             Some(vec![PromptArgument {
                 name: "component_name".to_string(),
+                title: None,
                 description: Some("The name of the component to build".to_string()),
                 required: Some(false),
             }]),
@@ -492,6 +493,7 @@ fn get_available_prompts() -> Vec<Prompt> {
             Some("Guide to building a WebAssembly component for Wassette using JavaScript"),
             Some(vec![PromptArgument {
                 name: "component_name".to_string(),
+                title: None,
                 description: Some("The name of the component to build".to_string()),
                 required: Some(false),
             }]),
