@@ -1433,12 +1433,7 @@ mod tests {
         let result = handle_search_component(&req, &lifecycle_manager).await?;
 
         // Parse the result
-        let content = result
-            .content
-            .as_ref()
-            .ok_or_else(|| anyhow::anyhow!("No content in result"))?;
-
-        let content_json = serde_json::to_value(content)?;
+        let content_json = serde_json::to_value(&result.content)?;
         let text = content_json[0]["text"]
             .as_str()
             .ok_or_else(|| anyhow::anyhow!("No text in content"))?;
@@ -1472,12 +1467,7 @@ mod tests {
         let result = handle_search_component(&req, &lifecycle_manager).await?;
 
         // Parse the result
-        let content = result
-            .content
-            .as_ref()
-            .ok_or_else(|| anyhow::anyhow!("No content in result"))?;
-
-        let content_json = serde_json::to_value(content)?;
+        let content_json = serde_json::to_value(&result.content)?;
         let text = content_json[0]["text"]
             .as_str()
             .ok_or_else(|| anyhow::anyhow!("No text in content"))?;
@@ -1528,12 +1518,7 @@ mod tests {
 
         let result = handle_search_component(&req, &lifecycle_manager).await?;
 
-        let content = result
-            .content
-            .as_ref()
-            .ok_or_else(|| anyhow::anyhow!("No content in result"))?;
-
-        let content_json = serde_json::to_value(content)?;
+        let content_json = serde_json::to_value(&result.content)?;
         let text = content_json[0]["text"]
             .as_str()
             .ok_or_else(|| anyhow::anyhow!("No text in content"))?;
@@ -1564,12 +1549,7 @@ mod tests {
 
         let result = handle_search_component(&req, &lifecycle_manager).await?;
 
-        let content = result
-            .content
-            .as_ref()
-            .ok_or_else(|| anyhow::anyhow!("No content in result"))?;
-
-        let content_json = serde_json::to_value(content)?;
+        let content_json = serde_json::to_value(&result.content)?;
         let text = content_json[0]["text"]
             .as_str()
             .ok_or_else(|| anyhow::anyhow!("No text in content"))?;
@@ -1600,12 +1580,7 @@ mod tests {
 
         let result = handle_search_component(&req, &lifecycle_manager).await?;
 
-        let content = result
-            .content
-            .as_ref()
-            .ok_or_else(|| anyhow::anyhow!("No content in result"))?;
-
-        let content_json = serde_json::to_value(content)?;
+        let content_json = serde_json::to_value(&result.content)?;
         let text = content_json[0]["text"]
             .as_str()
             .ok_or_else(|| anyhow::anyhow!("No text in content"))?;
@@ -1639,12 +1614,7 @@ mod tests {
 
         let result = handle_search_component(&req, &lifecycle_manager).await?;
 
-        let content = result
-            .content
-            .as_ref()
-            .ok_or_else(|| anyhow::anyhow!("No content in result"))?;
-
-        let content_json = serde_json::to_value(content)?;
+        let content_json = serde_json::to_value(&result.content)?;
         let text = content_json[0]["text"]
             .as_str()
             .ok_or_else(|| anyhow::anyhow!("No text in content"))?;
