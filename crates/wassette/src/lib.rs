@@ -1052,9 +1052,15 @@ impl LifecycleManager {
         };
 
         let params: serde_json::Value = serde_json::from_str(parameters)?;
-        let argument_vals = json_to_vals(&params, &func.params(&store))?;
+        let ty = func.ty(&store);
+        let argument_vals = json_to_vals(
+            &params,
+            &ty.params()
+                .map(|(s, t)| (s.to_string(), t))
+                .collect::<Vec<_>>(),
+        )?;
 
-        let mut results = create_placeholder_results(&func.results(&store));
+        let mut results = create_placeholder_results(&ty.results().collect::<Vec<_>>());
 
         let execution_start = Instant::now();
 
