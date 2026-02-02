@@ -10,6 +10,8 @@ ignore = [
     # rustls-pemfile is unmaintained but pulled in transitively by testcontainers -> bollard
     # Migration to rustls-pki-types is recommended but depends on upstream updates
     { id = "RUSTSEC-2025-0134", reason = "rustls-pemfile is transitively required by testcontainers and still safe despite being unmaintained" },
+    # fxhash is unmaintained but still widely used and safe; pulled in transitively by wasmtime
+    { id = "RUSTSEC-2025-0057", reason = "fxhash is transitively required by wasmtime and still safe despite being unmaintained" },
 ]
 
 # License checking configuration
