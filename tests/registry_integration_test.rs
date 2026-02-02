@@ -110,10 +110,10 @@ async fn test_registry_search_all() -> Result<()> {
 
     let json = ctx.parse_json_output(&stdout)?;
     assert_eq!(json["status"], "success");
-    assert_eq!(json["count"], 9); // Total components in registry
+    assert_eq!(json["count"], 12); // Total components in registry
 
     let components = json["components"].as_array().unwrap();
-    assert_eq!(components.len(), 9);
+    assert_eq!(components.len(), 12);
 
     // Verify each component has required fields
     for component in components {
@@ -192,8 +192,8 @@ async fn test_registry_search_matches_description() -> Result<()> {
 
     let json = ctx.parse_json_output(&stdout)?;
     assert_eq!(json["status"], "success");
-    // Should match "Fetch", "Filesystem", "Brave Search", and "Context7" which have "Rust" in description
-    assert_eq!(json["count"], 4);
+    // Should match "arXiv Research", "Fetch", "Filesystem", "Brave Search", and "Context7" which have "Rust" in description
+    assert_eq!(json["count"], 5);
 
     Ok(())
 }
