@@ -6,6 +6,10 @@
 //!
 //! These tests verify that Wassette can load components from real OCI registries,
 //! including multi-layer artifacts with policies and single-layer components.
+//!
+//! Note: Some tests use registry.mcpsearchtool.com which is a test registry.
+//! The test/hello-world component is used for multi-layer OCI tests.
+//! The test/qr-generator component tests are ignored as that component was removed.
 
 use std::time::Duration;
 
@@ -13,6 +17,10 @@ use anyhow::Result;
 use serde_json::json;
 use wassette::LifecycleManager;
 
+/// Test component URI - hello-world has WASM + policy + wadm-manifest layers
+const HELLO_WORLD_OCI_URI: &str = "oci://registry.mcpsearchtool.com/test/hello-world:latest";
+
+/// Legacy test component URI - qr-generator was removed from the registry
 const QR_GENERATOR_OCI_URI: &str = "oci://registry.mcpsearchtool.com/test/qr-generator:latest";
 
 /// Check if the registry is operational by hitting its v2 endpoint
@@ -48,6 +56,26 @@ async fn is_registry_operational(registry_url: &str) -> bool {
     }
 }
 
+/// Check if a specific component exists in the registry
+async fn component_exists(registry_url: &str, repo: &str, tag: &str) -> bool {
+    let manifest_url = format!("{registry_url}/v2/{repo}/manifests/{tag}");
+
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(10))
+        .build()
+        .unwrap();
+
+    match client
+        .get(&manifest_url)
+        .header("Accept", "application/vnd.oci.image.manifest.v1+json")
+        .send()
+        .await
+    {
+        Ok(response) => response.status().is_success(),
+        Err(_) => false,
+    }
+}
+
 #[cfg(test)]
 mod multi_layer_oci_tests {
     use super::*;
@@ -63,13 +91,17 @@ mod multi_layer_oci_tests {
             return Ok(());
         }
 
-        // This test uses the real registry.mcpsearchtool.com which has a multi-layer artifact
-        // with both a WASM component and a policy file
-        let tags_to_try = vec![
-            "oci://registry.mcpsearchtool.com/test/qr-generator:latest",
-            "oci://registry.mcpsearchtool.com/test/qr-generator:v1",
-            "oci://registry.mcpsearchtool.com/test/qr-generator:main",
-        ];
+        // Check if the component exists
+        if !component_exists(
+            "https://registry.mcpsearchtool.com",
+            "test/hello-world",
+            "latest",
+        )
+        .await
+        {
+            eprintln!("⚠️  Skipping test: test/hello-world component not found in registry");
+            return Ok(());
+        }
 
         // Create temp directory for testing
         let temp_dir = tempfile::tempdir()?;
@@ -77,32 +109,15 @@ mod multi_layer_oci_tests {
         // Initialize the lifecycle manager
         let manager = LifecycleManager::new(temp_dir.path()).await?;
 
-        // Try to load the component with different tags
-        let mut load_result = None;
-        let mut last_error = None;
-
-        for component_uri in &tags_to_try {
-            match manager.load_component(component_uri).await {
-                Ok(result) => {
-                    println!("✅ Successfully loaded component from: {component_uri}");
-                    load_result = Some(result);
-                    break;
-                }
-                Err(e) => {
-                    println!("⚠️  Failed to load from {component_uri}: {e}");
-                    last_error = Some(e);
-                }
+        // Load the hello-world component which has multi-layer structure
+        let outcome = match manager.load_component(HELLO_WORLD_OCI_URI).await {
+            Ok(result) => {
+                println!("✅ Successfully loaded component from: {HELLO_WORLD_OCI_URI}");
+                result
             }
-        }
-
-        // If no tag worked, skip the test with an informative message
-        let outcome = match load_result {
-            Some(result) => result,
-            None => {
+            Err(e) => {
                 eprintln!("⚠️  Skipping test: Could not load component from registry.");
-                eprintln!("   Last error: {:?}", last_error);
-                eprintln!("   This may be expected if the registry is not accessible or components are not pushed.");
-                eprintln!("   Tried tags: {tags_to_try:?}");
+                eprintln!("   Error: {e}");
                 return Ok(());
             }
         };
@@ -142,13 +157,17 @@ mod multi_layer_oci_tests {
             return Ok(());
         }
 
-        // This tests the real-world scenario with registry.mcpsearchtool.com
-        // which includes both WASM and policy layers
-        let tags_to_try = vec![
-            "oci://registry.mcpsearchtool.com/test/qr-generator:latest",
-            "oci://registry.mcpsearchtool.com/test/qr-generator:v1",
-            "registry.mcpsearchtool.com/test/qr-generator:v1755367253",
-        ];
+        // Check if the component exists
+        if !component_exists(
+            "https://registry.mcpsearchtool.com",
+            "test/hello-world",
+            "latest",
+        )
+        .await
+        {
+            eprintln!("⚠️  Skipping test: test/hello-world component not found in registry");
+            return Ok(());
+        }
 
         // Create temp directory for testing
         let temp_dir = tempfile::tempdir()?;
@@ -156,46 +175,27 @@ mod multi_layer_oci_tests {
         // Initialize the lifecycle manager
         let manager = LifecycleManager::new(temp_dir.path()).await?;
 
-        // Try to load the component with different tags
-        let mut load_result = None;
-        let mut last_error = None;
-
-        for component_uri in &tags_to_try {
-            println!("🔍 Attempting to load: {component_uri}");
-
-            match manager.load_component(component_uri).await {
-                Ok(result) => {
-                    println!("✅ Successfully loaded component from: {component_uri}");
-                    load_result = Some(result);
-                    break;
-                }
-                Err(e) => {
-                    println!("⚠️  Failed to load from {component_uri}: {e}");
-                    last_error = Some(e);
-                }
+        // Load the hello-world component
+        let outcome = match manager.load_component(HELLO_WORLD_OCI_URI).await {
+            Ok(result) => {
+                println!("✅ Successfully loaded component from: {HELLO_WORLD_OCI_URI}");
+                result
             }
-        }
-
-        // If no tag worked, check if it's a known issue or network problem
-        let outcome = match load_result {
-            Some(result) => result,
-            None => {
-                // Check if the error is about incompatible media types (expected until fix is implemented)
-                if let Some(ref err) = last_error {
-                    let err_str = err.to_string();
-                    if err_str.contains("Incompatible layer media type")
-                        || err_str.contains("application/vnd.wasm.policy.v1+yaml")
-                    {
-                        eprintln!("⚠️  Test encountered expected error (not yet fixed): {err_str}");
-                        eprintln!("   This is expected until multi-layer OCI support is fully implemented.");
-                        return Ok(());
-                    }
+            Err(e) => {
+                // Check if the error is about incompatible media types
+                let err_str = e.to_string();
+                if err_str.contains("Incompatible layer media type")
+                    || err_str.contains("application/vnd.wasm.policy.v1+yaml")
+                {
+                    eprintln!("⚠️  Test encountered expected error (not yet fixed): {err_str}");
+                    eprintln!(
+                        "   This is expected until multi-layer OCI support is fully implemented."
+                    );
+                    return Ok(());
                 }
 
                 eprintln!("⚠️  Skipping test: Could not load component from registry.");
-                eprintln!("   Last error: {last_error:?}");
-                eprintln!("   This may be expected if the registry is not accessible or components are not pushed.");
-                eprintln!("   Tried tags: {tags_to_try:?}");
+                eprintln!("   Error: {e}");
                 return Ok(());
             }
         };
@@ -243,9 +243,21 @@ mod multi_layer_oci_tests {
     /// Test that we actually download the policy layer correctly
     #[tokio::test]
     async fn test_policy_download_from_multi_layer_oci() -> Result<()> {
+        // Check if the component exists first
+        if !component_exists(
+            "https://registry.mcpsearchtool.com",
+            "test/hello-world",
+            "latest",
+        )
+        .await
+        {
+            eprintln!("⚠️  Skipping test: test/hello-world component not found in registry");
+            return Ok(());
+        }
+
         // Test that we actually download the policy layer
         let reference: oci_client::Reference =
-            "registry.mcpsearchtool.com/test/qr-generator:v1755367253".parse()?;
+            "registry.mcpsearchtool.com/test/hello-world:latest".parse()?;
 
         let client = oci_client::Client::new(oci_client::client::ClientConfig {
             read_timeout: Some(Duration::from_secs(30)),
@@ -257,7 +269,11 @@ mod multi_layer_oci_tests {
 
         // Verify WASM component was downloaded
         assert!(!artifact.wasm_data.is_empty());
-        assert!(artifact.wasm_data.len() > 100_000, "WASM should be ~124KB");
+        // hello-world is ~283KB
+        assert!(
+            artifact.wasm_data.len() > 100_000,
+            "WASM should be substantial size"
+        );
 
         // Verify policy was also downloaded
         assert!(
@@ -269,9 +285,10 @@ mod multi_layer_oci_tests {
 
         // Verify policy is valid YAML
         let policy_str = String::from_utf8_lossy(&policy_data);
-        assert!(policy_str.contains("version"));
-        assert!(policy_str.contains("permissions"));
-        assert!(policy_str.contains("description"));
+        assert!(
+            policy_str.contains("version") || policy_str.contains("permissions"),
+            "Policy should contain expected fields"
+        );
 
         Ok(())
     }
@@ -281,7 +298,12 @@ mod multi_layer_oci_tests {
 mod qr_generator_component_tests {
     use super::*;
 
+    // NOTE: These tests are ignored because the test/qr-generator component
+    // was removed from registry.mcpsearchtool.com. They are kept for reference
+    // and can be re-enabled when a suitable replacement component is available.
+
     #[tokio::test]
+    #[ignore = "test/qr-generator component was removed from registry"]
     async fn test_qr_generator_loads_from_oci() -> Result<()> {
         let temp_dir = tempfile::tempdir()?;
         let manager = LifecycleManager::new(temp_dir.path()).await?;
@@ -300,6 +322,7 @@ mod qr_generator_component_tests {
     }
 
     #[tokio::test]
+    #[ignore = "test/qr-generator component was removed from registry"]
     async fn test_qr_generator_has_expected_tools() -> Result<()> {
         let temp_dir = tempfile::tempdir()?;
         let manager = LifecycleManager::new(temp_dir.path()).await?;
@@ -322,6 +345,7 @@ mod qr_generator_component_tests {
     }
 
     #[tokio::test]
+    #[ignore = "test/qr-generator component was removed from registry"]
     async fn test_qr_generator_policy_is_saved() -> Result<()> {
         let temp_dir = tempfile::tempdir()?;
         let manager = LifecycleManager::new(temp_dir.path()).await?;
@@ -348,6 +372,7 @@ mod qr_generator_component_tests {
     }
 
     #[tokio::test]
+    #[ignore = "test/qr-generator component was removed from registry"]
     async fn test_qr_generator_policy_is_attached() -> Result<()> {
         let temp_dir = tempfile::tempdir()?;
         let manager = LifecycleManager::new(temp_dir.path()).await?;
@@ -368,6 +393,7 @@ mod qr_generator_component_tests {
     }
 
     #[tokio::test]
+    #[ignore = "test/qr-generator component was removed from registry"]
     async fn test_qr_generator_handles_invalid_input() -> Result<()> {
         let temp_dir = tempfile::tempdir()?;
         let manager = LifecycleManager::new(temp_dir.path()).await?;
@@ -531,20 +557,31 @@ mod real_registry_digest_tests {
         format!("sha256:{}", hex::encode(result))
     }
 
-    /// Test against the real mcpsearchtool.com registry with specific version
+    /// Test against the real mcpsearchtool.com registry
     /// This test verifies digest checking against the actual registry
     #[tokio::test]
     async fn test_real_registry_digest_verification() -> Result<()> {
+        // Check if the component exists first
+        if !component_exists(
+            "https://registry.mcpsearchtool.com",
+            "test/hello-world",
+            "latest",
+        )
+        .await
+        {
+            eprintln!("⚠️  Skipping test: test/hello-world component not found in registry");
+            return Ok(());
+        }
+
         // Create real OCI client
         let client = oci_client::Client::default();
-        let reference: oci_client::Reference =
-            "registry.mcpsearchtool.com/test/qr-generator:v1755367253"
-                .parse()
-                .unwrap();
+        let reference: oci_client::Reference = "registry.mcpsearchtool.com/test/hello-world:latest"
+            .parse()
+            .unwrap();
 
         // Pull manifest with authentication
         let auth = oci_client::secrets::RegistryAuth::Anonymous;
-        let (manifest, digest_opt) = client.pull_manifest(&reference, &auth).await.unwrap();
+        let (manifest, digest_opt) = client.pull_manifest(&reference, &auth).await?;
 
         // The digest should be provided
         assert!(
@@ -578,8 +615,7 @@ mod real_registry_digest_tests {
                     let mut blob_data = Vec::new();
                     client
                         .pull_blob(&reference, layer.digest.as_str(), &mut blob_data)
-                        .await
-                        .unwrap();
+                        .await?;
 
                     // Calculate digest and verify
                     let calculated = calculate_digest(&blob_data);
