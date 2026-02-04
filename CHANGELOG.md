@@ -4,6 +4,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [v0.4.0] - 2026-02-04
+
 ### Added
 
 - Split local and remote commands in the binary, improving CLI organization with dedicated subcommands for local operations vs remote server management ([#534](https://github.com/microsoft/wassette/pull/534))
@@ -248,7 +250,8 @@ Initial release of Wassette - A security-oriented runtime that runs WebAssembly 
 - Built-in examples and CLI interface
 - Installation support and documentation
 
-[Unreleased]: https://github.com/microsoft/wassette/compare/v0.3.4...HEAD
+[Unreleased]: https://github.com/microsoft/wassette/compare/v0.4.0...HEAD
+[v0.4.0]: https://github.com/microsoft/wassette/compare/v0.3.4...v0.4.0
 [v0.3.4]: https://github.com/microsoft/wassette/compare/v0.3.0...v0.3.4
 [v0.3.0]: https://github.com/microsoft/wassette/compare/v0.2.0...v0.3.0
 [v0.2.0]: https://github.com/microsoft/wassette/compare/v0.1.0...v0.2.0
