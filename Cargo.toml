@@ -20,7 +20,7 @@ wassette = { path = "crates/wassette" }
 mcp-sdk = "0.0.3"
 mcp-server = { path = "crates/mcp-server" }
 oci-client = "0.16"
-oci-wasm = "0.3"
+oci-wasm = "0.4"
 policy = { path = "crates/policy" }
 reqwest = { version = "0.13", features = ["stream"] }
 rmcp = "0.9.1"
