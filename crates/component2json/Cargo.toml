@@ -13,4 +13,4 @@ wasmparser = "0.244"
 thiserror = { workspace = true }
 
 [dev-dependencies]
-wat = "1.244"
+wat = "1.245"
