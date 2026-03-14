@@ -7,7 +7,7 @@
   },
   "license": "Apache-2.0",
   "dependencies": {
-        "@bytecodealliance/componentize-js": "0.18.1",
-        "@bytecodealliance/jco": "^1.11.1"
+        "@bytecodealliance/componentize-js": "0.19.3",
+        "@bytecodealliance/jco": "^1.17.0"
   }
 } 
