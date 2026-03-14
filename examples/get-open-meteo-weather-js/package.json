@@ -1,8 +1,8 @@
 {
     "type": "module",
     "dependencies": {
-        "@bytecodealliance/componentize-js": "0.18.1",
-        "@bytecodealliance/jco": "^1.11.1"
+        "@bytecodealliance/componentize-js": "0.19.3",
+        "@bytecodealliance/jco": "^1.17.0"
     },
     "scripts": {
         "build:component": "jco componentize -w ./wit weather.js -o weather.wasm",
