@@ -21,6 +21,6 @@ strip = true
 lto = true
 
 [package.metadata.component]
-package = "component:arxiv-rs"
+package = "microsoft:arxiv-rs"
 
 [workspace]

@@ -173,10 +173,10 @@ Here's a complete example using the `fetch-rs` example from the Wassette reposit
 The WIT file (`examples/fetch-rs/wit/world.wit`) contains:
 
 ```wit
-package component:fetch-rs;
+package microsoft:fetch-rs;
 
 /// An example world for the component to target.
-world fetch {
+world fetch-rs {
     /// Fetch data from a URL and return the response body as a String
     export fetch: func(url: string) -> result<string, string>;
 }

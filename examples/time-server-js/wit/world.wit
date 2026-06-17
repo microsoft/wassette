@@ -1,4 +1,4 @@
-package local:time-server;
+package microsoft:time-server-js;
 
 interface time {
     /// Get the current date and time as a formatted string
@@ -8,6 +8,6 @@ interface time {
 
 /// A world that exports time server functionality
 /// This component provides access to current system time information
-world time-server {
+world time-server-js {
     export time;
 } 

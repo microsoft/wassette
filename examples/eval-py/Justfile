@@ -5,9 +5,9 @@ install: install-uv
     uv pip install componentize-py
 
 bindings:
-    uv run componentize-py -d wit -w sandbox bindings .
+    uv run componentize-py -d wit -w eval-py bindings .
 
 build:
-    uv run componentize-py -d wit -w sandbox componentize -s main -o eval.wasm
+    uv run componentize-py -d wit -w eval-py componentize -s main -o eval.wasm
 
 all: bindings build 

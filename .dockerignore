@@ -57,10 +57,7 @@ winget
 
 # Other
 assets
-audit.toml
-deny.toml
-_typos.toml
+.config
 rustfmt.toml
 component-registry.json
-policy.yaml
 install.sh

@@ -1,7 +1,7 @@
-package mossaka:mcp@0.1.0;
+package microsoft:get-weather-js@0.1.0;
 
 /// Weather information services
-world weather-mcp {
+world get-weather-js {
     import wasi:config/store@0.2.0-draft;
     
     /// Get current weather information for a specified city

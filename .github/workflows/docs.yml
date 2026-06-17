@@ -42,12 +42,13 @@ jobs:
       - name: Install mdBook
         run: |
           mkdir bin
-          curl -sSL https://github.com/rust-lang/mdBook/releases/download/v0.4.40/mdbook-v0.4.40-x86_64-unknown-linux-gnu.tar.gz | tar -xz --directory=bin
+          curl -sSL https://github.com/rust-lang/mdBook/releases/download/v0.4.52/mdbook-v0.4.52-x86_64-unknown-linux-gnu.tar.gz | tar -xz --directory=bin
           echo "$GITHUB_WORKSPACE/bin" >> $GITHUB_PATH
       
       - name: Install mdBook Tabs
         run: |
-          cargo install mdbook-tabs
+          # Pinned to the last 0.4-compatible release; mdbook-tabs 0.3+ requires mdBook 0.5.
+          cargo install mdbook-tabs --version 0.2.3
           echo "$HOME/.cargo/bin" >> $GITHUB_PATH
 
       - name: Install mdbook-mermaid

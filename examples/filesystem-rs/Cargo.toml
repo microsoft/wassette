@@ -19,7 +19,7 @@ strip = true
 lto = true
 
 [package.metadata.component]
-package = "component:filesystem"
+package = "microsoft:filesystem-rs"
 
 [package.metadata.component.dependencies]
 

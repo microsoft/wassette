@@ -6,10 +6,10 @@ import (
 	"go.bytecodealliance.org/cm"
 )
 
-// This file contains wasmimport and wasmexport declarations for "local:gomodule-server".
+// This file contains wasmimport and wasmexport declarations for "microsoft:gomodule-go".
 
-//go:wasmexport local:gomodule-server/gomodule#get-latest-versions
-//export local:gomodule-server/gomodule#get-latest-versions
+//go:wasmexport microsoft:gomodule-go/gomodule#get-latest-versions
+//export microsoft:gomodule-go/gomodule#get-latest-versions
 func wasmexport_GetLatestVersions(moduleNames0 *uint8, moduleNames1 uint32) (result *cm.Result[string, string, string]) {
 	moduleNames := cm.LiftString[string]((*uint8)(moduleNames0), (uint32)(moduleNames1))
 	result_ := Exports.GetLatestVersions(moduleNames)
@@ -17,8 +17,8 @@ func wasmexport_GetLatestVersions(moduleNames0 *uint8, moduleNames1 uint32) (res
 	return
 }
 
-//go:wasmexport local:gomodule-server/gomodule#get-module-info
-//export local:gomodule-server/gomodule#get-module-info
+//go:wasmexport microsoft:gomodule-go/gomodule#get-module-info
+//export microsoft:gomodule-go/gomodule#get-module-info
 func wasmexport_GetModuleInfo(moduleNames0 *uint8, moduleNames1 uint32) (result *cm.Result[string, string, string]) {
 	moduleNames := cm.LiftString[string]((*uint8)(moduleNames0), (uint32)(moduleNames1))
 	result_ := Exports.GetModuleInfo(moduleNames)

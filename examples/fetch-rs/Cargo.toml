@@ -22,6 +22,6 @@ strip = true
 lto = true
 
 [package.metadata.component]
-package = "component:fetch-rs"
+package = "microsoft:fetch-rs"
 
 [workspace]

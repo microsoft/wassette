@@ -1,4 +1,4 @@
-package local:context7@0.1.0;
+package microsoft:context7-rs@0.1.0;
 
 interface context7 {
     record library-result {
@@ -33,7 +33,7 @@ interface context7 {
     ) -> docs-response;
 }
 
-world context7-component {
+world context7-rs {
     import wasi:http/outgoing-handler@0.2.1;
     import wasi:cli/environment@0.2.1;
     export context7;

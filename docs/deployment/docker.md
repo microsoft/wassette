@@ -176,7 +176,9 @@ LOG_LEVEL = "info"
 
 ## Docker Compose
 
-For more complex setups, use Docker Compose:
+For more complex setups, use Docker Compose. A fully annotated template is available at
+[`docker-compose.example.yml`](./docker-compose.example.yml) — copy it to `docker-compose.yml`
+and customize it for your needs.
 
 ```yaml
 # docker-compose.yml

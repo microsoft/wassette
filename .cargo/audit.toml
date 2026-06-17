@@ -1,0 +1,16 @@
+# Cargo Audit Configuration
+[advisories]
+# Allow the paste crate warning as it's classified as unmaintained but still functional
+# We acknowledge the risk and plan to migrate to pastey in the future when possible
+ignore = [
+    "RUSTSEC-2024-0436",  # paste - no longer maintained
+
+    # rustls-webpki 0.102.8 advisories: these are transitive dependencies pulled in by
+    # wasmtime-wasi-http 36.x via rustls 0.22.4. The fixes require rustls-webpki >=0.103.x
+    # which requires rustls 0.23.x. Wasmtime 36.x uses rustls 0.22.x internally, so these
+    # cannot be resolved without upgrading wasmtime to a major version that uses rustls 0.23+.
+    "RUSTSEC-2026-0049",  # rustls-webpki: CRLs not considered authoritative by Distribution Point
+    "RUSTSEC-2026-0098",  # rustls-webpki: Name constraints for URI names incorrectly accepted
+    "RUSTSEC-2026-0099",  # rustls-webpki: Name constraints for wildcard names
+    "RUSTSEC-2026-0104"   # rustls-webpki: Reachable panic in certificate revocation list parsing
+]

@@ -1,7 +1,7 @@
-package local:eval-py;
+package microsoft:eval-py;
 
 /// A sandboxed Python execution environment
-world sandbox {
+world eval-py {
     /// Evaluate a Python expression and return its result
     /// 
     /// # Parameters

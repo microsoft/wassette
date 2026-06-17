@@ -4,7 +4,7 @@ This document demonstrates that all exported functions of the memory-js componen
 
 ## Component Structure Verification
 
-The memory-js component exports all 9 required functions through the `local:memory/knowledge-graph-ops` interface:
+The memory-js component exports all 9 required functions through the `microsoft:memory-js/knowledge-graph-ops` interface:
 
 1. **create-entities** - Create new entities in the knowledge graph
 2. **create-relations** - Create new relations between entities

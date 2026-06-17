@@ -1,7 +1,7 @@
-package component:arxiv-rs;
+package microsoft:arxiv-rs;
 
 /// An example world for arXiv research component
-world arxiv {
+world arxiv-rs {
     /// Search for papers on arXiv
     /// 
     /// Parameters:

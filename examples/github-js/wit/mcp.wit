@@ -1,11 +1,11 @@
-package mossaka:mcp@0.1.0;
+package microsoft:github-js@0.1.0;
 
 /// GitHub API integration for Model Context Protocol
 ///
 /// This world provides comprehensive access to GitHub's API functionality,
 /// including repository management, issues, pull requests, workflows, and more.
 /// All functions return JSON-encoded results or error messages.
-world github-mcp {
+world github-js {
     import wasi:config/store@0.2.0-draft;
 
     // Repository operations

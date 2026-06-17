@@ -22,6 +22,6 @@ strip = true
 lto = true
 
 [package.metadata.component]
-package = "component:brave-search-rs"
+package = "microsoft:brave-search-rs"
 
 [workspace]

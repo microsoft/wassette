@@ -6,7 +6,7 @@ import (
 	"go.bytecodealliance.org/cm"
 )
 
-// Exports represents the caller-defined exports from "local:gomodule-server/gomodule".
+// Exports represents the caller-defined exports from "microsoft:gomodule-go/gomodule".
 var Exports struct {
 	// GetLatestVersions represents the caller-defined, exported function "get-latest-versions".
 	//

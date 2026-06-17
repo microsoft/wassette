@@ -20,7 +20,7 @@ strip = true
 lto = true
 
 [package.metadata.component]
-package = "local:context7"
+package = "microsoft:context7-rs"
 
 [package.metadata.component.dependencies]
 

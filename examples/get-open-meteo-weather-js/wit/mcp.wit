@@ -1,7 +1,7 @@
-package mossaka:mcp@0.1.0;
+package microsoft:get-open-meteo-weather-js@0.1.0;
 
 /// Weather information services
-world weather-mcp {    
+world get-open-meteo-weather-js {
     /// Get current weather information for a specified city
     export get-weather: func(city: string) -> result<string, string>;
 }

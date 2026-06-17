@@ -84,9 +84,9 @@ tempfile = "3.8"
 test-log = { version = "0.2", features = ["trace"] }
 tokio-test = "0.4"
 tracing-test = "0.2"
-testcontainers = "0.25.2"
-oci-wasm = "0.3"
-oci-client = "0.15"
+testcontainers = "0.27"
+oci-wasm = "0.4"
+oci-client = "0.16"
 hyper = { version = "1.0", features = ["server", "http1"] }
 http-body-util = "0.1"
 hyper-util = "0.1"

@@ -1,4 +1,4 @@
-package local:gomodule-server;
+package microsoft:gomodule-go;
 
 interface gomodule {
     /// Get the latest version of multiple Go modules
@@ -10,7 +10,7 @@ interface gomodule {
     get-module-info: func(module-names: string) -> result<string, string>;
 }
 
-world gomodule-server {
+world gomodule-go {
     include wasi:cli/imports@0.2.0;
     import wasi:http/outgoing-handler@0.2.0;
     

@@ -257,7 +257,7 @@ Users can load published examples using the Wassette CLI:
 wassette component load oci://ghcr.io/microsoft/fetch-rs:latest
 
 # Load a specific version
-wassette component load oci://ghcr.io/microsoft/fetch-rs:v0.4.0
+wassette component load oci://ghcr.io/microsoft/fetch-rs:0.4.0
 ```
 
 ### Building Examples Locally

@@ -28,10 +28,10 @@ Publish your component:
 
 ```bash
 # Basic publish
-wkg oci push ghcr.io/your-username/component-name:v1.0.0 component.wasm
+wkg oci push ghcr.io/your-username/component-name:1.0.0 component.wasm
 
 # With metadata annotations
-wkg oci push ghcr.io/your-username/component-name:v1.0.0 component.wasm \
+wkg oci push ghcr.io/your-username/component-name:1.0.0 component.wasm \
   --annotation "org.opencontainers.image.description"="Component description" \
   --annotation "org.opencontainers.image.source"="https://github.com/your-username/repo" \
   --annotation "org.opencontainers.image.version"="1.0.0" \
@@ -42,9 +42,9 @@ wkg oci push ghcr.io/your-username/component-name:v1.0.0 component.wasm \
 
 ```bash
 wkg oci push ghcr.io/user/component:latest component.wasm       # Latest stable
-wkg oci push ghcr.io/user/component:v1.0.0 component.wasm       # Semantic version
+wkg oci push ghcr.io/user/component:1.0.0 component.wasm        # Semantic version
 wkg oci push ghcr.io/user/component:abc1234 component.wasm      # Commit SHA
-wkg oci push ghcr.io/user/component:v1.0.0-beta.1 component.wasm # Pre-release
+wkg oci push ghcr.io/user/component:1.0.0-beta.1 component.wasm # Pre-release
 ```
 
 ## Best Practices

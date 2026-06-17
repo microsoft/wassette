@@ -589,7 +589,7 @@ wassette serve --stdio
 
 ```bash
 # 1. Load component from OCI registry
-wassette component load oci://ghcr.io/myorg/my-tool:v1.0.0
+wassette component load oci://ghcr.io/myorg/my-tool:1.0.0
 
 # 2. Configure permissions based on component needs
 wassette permission grant storage my-tool fs://workspace/** --access read,write

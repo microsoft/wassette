@@ -110,6 +110,7 @@ jobs:
         run: |
           if [[ $GITHUB_REF == refs/tags/* ]]; then
             VERSION=${GITHUB_REF#refs/tags/}
+            VERSION=${VERSION#v}
             echo "tag=$VERSION" >> $GITHUB_OUTPUT
             echo "latest=true" >> $GITHUB_OUTPUT
           elif [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then

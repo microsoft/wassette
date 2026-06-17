@@ -172,7 +172,6 @@ impl Config {
 
 #[cfg(test)]
 mod tests {
-    use std::ffi::OsString;
     use std::fs;
 
     use tempfile::TempDir;
@@ -220,32 +219,6 @@ mod tests {
             disable_builtin_tools: false,
             bind_address: None,
             manifest: None,
-        }
-    }
-
-    struct SetEnv<'a> {
-        old: Option<OsString>,
-        key: &'a str,
-    }
-
-    impl Drop for SetEnv<'_> {
-        fn drop(&mut self) {
-            if let Some(old_value) = &self.old {
-                std::env::set_var(self.key, old_value);
-            } else {
-                std::env::remove_var(self.key);
-            }
-        }
-    }
-
-    impl<'a> SetEnv<'a> {
-        fn new(key: &'a str, value: &'a str) -> Self {
-            let old_value = std::env::var_os(key);
-            std::env::set_var(key, value);
-            SetEnv {
-                old: old_value,
-                key,
-            }
         }
     }
 
@@ -332,14 +305,15 @@ component_dir = "/config/component/dir"
         // It should try to use the default config location, which likely won't exist
         // but should still succeed with defaults
 
-        // Ensure WASSETTE_CONFIG_FILE is not set
-        std::env::remove_var("WASSETTE_CONFIG_FILE");
+        // Ensure WASSETTE_CONFIG_FILE is not set, using temp_env to serialize
+        // access to the shared environment variable across tests.
+        temp_env::with_var_unset("WASSETTE_CONFIG_FILE", || {
+            let serve_config = create_test_cli_config();
+            let config = Config::new(&serve_config).expect("Failed to create config");
 
-        let serve_config = create_test_cli_config();
-        let config = Config::new(&serve_config).expect("Failed to create config");
-
-        // Should use CLI defaults since no config file exists
-        assert_eq!(config.component_dir, PathBuf::from("/test/component/dir"));
+            // Should use CLI defaults since no config file exists
+            assert_eq!(config.component_dir, PathBuf::from("/test/component/dir"));
+        });
     }
 
     #[test]
@@ -372,12 +346,18 @@ policy_file = "custom_policy.yaml"
 "#;
         fs::write(&config_file, toml_content).unwrap();
 
-        // Use SetEnv helper to manage WASSETTE_CONFIG_FILE environment variable
-        let _env = SetEnv::new("WASSETTE_CONFIG_FILE", config_file.to_str().unwrap());
+        // Use temp_env to serialize access to the shared WASSETTE_CONFIG_FILE
+        // environment variable, preventing races with other tests.
+        temp_env::with_var(
+            "WASSETTE_CONFIG_FILE",
+            Some(config_file.to_str().unwrap()),
+            || {
+                let config =
+                    Config::new(&empty_test_cli_config()).expect("Failed to create config");
 
-        let config = Config::new(&empty_test_cli_config()).expect("Failed to create config");
-
-        assert_eq!(config.component_dir, PathBuf::from("/custom/component/dir"));
+                assert_eq!(config.component_dir, PathBuf::from("/custom/component/dir"));
+            },
+        );
     }
 
     #[test]

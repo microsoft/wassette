@@ -10,7 +10,7 @@ import (
 	"net/http"
 	"strings"
 
-	"gomodule-server-go/gen/local/gomodule-server/gomodule"
+	"gomodule-server-go/gen/microsoft/gomodule-go/gomodule"
 
 	wasihttp "github.com/ydnar/wasi-http-go/wasihttp"
 	"go.bytecodealliance.org/cm"

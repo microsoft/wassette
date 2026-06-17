@@ -108,7 +108,7 @@ jobs:
         # Run cargo audit - fail only on actual vulnerabilities, not warnings
         cargo audit
     - name: Run cargo deny check
-      run: cargo deny check advisories licenses bans sources
+      run: cargo deny check --config .config/deny.toml advisories licenses bans sources
 
   coverage:
     name: test coverage
@@ -168,6 +168,8 @@ jobs:
     - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
     - name: Spell Check Repo
       uses: crate-ci/typos@80c8a4945eec0f6d464eaf9e65ed98ef085283d1 # v1.38.1
+      with:
+        config: .config/_typos.toml
   
   linkChecker:
     name: link checker
@@ -183,4 +185,4 @@ jobs:
         fail: false # don't fail the build on broken links
         format: markdown
         jobSummary: true
-        args: '--config lychee.toml .'
+        args: '--config .config/lychee.toml .'

@@ -1,4 +1,4 @@
-package local:memory;
+package microsoft:memory-js;
 
 /// Interface for knowledge graph operations
 interface knowledge-graph-ops {
@@ -98,6 +98,6 @@ interface knowledge-graph-ops {
 /// A world that exports knowledge graph memory functionality
 /// This component provides persistent storage for a knowledge graph
 /// with entities, relations, and observations
-world memory {
+world memory-js {
     export knowledge-graph-ops;
 }

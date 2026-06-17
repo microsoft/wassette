@@ -2,4 +2,4 @@ bindings:
     go run go.bytecodealliance.org/cmd/wit-bindgen-go@v0.6.2 generate -o gen ./wit
 
 build: bindings
-    tinygo build -o gomodule.wasm -target wasip2 --wit-package ./wit --wit-world gomodule-server main.go
+    tinygo build -o gomodule.wasm -target wasip2 --wit-package ./wit --wit-world gomodule-go main.go

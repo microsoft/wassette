@@ -6,7 +6,7 @@
 #[allow(warnings)]
 mod bindings;
 
-use bindings::exports::local::context7::context7::{DocsResponse, Guest, LibraryResult, SearchResponse};
+use bindings::exports::microsoft::context7_rs::context7::{DocsResponse, Guest, LibraryResult, SearchResponse};
 use bindings::wasi::cli::environment;
 use bindings::wasi::http::outgoing_handler;
 use bindings::wasi::http::types::{self, Fields, IncomingResponse, Method, OutgoingRequest, Scheme};
