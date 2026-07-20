@@ -5,14 +5,16 @@ on:
     types: [closed]
 
 permissions:
+  actions: write
   contents: write
+  issues: write
   pull-requests: read
 
 jobs:
   create-release-tag:
     name: Create Release Tag
     runs-on: ubuntu-latest
-    # Only run if PR was merged, has release label, and branch matches release/v* pattern
+    # Only run for merged release PRs created from a release/v* branch.
     if: |
       github.event.pull_request.merged == true &&
       contains(github.event.pull_request.labels.*.name, 'release') &&
@@ -22,7 +24,6 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
         with:
-          token: ${{ secrets.RELEASE_TOKEN }}
           ref: ${{ github.event.pull_request.merge_commit_sha }}
           fetch-depth: 0
 
@@ -73,7 +74,12 @@ jobs:
           git push origin "$VERSION"
           
           echo "Successfully created and pushed tag $VERSION"
-          echo "The release workflow will now be triggered automatically"
+
+      - name: Dispatch release workflow
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.extract_version.outputs.version }}
+        run: gh workflow run release.yml --ref main -f tag_name="$VERSION"
 
       - name: Add comment to PR
         if: steps.check_tag.outputs.exists == 'false'

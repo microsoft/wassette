@@ -35,6 +35,10 @@ Wassette uses semantic versioning. All releases follow the format `vX.Y.Z`, wher
 
 The release process is now largely automated through GitHub Actions workflows and uses a release branch strategy to prevent blocking development on main. Follow these steps:
 
+The workflows use `GITHUB_TOKEN`; no separate `RELEASE_TOKEN` secret is
+required. Enable **Allow GitHub Actions to create and approve pull requests**
+in the repository Actions settings.
+
 1. **Prepare the CHANGELOG**: Before creating a release, ensure that the `[Unreleased]` section in `CHANGELOG.md` contains all the changes for the upcoming release. Follow the [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) format with sections for:
    - `Added` - new features
    - `Changed` - changes in existing functionality
@@ -80,6 +84,8 @@ The release process is now largely automated through GitHub Actions workflows an
      - Updates version comparison links
    - Creates a PR to merge the release branch back to main with the updated CHANGELOG
    - Monitor the workflow progress in the [Actions tab](https://github.com/microsoft/wassette/actions)
+
+   To recover a missing run, dispatch `release.yml` with the existing tag.
 
 1. **Merge the CHANGELOG update PR**: After the release workflow completes, a new PR will be created to merge the release branch back to main with the updated CHANGELOG. Review and merge this PR.
 

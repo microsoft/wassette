@@ -5,16 +5,55 @@ on:
     tags:
       - "v*"
   workflow_dispatch:
+    inputs:
+      tag_name:
+        description: 'Existing release tag (e.g., v0.4.0 or v0.4.1-rc1)'
+        required: true
+        type: string
 
 permissions:
+  actions: write
   contents: write
+  pull-requests: write
 
 env:
   CARGO_TERM_COLOR: always
+  RELEASE_TAG: ${{ inputs.tag_name || github.ref_name }}
 
 jobs:
+  validate-release:
+    name: Validate release
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout release tag
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+        with:
+          ref: ${{ env.RELEASE_TAG }}
+          fetch-depth: 0
+
+      - name: Validate tag and package version
+        run: |
+          if ! [[ "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
+            echo "Error: tag must use the vX.Y.Z or vX.Y.Z-suffix format"
+            exit 1
+          fi
+
+          if ! git show-ref --tags --verify --quiet "refs/tags/$RELEASE_TAG"; then
+            echo "Error: tag $RELEASE_TAG does not exist"
+            exit 1
+          fi
+
+          TAG_VERSION="${RELEASE_TAG#v}"
+          PACKAGE_VERSION=$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -n1)
+          if [ "${TAG_VERSION%%-*}" != "$PACKAGE_VERSION" ]; then
+            echo "Error: tag $RELEASE_TAG does not match Cargo.toml version $PACKAGE_VERSION"
+            exit 1
+          fi
+
   build:
     name: Build ${{ matrix.target }}
+    needs: validate-release
     runs-on: ${{ matrix.runner }}
     strategy:
       fail-fast: false
@@ -51,6 +90,8 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+        with:
+          ref: ${{ env.RELEASE_TAG }}
 
       - name: Sccache Action
         if: matrix.target != 'aarch64-pc-windows-msvc' && matrix.target != 'x86_64-apple-darwin'
@@ -74,14 +115,14 @@ jobs:
         if: "!contains(matrix.target, 'windows')"
         id: version-unix
         run: |
-          VERSION=$(echo "${{ github.ref_name }}" | sed 's/^v//')
+          VERSION="${RELEASE_TAG#v}"
           echo "version=$VERSION" >> $GITHUB_OUTPUT
 
       - name: Extract version (Windows)
         if: contains(matrix.target, 'windows')
         id: version-windows
         run: |
-          $VERSION = "${{ github.ref_name }}" -replace '^v', ''
+          $VERSION = "${{ env.RELEASE_TAG }}" -replace '^v', ''
           echo "version=$VERSION" >> $env:GITHUB_OUTPUT
         shell: pwsh
 
@@ -121,17 +162,18 @@ jobs:
   release:
     name: Create Release
     runs-on: ubuntu-latest
-    needs: build
-    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
+    needs: [validate-release, build]
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+        with:
+          ref: ${{ env.RELEASE_TAG }}
 
       - name: Extract version and detect prerelease
         id: version
         run: |
-          VERSION=$(echo "${{ github.ref_name }}" | sed 's/^v//')
+          VERSION="${RELEASE_TAG#v}"
           echo "version=$VERSION" >> $GITHUB_OUTPUT
           
           # Detect if this is a prerelease (contains hyphen, e.g., v0.3.4-test1)
@@ -158,7 +200,7 @@ jobs:
       - name: Extract changelog content
         id: changelog
         run: |
-          CHANGELOG_CONTENT=$(python3 scripts/changelog_utils.py extract "${{ github.ref_name }}")
+          CHANGELOG_CONTENT=$(python3 scripts/changelog_utils.py extract "$RELEASE_TAG")
           echo "content<<EOF" >> $GITHUB_OUTPUT
           echo "$CHANGELOG_CONTENT" >> $GITHUB_OUTPUT
           echo "EOF" >> $GITHUB_OUTPUT
@@ -166,6 +208,7 @@ jobs:
       - name: Create Release
         uses: softprops/action-gh-release@6da8fa9354ddfdc4aeace5fc48d7f679b5214090 # v2.4.1
         with:
+          tag_name: ${{ env.RELEASE_TAG }}
           draft: false
           prerelease: ${{ steps.version.outputs.is_prerelease == 'true' }}
           generate_release_notes: false
@@ -176,23 +219,23 @@ jobs:
             ## Downloads
 
             ### Linux
-            - [AMD64 (tar.gz)](https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/wassette_${{ steps.version.outputs.version }}_linux_amd64.tar.gz)
-            - [ARM64 (tar.gz)](https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/wassette_${{ steps.version.outputs.version }}_linux_arm64.tar.gz)
+            - [AMD64 (tar.gz)](https://github.com/${{ github.repository }}/releases/download/${{ env.RELEASE_TAG }}/wassette_${{ steps.version.outputs.version }}_linux_amd64.tar.gz)
+            - [ARM64 (tar.gz)](https://github.com/${{ github.repository }}/releases/download/${{ env.RELEASE_TAG }}/wassette_${{ steps.version.outputs.version }}_linux_arm64.tar.gz)
 
             ### macOS (Darwin)
-            - [AMD64/Intel (tar.gz)](https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/wassette_${{ steps.version.outputs.version }}_darwin_amd64.tar.gz)
-            - [ARM64/Apple Silicon (tar.gz)](https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/wassette_${{ steps.version.outputs.version }}_darwin_arm64.tar.gz)
+            - [AMD64/Intel (tar.gz)](https://github.com/${{ github.repository }}/releases/download/${{ env.RELEASE_TAG }}/wassette_${{ steps.version.outputs.version }}_darwin_amd64.tar.gz)
+            - [ARM64/Apple Silicon (tar.gz)](https://github.com/${{ github.repository }}/releases/download/${{ env.RELEASE_TAG }}/wassette_${{ steps.version.outputs.version }}_darwin_arm64.tar.gz)
 
             ### Windows
-            - [AMD64 (zip)](https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/wassette_${{ steps.version.outputs.version }}_windows_amd64.zip)
-            - [ARM64 (zip)](https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/wassette_${{ steps.version.outputs.version }}_windows_arm64.zip)
+            - [AMD64 (zip)](https://github.com/${{ github.repository }}/releases/download/${{ env.RELEASE_TAG }}/wassette_${{ steps.version.outputs.version }}_windows_amd64.zip)
+            - [ARM64 (zip)](https://github.com/${{ github.repository }}/releases/download/${{ env.RELEASE_TAG }}/wassette_${{ steps.version.outputs.version }}_windows_arm64.zip)
 
             ## Install
 
             ### All Platforms (Shell Script)
 
             ```bash
-            curl -fsSL https://raw.githubusercontent.com/${{ github.repository }}/main/install.sh | bash
+            curl -fsSL https://raw.githubusercontent.com/${{ github.repository }}/main/install.sh | WASSETTE_GITHUB_REPO=${{ github.repository }} bash
             ```
 
             This will detect your platform and install the latest `wassette` binary to your `$PATH`.
@@ -203,26 +246,38 @@ jobs:
             wassette serve --streamable-http
             ```
         env:
-          GITHUB_TOKEN: ${{ secrets.RELEASE_TOKEN }}
+          GITHUB_TOKEN: ${{ github.token }}
+
+      - name: Dispatch package manifest update
+        if: steps.version.outputs.is_prerelease == 'false'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run update-package-manifests.yml --ref main -f tag_name="$RELEASE_TAG"
 
   update-changelog:
     name: Update CHANGELOG
     runs-on: ubuntu-latest
-    needs: release
+    needs: [validate-release, release]
     # Skip for prerelease/dry-run tags (e.g., v0.3.4-test1)
-    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/') && needs.release.result == 'success' && !contains(github.ref_name, '-')
+    if: needs.release.result == 'success' && !contains(inputs.tag_name || github.ref_name, '-')
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
         with:
-          token: ${{ secrets.RELEASE_TOKEN }}
+          ref: ${{ env.RELEASE_TAG }}
+          fetch-depth: 0
 
       - name: Get previous version
         id: prev_version
         run: |
-          # Get the tag before the current one
-          PREV_TAG=$(git tag --sort=-version:refname | grep -A1 "${{ github.ref_name }}" | tail -n1)
+          PREV_TAG=$(
+            git tag --sort=-version:refname |
+              awk -v current="$RELEASE_TAG" '
+                $0 == current { found = 1; next }
+                found && $0 ~ /^v[0-9]+\.[0-9]+\.[0-9]+$/ { print; exit }
+              '
+          )
           if [ -z "$PREV_TAG" ]; then
             echo "Warning: Could not find previous tag, skipping changelog update"
             echo "found=false" >> $GITHUB_OUTPUT
@@ -236,7 +291,7 @@ jobs:
         if: steps.prev_version.outputs.found == 'true'
         id: version
         run: |
-          VERSION=$(echo "${{ github.ref_name }}" | sed 's/^v//')
+          VERSION="${RELEASE_TAG#v}"
           echo "version=$VERSION" >> $GITHUB_OUTPUT
 
       - name: Create or update release branch
@@ -257,7 +312,7 @@ jobs:
           fi
           
           # Update CHANGELOG
-          python3 scripts/changelog_utils.py update "${{ github.ref_name }}" "${{ steps.prev_version.outputs.tag }}"
+          python3 scripts/changelog_utils.py update "$RELEASE_TAG" "${{ steps.prev_version.outputs.tag }}"
           
           # Commit and push if there are changes
           git add CHANGELOG.md
@@ -265,7 +320,7 @@ jobs:
             echo "No changes to CHANGELOG.md"
             echo "has_changes=false" >> $GITHUB_ENV
           else
-            git commit -m "chore(release): update CHANGELOG for ${{ github.ref_name }}"
+            git commit -m "chore(release): update CHANGELOG for $RELEASE_TAG"
             git push origin "$RELEASE_BRANCH"
             echo "has_changes=true" >> $GITHUB_ENV
           fi
@@ -273,7 +328,7 @@ jobs:
       - name: Create PR to merge release branch to main
         if: steps.prev_version.outputs.found == 'true' && env.has_changes == 'true'
         env:
-          GH_TOKEN: ${{ secrets.RELEASE_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           # Check if PR already exists
           EXISTING_PR=$(gh pr list --head "release/v${{ steps.version.outputs.version }}" --base main --json number --jq '.[0].number')
@@ -281,14 +336,14 @@ jobs:
           if [ -n "$EXISTING_PR" ]; then
             echo "PR #$EXISTING_PR already exists, skipping creation"
           else
-            gh pr create \
+            PR_URL=$(gh pr create \
               --base main \
               --head "release/v${{ steps.version.outputs.version }}" \
               --title "chore(release): merge release/v${{ steps.version.outputs.version }} back to main" \
               --body "This PR merges the release branch \`release/v${{ steps.version.outputs.version }}\` back to main after the release process.
 
             ## Changes
-            - Updated CHANGELOG.md with release date and version information for ${{ github.ref_name }}
+            - Updated CHANGELOG.md with release date and version information for $RELEASE_TAG
             - Added new empty [Unreleased] section for future changes
             
             ## Context
@@ -297,5 +352,6 @@ jobs:
             ## Next Steps
             1. Review and merge this PR to complete the release process
             2. The release branch can be deleted after merging" \
-              --label "release,automated"
+              --label "release,automated")
+            echo "Created $PR_URL"
           fi

@@ -4,6 +4,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Fixed
+
+- Release automation now uses explicit workflow handoffs with `GITHUB_TOKEN`, supports safe tag-based retries, and keeps changelog and package-manifest updates idempotent.
+
 ## [v0.4.0] - 2026-02-04
 
 ### Added
