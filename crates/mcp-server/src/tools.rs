@@ -6,7 +6,7 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use anyhow::Result;
-use rmcp::model::{CallToolRequestParam, CallToolResult, Content, Tool};
+use rmcp::model::{CallToolRequestParams, CallToolResult, Content, Tool};
 use rmcp::{Peer, RoleServer};
 use serde_json::{json, Value};
 use tracing::{debug, error, info, instrument, warn};
@@ -36,7 +36,7 @@ pub async fn handle_tools_list(
 
     let response = rmcp::model::ListToolsResult {
         tools,
-        next_cursor: None,
+        ..Default::default()
     };
 
     Ok(serde_json::to_value(response)?)
@@ -110,7 +110,7 @@ fn sanitize_args_for_logging(args: &Option<serde_json::Map<String, Value>>) -> S
 /// Handles a tool call request.
 #[instrument(skip_all, fields(method_name = %req.name))]
 pub async fn handle_tools_call(
-    req: CallToolRequestParam,
+    req: CallToolRequestParams,
     lifecycle_manager: &LifecycleManager,
     server_peer: Peer<RoleServer>,
     disable_builtin_tools: bool,
@@ -203,12 +203,7 @@ pub async fn handle_tools_call(
             let error_text = format!("Error: {e}");
             let contents = vec![Content::text(error_text)];
 
-            let error_result = CallToolResult {
-                content: contents,
-                structured_content: None,
-                is_error: Some(true),
-                meta: None,
-            };
+            let error_result = CallToolResult::error(contents);
             Ok(serde_json::to_value(error_result)?)
         }
     }
@@ -217,12 +212,12 @@ pub async fn handle_tools_call(
 fn get_builtin_tools() -> Vec<Tool> {
     debug!("Getting builtin tools");
     vec![
-        Tool {
-            name: Cow::Borrowed("load-component"),
-            description: Some(Cow::Borrowed(
+        Tool::new_with_raw(
+            Cow::Borrowed("load-component"),
+            Some(Cow::Borrowed(
                 "Dynamically loads a new tool or component from either the filesystem or OCI registries.",
             )),
-            input_schema: Arc::new(
+            Arc::new(
                 serde_json::from_value(json!({
                     "type": "object",
                     "properties": {
@@ -232,18 +227,13 @@ fn get_builtin_tools() -> Vec<Tool> {
                 }))
                 .unwrap_or_default(),
             ),
-            output_schema: None,
-            annotations: None,
-            title: None,
-            icons: None,
-            meta: None,
-        },
-        Tool {
-            name: Cow::Borrowed("unload-component"),
-            description: Some(Cow::Borrowed(
+        ),
+        Tool::new_with_raw(
+            Cow::Borrowed("unload-component"),
+            Some(Cow::Borrowed(
                 "Unloads a tool or component.",
             )),
-            input_schema: Arc::new(
+            Arc::new(
                 serde_json::from_value(json!({
                     "type": "object",
                     "properties": {
@@ -253,18 +243,13 @@ fn get_builtin_tools() -> Vec<Tool> {
                 }))
                 .unwrap_or_default(),
             ),
-            output_schema: None,
-            annotations: None,
-            title: None,
-            icons: None,
-            meta: None,
-        },
-        Tool {
-            name: Cow::Borrowed("list-components"),
-            description: Some(Cow::Borrowed(
+        ),
+        Tool::new_with_raw(
+            Cow::Borrowed("list-components"),
+            Some(Cow::Borrowed(
                 "Lists all currently loaded components or tools.",
             )),
-            input_schema: Arc::new(
+            Arc::new(
                 serde_json::from_value(json!({
                     "type": "object",
                     "properties": {},
@@ -272,18 +257,13 @@ fn get_builtin_tools() -> Vec<Tool> {
                 }))
                 .unwrap_or_default(),
             ),
-            output_schema: None,
-            annotations: None,
-            title: None,
-            icons: None,
-            meta: None,
-        },
-        Tool {
-            name: Cow::Borrowed("get-policy"),
-            description: Some(Cow::Borrowed(
+        ),
+        Tool::new_with_raw(
+            Cow::Borrowed("get-policy"),
+            Some(Cow::Borrowed(
                 "Gets the policy information for a specific component",
             )),
-            input_schema: Arc::new(
+            Arc::new(
                 serde_json::from_value(json!({
                     "type": "object",
                     "properties": {
@@ -296,18 +276,13 @@ fn get_builtin_tools() -> Vec<Tool> {
                 }))
                 .unwrap_or_default(),
             ),
-            output_schema: None,
-            annotations: None,
-            title: None,
-            icons: None,
-            meta: None,
-        },
-        Tool {
-            name: Cow::Borrowed("grant-storage-permission"),
-            description: Some(Cow::Borrowed(
+        ),
+        Tool::new_with_raw(
+            Cow::Borrowed("grant-storage-permission"),
+            Some(Cow::Borrowed(
                 "Grants storage access permission to a component, allowing it to read from and/or write to specific storage locations."
             )),
-            input_schema: Arc::new(
+            Arc::new(
                 serde_json::from_value(json!({
                     "type": "object",
                     "properties": {
@@ -339,18 +314,13 @@ fn get_builtin_tools() -> Vec<Tool> {
                   }))
                 .unwrap_or_default(),
             ),
-            output_schema: None,
-            annotations: None,
-            title: None,
-            icons: None,
-            meta: None,
-        },
-        Tool {
-            name: Cow::Borrowed("grant-network-permission"),
-            description: Some(Cow::Borrowed(
+        ),
+        Tool::new_with_raw(
+            Cow::Borrowed("grant-network-permission"),
+            Some(Cow::Borrowed(
                 "Grants network access permission to a component, allowing it to make network requests to specific hosts."
             )),
-            input_schema: Arc::new(
+            Arc::new(
                 serde_json::from_value(json!({
                     "type": "object",
                     "properties": {
@@ -374,18 +344,13 @@ fn get_builtin_tools() -> Vec<Tool> {
                   }))
                 .unwrap_or_default(),
             ),
-            output_schema: None,
-            annotations: None,
-            title: None,
-            icons: None,
-            meta: None,
-        },
-        Tool {
-            name: Cow::Borrowed("grant-environment-variable-permission"),
-            description: Some(Cow::Borrowed(
+        ),
+        Tool::new_with_raw(
+            Cow::Borrowed("grant-environment-variable-permission"),
+            Some(Cow::Borrowed(
                 "Grants environment variable access permission to a component, allowing it to access specific environment variables."
             )),
-            input_schema: Arc::new(
+            Arc::new(
                 serde_json::from_value(json!({
                     "type": "object",
                     "properties": {
@@ -409,18 +374,13 @@ fn get_builtin_tools() -> Vec<Tool> {
                   }))
                 .unwrap_or_default(),
             ),
-            output_schema: None,
-            annotations: None,
-            title: None,
-            icons: None,
-            meta: None,
-        },
-        Tool {
-            name: Cow::Borrowed("revoke-storage-permission"),
-            description: Some(Cow::Borrowed(
+        ),
+        Tool::new_with_raw(
+            Cow::Borrowed("revoke-storage-permission"),
+            Some(Cow::Borrowed(
                 "Revokes all storage access permissions from a component for the specified URI path, removing both read and write access to that location."
             )),
-            input_schema: Arc::new(
+            Arc::new(
                 serde_json::from_value(json!({
                     "type": "object",
                     "properties": {
@@ -444,18 +404,13 @@ fn get_builtin_tools() -> Vec<Tool> {
                   }))
                 .unwrap_or_default(),
             ),
-            output_schema: None,
-            annotations: None,
-            title: None,
-            icons: None,
-            meta: None,
-        },
-        Tool {
-            name: Cow::Borrowed("revoke-network-permission"),
-            description: Some(Cow::Borrowed(
+        ),
+        Tool::new_with_raw(
+            Cow::Borrowed("revoke-network-permission"),
+            Some(Cow::Borrowed(
                 "Revokes network access permission from a component, removing its ability to make network requests to specific hosts."
             )),
-            input_schema: Arc::new(
+            Arc::new(
                 serde_json::from_value(json!({
                     "type": "object",
                     "properties": {
@@ -479,18 +434,13 @@ fn get_builtin_tools() -> Vec<Tool> {
                   }))
                 .unwrap_or_default(),
             ),
-            output_schema: None,
-            annotations: None,
-            title: None,
-            icons: None,
-            meta: None,
-        },
-        Tool {
-            name: Cow::Borrowed("revoke-environment-variable-permission"),
-            description: Some(Cow::Borrowed(
+        ),
+        Tool::new_with_raw(
+            Cow::Borrowed("revoke-environment-variable-permission"),
+            Some(Cow::Borrowed(
                 "Revokes environment variable access permission from a component, removing its ability to access specific environment variables."
             )),
-            input_schema: Arc::new(
+            Arc::new(
                 serde_json::from_value(json!({
                     "type": "object",
                     "properties": {
@@ -514,18 +464,13 @@ fn get_builtin_tools() -> Vec<Tool> {
                   }))
                 .unwrap_or_default(),
             ),
-            output_schema: None,
-            annotations: None,
-            title: None,
-            icons: None,
-            meta: None,
-        },
-        Tool {
-            name: Cow::Borrowed("reset-permission"),
-            description: Some(Cow::Borrowed(
+        ),
+        Tool::new_with_raw(
+            Cow::Borrowed("reset-permission"),
+            Some(Cow::Borrowed(
                 "Resets all permissions for a component, removing all granted permissions and returning it to the default state."
             )),
-            input_schema: Arc::new(
+            Arc::new(
                 serde_json::from_value(json!({
                     "type": "object",
                     "properties": {
@@ -538,18 +483,13 @@ fn get_builtin_tools() -> Vec<Tool> {
                   }))
                 .unwrap_or_default(),
             ),
-            output_schema: None,
-            annotations: None,
-            title: None,
-            icons: None,
-            meta: None,
-        },
-        Tool {
-            name: Cow::Borrowed("search-components"),
-            description: Some(Cow::Borrowed(
+        ),
+        Tool::new_with_raw(
+            Cow::Borrowed("search-components"),
+            Some(Cow::Borrowed(
                 "Lists all known components that can be fetched and loaded. Optionally filter by a search query.",
             )),
-            input_schema: Arc::new(
+            Arc::new(
                 serde_json::from_value(json!({
                     "type": "object",
                     "properties": {
@@ -562,12 +502,7 @@ fn get_builtin_tools() -> Vec<Tool> {
                 }))
                 .unwrap_or_default(),
             ),
-            output_schema: None,
-            annotations: None,
-            title: None,
-            icons: None,
-            meta: None,
-        },
+        ),
     ]
 }
 
@@ -611,7 +546,7 @@ fn calculate_relevance_score(component: &Value, query_terms: &[String]) -> u32 {
 
 #[instrument(skip(_lifecycle_manager))]
 pub(crate) async fn handle_search_component(
-    req: &CallToolRequestParam,
+    req: &CallToolRequestParams,
     _lifecycle_manager: &LifecycleManager,
 ) -> Result<CallToolResult> {
     let args = extract_args_from_request(req)?;
@@ -666,17 +601,12 @@ pub(crate) async fn handle_search_component(
 
     let contents = vec![Content::text(status_text)];
 
-    Ok(CallToolResult {
-        content: contents,
-        structured_content: None,
-        is_error: None,
-        meta: None,
-    })
+    Ok(CallToolResult::success(contents))
 }
 
 #[instrument(skip(lifecycle_manager))]
 pub async fn handle_get_policy(
-    req: &CallToolRequestParam,
+    req: &CallToolRequestParams,
     lifecycle_manager: &LifecycleManager,
 ) -> Result<CallToolResult> {
     let args = extract_args_from_request(req)?;
@@ -717,17 +647,12 @@ pub async fn handle_get_policy(
 
     let contents = vec![Content::text(status_text)];
 
-    Ok(CallToolResult {
-        content: contents,
-        structured_content: None,
-        is_error: None,
-        meta: None,
-    })
+    Ok(CallToolResult::success(contents))
 }
 
 /// Generic helper for handling grant permission requests
 async fn handle_grant_permission_generic(
-    req: &CallToolRequestParam,
+    req: &CallToolRequestParams,
     lifecycle_manager: &LifecycleManager,
     permission_type: &str,
     permission_display_name: &str,
@@ -769,12 +694,7 @@ async fn handle_grant_permission_generic(
 
             let contents = vec![Content::text(status_text)];
 
-            Ok(CallToolResult {
-                content: contents,
-                structured_content: None,
-                is_error: None,
-                meta: None,
-            })
+            Ok(CallToolResult::success(contents))
         }
         Err(e) => {
             error!(
@@ -793,7 +713,7 @@ async fn handle_grant_permission_generic(
 
 #[instrument(skip(lifecycle_manager))]
 pub async fn handle_grant_storage_permission(
-    req: &CallToolRequestParam,
+    req: &CallToolRequestParams,
     lifecycle_manager: &LifecycleManager,
 ) -> Result<CallToolResult> {
     handle_grant_permission_generic(req, lifecycle_manager, "storage", "storage").await
@@ -801,7 +721,7 @@ pub async fn handle_grant_storage_permission(
 
 #[instrument(skip(lifecycle_manager))]
 pub async fn handle_grant_network_permission(
-    req: &CallToolRequestParam,
+    req: &CallToolRequestParams,
     lifecycle_manager: &LifecycleManager,
 ) -> Result<CallToolResult> {
     handle_grant_permission_generic(req, lifecycle_manager, "network", "network").await
@@ -809,7 +729,7 @@ pub async fn handle_grant_network_permission(
 
 #[instrument(skip(lifecycle_manager))]
 pub async fn handle_grant_environment_variable_permission(
-    req: &CallToolRequestParam,
+    req: &CallToolRequestParams,
     lifecycle_manager: &LifecycleManager,
 ) -> Result<CallToolResult> {
     handle_grant_permission_generic(
@@ -823,7 +743,7 @@ pub async fn handle_grant_environment_variable_permission(
 
 #[instrument(skip(lifecycle_manager))]
 pub async fn handle_grant_memory_permission(
-    req: &CallToolRequestParam,
+    req: &CallToolRequestParams,
     lifecycle_manager: &LifecycleManager,
 ) -> Result<CallToolResult> {
     handle_grant_permission_generic(req, lifecycle_manager, "resource", "memory").await
@@ -831,7 +751,7 @@ pub async fn handle_grant_memory_permission(
 
 /// Generic helper for handling revoke permission requests
 async fn handle_revoke_permission_generic(
-    req: &CallToolRequestParam,
+    req: &CallToolRequestParams,
     lifecycle_manager: &LifecycleManager,
     permission_type: &str,
     permission_display_name: &str,
@@ -872,12 +792,7 @@ async fn handle_revoke_permission_generic(
 
             let contents = vec![Content::text(status_text)];
 
-            Ok(CallToolResult {
-                content: contents,
-                structured_content: None,
-                is_error: None,
-                meta: None,
-            })
+            Ok(CallToolResult::success(contents))
         }
         Err(e) => {
             error!(
@@ -896,7 +811,7 @@ async fn handle_revoke_permission_generic(
 
 #[instrument(skip(lifecycle_manager))]
 pub async fn handle_revoke_storage_permission(
-    req: &CallToolRequestParam,
+    req: &CallToolRequestParams,
     lifecycle_manager: &LifecycleManager,
 ) -> Result<CallToolResult> {
     let args = extract_args_from_request(req)?;
@@ -940,12 +855,7 @@ pub async fn handle_revoke_storage_permission(
 
             let contents = vec![Content::text(status_text)];
 
-            Ok(CallToolResult {
-                content: contents,
-                structured_content: None,
-                is_error: None,
-                meta: None,
-            })
+            Ok(CallToolResult::success(contents))
         }
         Err(e) => {
             error!("Failed to revoke storage permission: {}", e);
@@ -960,7 +870,7 @@ pub async fn handle_revoke_storage_permission(
 
 #[instrument(skip(lifecycle_manager))]
 pub async fn handle_revoke_network_permission(
-    req: &CallToolRequestParam,
+    req: &CallToolRequestParams,
     lifecycle_manager: &LifecycleManager,
 ) -> Result<CallToolResult> {
     handle_revoke_permission_generic(req, lifecycle_manager, "network", "network").await
@@ -968,7 +878,7 @@ pub async fn handle_revoke_network_permission(
 
 #[instrument(skip(lifecycle_manager))]
 pub async fn handle_revoke_environment_variable_permission(
-    req: &CallToolRequestParam,
+    req: &CallToolRequestParams,
     lifecycle_manager: &LifecycleManager,
 ) -> Result<CallToolResult> {
     handle_revoke_permission_generic(
@@ -982,7 +892,7 @@ pub async fn handle_revoke_environment_variable_permission(
 
 #[instrument(skip(lifecycle_manager))]
 pub async fn handle_reset_permission(
-    req: &CallToolRequestParam,
+    req: &CallToolRequestParams,
     lifecycle_manager: &LifecycleManager,
 ) -> Result<CallToolResult> {
     let args = extract_args_from_request(req)?;
@@ -1010,12 +920,7 @@ pub async fn handle_reset_permission(
 
             let contents = vec![Content::text(status_text)];
 
-            Ok(CallToolResult {
-                content: contents,
-                structured_content: None,
-                is_error: None,
-                meta: None,
-            })
+            Ok(CallToolResult::success(contents))
         }
         Err(e) => {
             error!("Failed to reset permissions: {}", e);
@@ -1065,10 +970,7 @@ mod tests {
         args.insert("component_id".to_string(), json!("test-component"));
         args.insert("details".to_string(), json!({"host": "api.example.com"}));
 
-        let req = CallToolRequestParam {
-            name: "grant-network-permission".into(),
-            arguments: Some(args),
-        };
+        let req = CallToolRequestParams::new("grant-network-permission").with_arguments(args);
 
         // This should fail because the component doesn't exist, but it tests the flow
         let result = handle_grant_network_permission(&req, &lifecycle_manager).await;
@@ -1097,10 +999,7 @@ mod tests {
             json!({"uri": "file:///tmp/test", "access": ["read", "write"]}),
         );
 
-        let req = CallToolRequestParam {
-            name: "grant-storage-permission".into(),
-            arguments: Some(args),
-        };
+        let req = CallToolRequestParams::new("grant-storage-permission").with_arguments(args);
 
         // This should fail because the component doesn't exist, but it tests the flow
         let result = handle_grant_storage_permission(&req, &lifecycle_manager).await;
@@ -1124,10 +1023,7 @@ mod tests {
         let mut args = serde_json::Map::new();
         args.insert("details".to_string(), json!({"host": "api.example.com"}));
 
-        let req = CallToolRequestParam {
-            name: "grant-network-permission".into(),
-            arguments: Some(args),
-        };
+        let req = CallToolRequestParams::new("grant-network-permission").with_arguments(args);
 
         let result = handle_grant_network_permission(&req, &lifecycle_manager).await;
         assert!(result.is_err());
@@ -1140,10 +1036,7 @@ mod tests {
         let mut args = serde_json::Map::new();
         args.insert("component_id".to_string(), json!("test-component"));
 
-        let req = CallToolRequestParam {
-            name: "grant-network-permission".into(),
-            arguments: Some(args),
-        };
+        let req = CallToolRequestParams::new("grant-network-permission").with_arguments(args);
 
         let result = handle_grant_network_permission(&req, &lifecycle_manager).await;
         assert!(result.is_err());
@@ -1159,10 +1052,7 @@ mod tests {
             json!({"uri": "file:///tmp/test", "access": ["read"]}),
         );
 
-        let req = CallToolRequestParam {
-            name: "grant-storage-permission".into(),
-            arguments: Some(args),
-        };
+        let req = CallToolRequestParams::new("grant-storage-permission").with_arguments(args);
 
         let result = handle_grant_storage_permission(&req, &lifecycle_manager).await;
         assert!(result.is_err());
@@ -1175,10 +1065,7 @@ mod tests {
         let mut args = serde_json::Map::new();
         args.insert("component_id".to_string(), json!("test-component"));
 
-        let req = CallToolRequestParam {
-            name: "grant-storage-permission".into(),
-            arguments: Some(args),
-        };
+        let req = CallToolRequestParams::new("grant-storage-permission").with_arguments(args);
 
         let result = handle_grant_storage_permission(&req, &lifecycle_manager).await;
         assert!(result.is_err());
@@ -1202,10 +1089,7 @@ mod tests {
         args.insert("component_id".to_string(), json!("test-component"));
         args.insert("details".to_string(), json!({"host": "api.example.com"}));
 
-        let req = CallToolRequestParam {
-            name: "revoke-network-permission".into(),
-            arguments: Some(args),
-        };
+        let req = CallToolRequestParams::new("revoke-network-permission").with_arguments(args);
 
         // This should fail because the component doesn't exist, but it tests the flow
         let result = handle_revoke_network_permission(&req, &lifecycle_manager).await;
@@ -1233,10 +1117,7 @@ mod tests {
             json!({"uri": "fs:///tmp/test", "access": ["read", "write"]}),
         );
 
-        let req = CallToolRequestParam {
-            name: "revoke-storage-permission".into(),
-            arguments: Some(args),
-        };
+        let req = CallToolRequestParams::new("revoke-storage-permission").with_arguments(args);
 
         // This should fail because the component doesn't exist, but it tests the flow
         let result = handle_revoke_storage_permission(&req, &lifecycle_manager).await;
@@ -1261,10 +1142,8 @@ mod tests {
         args.insert("component_id".to_string(), json!("test-component"));
         args.insert("details".to_string(), json!({"key": "API_KEY"}));
 
-        let req = CallToolRequestParam {
-            name: "revoke-environment-variable-permission".into(),
-            arguments: Some(args),
-        };
+        let req = CallToolRequestParams::new("revoke-environment-variable-permission")
+            .with_arguments(args);
 
         // This should fail because the component doesn't exist, but it tests the flow
         let result = handle_revoke_environment_variable_permission(&req, &lifecycle_manager).await;
@@ -1288,10 +1167,7 @@ mod tests {
         let mut args = serde_json::Map::new();
         args.insert("component_id".to_string(), json!("test-component"));
 
-        let req = CallToolRequestParam {
-            name: "reset-permission".into(),
-            arguments: Some(args),
-        };
+        let req = CallToolRequestParams::new("reset-permission").with_arguments(args);
 
         // This should fail because the component doesn't exist, but it tests the flow
         let result = handle_reset_permission(&req, &lifecycle_manager).await;
@@ -1315,10 +1191,7 @@ mod tests {
         let mut args = serde_json::Map::new();
         args.insert("details".to_string(), json!({"host": "api.example.com"}));
 
-        let req = CallToolRequestParam {
-            name: "revoke-network-permission".into(),
-            arguments: Some(args),
-        };
+        let req = CallToolRequestParams::new("revoke-network-permission").with_arguments(args);
 
         let result = handle_revoke_network_permission(&req, &lifecycle_manager).await;
         assert!(result.is_err());
@@ -1331,10 +1204,7 @@ mod tests {
         let mut args = serde_json::Map::new();
         args.insert("component_id".to_string(), json!("test-component"));
 
-        let req = CallToolRequestParam {
-            name: "revoke-network-permission".into(),
-            arguments: Some(args),
-        };
+        let req = CallToolRequestParams::new("revoke-network-permission").with_arguments(args);
 
         let result = handle_revoke_network_permission(&req, &lifecycle_manager).await;
         assert!(result.is_err());
@@ -1346,10 +1216,7 @@ mod tests {
         // Test with missing component_id for reset permission
         let args = serde_json::Map::new();
 
-        let req = CallToolRequestParam {
-            name: "reset-permission".into(),
-            arguments: Some(args),
-        };
+        let req = CallToolRequestParams::new("reset-permission").with_arguments(args);
 
         let result = handle_reset_permission(&req, &lifecycle_manager).await;
         assert!(result.is_err());
@@ -1425,10 +1292,7 @@ mod tests {
 
         // Test without query - should return all components
         let args = serde_json::Map::new();
-        let req = CallToolRequestParam {
-            name: "search-components".into(),
-            arguments: Some(args),
-        };
+        let req = CallToolRequestParams::new("search-components").with_arguments(args);
 
         let result = handle_search_component(&req, &lifecycle_manager).await?;
 
@@ -1459,10 +1323,7 @@ mod tests {
         // Test with query - search for "weather"
         let mut args = serde_json::Map::new();
         args.insert("query".to_string(), json!("weather"));
-        let req = CallToolRequestParam {
-            name: "search-components".into(),
-            arguments: Some(args),
-        };
+        let req = CallToolRequestParams::new("search-components").with_arguments(args);
 
         let result = handle_search_component(&req, &lifecycle_manager).await?;
 
@@ -1511,10 +1372,7 @@ mod tests {
         // Test case insensitivity - search with uppercase
         let mut args = serde_json::Map::new();
         args.insert("query".to_string(), json!("WEATHER"));
-        let req = CallToolRequestParam {
-            name: "search-components".into(),
-            arguments: Some(args),
-        };
+        let req = CallToolRequestParams::new("search-components").with_arguments(args);
 
         let result = handle_search_component(&req, &lifecycle_manager).await?;
 
@@ -1542,10 +1400,7 @@ mod tests {
         // Test with query that matches nothing
         let mut args = serde_json::Map::new();
         args.insert("query".to_string(), json!("nonexistent"));
-        let req = CallToolRequestParam {
-            name: "search-components".into(),
-            arguments: Some(args),
-        };
+        let req = CallToolRequestParams::new("search-components").with_arguments(args);
 
         let result = handle_search_component(&req, &lifecycle_manager).await?;
 
@@ -1573,10 +1428,7 @@ mod tests {
         // Test multi-term search
         let mut args = serde_json::Map::new();
         args.insert("query".to_string(), json!("weather rust"));
-        let req = CallToolRequestParam {
-            name: "search-components".into(),
-            arguments: Some(args),
-        };
+        let req = CallToolRequestParams::new("search-components").with_arguments(args);
 
         let result = handle_search_component(&req, &lifecycle_manager).await?;
 
@@ -1608,10 +1460,7 @@ mod tests {
         // Other components might have it in description
         let mut args = serde_json::Map::new();
         args.insert("query".to_string(), json!("server"));
-        let req = CallToolRequestParam {
-            name: "search-components".into(),
-            arguments: Some(args),
-        };
+        let req = CallToolRequestParams::new("search-components").with_arguments(args);
 
         let result = handle_search_component(&req, &lifecycle_manager).await?;
 
@@ -1652,10 +1501,8 @@ mod tests {
         let lifecycle_manager = wassette::LifecycleManager::new(&tempdir).await?;
 
         // Test 1: No query returns all components
-        let req1 = CallToolRequestParam {
-            name: "search-components".into(),
-            arguments: Some(serde_json::Map::new()),
-        };
+        let req1 =
+            CallToolRequestParams::new("search-components").with_arguments(serde_json::Map::new());
         let result1 = handle_search_component(&req1, &lifecycle_manager).await?;
         let content1_json = serde_json::to_value(&result1.content)?;
         let text1 = content1_json[0]["text"].as_str().unwrap();
@@ -1665,10 +1512,7 @@ mod tests {
         // Test 2: Query with single term
         let mut args2 = serde_json::Map::new();
         args2.insert("query".to_string(), json!("python"));
-        let req2 = CallToolRequestParam {
-            name: "search-components".into(),
-            arguments: Some(args2),
-        };
+        let req2 = CallToolRequestParams::new("search-components").with_arguments(args2);
         let result2 = handle_search_component(&req2, &lifecycle_manager).await?;
         let content2_json = serde_json::to_value(&result2.content)?;
         let text2 = content2_json[0]["text"].as_str().unwrap();
@@ -1680,10 +1524,7 @@ mod tests {
         // Test 3: Query with no matches
         let mut args3 = serde_json::Map::new();
         args3.insert("query".to_string(), json!("xyz123notfound"));
-        let req3 = CallToolRequestParam {
-            name: "search-components".into(),
-            arguments: Some(args3),
-        };
+        let req3 = CallToolRequestParams::new("search-components").with_arguments(args3);
         let result3 = handle_search_component(&req3, &lifecycle_manager).await?;
         let content3_json = serde_json::to_value(&result3.content)?;
         let text3 = content3_json[0]["text"].as_str().unwrap();
@@ -1693,10 +1534,7 @@ mod tests {
         // Test 4: Verify ranking - exact name match should come first
         let mut args4 = serde_json::Map::new();
         args4.insert("query".to_string(), json!("fetch"));
-        let req4 = CallToolRequestParam {
-            name: "search-components".into(),
-            arguments: Some(args4),
-        };
+        let req4 = CallToolRequestParams::new("search-components").with_arguments(args4);
         let result4 = handle_search_component(&req4, &lifecycle_manager).await?;
         let content4_json = serde_json::to_value(&result4.content)?;
         let text4 = content4_json[0]["text"].as_str().unwrap();

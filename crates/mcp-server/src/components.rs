@@ -1,12 +1,11 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT license.
 
-use std::borrow::Cow;
 use std::sync::Arc;
 
 use anyhow::Result;
 use futures::stream::{self, StreamExt};
-use rmcp::model::{CallToolRequestParam, CallToolResult, Content, Tool};
+use rmcp::model::{CallToolRequestParams, CallToolResult, Content, Tool};
 use rmcp::{Peer, RoleServer};
 use serde_json::{json, Value};
 use tracing::{debug, error, info, instrument};
@@ -42,7 +41,7 @@ pub(crate) async fn get_component_tools(lifecycle_manager: &LifecycleManager) ->
 
 #[instrument(skip(lifecycle_manager))]
 pub(crate) async fn handle_load_component(
-    req: &CallToolRequestParam,
+    req: &CallToolRequestParams,
     lifecycle_manager: &LifecycleManager,
     server_peer: Peer<RoleServer>,
 ) -> Result<CallToolResult> {
@@ -87,7 +86,7 @@ pub(crate) async fn handle_load_component(
 
 #[instrument(skip(lifecycle_manager))]
 pub(crate) async fn handle_unload_component(
-    req: &CallToolRequestParam,
+    req: &CallToolRequestParams,
     lifecycle_manager: &LifecycleManager,
     server_peer: Peer<RoleServer>,
 ) -> Result<CallToolResult> {
@@ -127,7 +126,7 @@ pub(crate) async fn handle_unload_component(
 
 #[instrument(skip(lifecycle_manager))]
 pub async fn handle_component_call(
-    req: &CallToolRequestParam,
+    req: &CallToolRequestParams,
     lifecycle_manager: &LifecycleManager,
 ) -> Result<CallToolResult> {
     let args = extract_args_from_request(req)?;
@@ -174,12 +173,9 @@ pub async fn handle_component_call(
 
             let contents = vec![Content::text(response_text)];
 
-            Ok(CallToolResult {
-                content: contents,
-                structured_content,
-                is_error: Some(false),
-                meta: None,
-            })
+            let mut result = CallToolResult::success(contents);
+            result.structured_content = structured_content;
+            Ok(result)
         }
         Err(e) => {
             error!(
@@ -276,16 +272,11 @@ pub async fn handle_list_components(
 
     let contents = vec![Content::text(result_text)];
 
-    Ok(CallToolResult {
-        content: contents,
-        structured_content: None,
-        is_error: None,
-        meta: None,
-    })
+    Ok(CallToolResult::success(contents))
 }
 
 pub(crate) fn extract_args_from_request(
-    req: &CallToolRequestParam,
+    req: &CallToolRequestParams,
 ) -> Result<serde_json::Map<String, Value>> {
     match &req.arguments {
         Some(args) => {
@@ -313,12 +304,7 @@ fn create_component_success_result(
 
     let contents = vec![Content::text(status_text)];
 
-    Ok(CallToolResult {
-        content: contents,
-        structured_content: None,
-        is_error: None,
-        meta: None,
-    })
+    Ok(CallToolResult::success(contents))
 }
 
 fn create_load_component_success_result(outcome: &ComponentLoadOutcome) -> Result<CallToolResult> {
@@ -335,12 +321,7 @@ fn create_load_component_success_result(outcome: &ComponentLoadOutcome) -> Resul
 
     let contents = vec![Content::text(status_text)];
 
-    Ok(CallToolResult {
-        content: contents,
-        structured_content: None,
-        is_error: None,
-        meta: None,
-    })
+    Ok(CallToolResult::success(contents))
 }
 
 /// Create error result for component operations
@@ -360,12 +341,7 @@ fn create_component_error_result(
 
     let contents = vec![Content::text(error_text)];
 
-    CallToolResult {
-        content: contents,
-        structured_content: None,
-        is_error: Some(true),
-        meta: None,
-    }
+    CallToolResult::error(contents)
 }
 
 /// Handle tool list change notification
@@ -391,7 +367,7 @@ async fn handle_tool_list_notification(
 /// CLI-specific version of handle_load_component that doesn't require server peer notifications
 #[instrument(skip(lifecycle_manager))]
 pub async fn handle_load_component_cli(
-    req: &CallToolRequestParam,
+    req: &CallToolRequestParams,
     lifecycle_manager: &LifecycleManager,
 ) -> Result<CallToolResult> {
     let args = extract_args_from_request(req)?;
@@ -421,7 +397,7 @@ pub async fn handle_load_component_cli(
 /// CLI-specific version of handle_unload_component that doesn't require server peer notifications
 #[instrument(skip(lifecycle_manager))]
 pub async fn handle_unload_component_cli(
-    req: &CallToolRequestParam,
+    req: &CallToolRequestParams,
     lifecycle_manager: &LifecycleManager,
 ) -> Result<CallToolResult> {
     let args = extract_args_from_request(req)?;
@@ -476,15 +452,15 @@ pub(crate) fn parse_tool_schema(tool_json: &Value) -> Option<Tool> {
         "Parsed tool schema"
     );
 
-    Some(Tool {
-        name: Cow::Owned(name.to_string()),
-        description: Some(Cow::Owned(description.to_string())),
-        input_schema: Arc::new(serde_json::from_value(input_schema).unwrap_or_default()),
-        output_schema: output_schema_arc,
-        annotations: None,
-        title: None,
-        icons: None,
-        meta: None,
+    let tool = Tool::new(
+        name.to_string(),
+        description.to_string(),
+        Arc::new(serde_json::from_value(input_schema).unwrap_or_default()),
+    );
+
+    Some(match output_schema_arc {
+        Some(output_schema) => tool.with_raw_output_schema(output_schema),
+        None => tool,
     })
 }
 
@@ -526,13 +502,11 @@ mod tests {
 
     #[test]
     fn test_extract_args_from_request() {
-        let req = CallToolRequestParam {
-            name: "test-tool".into(),
-            arguments: Some(serde_json::Map::from_iter([
+        let req =
+            CallToolRequestParams::new("test-tool").with_arguments(serde_json::Map::from_iter([
                 ("path".to_string(), json!("/test/path")),
                 ("id".to_string(), json!("test-id")),
-            ])),
-        };
+            ]));
 
         let args = extract_args_from_request(&req).unwrap();
         assert_eq!(args.get("path").unwrap(), "/test/path");
@@ -541,10 +515,7 @@ mod tests {
 
     #[test]
     fn test_extract_args_from_request_none() {
-        let req = CallToolRequestParam {
-            name: "test-tool".into(),
-            arguments: None,
-        };
+        let req = CallToolRequestParams::new("test-tool");
 
         let args = extract_args_from_request(&req).unwrap();
         assert!(args.is_empty());

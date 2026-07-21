@@ -20,10 +20,10 @@ wassette = { path = "crates/wassette" }
 mcp-sdk = "0.0.3"
 mcp-server = { path = "crates/mcp-server" }
 oci-client = "0.17"
-oci-wasm = "0.6"
+oci-wasm = { version = "0.6", default-features = false, features = ["rustls-tls"] }
 policy = { path = "crates/policy" }
 reqwest = { version = "0.13", features = ["stream"] }
-rmcp = "0.9.1"
+rmcp = "1.4.0"
 serde = "1.0"
 serde_json = "1.0"
 serde_yaml = "0.9"
@@ -56,7 +56,6 @@ policy = { workspace = true }
 reqwest = { workspace = true }
 rmcp = { workspace = true, features = [
     "server",
-    "transport-sse-server",
     "transport-streamable-http-server",
     "transport-io",
     "macros",
@@ -85,8 +84,8 @@ test-log = { version = "0.2", features = ["trace"] }
 tokio-test = "0.4"
 tracing-test = "0.2"
 testcontainers = "0.27"
-oci-wasm = "0.4"
-oci-client = "0.16"
+oci-wasm = { version = "0.6", default-features = false, features = ["rustls-tls"] }
+oci-client = "0.17"
 hyper = { version = "1.0", features = ["server", "http1"] }
 http-body-util = "0.1"
 hyper-util = "0.1"

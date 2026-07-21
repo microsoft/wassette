@@ -12,8 +12,8 @@ use mcp_server::{
     LifecycleManager,
 };
 use rmcp::model::{
-    CallToolRequestParam, CallToolResult, ErrorData, ListPromptsResult, ListResourcesResult,
-    ListToolsResult, PaginatedRequestParam, ServerCapabilities, ServerInfo, ToolsCapability,
+    CallToolRequestParams, CallToolResult, ErrorData, ListPromptsResult, ListResourcesResult,
+    ListToolsResult, PaginatedRequestParams, ServerCapabilities, ServerInfo,
 };
 use rmcp::service::{RequestContext, RoleServer};
 use rmcp::ServerHandler;
@@ -57,15 +57,13 @@ impl McpServer {
 #[allow(refining_impl_trait_reachable)]
 impl ServerHandler for McpServer {
     fn get_info(&self) -> ServerInfo {
-        ServerInfo {
-            capabilities: ServerCapabilities {
-                tools: Some(ToolsCapability {
-                    list_changed: Some(true),
-                }),
-                ..Default::default()
-            },
-            instructions: Some(
-                r#"This server runs tools in sandboxed WebAssembly environments with no default access to host resources.
+        let mut info = ServerInfo::default();
+        info.capabilities = ServerCapabilities::builder()
+            .enable_tools()
+            .enable_tool_list_changed()
+            .build();
+        info.instructions = Some(
+            r#"This server runs tools in sandboxed WebAssembly environments with no default access to host resources.
 
 Key points:
 - Tools must be loaded before use: "Load component from oci://registry/tool:version" or "file:///path/to/tool.wasm"
@@ -75,14 +73,13 @@ Key points:
 - You MUST never modify the policy file directly, use tools to grant permissions instead.
 - Tools needs permission for that resource
 - If access is denied, suggest alternatives within allowed permissions or propose to grant permission"#.to_string(),
-            ),
-            ..Default::default()
-        }
+        );
+        info
     }
 
     fn call_tool<'a>(
         &'a self,
-        params: CallToolRequestParam,
+        params: CallToolRequestParams,
         ctx: RequestContext<RoleServer>,
     ) -> Pin<Box<dyn Future<Output = Result<CallToolResult, ErrorData>> + Send + 'a>> {
         let peer_clone = ctx.peer.clone();
@@ -110,7 +107,7 @@ Key points:
 
     fn list_tools<'a>(
         &'a self,
-        _params: Option<PaginatedRequestParam>,
+        _params: Option<PaginatedRequestParams>,
         ctx: RequestContext<RoleServer>,
     ) -> Pin<Box<dyn Future<Output = Result<ListToolsResult, ErrorData>> + Send + 'a>> {
         // Store peer on first request
@@ -130,7 +127,7 @@ Key points:
 
     fn list_prompts<'a>(
         &'a self,
-        _params: Option<PaginatedRequestParam>,
+        _params: Option<PaginatedRequestParams>,
         ctx: RequestContext<RoleServer>,
     ) -> Pin<Box<dyn Future<Output = Result<ListPromptsResult, ErrorData>> + Send + 'a>> {
         // Store peer on first request
@@ -149,7 +146,7 @@ Key points:
 
     fn list_resources<'a>(
         &'a self,
-        _params: Option<PaginatedRequestParam>,
+        _params: Option<PaginatedRequestParams>,
         ctx: RequestContext<RoleServer>,
     ) -> Pin<Box<dyn Future<Output = Result<ListResourcesResult, ErrorData>> + Send + 'a>> {
         // Store peer on first request
