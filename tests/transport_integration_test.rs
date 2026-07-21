@@ -780,10 +780,14 @@ async fn test_tool_list_notification() -> Result<()> {
     stdin.write_all(load_component_request.as_bytes()).await?;
     stdin.flush().await?;
 
-    // Read the tool list change notification first (this is what we're testing!)
+    // Read the tool list change notification first (this is what we're testing!).
+    // The server emits this notification only after `load_component` finishes,
+    // which compiles/instantiates the freshly-built wasm component. Under CI load
+    // that debug-build compile can take well over 30s, so use a generous timeout
+    // to avoid flaky failures.
     let mut notification_line = String::new();
     tokio::time::timeout(
-        Duration::from_secs(30),
+        Duration::from_secs(120),
         stdout.read_line(&mut notification_line),
     )
     .await
@@ -798,10 +802,10 @@ async fn test_tool_list_notification() -> Result<()> {
     assert_eq!(notification["method"], "notifications/tools/list_changed");
     println!("✓ Received tools/list_changed notification as expected");
 
-    // Read the actual load-component response
+    // Read the actual load-component response (same component-load cost applies)
     let mut load_response_line = String::new();
     tokio::time::timeout(
-        Duration::from_secs(30),
+        Duration::from_secs(120),
         stdout.read_line(&mut load_response_line),
     )
     .await
