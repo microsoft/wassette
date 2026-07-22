@@ -298,7 +298,7 @@ docker run --rm -p 9001:9001 \
 If you need a custom base image:
 
 ```dockerfile
-FROM rust:1.90-bookworm AS builder
+FROM rust:1.97.1-bookworm AS builder
 # ... build stage ...
 
 FROM your-custom-base:latest

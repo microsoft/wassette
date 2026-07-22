@@ -9,20 +9,15 @@ use rmcp::model::CallToolResult;
 use serde_json::{Map, Value};
 
 /// Output format options for CLI commands
-#[derive(Debug, Clone, Copy, PartialEq, ValueEnum)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, ValueEnum)]
 pub enum OutputFormat {
     /// JSON format
+    #[default]
     Json,
     /// YAML format
     Yaml,
     /// Table format
     Table,
-}
-
-impl Default for OutputFormat {
-    fn default() -> Self {
-        Self::Json
-    }
 }
 
 /// Format a JSON value as YAML string

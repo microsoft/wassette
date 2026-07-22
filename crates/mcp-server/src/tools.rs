@@ -2,6 +2,7 @@
 // Licensed under the MIT license.
 
 use std::borrow::Cow;
+use std::cmp::Reverse;
 use std::sync::Arc;
 use std::time::Instant;
 
@@ -582,7 +583,7 @@ pub(crate) async fn handle_search_component(
                 .collect();
 
             // Sort by relevance score (descending)
-            scored_components.sort_by(|a, b| b.0.cmp(&a.0));
+            scored_components.sort_by_key(|entry| Reverse(entry.0));
 
             // Extract components in ranked order
             scored_components

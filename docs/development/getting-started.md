@@ -21,7 +21,7 @@ Quick guide for contributing to Wassette.
 **Required:**
 
 ```bash
-# Install Rust (1.90+)
+# Install Rust (1.97.1+)
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 source ~/.cargo/env
 
