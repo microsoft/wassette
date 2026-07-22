@@ -6,6 +6,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Changed
 
+- Updated the changelog agent skill to use focused `changelog.d/` fragments as authoritative wording and category input when maintaining `[Unreleased]`.
 - Added portable agent guidance and pull request validation to keep the `[Unreleased]` changelog current for user-facing changes ([#694](https://github.com/microsoft/wassette/pull/694)).
 - **BREAKING CHANGE**: Remote `wassette serve` connections now use Streamable HTTP at `/mcp`; the deprecated SSE transport and `--sse` option were removed, while local `wassette run` integrations continue to use stdio ([#695](https://github.com/microsoft/wassette/pull/695)).
 - Updated the Rust toolchain requirement to 1.97.1 ([#695](https://github.com/microsoft/wassette/pull/695)).

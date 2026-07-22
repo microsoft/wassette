@@ -17,10 +17,14 @@ small, accurate entry over a commit-log summary.
    - On a pull request branch, compare against the merge base with `main`.
    - Otherwise inspect staged and unstaged changes without including unrelated
      worktree changes.
-3. Decide whether users, operators, component authors, or downstream
+3. Check whether that focused change adds or modifies files under
+   `changelog.d/`. Treat only those fragments as authoritative wording and
+   metadata input; do not scan unrelated historical fragments.
+4. Decide whether users, operators, component authors, or downstream
    integrators can observe the change.
-4. Update the existing `[Unreleased]` section.
-5. Review the final diff for placement, duplication, formatting, and scope.
+5. Update the existing `[Unreleased]` section, incorporating any relevant
+   fragment content and deduplicating it against existing entries.
+6. Review the final diff for placement, duplication, formatting, and scope.
 
 ## What needs an entry
 
@@ -61,6 +65,12 @@ entry needs it.
 - Mention breaking behavior explicitly with `**BREAKING CHANGE**`.
 - Combine tightly related changes into one entry.
 - Do not duplicate an existing `[Unreleased]` entry.
+- When a focused fragment exists, prefer its wording over a summary generated
+  from the implementation diff. Make only minimal edits needed for surrounding
+  style, clarity, or deduplication.
+- Derive the pull request number and category from a fragment named
+  `<pr_number>.<type>.md`. Map `feature` to `Added`, `bugfix` to `Fixed`,
+  `removal` to `Removed`, and `doc` or `misc` to `Changed`.
 - Add a pull request link only when its number is known, using
   `([#N](https://github.com/microsoft/wassette/pull/N))`.
 - Do not invent a pull request number or leave a placeholder.
@@ -71,6 +81,8 @@ entry needs it.
 - Do not add a version or release date; `release.yml` owns that transition.
 - Do not create `changelog.d/` fragments. The release pipeline reads
   `CHANGELOG.md` directly and does not run Towncrier.
+- If the focused change already contains fragments, use them as input and
+  leave them unchanged.
 - Do not rewrite historical releases unless the user explicitly requests a
   correction.
 - Do not include routine dependency bumps unless they fix a user-visible issue,
@@ -80,8 +92,10 @@ entry needs it.
 
 - The entry is inside `[Unreleased]`, before the first released version.
 - The category matches the type of user impact.
+- Focused fragment wording and filename metadata were preserved where possible.
 - The wording is understandable without reading the implementation diff.
 - Existing headings, blank lines, links, and historical releases are preserved.
+- All `changelog.d/` files are unchanged.
 - The diff contains no unrelated changelog edits.
 - If no entry was needed, report that the pull request needs the
   `skip-changelog` label.
