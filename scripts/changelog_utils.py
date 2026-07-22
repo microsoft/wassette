@@ -117,6 +117,12 @@ def update_changelog_post_release(
     content = changelog_path.read_text()
     lines = content.split('\n')
     output_lines = []
+
+    version_pattern = re.compile(
+        rf'^## \[{re.escape(new_version)}\](?:\s+-\s+\d{{4}}-\d{{2}}-\d{{2}})?$'
+    )
+    if any(version_pattern.match(line) for line in lines):
+        return
     
     unreleased_updated = False
     unreleased_link_updated = False

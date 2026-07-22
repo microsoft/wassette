@@ -282,6 +282,35 @@ class TestChangelogUtils(unittest.TestCase):
         self.assertIn('## [v0.4.0] - 2025-10-16', content)
         self.assertIn('[Unreleased]: https://github.com/test/repo/compare/v0.4.0...HEAD', content)
         self.assertIn('[v0.4.0]: https://github.com/test/repo/compare/v0.3.0...v0.4.0', content)
+
+    def test_update_changelog_is_idempotent_for_existing_version(self):
+        """Test that rerunning an update does not duplicate a released version."""
+        original = """# Changelog
+
+## [Unreleased]
+
+## [v0.4.0] - 2025-10-16
+
+### Added
+- Feature A
+
+[Unreleased]: https://github.com/test/repo/compare/v0.4.0...HEAD
+[v0.4.0]: https://github.com/test/repo/compare/v0.3.0...v0.4.0
+"""
+        self.changelog_path.write_text(original)
+
+        update_changelog_post_release(
+            self.changelog_path,
+            'v0.4.0',
+            'v0.3.0',
+            '2025-10-17'
+        )
+
+        self.assertEqual(self.changelog_path.read_text(), original)
+        self.assertEqual(
+            self.changelog_path.read_text().count('## [v0.4.0]'),
+            1
+        )
     
     def test_update_changelog_missing_file(self):
         """Test updating a non-existent file."""

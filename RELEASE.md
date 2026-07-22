@@ -4,7 +4,7 @@ This document describes the process for releasing new versions of the Wassette p
 
 ## Release.yml overview
 
-The release process is automated using GitHub Actions, specifically the [`release.yml`](.github/workflows/release.yml) workflow. This workflow is triggered when a new tag is pushed to the repository. Once triggered, the workflow uses a matrix to compile `wassette` for different platforms on native runners and uses `sccache` to speed up the compilation process by caching previous builds. The compiled binaries are then uploaded as artifacts to the release.
+The release process is automated using GitHub Actions, specifically the [`release.yml`](.github/workflows/release.yml) workflow. Tags pushed manually trigger the workflow directly; tags created by `auto-tag-release.yml` use an explicit workflow dispatch because `GITHUB_TOKEN` tag pushes do not trigger other workflows. The workflow uses a matrix to compile `wassette` for different platforms on native runners and uses `sccache` to speed up compilation. The compiled binaries are then uploaded as release assets.
 
 ### CHANGELOG Synchronization
 
@@ -34,6 +34,10 @@ Wassette uses semantic versioning. All releases follow the format `vX.Y.Z`, wher
 ## Steps to Cut a Release
 
 The release process is now largely automated through GitHub Actions workflows and uses a release branch strategy to prevent blocking development on main. Follow these steps:
+
+The workflows use `GITHUB_TOKEN`; no separate `RELEASE_TOKEN` secret is
+required. Enable **Allow GitHub Actions to create and approve pull requests**
+in the repository Actions settings.
 
 1. **Prepare the CHANGELOG**: Before creating a release, ensure that the `[Unreleased]` section in `CHANGELOG.md` contains all the changes for the upcoming release. Follow the [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) format with sections for:
    - `Added` - new features
@@ -66,20 +70,24 @@ The release process is now largely automated through GitHub Actions workflows an
    - Extracts the version from the merged PR's branch name (`release/vX.Y.Z`)
    - Creates an annotated tag `vX.Y.Z` on the merge commit
    - Pushes the tag to the repository
-   - Adds a comment to the PR confirming the tag was created
+   - Dispatches the release workflow with the new tag
 
    **Note**: This step is fully automated. No manual intervention is required.
 
-1. **Monitor the release workflow**: Once the tag is pushed (automatically), the `release.yml` workflow will be triggered automatically:
+1. **Monitor the release workflow**: After the tag is pushed, `auto-tag-release.yml` dispatches `release.yml` with the new tag:
    - Builds binaries for all platforms (Linux, macOS, Windows; AMD64 and ARM64)
    - Extracts the changelog content for the version from `CHANGELOG.md`
-   - Creates a GitHub release with all compiled binaries and the changelog content as release notes
+   - Creates a draft GitHub release, uploads and verifies all compiled binaries, then publishes the immutable release with the changelog content as release notes
+   - Publishes the example components with the release version and `latest` tags
+   - Publishes versioned documentation for the release
    - Automatically updates `CHANGELOG.md` on the release branch:
      - Converts `[Unreleased]` section to the new version with release date
      - Adds a new empty `[Unreleased]` section
      - Updates version comparison links
    - Creates a PR to merge the release branch back to main with the updated CHANGELOG
    - Monitor the workflow progress in the [Actions tab](https://github.com/microsoft/wassette/actions)
+
+   To recover a missing run, dispatch `release.yml` with the existing tag.
 
 1. **Merge the CHANGELOG update PR**: After the release workflow completes, a new PR will be created to merge the release branch back to main with the updated CHANGELOG. Review and merge this PR.
 
@@ -115,7 +123,7 @@ git tag -s v0.3.4-test1 -m "Test release v0.3.4-test1"
 git push origin v0.3.4-test1
 ```
 
-When a prerelease tag (containing a hyphen) is pushed, the release workflow builds binaries for all platforms and creates a GitHub release marked as "Pre-release", but skips CHANGELOG updates and package manifest updates.
+When a prerelease tag (containing a hyphen) is pushed, the release workflow builds binaries for all platforms and creates a GitHub release marked as "Pre-release". It does not update the CHANGELOG or package manifests, publish example components, or deploy versioned documentation.
 
 ### Dry Run Tag Examples
 
@@ -190,7 +198,7 @@ If the automated workflows fail, you can follow the manual process:
    git push origin <branch_name>
    ```
 
-1. **After release is published, update package manifests**:
+1. **If the release workflow did not dispatch package updates, update package manifests manually**:
    
    1. Go to the [Actions tab](https://github.com/microsoft/wassette/actions/workflows/update-package-manifests.yml)
    1. Click "Run workflow"
@@ -207,6 +215,7 @@ Example WebAssembly components are automatically published to the GitHub Contain
 The [`examples.yml`](.github/workflows/examples.yml) workflow automatically publishes example components when:
 - Changes to files in the `examples/**` directory are pushed to the `main` branch
 - A pull request targeting the `main` branch modifies files in the `examples/**` directory (build only, no publish)
+- The release workflow dispatches it with a version tag after publishing the binaries
 
 **Published examples include:**
 - `eval-py` - Python expression evaluator

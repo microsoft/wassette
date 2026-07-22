@@ -86,6 +86,26 @@ Run Clippy to catch common mistakes and non-idiomatic code:
 cargo clippy --workspace
 ```
 
+## Changelog Maintenance
+
+Every pull request with a user-visible change must update the `[Unreleased]`
+section of `CHANGELOG.md`. Use the repository-local
+[`changelog`](.agents/skills/changelog/SKILL.md) agent skill, and follow these
+rules even when the agent does not support skills:
+
+- Add one concise bullet under the appropriate Keep a Changelog heading:
+  `Added`, `Changed`, `Deprecated`, `Removed`, `Fixed`, or `Security`.
+- Describe the resulting user impact, not implementation details.
+- Do not add a release version or date; the release workflow owns that step.
+- Do not use `changelog.d/` as a substitute. The current release pipeline reads
+  `CHANGELOG.md` directly and does not run Towncrier.
+- For tests, internal refactors, formatting, routine dependency maintenance,
+  and other changes without user impact, apply the `skip-changelog` label.
+
+The `Changelog Check` workflow enforces this policy. Automated release
+maintenance PRs are exempt because they are generated after or during the
+release transition.
+
 ## Copyright Headers
 
 **All Rust files (`.rs`) must include the Microsoft copyright header** at the top of the file.
