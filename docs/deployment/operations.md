@@ -227,7 +227,8 @@ readinessProbe:
   periodSeconds: 10
 ```
 
-**Note**: Health endpoints are only available with `--streamable-http` transport. SSE transport (`--sse`) also uses HTTP but is designed solely for event streaming and does not provide a general HTTP request/response interface. For stdio or SSE transports, monitor the process status instead.
+**Note**: Health endpoints are only available with `--streamable-http`
+transport. For stdio transport, monitor the process status instead.
 
 ## Performance Tuning
 

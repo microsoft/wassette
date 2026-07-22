@@ -49,16 +49,6 @@ For use with MCP clients that expect stdio, override the default command:
 docker run -i --rm wassette:latest wassette run
 ```
 
-### Run with SSE Transport
-
-For SSE transport, override the default command:
-
-```bash
-docker run --rm -p 9001:9001 wassette:latest wassette serve --streamable-http
-```
-
-Then connect to `http://localhost:9001/sse` from your MCP client.
-
 ## Mounting Components
 
 To use custom WebAssembly components with Wassette in Docker, you need to mount the component directory:
@@ -199,9 +189,8 @@ services:
       - ./config.toml:/home/wassette/.config/wassette/config.toml:ro
     environment:
       - RUST_LOG=info
-    # Default is streamable-http, but you can override:
-    # command: ["wassette", "serve", "--sse"]
-    # command: ["wassette", "serve", "--stdio"]
+    # Default is Streamable HTTP, but you can override it with stdio:
+    # command: ["wassette", "run"]
     # Security: Run with limited resources
     deploy:
       resources:
@@ -339,7 +328,9 @@ docker run --rm -p 9001:9001 \
   wassette:latest
 ```
 
-**Note**: Health endpoints are only available with `--streamable-http` transport (the default for the Docker image). SSE transport (`--sse`) is designed solely for event streaming and does not expose standard HTTP endpoints like `/health`.
+**Note**: Health endpoints are only available with `--streamable-http`
+transport, which is the default for the Docker image. For stdio transport,
+monitor the process status instead.
 
 ### Persistent Component Storage
 
@@ -382,13 +373,13 @@ docker run -i --rm \
 
 ### Network Connectivity Issues
 
-When using HTTP/SSE transport, ensure the port is properly exposed:
+When using Streamable HTTP transport, ensure the port is properly exposed:
 
 ```bash
 # Check if the port is listening
 docker run -d --name wassette-test -p 9001:9001 wassette:latest wassette serve --streamable-http
 docker logs wassette-test
-curl http://localhost:9001/sse
+curl http://localhost:9001/health
 docker rm -f wassette-test
 ```
 
@@ -427,7 +418,7 @@ WORKDIR /home/wassette
 
 EXPOSE 9001
 
-CMD ["wassette", "serve", "--stdio"]
+CMD ["wassette", "run"]
 ```
 
 This approach is faster as it doesn't require compiling from source.

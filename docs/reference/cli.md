@@ -687,7 +687,7 @@ The CLI commands complement the MCP server functionality. You can:
 {
   "name": "wassette",
   "command": "wassette",
-  "args": ["serve", "--stdio"]
+  "args": ["run"]
 }
 ```
 

@@ -43,11 +43,8 @@ services:
     # Default: Streamable HTTP transport (uses port 9001)
     # Uses the default CMD from Dockerfile - no need to specify
     
-    # Option 1: Override with stdio transport
+    # Override with stdio transport
     # command: ["wassette", "run"]
-    
-    # Option 2: Override with SSE transport
-    # command: ["wassette", "serve", "--sse"]
     
     # Security: Limit container resources
     deploy:
