@@ -24,6 +24,28 @@ code --add-mcp '{"name":"Wassette","command":"wassette","args":["run"]}'
 
 You can list and configure MCP servers in VS Code by running the command `MCP: List Servers` in the command palette (Ctrl+Shift+P or Cmd+Shift+P).
 
+## GitHub Copilot CLI
+
+After [installing GitHub Copilot CLI](https://docs.github.com/en/copilot/how-tos/copilot-cli/set-up-copilot-cli/install-copilot-cli), add Wassette as a local stdio MCP server:
+
+```bash
+copilot mcp add wassette -- wassette run
+```
+
+Verify that Wassette is configured and its tools are available:
+
+```bash
+copilot mcp get wassette
+```
+
+You can also run `copilot`, enter `/mcp add`, choose **STDIO**, set the command to `wassette run`, keep the default `*` tool selection, and press Ctrl+S. Copilot CLI stores the user-level configuration in `~/.copilot/mcp-config.json` and makes Wassette available immediately without a restart.
+
+To remove the server:
+
+```bash
+copilot mcp remove wassette
+```
+
 ## Cursor
 
 To add Wassette to Cursor, you'll need to manually configure it in your MCP settings. Follow the [Cursor MCP setup guide](https://docs.cursor.com/en/context/mcp#setup) to add the following configuration:
@@ -65,6 +87,30 @@ To remove the server if needed:
 claude mcp remove wassette
 ```
 
+## Codex CLI
+
+First, [install Codex CLI](https://github.com/openai/codex?tab=readme-ov-file#installing-and-running-codex-cli) (requires Node.js) using either npm or Homebrew:
+
+```bash
+npm install -g @openai/codex
+```
+
+Or with Homebrew:
+
+```bash
+brew install codex
+```
+
+Add the Wassette MCP server to Codex CLI using the following command:
+
+```bash
+codex mcp add wassette wassette run
+```
+
+Run `codex` to start the CLI.
+
+Verify the installation by running `/mcp` inside of Codex CLI.
+
 ## Gemini CLI
 
 First, [install Gemini CLI](https://github.com/google-gemini/gemini-cli?tab=readme-ov-file#quickstart) (requires Node.js 20 or higher):
@@ -89,27 +135,3 @@ To add the Wassette MCP server to Gemini CLI, you need to configure it in your s
 Quit the Gemini CLI and reopen it.
 
 Open Gemini CLI and verify the installation by running `/mcp` inside of Gemini CLI.
-
-## OpenAI Codex CLI
-
-First, [install Codex CLI](https://github.com/openai/codex?tab=readme-ov-file#installing-and-running-codex-cli) (requires Node.js) using either npm or Homebrew:
-
-```bash
-npm install -g @openai/codex
-```
-
-Or with Homebrew:
-
-```bash
-brew install codex
-```
-
-Add the Wassette MCP server to Codex CLI using the following command:
-
-```bash
-codex mcp add wassette wassette run
-```
-
-Run `codex` to start the CLI.
-
-Verify the installation by running `/mcp` inside of Codex CLI.
