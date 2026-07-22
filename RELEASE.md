@@ -123,7 +123,7 @@ git tag -s v0.3.4-test1 -m "Test release v0.3.4-test1"
 git push origin v0.3.4-test1
 ```
 
-When a prerelease tag (containing a hyphen) is pushed, the release workflow builds binaries for all platforms and creates a GitHub release marked as "Pre-release", but skips CHANGELOG updates and package manifest updates.
+When a prerelease tag (containing a hyphen) is pushed, the release workflow builds binaries for all platforms and creates a GitHub release marked as "Pre-release". It does not update the CHANGELOG or package manifests, publish example components, or deploy versioned documentation.
 
 ### Dry Run Tag Examples
 

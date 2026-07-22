@@ -14,7 +14,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Fixed
 
-- Release automation now uses explicit workflow handoffs with `GITHUB_TOKEN`, supports safe tag-based retries, and keeps changelog and package-manifest updates idempotent.
+- Release automation now uses explicit workflow handoffs with `GITHUB_TOKEN`, supports safe tag-based retries, keeps changelog and package-manifest updates idempotent, and limits prereleases to binary publication.
 - Published example OCI images now use semver tags without a leading `v` ([#670](https://github.com/microsoft/wassette/pull/670)).
 - Repaired the corrupted `Cargo.lock` so workspace builds and dependency resolution work reliably ([#674](https://github.com/microsoft/wassette/pull/674)).
 - Eliminated intermittent configuration test failures caused by concurrent `WASSETTE_CONFIG_FILE` environment changes ([#675](https://github.com/microsoft/wassette/pull/675)).

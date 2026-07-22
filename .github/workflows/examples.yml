@@ -56,7 +56,10 @@ jobs:
 
   publish:
     runs-on: ubuntu-latest
-    if: github.event_name != 'pull_request'
+    if: |
+      github.event_name != 'pull_request' &&
+      (github.event_name != 'release' || github.event.release.prerelease == false) &&
+      (github.event_name != 'workflow_dispatch' || !contains(inputs.tag, '-'))
     permissions:
       contents: read
       packages: write
