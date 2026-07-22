@@ -40,6 +40,21 @@ install mode="debug":
     echo "You can add it by running:"
     echo '  export PATH="$HOME/.local/bin:$PATH"'
 
+# Create a stable or prerelease version bump PR through GitHub Actions.
+prepare-release version:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    version={{ quote(version) }}
+    if ! [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
+        echo "error: version must use X.Y.Z or X.Y.Z-suffix format" >&2
+        exit 1
+    fi
+    gh workflow run prepare-release.yml \
+        --repo microsoft/wassette \
+        --ref main \
+        --field "version=$version"
+    echo "Dispatched Prepare Release for $version"
+
 # Check if wit-docs-inject is installed, if not install it
 ensure-wit-docs-inject:
     #!/usr/bin/env bash

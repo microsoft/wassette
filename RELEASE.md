@@ -53,22 +53,28 @@ in the repository Actions settings.
 
    1. Go to the [Actions tab](https://github.com/microsoft/wassette/actions/workflows/prepare-release.yml)
    1. Click "Run workflow"
-   1. Enter the new version number (without `v` prefix, e.g., `0.4.0`)
+   1. Enter the new version number without the `v` prefix (e.g., `0.4.0` or `0.4.0-rc1`)
    1. Click "Run workflow"
 
+   Alternatively, dispatch it with the project Justfile:
+
+   ```bash
+   just prepare-release 0.4.0-rc1
+   ```
+
    This will automatically:
-   - Create a release branch `release/vX.Y.Z`
+   - Create a release branch such as `release/vX.Y.Z` or `release/vX.Y.Z-rc1`
    - Update the version in `Cargo.toml`
    - Update `Cargo.lock`
    - Create a pull request to merge the release branch into main
 
 1. **Review and merge the version bump PR**: The workflow will create a pull request with the version changes. Review and merge this PR into the main branch.
 
-   **Important**: The release branch (`release/vX.Y.Z`) is preserved after merging and will be used during the release process.
+   **Important**: The release branch is preserved after merging and will be used during the release process.
 
 1. **Tag creation**: Once the version bump PR is merged, the `auto-tag-release.yml` workflow automatically:
-   - Extracts the version from the merged PR's branch name (`release/vX.Y.Z`)
-   - Creates an annotated tag `vX.Y.Z` on the merge commit
+   - Extracts the version from the merged PR's branch name
+   - Creates the corresponding annotated stable or prerelease tag on the merge commit
    - Pushes the tag to the repository
    - Dispatches the release workflow with the new tag
 
@@ -109,7 +115,11 @@ The release process supports dry run or test releases for validating the build a
 
 ### How to Create a Dry Run Release
 
-To create a dry run release, push a tag with a hyphen suffix (e.g., `-test1`, `-rc1`, `-alpha`, `-beta`):
+To prepare a versioned prerelease, run the Prepare Release workflow with a
+hyphen suffix such as `0.4.0-rc1`, then merge its version bump PR normally.
+
+To test the current package version without changing `Cargo.toml`, manually
+push a tag with a hyphen suffix (e.g., `-test1`, `-rc1`, `-alpha`, `-beta`):
 
 ```bash
 # Checkout the commit you want to test

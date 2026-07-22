@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: 'New version (without v prefix, e.g., 0.4.0)'
+        description: 'New version without v prefix (e.g., 0.4.0 or 0.4.0-rc1)'
         required: true
         type: string
 
@@ -25,8 +25,8 @@ jobs:
       - name: Validate version format
         run: |
           VERSION="${{ inputs.version }}"
-          if ! [[ $VERSION =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-            echo "Error: Version must be in format X.Y.Z (e.g., 0.4.0)"
+          if ! [[ $VERSION =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
+            echo "Error: Version must use X.Y.Z or X.Y.Z-suffix format (e.g., 0.4.0 or 0.4.0-rc1)"
             exit 1
           fi
           echo "Valid version format: $VERSION"
@@ -62,10 +62,10 @@ jobs:
             1. Review and merge this PR to main
             2. After merge, the `auto-tag-release` workflow will automatically create and push tag `v${{ inputs.version }}`
             3. The release workflow will automatically trigger and create the GitHub release
-            4. The release workflow will update CHANGELOG.md and create a PR to merge changes back to main
-            5. The update-package-manifests workflow will automatically create a PR to update Homebrew and WinGet manifests
+            4. For stable releases, the release workflow will update CHANGELOG.md and create a PR to merge changes back to main
+            5. For stable releases, the update-package-manifests workflow will create a PR to update Homebrew and WinGet manifests
             
-            **Note:** The release branch will be kept for the release process and will be merged back to main after the release is complete.
+            **Note:** Versions with a suffix are published as prereleases and skip changelog, package manifest, example component, and versioned documentation updates.
           labels: |
             release
             automated
