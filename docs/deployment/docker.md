@@ -418,7 +418,7 @@ WORKDIR /home/wassette
 
 EXPOSE 9001
 
-CMD ["wassette", "run"]
+CMD ["wassette", "serve", "--streamable-http"]
 ```
 
 This approach is faster as it doesn't require compiling from source.
