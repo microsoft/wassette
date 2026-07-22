@@ -4,6 +4,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [v0.5.0] - 2026-07-22
+
 ### Changed
 
 - Updated the changelog agent skill to use focused `changelog.d/` fragments as authoritative wording and category input when maintaining `[Unreleased]`.
@@ -271,7 +273,8 @@ Initial release of Wassette - A security-oriented runtime that runs WebAssembly 
 - Built-in examples and CLI interface
 - Installation support and documentation
 
-[Unreleased]: https://github.com/microsoft/wassette/compare/v0.4.0...HEAD
+[Unreleased]: https://github.com/microsoft/wassette/compare/v0.5.0...HEAD
+[v0.5.0]: https://github.com/microsoft/wassette/compare/v0.4.0...v0.5.0
 [v0.4.0]: https://github.com/microsoft/wassette/compare/v0.3.4...v0.4.0
 [v0.3.4]: https://github.com/microsoft/wassette/compare/v0.3.0...v0.3.4
 [v0.3.0]: https://github.com/microsoft/wassette/compare/v0.2.0...v0.3.0
