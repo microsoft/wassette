@@ -54,7 +54,7 @@ docker run -i --rm wassette:latest wassette run
 For SSE transport, override the default command:
 
 ```bash
-docker run --rm -p 9001:9001 wassette:latest wassette serve --sse
+docker run --rm -p 9001:9001 wassette:latest wassette serve --streamable-http
 ```
 
 Then connect to `http://localhost:9001/sse` from your MCP client.
@@ -386,7 +386,7 @@ When using HTTP/SSE transport, ensure the port is properly exposed:
 
 ```bash
 # Check if the port is listening
-docker run -d --name wassette-test -p 9001:9001 wassette:latest wassette serve --sse
+docker run -d --name wassette-test -p 9001:9001 wassette:latest wassette serve --streamable-http
 docker logs wassette-test
 curl http://localhost:9001/sse
 docker rm -f wassette-test

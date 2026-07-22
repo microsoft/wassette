@@ -511,12 +511,12 @@ world my-component {
 2. **Test with Wassette:**
    ```bash
    # Start Wassette with your component directory
-   wassette serve --sse --component-dir .
+   wassette serve --streamable-http --component-dir .
    ```
 
 3. **Use the MCP Inspector to test:**
    ```bash
-   npx @modelcontextprotocol/inspector --cli http://127.0.0.1:9001/sse
+   npx @modelcontextprotocol/inspector --cli http://127.0.0.1:9001/mcp --transport http
    ```
 
 ### Debugging Techniques

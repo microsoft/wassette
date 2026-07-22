@@ -112,7 +112,7 @@ For more information, see the [Documenting WIT Interfaces](./documenting-wit.md)
 ### 7. Test Your Component
 
 ```bash
-wassette serve --sse --component-dir .
+wassette serve --streamable-http --component-dir .
 ```
 
 ## Complete Examples
@@ -442,7 +442,7 @@ clean:
 
 # Test the component
 test: build
-    wassette serve --sse --component-dir .
+    wassette serve --streamable-http --component-dir .
 ```
 
 Usage:

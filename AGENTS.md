@@ -143,7 +143,7 @@ This workflow applies to all changes: bug fixes, new features, refactoring, docu
 Start the Wassette MCP server for development and debugging:
 
 ```bash
-# Start server with SSE transport (listens on 127.0.0.1:9001/sse)
+# Start server with Streamable HTTP (listens on 127.0.0.1:9001/mcp)
 just run
 
 # Start with custom log level
@@ -165,17 +165,17 @@ The MCP Inspector is your primary tool for testing and validating changes. Alway
 Connect to the running Wassette server and interact with it:
 
 ```bash
-# Connect to local Wassette server (default SSE transport)
-npx @modelcontextprotocol/inspector --cli http://127.0.0.1:9001/sse
+# Connect to the local Streamable HTTP server
+npx @modelcontextprotocol/inspector --cli http://127.0.0.1:9001/mcp --transport http
 
 # List available tools (always run this first to see what's available)
-npx @modelcontextprotocol/inspector --cli http://127.0.0.1:9001/sse --method tools/list
+npx @modelcontextprotocol/inspector --cli http://127.0.0.1:9001/mcp --transport http --method tools/list
 
 # List available resources
-npx @modelcontextprotocol/inspector --cli http://127.0.0.1:9001/sse --method resources/list
+npx @modelcontextprotocol/inspector --cli http://127.0.0.1:9001/mcp --transport http --method resources/list
 
 # List available prompts
-npx @modelcontextprotocol/inspector --cli http://127.0.0.1:9001/sse --method prompts/list
+npx @modelcontextprotocol/inspector --cli http://127.0.0.1:9001/mcp --transport http --method prompts/list
 ```
 
 #### Calling Tools
@@ -184,13 +184,13 @@ Test tool functionality by calling them with various arguments:
 
 ```bash
 # Call a tool with simple arguments
-npx @modelcontextprotocol/inspector --cli http://127.0.0.1:9001/sse --method tools/call --tool-name mytool --tool-arg param=value
+npx @modelcontextprotocol/inspector --cli http://127.0.0.1:9001/mcp --transport http --method tools/call --tool-name mytool --tool-arg param=value
 
 # Call a tool with multiple arguments
-npx @modelcontextprotocol/inspector --cli http://127.0.0.1:9001/sse --method tools/call --tool-name mytool --tool-arg key1=value1 --tool-arg key2=value2
+npx @modelcontextprotocol/inspector --cli http://127.0.0.1:9001/mcp --transport http --method tools/call --tool-name mytool --tool-arg key1=value1 --tool-arg key2=value2
 
 # Call a tool with JSON arguments (for complex parameters)
-npx @modelcontextprotocol/inspector --cli http://127.0.0.1:9001/sse --method tools/call --tool-name mytool --tool-arg 'options={"format": "json", "max_tokens": 100}'
+npx @modelcontextprotocol/inspector --cli http://127.0.0.1:9001/mcp --transport http --method tools/call --tool-name mytool --tool-arg 'options={"format": "json", "max_tokens": 100}'
 ```
 
 #### Testing with Different Transports
@@ -198,12 +198,9 @@ npx @modelcontextprotocol/inspector --cli http://127.0.0.1:9001/sse --method too
 Wassette supports multiple transport protocols. Test with both:
 
 ```bash
-# SSE transport (default, recommended for development)
-npx @modelcontextprotocol/inspector --cli http://127.0.0.1:9001/sse
-
 # Streamable HTTP transport
 just run-streamable  # Start server with streamable HTTP transport
-npx @modelcontextprotocol/inspector --cli http://127.0.0.1:9001 --transport http --method tools/list
+npx @modelcontextprotocol/inspector --cli http://127.0.0.1:9001/mcp --transport http --method tools/list
 ```
 
 #### Testing with Custom Headers
@@ -212,7 +209,7 @@ If testing authentication or custom headers:
 
 ```bash
 # Add custom headers to requests
-npx @modelcontextprotocol/inspector --cli http://127.0.0.1:9001/sse --transport http --method tools/list --header "X-API-Key: your-api-key"
+npx @modelcontextprotocol/inspector --cli http://127.0.0.1:9001/mcp --transport http --method tools/list --header "X-API-Key: your-api-key"
 ```
 
 #### Testing with Configuration Files
@@ -234,10 +231,10 @@ just run-fetch-rs
 
 # Terminal 2: Test the component
 # List available tools
-npx @modelcontextprotocol/inspector --cli http://127.0.0.1:9001/sse --method tools/list
+npx @modelcontextprotocol/inspector --cli http://127.0.0.1:9001/mcp --transport http --method tools/list
 
 # Call the fetch tool
-npx @modelcontextprotocol/inspector --cli http://127.0.0.1:9001/sse --method tools/call --tool-name fetch --tool-arg url=https://api.github.com/repos/microsoft/wassette
+npx @modelcontextprotocol/inspector --cli http://127.0.0.1:9001/mcp --transport http --method tools/call --tool-name fetch --tool-arg url=https://api.github.com/repos/microsoft/wassette
 ```
 
 #### Example 2: Testing the Filesystem Component
@@ -248,13 +245,13 @@ just run-filesystem
 
 # Terminal 2: Test filesystem operations
 # List tools
-npx @modelcontextprotocol/inspector --cli http://127.0.0.1:9001/sse --method tools/list
+npx @modelcontextprotocol/inspector --cli http://127.0.0.1:9001/mcp --transport http --method tools/list
 
 # Test reading a file
-npx @modelcontextprotocol/inspector --cli http://127.0.0.1:9001/sse --method tools/call --tool-name read_file --tool-arg path=/tmp/test.txt
+npx @modelcontextprotocol/inspector --cli http://127.0.0.1:9001/mcp --transport http --method tools/call --tool-name read_file --tool-arg path=/tmp/test.txt
 
 # Test listing directory
-npx @modelcontextprotocol/inspector --cli http://127.0.0.1:9001/sse --method tools/call --tool-name list_directory --tool-arg path=/tmp
+npx @modelcontextprotocol/inspector --cli http://127.0.0.1:9001/mcp --transport http --method tools/call --tool-name list_directory --tool-arg path=/tmp
 ```
 
 #### Example 3: Testing After Code Changes
@@ -270,10 +267,10 @@ just build
 just run-fetch-rs
 
 # 4. Verify tools are available
-npx @modelcontextprotocol/inspector --cli http://127.0.0.1:9001/sse --method tools/list
+npx @modelcontextprotocol/inspector --cli http://127.0.0.1:9001/mcp --transport http --method tools/list
 
 # 5. Test specific functionality you changed
-npx @modelcontextprotocol/inspector --cli http://127.0.0.1:9001/sse --method tools/call --tool-name your-tool --tool-arg test=value
+npx @modelcontextprotocol/inspector --cli http://127.0.0.1:9001/mcp --transport http --method tools/call --tool-name your-tool --tool-arg test=value
 
 # 6. Include output in your commit message or PR description
 ```
@@ -284,10 +281,10 @@ Always capture the inspector output to demonstrate that your changes work:
 
 ```bash
 # Save inspector output to a file
-npx @modelcontextprotocol/inspector --cli http://127.0.0.1:9001/sse --method tools/list > inspector-output.txt
+npx @modelcontextprotocol/inspector --cli http://127.0.0.1:9001/mcp --transport http --method tools/list > inspector-output.txt
 
 # Or capture a full testing session
-npx @modelcontextprotocol/inspector --cli http://127.0.0.1:9001/sse --method tools/call --tool-name mytool --tool-arg test=value 2>&1 | tee test-results.txt
+npx @modelcontextprotocol/inspector --cli http://127.0.0.1:9001/mcp --transport http --method tools/call --tool-name mytool --tool-arg test=value 2>&1 | tee test-results.txt
 ```
 
 Include this output in:
@@ -438,8 +435,8 @@ cargo clippy            # Run linter
 
 # Testing with Inspector (ALWAYS do this before committing)
 just run                # Terminal 1: Start server
-npx @modelcontextprotocol/inspector --cli http://127.0.0.1:9001/sse --method tools/list    # Terminal 2: List tools
-npx @modelcontextprotocol/inspector --cli http://127.0.0.1:9001/sse --method tools/call --tool-name TOOL_NAME --tool-arg key=value    # Test a tool
+npx @modelcontextprotocol/inspector --cli http://127.0.0.1:9001/mcp --transport http --method tools/list    # Terminal 2: List tools
+npx @modelcontextprotocol/inspector --cli http://127.0.0.1:9001/mcp --transport http --method tools/call --tool-name TOOL_NAME --tool-arg key=value    # Test a tool
 
 # Documentation
 just docs-serve         # View docs locally

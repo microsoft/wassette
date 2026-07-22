@@ -917,9 +917,7 @@ async fn test_http_transport() -> Result<()> {
     }
     let response = response.context("Failed to connect to HTTP server")?;
 
-    // The server should return some response (even if it's an error for GET requests)
-    // The important thing is that it's listening and responding
-    assert!(response.status().as_u16() >= 200);
+    assert_eq!(response.status(), reqwest::StatusCode::OK);
 
     // Clean up
     child.kill().await.ok();

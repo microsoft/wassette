@@ -147,7 +147,7 @@ For more information, see the [Documenting WIT Interfaces](./documenting-wit.md)
 ### 8. Test Your Component
 
 ```bash
-wassette serve --sse --component-dir .
+wassette serve --streamable-http --component-dir .
 ```
 
 ## Complete Examples

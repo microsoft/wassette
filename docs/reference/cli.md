@@ -545,8 +545,8 @@ wassette permission grant memory my-tool 512Mi
 # 5. Verify permissions
 wassette policy get my-tool --output-format yaml
 
-# 6. Test via MCP server
-wassette serve --stdio
+# 6. Test via the local stdio MCP server
+wassette run
 ```
 
 ### Component Discovery and Installation
@@ -572,8 +572,8 @@ wassette permission grant memory weather-server 256Mi
 wassette component list --output-format table
 wassette policy get weather-server --output-format yaml
 
-# 7. Start the MCP server
-wassette serve --stdio
+# 7. Start the local stdio MCP server
+wassette run
 ```
 
 ### Component Distribution
@@ -587,8 +587,8 @@ wassette permission grant storage my-tool fs://workspace/** --access read,write
 wassette permission grant network my-tool api.myservice.com
 wassette permission grant memory my-tool 1Gi
 
-# 3. Start server for clients
-wassette serve --sse
+# 3. Start the Streamable HTTP server for remote clients
+wassette serve --streamable-http
 ```
 
 ### Permission Auditing

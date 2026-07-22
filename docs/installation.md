@@ -111,7 +111,7 @@ For users who prefer Nix for reproducible environments (works on all platforms):
 
 ```bash
 # Run directly without installation
-nix run github:microsoft/wassette -- serve --stdio
+nix run github:microsoft/wassette -- run
 
 # Install to your profile
 nix profile install github:microsoft/wassette

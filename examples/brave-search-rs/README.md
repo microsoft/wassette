@@ -65,7 +65,7 @@ export BRAVE_SEARCH_API_KEY=your_api_key_here
 cargo run --release -- serve mcp sse
 
 # In another terminal, use MCP inspector to call the tool
-npx @modelcontextprotocol/inspector --cli http://127.0.0.1:9001/sse
+npx @modelcontextprotocol/inspector --cli http://127.0.0.1:9001/mcp --transport http
 ```
 
 The component will return formatted markdown with web and news results.

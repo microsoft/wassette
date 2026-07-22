@@ -288,11 +288,11 @@ func myFunction(input string) MyResult {
 1. Build your component
 2. Start Wassette with your component:
    ```bash
-   wassette serve --sse --component-dir ./
+   wassette serve --streamable-http --component-dir ./
    ```
 3. Connect using the MCP inspector:
    ```bash
-   npx @modelcontextprotocol/inspector --cli http://127.0.0.1:9001/sse
+   npx @modelcontextprotocol/inspector --cli http://127.0.0.1:9001/mcp --transport http
    ```
 
 ### Unit Testing

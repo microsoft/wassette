@@ -132,7 +132,7 @@ wit-docs-inject --component target/wasm32-wasip2/release/{component_name}.wasm \
 
 ```bash
 # Start Wassette with your component
-wassette serve --sse --plugin-dir target/wasm32-wasip2/release/
+wassette serve --streamable-http --component-dir target/wasm32-wasip2/release/
 
 # In another terminal, use an MCP client to test
 ```
@@ -328,7 +328,7 @@ wit-docs-inject --component component.wasm \
 
 ```bash
 # Start Wassette with your component
-wassette serve --sse --plugin-dir .
+wassette serve --streamable-http --component-dir .
 
 # In another terminal, use an MCP client to test
 ```
