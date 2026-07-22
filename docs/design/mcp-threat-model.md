@@ -90,6 +90,10 @@ Wassette's permission model creates additional barriers against tool poisoning a
 
 The runtime also provides isolation between components. One component cannot poison another component's state, resources, or permissions. Each component execution occurs in a fresh instance with its own memory space and WASI context. This isolation prevents persistent compromise and limits the blast radius of successful attacks.
 
+When Wassette runs as an HTTP server, it exposes the MCP management plane, including tools that load components and grant permissions, on a local port. Binding to loopback does not prevent browser-based access: a malicious site can use DNS rebinding to make its hostname resolve to `127.0.0.1`, then send requests to the local server with the attacker's hostname in the `Host` header.
+
+Wassette mitigates this attack through rmcp's `StreamableHttpService`, which rejects HTTP requests whose `Host` header is not a trusted loopback value before MCP processing begins. Streamable HTTP at `/mcp` is now the only supported HTTP transport because the removed SSE transport did not provide this validation. Operators exposing Wassette beyond loopback should place it behind an authenticating reverse proxy.
+
 ## Attack Consequences
 
 The threat categories described above are root causes that can lead to various security consequences. Understanding these consequences helps in designing monitoring, incident response, and defense-in-depth strategies.

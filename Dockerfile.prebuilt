@@ -34,7 +34,7 @@ ENV XDG_CONFIG_HOME=/home/wassette/.config
 USER wassette
 WORKDIR /home/wassette
 
-# Expose the default HTTP port (when using --http or --sse)
+# Expose the default Streamable HTTP port
 EXPOSE 9001
 
 # Default command: start Wassette with streamable-http transport

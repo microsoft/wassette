@@ -27,7 +27,7 @@ component_dir = "/path/to/components"
 # Default: $XDG_CONFIG_HOME/wassette/secrets (~/.config/wassette/secrets)
 secrets_dir = "/path/to/secrets"
 
-# Bind address for HTTP-based transports (SSE and StreamableHttp)
+# Bind address for Streamable HTTP
 # Default: 127.0.0.1:9001
 bind_address = "0.0.0.0:8080"
 
@@ -57,7 +57,7 @@ DATABASE_URL = "postgresql://localhost/mydb"
 
 - **Type**: String
 - **Default**: `127.0.0.1:9001`
-- **Description**: Bind address for HTTP-based transports (SSE and StreamableHttp). The address should be in the format `host:port`. Use `0.0.0.0` to bind to all network interfaces, or a specific IP address to bind to a particular interface. This setting is ignored when using stdio transport.
+- **Description**: Bind address for Streamable HTTP. The address should be in the format `host:port`. Use `0.0.0.0` to bind to all network interfaces, or a specific IP address to bind to a particular interface. This setting is ignored when using stdio transport.
 
 #### `environment_vars`
 

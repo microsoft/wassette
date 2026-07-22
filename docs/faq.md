@@ -185,7 +185,7 @@ This makes it safe to:
 
 Wassette provides comprehensive invocation logging for all tool calls. To access logs:
 
-1. **View real-time logs**: When running `wassette serve`, logs are output to stdout (SSE/HTTP) or stderr (stdio)
+1. **View real-time logs**: Both `wassette serve` and `wassette run` write logs to stderr
 2. **Increase verbosity**: Set `RUST_LOG=debug` or `RUST_LOG=trace` for more detailed logs
 3. **Filter logs**: Use grep to find specific invocations: `wassette serve 2>&1 | grep "Tool invocation"`
 4. **Parse structured data**: Extract timing and status information from key-value pairs in logs

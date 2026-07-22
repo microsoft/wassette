@@ -60,7 +60,7 @@ pub struct Config {
     #[serde(default)]
     pub environment_vars: HashMap<String, String>,
 
-    /// Bind address for HTTP-based transports (SSE and StreamableHttp)
+    /// Bind address for Streamable HTTP
     /// Configured via PORT and BIND_HOST environment variables or CLI/config file
     #[serde(default = "default_bind_address", rename = "bind_address")]
     pub bind_address: String,
