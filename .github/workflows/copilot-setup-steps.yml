@@ -35,10 +35,14 @@ jobs:
       uses: bytecodealliance/actions/wasm-tools/setup@3b93676295fd6f7eaa7af2c2785539e052fa8349
     - name: Setup uv
       uses: astral-sh/setup-uv@3259c6206f993105e3a61b142c2d97bf4b9ef83d
+    - name: Setup Go
+      uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e
+      with:
+        go-version: 1.26.5
     - name: Setup TinyGo
       uses: acifani/setup-tinygo@db56321a62b9a67922bb9ac8f9d085e218807bb3
       with:
-        tinygo-version: 0.36.0
+        tinygo-version: 0.41.1
     - name: Cache Rust dependencies
       uses: ./.github/actions/rust-cache
     - name: Install gh-aw extension
@@ -51,6 +55,6 @@ jobs:
         cluster_name: wassette-dev
         wait: 300s
     - name: Verify tool installations
-      run: "echo \"=== Development Environment Setup Complete ===\"\necho \"\"\necho \"Rust toolchain:\"\nrustc --version\ncargo --version\necho \"\"\necho \"Nightly formatter:\"\ncargo +nightly fmt --version\necho \"\"\necho \"Build tools:\"\njust --version\nprotoc --version\nwasm-tools --version\necho \"\"\necho \"Language support:\"\nuv --version\ntinygo version\necho \"\"\necho \"WASM target installed:\"\nrustup target list --installed | grep wasm32-wasip2\necho \"\"\necho \"GitHub extensions:\"\ngh extension list\necho \"\"\necho \"Kubernetes cluster:\"\nkubectl cluster-info || true\nkubectl get nodes || true\necho \"\"\necho \"=== Ready for development! ===\"\necho \"You can now run:\"\necho \"  - just build     # Build the project\"\necho \"  - just test      # Run tests\"\necho \"  - just run       # Start MCP server\"\necho \"  - cargo clippy   # Run linter\"\necho \"  - kubectl get pods -A   # Check Kubernetes cluster\"\n"
+      run: "echo \"=== Development Environment Setup Complete ===\"\necho \"\"\necho \"Rust toolchain:\"\nrustc --version\ncargo --version\necho \"\"\necho \"Nightly formatter:\"\ncargo +nightly fmt --version\necho \"\"\necho \"Build tools:\"\njust --version\nprotoc --version\nwasm-tools --version\necho \"\"\necho \"Language support:\"\nuv --version\ngo version\ntinygo version\necho \"\"\necho \"WASM target installed:\"\nrustup target list --installed | grep wasm32-wasip2\necho \"\"\necho \"GitHub extensions:\"\ngh extension list\necho \"\"\necho \"Kubernetes cluster:\"\nkubectl cluster-info || true\nkubectl get nodes || true\necho \"\"\necho \"=== Ready for development! ===\"\necho \"You can now run:\"\necho \"  - just build     # Build the project\"\necho \"  - just test      # Run tests\"\necho \"  - just run       # Start MCP server\"\necho \"  - cargo clippy   # Run linter\"\necho \"  - kubectl get pods -A   # Check Kubernetes cluster\"\n"
       env:
         GH_TOKEN: ${{ github.token }}
