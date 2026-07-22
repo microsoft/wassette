@@ -34,12 +34,12 @@ jobs:
   # Build job
   build:
     runs-on: ubuntu-latest
-    if: github.event_name != 'workflow_dispatch' || !contains(inputs.tag_name, '-')
+    if: github.event_name != 'workflow_dispatch' || !contains(github.event.inputs.tag_name, '-')
     steps:
       - name: Checkout
         uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
         with:
-          ref: ${{ inputs.tag_name || github.ref }}
+          ref: ${{ github.event.inputs.tag_name || github.ref }}
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@6d653acede28d24f02e3cd41383119e8b1b35921 # stable
@@ -70,7 +70,7 @@ jobs:
       - name: Determine version
         id: version
         env:
-          INPUT_TAG: ${{ inputs.tag_name }}
+          INPUT_TAG: ${{ github.event.inputs.tag_name }}
         run: |
           if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
             VERSION="$INPUT_TAG"
@@ -228,7 +228,7 @@ jobs:
     needs: build
     if: |
       (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
-      (github.event_name == 'workflow_dispatch' && !contains(inputs.tag_name, '-'))
+      (github.event_name == 'workflow_dispatch' && !contains(github.event.inputs.tag_name, '-'))
     steps:
       - name: Deploy to GitHub Pages
         id: deployment

@@ -18,7 +18,7 @@ permissions:
 
 env:
   CARGO_TERM_COLOR: always
-  RELEASE_TAG: ${{ inputs.tag_name || github.ref_name }}
+  RELEASE_TAG: ${{ github.event.inputs.tag_name || github.ref_name }}
 
 jobs:
   validate-release:
@@ -346,7 +346,7 @@ jobs:
     name: Update package manifests
     runs-on: ubuntu-latest
     needs: release
-    if: needs.release.result == 'success' && !contains(inputs.tag_name || github.ref_name, '-')
+    if: needs.release.result == 'success' && !contains(github.event.inputs.tag_name || github.ref_name, '-')
 
     steps:
       - name: Dispatch package manifest update
@@ -358,7 +358,7 @@ jobs:
     name: Publish example components
     runs-on: ubuntu-latest
     needs: release
-    if: needs.release.result == 'success' && !contains(inputs.tag_name || github.ref_name, '-')
+    if: needs.release.result == 'success' && !contains(github.event.inputs.tag_name || github.ref_name, '-')
 
     steps:
       - name: Dispatch example component publication
@@ -370,7 +370,7 @@ jobs:
     name: Publish versioned documentation
     runs-on: ubuntu-latest
     needs: release
-    if: needs.release.result == 'success' && !contains(inputs.tag_name || github.ref_name, '-')
+    if: needs.release.result == 'success' && !contains(github.event.inputs.tag_name || github.ref_name, '-')
 
     steps:
       - name: Dispatch versioned documentation
@@ -383,7 +383,7 @@ jobs:
     runs-on: ubuntu-latest
     needs: [validate-release, release]
     # Skip for prerelease/dry-run tags (e.g., v0.3.4-test1)
-    if: needs.release.result == 'success' && !contains(inputs.tag_name || github.ref_name, '-')
+    if: needs.release.result == 'success' && !contains(github.event.inputs.tag_name || github.ref_name, '-')
 
     steps:
       - name: Checkout repository
