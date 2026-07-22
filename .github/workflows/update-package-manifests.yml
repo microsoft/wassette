@@ -1,8 +1,6 @@
 name: Update Package Manifests
 
 on:
-  release:
-    types: [published]
   workflow_dispatch:
     inputs:
       tag_name:
@@ -20,9 +18,7 @@ jobs:
     name: Update Homebrew and WinGet Manifests
     runs-on: ubuntu-latest
     # Skip for prerelease/dry-run releases (e.g., v0.3.4-test1)
-    if: |
-      (github.event_name == 'workflow_dispatch' && !contains(inputs.tag_name, '-')) ||
-      (github.event_name == 'release' && github.event.release.prerelease == false)
+    if: "!contains(inputs.tag_name, '-')"
 
     steps:
       - name: Checkout repository
@@ -33,13 +29,7 @@ jobs:
       - name: Extract version from tag
         id: version
         run: |
-          # Get tag_name from either release event or workflow_dispatch input
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            TAG_NAME="${{ inputs.tag_name }}"
-          else
-            TAG_NAME="${{ github.event.release.tag_name }}"
-          fi
-
+          TAG_NAME="${{ inputs.tag_name }}"
           VERSION="${TAG_NAME#v}"  # Remove 'v' prefix
           echo "version=$VERSION" >> $GITHUB_OUTPUT
           echo "tag_name=$TAG_NAME" >> $GITHUB_OUTPUT

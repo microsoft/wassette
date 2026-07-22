@@ -74,6 +74,8 @@ jobs:
           
           echo "Successfully created and pushed tag $VERSION"
 
+      # Tags pushed with GITHUB_TOKEN do not trigger push workflows, so the
+      # explicit dispatch is required for both the initial run and retries.
       - name: Dispatch release workflow
         env:
           GH_TOKEN: ${{ github.token }}

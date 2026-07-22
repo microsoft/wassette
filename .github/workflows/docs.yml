@@ -6,8 +6,6 @@ on:
     paths:
       - 'docs/**'
       - '.github/workflows/docs.yml'
-    tags:
-      - 'v*'
   pull_request:
     branches: [ "main" ]
     paths:
@@ -36,11 +34,7 @@ jobs:
   # Build job
   build:
     runs-on: ubuntu-latest
-    if: |
-      github.event_name == 'pull_request' ||
-      (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
-      (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v') && !contains(github.ref_name, '-')) ||
-      (github.event_name == 'workflow_dispatch' && !contains(inputs.tag_name, '-'))
+    if: github.event_name != 'workflow_dispatch' || !contains(inputs.tag_name, '-')
     steps:
       - name: Checkout
         uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
@@ -80,8 +74,6 @@ jobs:
         run: |
           if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
             VERSION="$INPUT_TAG"
-          elif [[ "${{ github.ref }}" == refs/tags/v* ]]; then
-            VERSION="${{ github.ref_name }}"
           else
             VERSION="latest"
           fi
@@ -236,7 +228,6 @@ jobs:
     needs: build
     if: |
       (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
-      (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v') && !contains(github.ref_name, '-')) ||
       (github.event_name == 'workflow_dispatch' && !contains(inputs.tag_name, '-'))
     steps:
       - name: Deploy to GitHub Pages

@@ -4,7 +4,7 @@ This document describes the process for releasing new versions of the Wassette p
 
 ## Release.yml overview
 
-The release process is automated using GitHub Actions, specifically the [`release.yml`](.github/workflows/release.yml) workflow. This workflow is triggered when a new tag is pushed to the repository. Once triggered, the workflow uses a matrix to compile `wassette` for different platforms on native runners and uses `sccache` to speed up the compilation process by caching previous builds. The compiled binaries are then uploaded as artifacts to the release.
+The release process is automated using GitHub Actions, specifically the [`release.yml`](.github/workflows/release.yml) workflow. Tags pushed manually trigger the workflow directly; tags created by `auto-tag-release.yml` use an explicit workflow dispatch because `GITHUB_TOKEN` tag pushes do not trigger other workflows. The workflow uses a matrix to compile `wassette` for different platforms on native runners and uses `sccache` to speed up compilation. The compiled binaries are then uploaded as release assets.
 
 ### CHANGELOG Synchronization
 
@@ -198,7 +198,7 @@ If the automated workflows fail, you can follow the manual process:
    git push origin <branch_name>
    ```
 
-1. **After release is published, update package manifests**:
+1. **If the release workflow did not dispatch package updates, update package manifests manually**:
    
    1. Go to the [Actions tab](https://github.com/microsoft/wassette/actions/workflows/update-package-manifests.yml)
    1. Click "Run workflow"
