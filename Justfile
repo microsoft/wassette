@@ -40,20 +40,75 @@ install mode="debug":
     echo "You can add it by running:"
     echo '  export PATH="$HOME/.local/bin:$PATH"'
 
-# Create a stable or prerelease version bump PR through GitHub Actions.
+# Create a stable or prerelease version bump PR with the current GitHub identity.
 prepare-release version:
     #!/usr/bin/env bash
     set -euo pipefail
     version={{ quote(version) }}
+    repo="microsoft/wassette"
+    branch="release/v$version"
+
     if ! [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
         echo "error: version must use X.Y.Z or X.Y.Z-suffix format" >&2
         exit 1
     fi
-    gh workflow run prepare-release.yml \
-        --repo microsoft/wassette \
-        --ref main \
-        --field "version=$version"
-    echo "Dispatched Prepare Release for $version"
+
+    for command in cargo gh git; do
+        if ! command -v "$command" >/dev/null 2>&1; then
+            echo "error: $command is required" >&2
+            exit 1
+        fi
+    done
+
+    existing_pr=$(gh pr list \
+        --repo "$repo" \
+        --head "$branch" \
+        --state all \
+        --json url \
+        --jq '.[0].url')
+    if [[ -n "$existing_pr" ]]; then
+        echo "Release PR already exists: $existing_pr"
+        exit 0
+    fi
+
+    create_pr() {
+        gh pr create \
+            --repo "$repo" \
+            --base main \
+            --head "$branch" \
+            --title "chore(release): bump version to $version" \
+            --body "This pull request prepares the $version release by updating the version in \`Cargo.toml\` and \`Cargo.lock\`. After merge, the release automation will create and publish tag \`v$version\`. Versions with a suffix are prereleases and skip stable-release updates." \
+            --label release \
+            --label automated
+    }
+
+    if git ls-remote --exit-code origin "refs/heads/$branch" >/dev/null 2>&1; then
+        echo "Using existing remote branch $branch"
+        create_pr
+        exit 0
+    fi
+
+    git fetch origin main
+    temporary_directory=$(mktemp -d "${TMPDIR:-/tmp}/wassette-release.XXXXXX")
+    worktree="$temporary_directory/worktree"
+    cleanup() {
+        git worktree remove --force "$worktree" >/dev/null 2>&1 || true
+        rmdir "$temporary_directory" >/dev/null 2>&1 || true
+    }
+    trap cleanup EXIT
+
+    git worktree add --detach "$worktree" origin/main
+    sed -i.bak "s/^version = \".*\"/version = \"$version\"/" "$worktree/Cargo.toml"
+    rm "$worktree/Cargo.toml.bak"
+    cargo update \
+        --manifest-path "$worktree/Cargo.toml" \
+        -p wassette-mcp-server \
+        --precise "$version"
+    git -C "$worktree" diff --check
+    git -C "$worktree" add Cargo.toml Cargo.lock
+    git -C "$worktree" commit -m "chore(release): bump version to $version"
+    git -C "$worktree" push origin "HEAD:refs/heads/$branch"
+    create_pr
 
 # Check if wit-docs-inject is installed, if not install it
 ensure-wit-docs-inject:
