@@ -108,7 +108,7 @@ jobs:
         # Run cargo audit - fail only on actual vulnerabilities, not warnings
         cargo audit
     - name: Run cargo deny check
-      run: cargo deny check --config .config/deny.toml advisories licenses bans sources
+      run:       cargo deny --config .config/deny.toml check advisories licenses bans sources
 
   coverage:
     name: test coverage
