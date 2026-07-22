@@ -4,9 +4,25 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Changed
+
+- Added portable agent guidance and pull request validation to keep the `[Unreleased]` changelog current for user-facing changes ([#694](https://github.com/microsoft/wassette/pull/694)).
+- **BREAKING CHANGE**: Remote `wassette serve` connections now use Streamable HTTP at `/mcp`; the deprecated SSE transport and `--sse` option were removed, while local `wassette run` integrations continue to use stdio ([#695](https://github.com/microsoft/wassette/pull/695)).
+- Updated the Rust toolchain requirement to 1.97.1 ([#695](https://github.com/microsoft/wassette/pull/695)).
+- Renamed example WIT packages and worlds to match their published component names under the `microsoft` namespace, improving compatibility with registry and composition tooling ([#670](https://github.com/microsoft/wassette/pull/670)).
+- Moved repository tool configuration into `.config/` and the Docker Compose template into `docs/deployment/`, removing unused duplicate root files ([#676](https://github.com/microsoft/wassette/pull/676)).
+
 ### Fixed
 
 - Release automation now uses explicit workflow handoffs with `GITHUB_TOKEN`, supports safe tag-based retries, and keeps changelog and package-manifest updates idempotent.
+- Published example OCI images now use semver tags without a leading `v` ([#670](https://github.com/microsoft/wassette/pull/670)).
+- Repaired the corrupted `Cargo.lock` so workspace builds and dependency resolution work reliably ([#674](https://github.com/microsoft/wassette/pull/674)).
+- Eliminated intermittent configuration test failures caused by concurrent `WASSETTE_CONFIG_FILE` environment changes ([#675](https://github.com/microsoft/wassette/pull/675)).
+- Fixed broken installation documentation tabs by adding the required mdBook theme assets ([#672](https://github.com/microsoft/wassette/pull/672)).
+
+### Security
+
+- Upgraded RMCP to address the high-severity DNS-rebinding advisory affecting HTTP server transports ([#695](https://github.com/microsoft/wassette/pull/695)).
 
 ## [v0.4.0] - 2026-02-04
 
