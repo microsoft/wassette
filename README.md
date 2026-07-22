@@ -37,7 +37,7 @@ curl -fsSL https://raw.githubusercontent.com/microsoft/wassette/main/install.sh 
 
 ## Using Wassette
 
-With Wassette installed, the next step is to register it with your agent of choice. See our [Quick Start] guide (3 simple steps), or check the [MCP Clients guide](https://microsoft.github.io/wassette/latest/mcp-clients.html) for detailed setup instructions for GitHub Copilot, Cursor, Claude Code, and Gemini CLI.
+With Wassette installed, the next step is to register it with your agent of choice. See our [Quick Start] guide (3 simple steps), or check the [MCP Clients guide](https://microsoft.github.io/wassette/latest/mcp-clients.html) for detailed setup instructions for GitHub Copilot, Copilot CLI, Claude Code, and Codex CLI.
 
 Once configured, you can start loading WebAssembly components. To teach your agent to tell the time, ask it to load a time component:
 

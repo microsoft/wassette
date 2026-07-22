@@ -1,0 +1,58 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1000" height="280" viewBox="0 0 1000 280" role="img" aria-labelledby="title description">
+  <title id="title">Wassette architecture</title>
+  <desc id="description">VS Code, Copilot CLI, Claude Code, and Codex CLI connect to Wassette over MCP. Wassette runs WebAssembly components.</desc>
+  <style>
+    text {
+      fill: #111111;
+      font-family: "Roboto Mono", "DejaVu Sans Mono", "SFMono-Regular", Consolas, monospace;
+      font-size: 20px;
+      font-weight: 500;
+    }
+    .box {
+      fill: #ffffff;
+      stroke: #111111;
+      stroke-width: 2;
+    }
+    .line {
+      fill: none;
+      stroke: #111111;
+      stroke-width: 2;
+    }
+    .dash {
+      stroke-dasharray: 11 9;
+    }
+  </style>
+
+  <rect width="1000" height="280" fill="#ffffff"/>
+
+  <rect class="box" x="20" y="14" width="270" height="48"/>
+  <rect class="box" x="20" y="77" width="270" height="48"/>
+  <rect class="box" x="20" y="140" width="270" height="48"/>
+  <rect class="box" x="20" y="203" width="270" height="48"/>
+  <text x="155" y="45" text-anchor="middle">VS Code</text>
+  <text x="155" y="108" text-anchor="middle">Copilot CLI</text>
+  <text x="155" y="171" text-anchor="middle">Claude Code</text>
+  <text x="155" y="234" text-anchor="middle">Codex CLI</text>
+
+  <path class="line dash" d="M310 38H350M310 101H350M310 164H350M310 227H350"/>
+  <path d="M294 38 308 30V46Z" fill="#111111"/>
+  <path d="M294 101 308 93V109Z" fill="#111111"/>
+  <path d="M294 164 308 156V172Z" fill="#111111"/>
+  <path d="M294 227 308 219V235Z" fill="#111111"/>
+  <path class="line" d="M350 38V227M350 140H451"/>
+  <path d="M465 140 451 132V148Z" fill="#111111"/>
+  <rect x="368" y="125" width="52" height="28" fill="#ffffff"/>
+  <text x="394" y="146" text-anchor="middle" font-size="18">MCP</text>
+
+  <rect class="box" x="465" y="35" width="195" height="216"/>
+  <text x="562.5" y="150" text-anchor="middle" font-size="24">Wassette</text>
+
+  <rect class="box" x="660" y="35" width="320" height="162"/>
+  <path class="line" d="M660 89H980M660 143H980"/>
+  <text x="820" y="69" text-anchor="middle">Wasm Component</text>
+  <text x="820" y="123" text-anchor="middle">Wasm Component</text>
+  <text x="820" y="177" text-anchor="middle">Wasm Component</text>
+
+  <path class="line dash" d="M660 197V251H980V197"/>
+  <text x="820" y="233" text-anchor="middle">more...</text>
+</svg>
