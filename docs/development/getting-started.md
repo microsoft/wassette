@@ -21,7 +21,7 @@ Quick guide for contributing to Wassette.
 **Required:**
 
 ```bash
-# Install Rust (1.90+)
+# Install Rust (1.97.1+)
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 source ~/.cargo/env
 
@@ -105,7 +105,7 @@ cargo clippy --workspace --fix
 ## Running the Development Server
 
 ```bash
-# Start server (127.0.0.1:9001/sse)
+# Start the Streamable HTTP server (127.0.0.1:9001/mcp)
 just run
 
 # Custom log level (error, warn, info, debug, trace)
@@ -117,9 +117,9 @@ just run-fetch-rs
 just run-get-weather  # Requires OPENWEATHER_API_KEY
 
 # Debug with MCP Inspector
-npx @modelcontextprotocol/inspector --cli http://127.0.0.1:9001/sse
-npx @modelcontextprotocol/inspector --cli http://127.0.0.1:9001/sse --method tools/list
-npx @modelcontextprotocol/inspector --cli http://127.0.0.1:9001/sse --method tools/call --tool-name tool-name --tool-arg param=value
+npx @modelcontextprotocol/inspector --cli http://127.0.0.1:9001/mcp --transport http
+npx @modelcontextprotocol/inspector --cli http://127.0.0.1:9001/mcp --transport http --method tools/list
+npx @modelcontextprotocol/inspector --cli http://127.0.0.1:9001/mcp --transport http --method tools/call --tool-name tool-name --tool-arg param=value
 ```
 
 ## Building Documentation

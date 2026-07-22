@@ -679,10 +679,8 @@ impl PolicyManager {
                 // Note: access can be empty for revocation operations, but not for grant operations
                 // The validation for non-empty access is now done during parsing
             }
-            PermissionRule::Environment(env) => {
-                if env.key.is_empty() {
-                    return Err(anyhow!("Environment variable key cannot be empty"));
-                }
+            PermissionRule::Environment(env) if env.key.is_empty() => {
+                return Err(anyhow!("Environment variable key cannot be empty"));
             }
             _ => {}
         }

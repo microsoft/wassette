@@ -49,7 +49,7 @@ pub struct Cli {
 pub enum Commands {
     /// Run locally with stdio transport (for local development and testing).
     Run(Run),
-    /// Serve remotely over HTTP transports (SSE or StreamableHttp).
+    /// Serve remotely over Streamable HTTP.
     Serve(Serve),
     /// Manage WebAssembly components.
     Component {
@@ -147,7 +147,7 @@ pub struct Serve {
     #[serde(default)]
     pub disable_builtin_tools: bool,
 
-    /// Bind address for HTTP-based transports (SSE and StreamableHttp). Defaults to 127.0.0.1:9001
+    /// Bind address for Streamable HTTP. Defaults to 127.0.0.1:9001
     #[arg(long)]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub bind_address: Option<String>,
@@ -162,12 +162,7 @@ pub struct Serve {
 #[derive(Args, Debug, Clone, Serialize, Deserialize, Default)]
 #[group(required = false, multiple = false)]
 pub struct HttpTransportFlags {
-    /// Serving with SSE transport
-    #[arg(long)]
-    #[serde(skip)]
-    pub sse: bool,
-
-    /// Serving with streamable HTTP transport  
+    /// Serving with Streamable HTTP transport
     #[arg(long)]
     #[serde(skip)]
     pub streamable_http: bool,
@@ -175,17 +170,12 @@ pub struct HttpTransportFlags {
 
 #[derive(Debug)]
 pub enum Transport {
-    Sse,
     StreamableHttp,
 }
 
 impl From<&HttpTransportFlags> for Transport {
-    fn from(f: &HttpTransportFlags) -> Self {
-        match (f.sse, f.streamable_http) {
-            (true, false) => Transport::Sse,
-            (false, true) => Transport::StreamableHttp,
-            _ => Transport::Sse, // Default case: use SSE transport for serve
-        }
+    fn from(_flags: &HttpTransportFlags) -> Self {
+        Transport::StreamableHttp
     }
 }
 

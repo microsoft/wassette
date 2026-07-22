@@ -10,9 +10,9 @@ use clap::{CommandFactory, Parser};
 use clap_complete::{generate, shells};
 use mcp_server::{handle_tools_list, LifecycleManager};
 use rmcp::service::serve_server;
+use rmcp::transport::stdio as stdio_transport;
 use rmcp::transport::streamable_http_server::session::local::LocalSessionManager;
 use rmcp::transport::streamable_http_server::StreamableHttpService;
-use rmcp::transport::{stdio as stdio_transport, SseServer};
 use serde_json::{json, Map};
 use tracing_subscriber::layer::SubscriberExt as _;
 use tracing_subscriber::util::SubscriberInitExt as _;
@@ -298,28 +298,6 @@ async fn main() -> Result<()> {
 
                         // Wait for the server task to complete
                         let _ = server_handle.await;
-                    }
-                    Transport::Sse => {
-                        tracing::info!(
-                        "Starting MCP server on {} with SSE HTTP transport. Components will load in the background.",
-                        bind_address
-                    );
-
-                        let ct = SseServer::serve(bind_address.parse().unwrap())
-                            .await?
-                            .with_service(move || server.clone());
-
-                        tracing::info!(
-                            "MCP server is ready and listening on http://{}/sse",
-                            bind_address
-                        );
-                        tracing::info!(
-                            "Note: Health endpoints (/health, /ready, /info) are only available with --streamable-http transport. \
-                            SSE transport is designed solely for event streaming and does not provide a general HTTP request/response interface."
-                        );
-
-                        tokio::signal::ctrl_c().await?;
-                        ct.cancel();
                     }
                 }
 
@@ -625,17 +603,12 @@ async fn main() -> Result<()> {
                     };
 
                     print_result(
-                        &rmcp::model::CallToolResult {
-                            content: vec![rmcp::model::Content::text(
-                                serde_json::to_string_pretty(&json!({
-                                    "component_id": component_id,
-                                    "secrets": result
-                                }))?,
-                            )],
-                            structured_content: None,
-                            is_error: None,
-                            meta: None,
-                        },
+                        &rmcp::model::CallToolResult::success(vec![rmcp::model::Content::text(
+                            serde_json::to_string_pretty(&json!({
+                                "component_id": component_id,
+                                "secrets": result
+                            }))?,
+                        )]),
                         *output_format,
                     )?;
                 }
@@ -656,14 +629,9 @@ async fn main() -> Result<()> {
                     });
 
                     print_result(
-                        &rmcp::model::CallToolResult {
-                            content: vec![rmcp::model::Content::text(
-                                serde_json::to_string_pretty(&result)?,
-                            )],
-                            structured_content: None,
-                            is_error: None,
-                            meta: None,
-                        },
+                        &rmcp::model::CallToolResult::success(vec![rmcp::model::Content::text(
+                            serde_json::to_string_pretty(&result)?,
+                        )]),
                         OutputFormat::Json,
                     )?;
                 }
@@ -684,14 +652,9 @@ async fn main() -> Result<()> {
                     });
 
                     print_result(
-                        &rmcp::model::CallToolResult {
-                            content: vec![rmcp::model::Content::text(
-                                serde_json::to_string_pretty(&result)?,
-                            )],
-                            structured_content: None,
-                            is_error: None,
-                            meta: None,
-                        },
+                        &rmcp::model::CallToolResult::success(vec![rmcp::model::Content::text(
+                            serde_json::to_string_pretty(&result)?,
+                        )]),
                         OutputFormat::Json,
                     )?;
                 }
@@ -721,12 +684,9 @@ async fn main() -> Result<()> {
                     }))?;
 
                     print_result(
-                        &rmcp::model::CallToolResult {
-                            content: vec![rmcp::model::Content::text(content)],
-                            structured_content: None,
-                            is_error: None,
-                            meta: None,
-                        },
+                        &rmcp::model::CallToolResult::success(vec![rmcp::model::Content::text(
+                            content,
+                        )]),
                         *output_format,
                     )?;
                 }
@@ -756,12 +716,9 @@ async fn main() -> Result<()> {
                     }))?;
 
                     print_result(
-                        &rmcp::model::CallToolResult {
-                            content: vec![rmcp::model::Content::text(content)],
-                            structured_content: None,
-                            is_error: None,
-                            meta: None,
-                        },
+                        &rmcp::model::CallToolResult::success(vec![rmcp::model::Content::text(
+                            content,
+                        )]),
                         *output_format,
                     )?;
                 }
@@ -796,10 +753,8 @@ async fn main() -> Result<()> {
                         )
                         .await?;
                     } else {
-                        let req = rmcp::model::CallToolRequestParam {
-                            name: name.clone().into(),
-                            arguments: Some(arguments),
-                        };
+                        let req = rmcp::model::CallToolRequestParams::new(name.clone())
+                            .with_arguments(arguments);
 
                         use mcp_server::components::handle_component_call;
                         let result = handle_component_call(&req, &lifecycle_manager).await;
@@ -879,14 +834,9 @@ async fn main() -> Result<()> {
                     });
 
                     print_result(
-                        &rmcp::model::CallToolResult {
-                            content: vec![rmcp::model::Content::text(
-                                serde_json::to_string_pretty(&result)?,
-                            )],
-                            structured_content: None,
-                            is_error: None,
-                            meta: None,
-                        },
+                        &rmcp::model::CallToolResult::success(vec![rmcp::model::Content::text(
+                            serde_json::to_string_pretty(&result)?,
+                        )]),
                         *output_format,
                     )?;
                 }
@@ -995,7 +945,7 @@ mod cli_tests {
         matches!(cli.command, Some(Commands::Run(_)));
 
         // Test serve command (remote HTTP)
-        let args = vec!["wassette", "serve", "--sse"];
+        let args = vec!["wassette", "serve"];
         let cli = Cli::try_parse_from(args).unwrap();
         matches!(cli.command, Some(Commands::Serve(_)));
     }

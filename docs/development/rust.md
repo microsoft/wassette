@@ -20,7 +20,7 @@ This guide provides comprehensive instructions for creating WebAssembly (Wasm) c
 
 Before you begin, ensure you have the following installed:
 
-1. **Rust toolchain** (1.75.0 or later):
+1. **Rust toolchain** (1.97.1 or later):
    ```bash
    curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
    source ~/.cargo/env
@@ -588,7 +588,7 @@ Test your component with Wassette locally:
 cargo build --target wasm32-wasip2 --release
 
 # Start Wassette with your component
-wassette serve --sse --component-dir .
+wassette serve --streamable-http --component-dir .
 ```
 
 ### 3. Component Inspection

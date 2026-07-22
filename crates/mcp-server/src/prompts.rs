@@ -3,7 +3,7 @@
 
 use anyhow::Result;
 use rmcp::model::{
-    GetPromptRequestParam, GetPromptResult, ListPromptsResult, Prompt, PromptArgument,
+    GetPromptRequestParams, GetPromptResult, ListPromptsResult, Prompt, PromptArgument,
     PromptMessage, PromptMessageRole,
 };
 
@@ -132,7 +132,7 @@ wit-docs-inject --component target/wasm32-wasip2/release/{component_name}.wasm \
 
 ```bash
 # Start Wassette with your component
-wassette serve --sse --plugin-dir target/wasm32-wasip2/release/
+wassette serve --streamable-http --component-dir target/wasm32-wasip2/release/
 
 # In another terminal, use an MCP client to test
 ```
@@ -328,7 +328,7 @@ wit-docs-inject --component component.wasm \
 
 ```bash
 # Start Wassette with your component
-wassette serve --sse --plugin-dir .
+wassette serve --streamable-http --component-dir .
 
 # In another terminal, use an MCP client to test
 ```
@@ -452,14 +452,14 @@ Would you like me to help you implement any specific functionality for your comp
 pub async fn handle_prompts_list(_req: serde_json::Value) -> Result<serde_json::Value> {
     let response = ListPromptsResult {
         prompts: get_available_prompts(),
-        next_cursor: None,
+        ..Default::default()
     };
     Ok(serde_json::to_value(response)?)
 }
 
 /// Get a specific prompt by name
 pub async fn handle_prompts_get(req: serde_json::Value) -> Result<serde_json::Value> {
-    let parsed_req: GetPromptRequestParam = serde_json::from_value(req)?;
+    let parsed_req: GetPromptRequestParams = serde_json::from_value(req)?;
 
     let prompt_name = parsed_req.name.as_str();
     let arguments = parsed_req.arguments.unwrap_or_default();
@@ -481,22 +481,16 @@ fn get_available_prompts() -> Vec<Prompt> {
         Prompt::new(
             "build-rust-component",
             Some("Guide to building a WebAssembly component for Wassette using Rust"),
-            Some(vec![PromptArgument {
-                name: "component_name".to_string(),
-                title: None,
-                description: Some("The name of the component to build".to_string()),
-                required: Some(false),
-            }]),
+            Some(vec![PromptArgument::new("component_name")
+                .with_description("The name of the component to build")
+                .with_required(false)]),
         ),
         Prompt::new(
             "build-javascript-component",
             Some("Guide to building a WebAssembly component for Wassette using JavaScript"),
-            Some(vec![PromptArgument {
-                name: "component_name".to_string(),
-                title: None,
-                description: Some("The name of the component to build".to_string()),
-                required: Some(false),
-            }]),
+            Some(vec![PromptArgument::new("component_name")
+                .with_description("The name of the component to build")
+                .with_required(false)]),
         ),
     ]
 }
@@ -512,13 +506,14 @@ fn build_rust_component_prompt(
 
     let content = RUST_COMPONENT_TEMPLATE.replace("{component_name}", component_name);
 
-    Ok(GetPromptResult {
-        description: Some(format!(
-            "A step-by-step guide to building a Rust WebAssembly component named '{}'",
-            component_name
-        )),
-        messages: vec![PromptMessage::new_text(PromptMessageRole::User, content)],
-    })
+    Ok(GetPromptResult::new(vec![PromptMessage::new_text(
+        PromptMessageRole::User,
+        content,
+    )])
+    .with_description(format!(
+        "A step-by-step guide to building a Rust WebAssembly component named '{}'",
+        component_name
+    )))
 }
 
 /// Generate the JavaScript component building prompt
@@ -532,13 +527,14 @@ fn build_javascript_component_prompt(
 
     let content = JAVASCRIPT_COMPONENT_TEMPLATE.replace("{component_name}", component_name);
 
-    Ok(GetPromptResult {
-        description: Some(format!(
-            "A step-by-step guide to building a JavaScript WebAssembly component named '{}'",
-            component_name
-        )),
-        messages: vec![PromptMessage::new_text(PromptMessageRole::User, content)],
-    })
+    Ok(GetPromptResult::new(vec![PromptMessage::new_text(
+        PromptMessageRole::User,
+        content,
+    )])
+    .with_description(format!(
+        "A step-by-step guide to building a JavaScript WebAssembly component named '{}'",
+        component_name
+    )))
 }
 
 #[cfg(test)]

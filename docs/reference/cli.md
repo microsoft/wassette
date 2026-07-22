@@ -85,32 +85,23 @@ wassette run --component-dir /custom/components
 
 ### `wassette serve`
 
-Start the Wassette MCP server with HTTP transports for remote access. This is intended for remote deployment scenarios.
-
-**Server-Sent Events (SSE) transport:**
-```bash
-# Start server with SSE transport (default)
-wassette serve
-
-# Use SSE with custom bind address
-wassette serve --sse --bind-address 0.0.0.0:8080
-
-# Use environment variables for bind address
-export PORT=8080
-export BIND_HOST=0.0.0.0
-wassette serve --sse
-```
+Start the Wassette MCP server with Streamable HTTP for remote access. This is intended for remote deployment scenarios.
 
 **Streamable HTTP transport:**
 ```bash
-# Start server with streamable HTTP transport
+# Start server with Streamable HTTP transport
+wassette serve
+
+# The explicit compatibility flag is also supported
 wassette serve --streamable-http
+
+# Use a custom bind address
+wassette serve --bind-address 0.0.0.0:8080
 ```
 
 **Options:**
-- `--sse`: Use Server-Sent Events transport (default)
-- `--streamable-http`: Use streamable HTTP transport
-- `--bind-address <ADDRESS>`: Set bind address for HTTP transports (default: `127.0.0.1:9001`)
+- `--streamable-http`: Explicitly select Streamable HTTP transport
+- `--bind-address <ADDRESS>`: Set the bind address (default: `127.0.0.1:9001`)
 - `--component-dir <PATH>`: Set component storage directory (default: `$XDG_DATA_HOME/wassette/components`)
 - `--env <KEY=VALUE>`: Set environment variables (can be specified multiple times)
 - `--env-file <PATH>`: Load environment variables from a file
@@ -554,8 +545,8 @@ wassette permission grant memory my-tool 512Mi
 # 5. Verify permissions
 wassette policy get my-tool --output-format yaml
 
-# 6. Test via MCP server
-wassette serve --stdio
+# 6. Test via the local stdio MCP server
+wassette run
 ```
 
 ### Component Discovery and Installation
@@ -581,8 +572,8 @@ wassette permission grant memory weather-server 256Mi
 wassette component list --output-format table
 wassette policy get weather-server --output-format yaml
 
-# 7. Start the MCP server
-wassette serve --stdio
+# 7. Start the local stdio MCP server
+wassette run
 ```
 
 ### Component Distribution
@@ -596,8 +587,8 @@ wassette permission grant storage my-tool fs://workspace/** --access read,write
 wassette permission grant network my-tool api.myservice.com
 wassette permission grant memory my-tool 1Gi
 
-# 3. Start server for clients
-wassette serve --sse
+# 3. Start the Streamable HTTP server for remote clients
+wassette serve --streamable-http
 ```
 
 ### Permission Auditing

@@ -124,7 +124,7 @@ Start the MCP server and interact with it via the MCP Inspector:
 cargo run --release -- serve mcp sse
 
 # In another terminal, use MCP inspector
-npx @modelcontextprotocol/inspector --cli http://127.0.0.1:9001/sse
+npx @modelcontextprotocol/inspector --cli http://127.0.0.1:9001/mcp --transport http
 ```
 
 ## Examples

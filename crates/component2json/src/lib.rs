@@ -1018,7 +1018,7 @@ mod tests {
 
     use super::*;
 
-    fn result_schema<'a>(schema: &'a Value) -> &'a Value {
+    fn result_schema(schema: &Value) -> &Value {
         schema
             .get("properties")
             .and_then(|props| props.get("result"))

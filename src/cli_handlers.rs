@@ -17,7 +17,7 @@ use mcp_server::tools::{
     handle_revoke_storage_permission,
 };
 use mcp_server::LifecycleManager;
-use rmcp::model::CallToolRequestParam;
+use rmcp::model::CallToolRequestParams;
 use serde_json::{Map, Value};
 
 use crate::config;
@@ -33,10 +33,7 @@ pub async fn handle_tool_cli_command(
 ) -> Result<()> {
     let tool = ToolName::try_from(tool_name)?;
 
-    let req = CallToolRequestParam {
-        name: tool.as_str().to_string().into(),
-        arguments: Some(args),
-    };
+    let req = CallToolRequestParams::new(tool.as_str().to_string()).with_arguments(args);
 
     let result = match tool {
         ToolName::LoadComponent => handle_load_component_cli(&req, lifecycle_manager).await?,

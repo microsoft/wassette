@@ -5,7 +5,7 @@ This cookbook guide shows you how to build WebAssembly components using Rust tha
 ## Quick Start
 
 ### Prerequisites
-- Rust toolchain (1.75.0 or later)
+- Rust toolchain (1.97.1 or later)
 - WASI Preview 2 target
 
 ### Install Tools
@@ -133,7 +133,7 @@ For more information, see the [Documenting WIT Interfaces](./documenting-wit.md)
 ### 8. Test Your Component
 
 ```bash
-wassette serve --sse --component-dir target/wasm32-wasip2/release/
+wassette serve --streamable-http --component-dir target/wasm32-wasip2/release/
 ```
 
 ## Complete Examples

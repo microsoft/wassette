@@ -110,7 +110,7 @@ export BIND_HOST=0.0.0.0
 export WASSETTE_CONFIG_FILE=/etc/wassette/config.toml
 
 # Start server
-wassette serve --sse
+wassette serve --streamable-http
 ```
 
 ## See Also

@@ -65,19 +65,19 @@ grep -q "Copyright (c) Microsoft Corporation" your_file.rs
 ## Debugging
 
 
-You can use commands in the Justfile to start the wassette mcp server (`just run`) and to run the tests (`just test`). `just run` will start the server that listens to "127.0.0.1:9001/sse". 
+You can use commands in the Justfile to start the wassette mcp server (`just run`) and to run the tests (`just test`). `just run` will start the server that listens at `127.0.0.1:9001/mcp`.
 
 Then you can use `npx @modelcontextprotocol/inspector` to connect to the server and inspect the state of the MCP server.
 
 The following is a list of sample CLI commands you can use to interact with the MCP server:
 
 ```bash
-# Connect to a remote MCP server (default is SSE transport)
-npx @modelcontextprotocol/inspector --cli http://127.0.0.1:9001/sse
+# Connect to the Streamable HTTP MCP server
+npx @modelcontextprotocol/inspector --cli http://127.0.0.1:9001/mcp --transport http
 
 # List tools from a remote server
-npx @modelcontextprotocol/inspector --cli http://127.0.0.1:9001/sse --method tools/list
+npx @modelcontextprotocol/inspector --cli http://127.0.0.1:9001/mcp --transport http --method tools/list
 
 # Call a tool on a remote server
-npx @modelcontextprotocol/inspector --cli http://127.0.0.1:9001/sse --method tools/call --tool-name remotetool --tool-arg param=value
+npx @modelcontextprotocol/inspector --cli http://127.0.0.1:9001/mcp --transport http --method tools/call --tool-name remotetool --tool-arg param=value
 ```

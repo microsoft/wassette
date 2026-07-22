@@ -87,10 +87,10 @@ echo "Found $VALIDATE_COUNT component(s) to validate:"
 cat "$NEW_OR_MODIFIED" | sed 's/^/  - /'
 echo ""
 
-# Start wassette server in background with SSE transport
+# Start wassette server in background with Streamable HTTP transport
 WASSETTE_LOG="$TMP_DIR/wassette.log"
 echo "Starting wassette server..."
-RUST_LOG=warn "$WASSETTE_BIN" serve --sse > "$WASSETTE_LOG" 2>&1 &
+RUST_LOG=warn "$WASSETTE_BIN" serve --streamable-http > "$WASSETTE_LOG" 2>&1 &
 WASSETTE_PID=$!
 
 # Wait for server to be ready
@@ -98,9 +98,7 @@ echo "Waiting for wassette server to start..."
 MAX_WAIT=30
 WAITED=0
 while [[ $WAITED -lt $MAX_WAIT ]]; do
-    # Check if the SSE endpoint is available (returns 200 with event-stream)
-    # Use HEAD request (-I) to avoid hanging on the streaming response
-    if timeout 2 curl -s -I http://127.0.0.1:9001/sse 2>/dev/null | grep -q "HTTP/1.1 200"; then
+    if timeout 2 curl --fail --silent http://127.0.0.1:9001/ready >/dev/null 2>&1; then
         echo "Wassette server is ready (PID: $WASSETTE_PID)"
         break
     fi
@@ -144,11 +142,11 @@ while IFS= read -r uri; do
     # Attempt to load the component using MCP protocol
     LOAD_RESULT="$TMP_DIR/load-result.json"
     if npx -y @modelcontextprotocol/inspector \
-        --transport sse \
-        --url http://127.0.0.1:9001/sse \
-        tools call \
-        --name load-component \
-        --arguments "{\"path\":\"$uri\"}" > "$LOAD_RESULT" 2>&1; then
+        --cli http://127.0.0.1:9001/mcp \
+        --transport http \
+        --method tools/call \
+        --tool-name load-component \
+        --tool-arg "path=$uri" > "$LOAD_RESULT" 2>&1; then
 
         # Check if the result indicates success
         if jq -e '.content[0].text | contains("component loaded successfully") or contains("component reloaded successfully")' "$LOAD_RESULT" > /dev/null 2>&1; then

@@ -8,7 +8,7 @@ pub async fn handle_resources_list(req: serde_json::Value) -> Result<serde_json:
     let _parsed_req: ListResourcesRequest = serde_json::from_value(req)?;
     let response = ListResourcesResult {
         resources: vec![],
-        next_cursor: None,
+        ..Default::default()
     };
     Ok(serde_json::to_value(response)?)
 }

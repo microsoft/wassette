@@ -14,7 +14,6 @@ use hyper::server::conn::http1;
 use hyper::service::service_fn;
 use hyper::{Request, Response};
 use hyper_util::rt::TokioIo;
-use oci_wasm::WasmClient;
 use tempfile::TempDir;
 use test_log::test;
 use testcontainers::core::WaitFor;
@@ -353,27 +352,51 @@ async fn test_load_component_from_oci() -> Result<()> {
     // Give the registry a moment to fully start
     sleep(Duration::from_millis(500)).await;
 
-    // Read component bytes
-    let (config, layer) = oci_wasm::WasmConfig::from_component(component_path, None).await?;
-
     // Create OCI client and push the component
     let oci_client = oci_client::Client::new(oci_client::client::ClientConfig {
         protocol: oci_client::client::ClientProtocol::Http,
         ..Default::default()
     });
 
-    let wasm_client = WasmClient::new(oci_client);
     let reference = format!("{registry_url}/fetch_rs:latest");
     let oci_reference: oci_client::Reference = reference.parse()?;
 
-    // Push to registry
-    wasm_client
+    // Build the OCI-Wasm fixture directly. This test covers Wassette's OCI pull
+    // path, not oci-wasm's WIT metadata extraction.
+    let component_bytes = tokio::fs::read(component_path).await?;
+    let layer = oci_client::client::ImageLayer::new(
+        component_bytes,
+        oci_wasm::WASM_LAYER_MEDIA_TYPE.to_string(),
+        None,
+    );
+    let config_data = serde_json::to_vec(&serde_json::json!({
+        "created": "1970-01-01T00:00:00Z",
+        "author": null,
+        "architecture": oci_wasm::WASM_ARCHITECTURE,
+        "os": oci_wasm::COMPONENT_OS,
+        "layerDigests": [layer.sha256_digest()],
+        "component": {
+            "exports": ["fetch"],
+            "imports": [],
+            "target": null
+        }
+    }))?;
+    let config = oci_client::client::Config::new(
+        config_data,
+        oci_wasm::WASM_MANIFEST_CONFIG_MEDIA_TYPE.to_string(),
+        None,
+    );
+    let layers = [layer];
+    let mut manifest = oci_client::manifest::OciImageManifest::build(&layers, &config, None);
+    manifest.media_type = Some(oci_wasm::WASM_MANIFEST_MEDIA_TYPE.to_string());
+
+    oci_client
         .push(
             &oci_reference,
-            &oci_client::secrets::RegistryAuth::Anonymous,
-            layer,
+            &layers,
             config,
-            None,
+            &oci_client::secrets::RegistryAuth::Anonymous,
+            Some(manifest),
         )
         .await?;
 
@@ -443,7 +466,7 @@ async fn test_load_component_invalid_reference() -> Result<()> {
     Ok(())
 }
 #[test(tokio::test)]
-async fn test_mixed_transport_fails() -> Result<()> {
+async fn test_sse_transport_is_rejected() -> Result<()> {
     // Create a temporary directory for this test to avoid loading existing components
     let temp_dir = tempfile::tempdir()?;
     let component_dir_arg = format!("--component-dir={}", temp_dir.path().display());
@@ -453,52 +476,18 @@ async fn test_mixed_transport_fails() -> Result<()> {
         .context("Failed to get current directory")?
         .join("target/debug/wassette");
 
-    // Test mixing HTTP transport flags (--sse and --streamable-http)
-    // Note: --stdio is no longer part of serve command, it's now in the run command
-    let combinations = [["--sse", "--streamable-http"]];
+    let output = tokio::process::Command::new(&binary_path)
+        .args(["serve", &component_dir_arg, "--sse"])
+        .output()
+        .await
+        .context("Failed to run wassette with deprecated SSE transport")?;
 
-    for combo in combinations {
-        // Start the server with the current combination of transports (should fail)
-        let mut child = tokio::process::Command::new(&binary_path)
-            .args(["serve", &component_dir_arg])
-            .args(combo)
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()
-            .context("Failed to start wassette with mixed transports")?;
-
-        let stderr = child.stderr.take().context("Failed to get stderr handle")?;
-        let mut stderr = BufReader::new(stderr);
-
-        // Give the server time to start
-        tokio::time::sleep(Duration::from_millis(1000)).await;
-
-        // Check if the process has exited
-        let status = child
-            .wait()
-            .await
-            .context("Failed to wait for wassette process")?;
-
-        assert!(
-            !status.success(),
-            "Process should have exited with error due to mixed transports"
-        );
-
-        // Read stderr output
-        let mut stderr_output = String::new();
-        let _ = stderr.read_line(&mut stderr_output).await;
-
-        let expected_error = format!(
-            "the argument '{}' cannot be used with '{}'",
-            combo[0], combo[1]
-        );
-
-        assert!(
-            stderr_output.contains(&expected_error),
-            "Expected error message about mixed transports, got: {stderr_output}"
-        );
-    }
+    assert!(!output.status.success());
+    let stderr_output = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr_output.contains("unexpected argument '--sse' found"),
+        "Expected SSE removal error, got: {stderr_output}"
+    );
 
     Ok(())
 }
@@ -780,10 +769,14 @@ async fn test_tool_list_notification() -> Result<()> {
     stdin.write_all(load_component_request.as_bytes()).await?;
     stdin.flush().await?;
 
-    // Read the tool list change notification first (this is what we're testing!)
+    // Read the tool list change notification first (this is what we're testing!).
+    // The server emits this notification only after `load_component` finishes,
+    // which compiles/instantiates the freshly-built wasm component. Under CI load
+    // that debug-build compile can take well over 30s, so use a generous timeout
+    // to avoid flaky failures.
     let mut notification_line = String::new();
     tokio::time::timeout(
-        Duration::from_secs(30),
+        Duration::from_secs(120),
         stdout.read_line(&mut notification_line),
     )
     .await
@@ -798,10 +791,10 @@ async fn test_tool_list_notification() -> Result<()> {
     assert_eq!(notification["method"], "notifications/tools/list_changed");
     println!("✓ Received tools/list_changed notification as expected");
 
-    // Read the actual load-component response
+    // Read the actual load-component response (same component-load cost applies)
     let mut load_response_line = String::new();
     tokio::time::timeout(
-        Duration::from_secs(30),
+        Duration::from_secs(120),
         stdout.read_line(&mut load_response_line),
     )
     .await
@@ -881,27 +874,7 @@ async fn test_tool_list_notification() -> Result<()> {
 
 #[test(tokio::test)]
 async fn test_http_transport() -> Result<()> {
-    // Use a random available port to avoid conflicts
     let port = find_open_port().await?;
-
-    // We need to modify the source to support configurable bind address
-    // For now, let's test with the default port but check if it's available
-    let default_port = 9001u16;
-    let test_port = if TcpListener::bind(format!("127.0.0.1:{default_port}"))
-        .await
-        .is_ok()
-    {
-        default_port
-    } else {
-        port
-    };
-
-    // If we're not using the default port, skip this test for now
-    // since the server code uses a hardcoded bind address
-    if test_port != default_port {
-        println!("Skipping HTTP transport test: default port 9001 is not available");
-        return Ok(());
-    }
 
     // Create a temporary directory for this test to avoid loading existing components
     let temp_dir = tempfile::tempdir()?;
@@ -912,31 +885,39 @@ async fn test_http_transport() -> Result<()> {
         .context("Failed to get current directory")?
         .join("target/debug/wassette");
 
-    // Start the server with HTTP transport
+    let bind_address_arg = format!("--bind-address=127.0.0.1:{port}");
+
+    // Start the server with Streamable HTTP transport
     let mut child = tokio::process::Command::new(&binary_path)
-        .args(["serve", "--sse", &component_dir_arg])
+        .args([
+            "serve",
+            "--streamable-http",
+            &bind_address_arg,
+            &component_dir_arg,
+        ])
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
         .context("Failed to start wassette with HTTP transport")?;
 
-    // Give the server time to start (less time needed with empty component dir)
-    tokio::time::sleep(Duration::from_millis(1000)).await;
-
     // Create HTTP client
     let client = reqwest::Client::new();
-    let base_url = format!("http://127.0.0.1:{test_port}");
+    let base_url = format!("http://127.0.0.1:{port}/health");
 
-    // Test that the server is responding
-    let response = tokio::time::timeout(Duration::from_secs(10), client.get(&base_url).send())
-        .await
-        .context("Timeout waiting for HTTP server response")?
-        .context("Failed to connect to HTTP server")?;
+    let mut response = None;
+    for _ in 0..40 {
+        match client.get(&base_url).send().await {
+            Ok(server_response) => {
+                response = Some(server_response);
+                break;
+            }
+            Err(_) => sleep(Duration::from_millis(250)).await,
+        }
+    }
+    let response = response.context("Failed to connect to HTTP server")?;
 
-    // The server should return some response (even if it's an error for GET requests)
-    // The important thing is that it's listening and responding
-    assert!(response.status().as_u16() >= 200);
+    assert_eq!(response.status(), reqwest::StatusCode::OK);
 
     // Clean up
     child.kill().await.ok();
