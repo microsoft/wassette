@@ -54,7 +54,8 @@ print_error() {
 
 # Configuration
 BINARY_NAME="wassette"
-GITHUB_REPO="microsoft/wassette"
+# Allow overriding the source repository (e.g. for fork release testing).
+GITHUB_REPO="${WASSETTE_GITHUB_REPO:-microsoft/wassette}"
 BASE_URL="https://api.github.com/repos/${GITHUB_REPO}/releases/latest"
 INSTALL_DIR="$HOME/.local/bin"
 
