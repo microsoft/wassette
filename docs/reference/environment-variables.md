@@ -7,7 +7,7 @@ Pass environment variables to Wassette components using shell exports or config 
 Wassette supports the following environment variables for server configuration (following the [twelve-factor app](https://12factor.net/) methodology):
 
 ### PORT
-Sets the port number for HTTP-based transports (SSE and StreamableHttp) when `bind_address` is not specified via CLI or config file.
+Sets the port number for Streamable HTTP when `bind_address` is not specified via CLI or config file.
 
 ```bash
 PORT=8080 wassette serve --streamable-http

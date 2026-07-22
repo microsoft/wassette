@@ -73,10 +73,8 @@ RUST_LOG=mcp_server=debug,wassette=info wassette serve
 
 ### Log Output Location
 
-The log output location depends on the transport mode:
-
-- **SSE and StreamableHttp**: Logs go to stdout
-- **Stdio**: Logs go to stderr (to avoid interfering with the MCP protocol on stdout)
+Both Streamable HTTP and stdio write logs to stderr. For stdio, this avoids
+interfering with the MCP protocol on stdout.
 
 ### Sensitive Data Protection
 
