@@ -177,5 +177,4 @@ jobs:
 
             *This PR was automatically created by the update-package-manifests workflow.*
           labels: |
-            release
             automated

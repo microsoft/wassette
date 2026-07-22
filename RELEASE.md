@@ -70,14 +70,16 @@ in the repository Actions settings.
    - Extracts the version from the merged PR's branch name (`release/vX.Y.Z`)
    - Creates an annotated tag `vX.Y.Z` on the merge commit
    - Pushes the tag to the repository
-   - Adds a comment to the PR confirming the tag was created
+   - Dispatches the release workflow with the new tag
 
    **Note**: This step is fully automated. No manual intervention is required.
 
-1. **Monitor the release workflow**: Once the tag is pushed (automatically), the `release.yml` workflow will be triggered automatically:
+1. **Monitor the release workflow**: After the tag is pushed, `auto-tag-release.yml` dispatches `release.yml` with the new tag:
    - Builds binaries for all platforms (Linux, macOS, Windows; AMD64 and ARM64)
    - Extracts the changelog content for the version from `CHANGELOG.md`
    - Creates a GitHub release with all compiled binaries and the changelog content as release notes
+   - Publishes the example components with the release version and `latest` tags
+   - Publishes versioned documentation for the release
    - Automatically updates `CHANGELOG.md` on the release branch:
      - Converts `[Unreleased]` section to the new version with release date
      - Adds a new empty `[Unreleased]` section
@@ -213,6 +215,7 @@ Example WebAssembly components are automatically published to the GitHub Contain
 The [`examples.yml`](.github/workflows/examples.yml) workflow automatically publishes example components when:
 - Changes to files in the `examples/**` directory are pushed to the `main` branch
 - A pull request targeting the `main` branch modifies files in the `examples/**` directory (build only, no publish)
+- The release workflow dispatches it with a version tag after publishing the binaries
 
 **Published examples include:**
 - `eval-py` - Python expression evaluator

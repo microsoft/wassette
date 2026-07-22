@@ -14,7 +14,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: 'The tag to use for the OCI artifacts.'
+        description: 'The tag to use for the OCI artifacts (e.g., v0.4.0 or latest).'
         required: true
         type: string
         default: 'latest'
@@ -29,6 +29,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+      with:
+        ref: ${{ startsWith(inputs.tag, 'v') && inputs.tag || github.ref }}
     - uses: extractions/setup-just@e33e0265a09d6d736e2ee1e0eb685ef1de4669ff # v3.0.0
     - uses: astral-sh/setup-uv@3259c6206f993105e3a61b142c2d97bf4b9ef83d # v7.1.0
     - uses: acifani/setup-tinygo@db56321a62b9a67922bb9ac8f9d085e218807bb3 # v0.2.1
@@ -107,6 +109,8 @@ jobs:
 
       - name: Determine tag
         id: meta
+        env:
+          INPUT_TAG: ${{ inputs.tag }}
         run: |
           if [[ $GITHUB_REF == refs/tags/* ]]; then
             VERSION=${GITHUB_REF#refs/tags/}
@@ -114,9 +118,14 @@ jobs:
             echo "tag=$VERSION" >> $GITHUB_OUTPUT
             echo "latest=true" >> $GITHUB_OUTPUT
           elif [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
-            echo "tag=$GITHUB_SHA" >> $GITHUB_OUTPUT
             echo "latest=true" >> $GITHUB_OUTPUT
-            echo "release_tag=${{ github.event.inputs.tag }}" >> $GITHUB_OUTPUT
+            if [[ "$INPUT_TAG" == v* ]]; then
+              echo "tag=${INPUT_TAG#v}" >> $GITHUB_OUTPUT
+              echo "release_tag=latest" >> $GITHUB_OUTPUT
+            else
+              echo "tag=$GITHUB_SHA" >> $GITHUB_OUTPUT
+              echo "release_tag=$INPUT_TAG" >> $GITHUB_OUTPUT
+            fi
           else
             echo "tag=$GITHUB_SHA" >> $GITHUB_OUTPUT
             echo "latest=false" >> $GITHUB_OUTPUT
@@ -144,4 +153,3 @@ jobs:
         if: steps.meta.outputs.latest == 'true'
         run: |
           cosign sign --yes ghcr.io/${{ github.repository_owner }}/${{ matrix.component.name }}@${{ steps.publish_latest.outputs.digest }}
-
