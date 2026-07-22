@@ -230,8 +230,11 @@ jobs:
 
           ## Usage
           \`\`\`bash
-          # Start the MCP server
-          wassette serve --streamable-http
+          # Local MCP client integration (stdio)
+          wassette run
+
+          # Remote MCP server (Streamable HTTP)
+          wassette serve
           \`\`\`
           EOF
 
