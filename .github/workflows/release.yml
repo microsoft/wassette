@@ -45,9 +45,10 @@ jobs:
           fi
 
           TAG_VERSION="${RELEASE_TAG#v}"
+          TAG_BASE_VERSION="${TAG_VERSION%%-*}"
           PACKAGE_VERSION=$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -n1)
-          if [ "${TAG_VERSION%%-*}" != "$PACKAGE_VERSION" ]; then
-            echo "Error: tag $RELEASE_TAG does not match Cargo.toml version $PACKAGE_VERSION"
+          if [ "$TAG_BASE_VERSION" != "$PACKAGE_VERSION" ]; then
+            echo "Error: tag $RELEASE_TAG has base version $TAG_BASE_VERSION, which does not match Cargo.toml version $PACKAGE_VERSION"
             exit 1
           fi
 
