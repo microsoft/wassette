@@ -198,56 +198,149 @@ jobs:
           find artifacts -name "*.zip" -exec cp {} release-assets/ \;
           ls -la release-assets/
 
-      - name: Extract changelog content
-        id: changelog
+      - name: Prepare release notes
         run: |
-          CHANGELOG_CONTENT=$(python3 scripts/changelog_utils.py extract "$RELEASE_TAG")
-          echo "content<<EOF" >> $GITHUB_OUTPUT
-          echo "$CHANGELOG_CONTENT" >> $GITHUB_OUTPUT
-          echo "EOF" >> $GITHUB_OUTPUT
+          python3 scripts/changelog_utils.py extract "$RELEASE_TAG" > release-notes.md
+          VERSION="${RELEASE_TAG#v}"
+          cat >> release-notes.md <<EOF
 
-      - name: Create Release
-        uses: softprops/action-gh-release@6da8fa9354ddfdc4aeace5fc48d7f679b5214090 # v2.4.1
-        with:
-          tag_name: ${{ env.RELEASE_TAG }}
-          draft: false
-          prerelease: ${{ steps.version.outputs.is_prerelease == 'true' }}
-          generate_release_notes: false
-          files: release-assets/*
-          body: |
-            ${{ steps.changelog.outputs.content }}
+          ## Downloads
 
-            ## Downloads
+          ### Linux
+          - [AMD64 (tar.gz)](https://github.com/$GITHUB_REPOSITORY/releases/download/$RELEASE_TAG/wassette_${VERSION}_linux_amd64.tar.gz)
+          - [ARM64 (tar.gz)](https://github.com/$GITHUB_REPOSITORY/releases/download/$RELEASE_TAG/wassette_${VERSION}_linux_arm64.tar.gz)
 
-            ### Linux
-            - [AMD64 (tar.gz)](https://github.com/${{ github.repository }}/releases/download/${{ env.RELEASE_TAG }}/wassette_${{ steps.version.outputs.version }}_linux_amd64.tar.gz)
-            - [ARM64 (tar.gz)](https://github.com/${{ github.repository }}/releases/download/${{ env.RELEASE_TAG }}/wassette_${{ steps.version.outputs.version }}_linux_arm64.tar.gz)
+          ### macOS (Darwin)
+          - [AMD64/Intel (tar.gz)](https://github.com/$GITHUB_REPOSITORY/releases/download/$RELEASE_TAG/wassette_${VERSION}_darwin_amd64.tar.gz)
+          - [ARM64/Apple Silicon (tar.gz)](https://github.com/$GITHUB_REPOSITORY/releases/download/$RELEASE_TAG/wassette_${VERSION}_darwin_arm64.tar.gz)
 
-            ### macOS (Darwin)
-            - [AMD64/Intel (tar.gz)](https://github.com/${{ github.repository }}/releases/download/${{ env.RELEASE_TAG }}/wassette_${{ steps.version.outputs.version }}_darwin_amd64.tar.gz)
-            - [ARM64/Apple Silicon (tar.gz)](https://github.com/${{ github.repository }}/releases/download/${{ env.RELEASE_TAG }}/wassette_${{ steps.version.outputs.version }}_darwin_arm64.tar.gz)
+          ### Windows
+          - [AMD64 (zip)](https://github.com/$GITHUB_REPOSITORY/releases/download/$RELEASE_TAG/wassette_${VERSION}_windows_amd64.zip)
+          - [ARM64 (zip)](https://github.com/$GITHUB_REPOSITORY/releases/download/$RELEASE_TAG/wassette_${VERSION}_windows_arm64.zip)
 
-            ### Windows
-            - [AMD64 (zip)](https://github.com/${{ github.repository }}/releases/download/${{ env.RELEASE_TAG }}/wassette_${{ steps.version.outputs.version }}_windows_amd64.zip)
-            - [ARM64 (zip)](https://github.com/${{ github.repository }}/releases/download/${{ env.RELEASE_TAG }}/wassette_${{ steps.version.outputs.version }}_windows_arm64.zip)
+          ## Install
 
-            ## Install
+          ### All Platforms (Shell Script)
 
-            ### All Platforms (Shell Script)
+          \`\`\`bash
+          curl -fsSL https://raw.githubusercontent.com/$GITHUB_REPOSITORY/main/install.sh | WASSETTE_GITHUB_REPO=$GITHUB_REPOSITORY bash
+          \`\`\`
 
-            ```bash
-            curl -fsSL https://raw.githubusercontent.com/${{ github.repository }}/main/install.sh | WASSETTE_GITHUB_REPO=${{ github.repository }} bash
-            ```
+          This will detect your platform and install the latest \`wassette\` binary to your \`\$PATH\`.
 
-            This will detect your platform and install the latest `wassette` binary to your `$PATH`.
+          ## Usage
+          \`\`\`bash
+          # Start the MCP server
+          wassette serve --streamable-http
+          \`\`\`
+          EOF
 
-            ## Usage
-            ```bash
-            # Start the MCP server
-            wassette serve --streamable-http
-            ```
+      - name: Create draft, upload assets, and publish release
         env:
-          GITHUB_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ github.token }}
+          IS_PRERELEASE: ${{ steps.version.outputs.is_prerelease }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          EXPECTED_ASSETS=(
+            "wassette_${VERSION}_linux_amd64.tar.gz"
+            "wassette_${VERSION}_linux_arm64.tar.gz"
+            "wassette_${VERSION}_darwin_amd64.tar.gz"
+            "wassette_${VERSION}_darwin_arm64.tar.gz"
+            "wassette_${VERSION}_windows_amd64.zip"
+            "wassette_${VERSION}_windows_arm64.zip"
+          )
+          mapfile -t FOUND_ASSETS < <(find release-assets -maxdepth 1 -type f | sort)
+          if [ "${#FOUND_ASSETS[@]}" -ne "${#EXPECTED_ASSETS[@]}" ]; then
+            echo "::error::Expected ${#EXPECTED_ASSETS[@]} release assets, found ${#FOUND_ASSETS[@]}"
+            exit 1
+          fi
+
+          ASSETS=()
+          for NAME in "${EXPECTED_ASSETS[@]}"; do
+            ASSET="release-assets/$NAME"
+            if [ ! -f "$ASSET" ]; then
+              echo "::error::Missing expected release asset $NAME"
+              exit 1
+            fi
+            ASSETS+=("$ASSET")
+          done
+
+          if RELEASE_STATE=$(gh release view "$RELEASE_TAG" \
+            --repo "$GITHUB_REPOSITORY" \
+            --json isDraft \
+            --jq '.isDraft' 2>/dev/null); then
+            if [ "$RELEASE_STATE" != "true" ]; then
+              PUBLISHED_ASSETS=$(gh release view "$RELEASE_TAG" \
+                --repo "$GITHUB_REPOSITORY" \
+                --json assets \
+                --jq '.assets[].name')
+              MISSING_ASSETS=0
+              for ASSET in "${ASSETS[@]}"; do
+                NAME=$(basename "$ASSET")
+                if ! grep -Fxq "$NAME" <<< "$PUBLISHED_ASSETS"; then
+                  echo "::error::Published release is missing asset $NAME"
+                  MISSING_ASSETS=1
+                fi
+              done
+              if [ "$MISSING_ASSETS" -ne 0 ]; then
+                echo "::error::Release $RELEASE_TAG is already published and cannot be repaired by this workflow"
+                exit 1
+              fi
+              echo "Release $RELEASE_TAG is already published with all expected assets"
+              exit 0
+            fi
+
+            EDIT_ARGS=(
+              "$RELEASE_TAG"
+              --repo "$GITHUB_REPOSITORY"
+              --draft
+              --title "$RELEASE_TAG"
+              --notes-file release-notes.md
+            )
+            if [ "$IS_PRERELEASE" = "true" ]; then
+              EDIT_ARGS+=(--prerelease)
+            fi
+            gh release edit "${EDIT_ARGS[@]}"
+          else
+            CREATE_ARGS=(
+              "$RELEASE_TAG"
+              --repo "$GITHUB_REPOSITORY"
+              --draft
+              --verify-tag
+              --title "$RELEASE_TAG"
+              --notes-file release-notes.md
+            )
+            if [ "$IS_PRERELEASE" = "true" ]; then
+              CREATE_ARGS+=(--prerelease)
+            fi
+            gh release create "${CREATE_ARGS[@]}"
+          fi
+
+          gh release upload "$RELEASE_TAG" "${ASSETS[@]}" \
+            --repo "$GITHUB_REPOSITORY" \
+            --clobber
+
+          UPLOADED_ASSETS=$(gh release view "$RELEASE_TAG" \
+            --repo "$GITHUB_REPOSITORY" \
+            --json assets \
+            --jq '.assets[].name')
+          for ASSET in "${ASSETS[@]}"; do
+            NAME=$(basename "$ASSET")
+            if ! grep -Fxq "$NAME" <<< "$UPLOADED_ASSETS"; then
+              echo "::error::Draft release is missing asset $NAME"
+              exit 1
+            fi
+          done
+
+          PUBLISH_ARGS=(
+            "$RELEASE_TAG"
+            --repo "$GITHUB_REPOSITORY"
+            --draft=false
+          )
+          if [ "$IS_PRERELEASE" = "true" ]; then
+            PUBLISH_ARGS+=(--prerelease)
+          fi
+          gh release edit "${PUBLISH_ARGS[@]}"
 
   update-package-manifests:
     name: Update package manifests

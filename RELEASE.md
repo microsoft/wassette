@@ -77,7 +77,7 @@ in the repository Actions settings.
 1. **Monitor the release workflow**: After the tag is pushed, `auto-tag-release.yml` dispatches `release.yml` with the new tag:
    - Builds binaries for all platforms (Linux, macOS, Windows; AMD64 and ARM64)
    - Extracts the changelog content for the version from `CHANGELOG.md`
-   - Creates a GitHub release with all compiled binaries and the changelog content as release notes
+   - Creates a draft GitHub release, uploads and verifies all compiled binaries, then publishes the immutable release with the changelog content as release notes
    - Publishes the example components with the release version and `latest` tags
    - Publishes versioned documentation for the release
    - Automatically updates `CHANGELOG.md` on the release branch:
