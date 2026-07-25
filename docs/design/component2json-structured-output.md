@@ -241,7 +241,7 @@ synthetic schemas (e.g., tests that fake tool metadata) because it mirrors the r
 
 ## End-to-End Example: Fetch Tool
 
-The integration test in `tests/structured_output_integration_test.rs` exercises the full pipeline.
+The integration test in `crates/wassette-mcp-server/tests/structured_output_integration_test.rs` exercises the full pipeline.
 Below is a trimmed version showing the key checkpoints:
 
 ```rust
@@ -389,7 +389,7 @@ still rely on the `result` key for all functions that actually return data.
 - `crates/component2json/src/lib.rs` – schema translation, value conversion, result wrapper.
 - `crates/wassette/src/schema.rs` – canonicalization helpers.
 - `crates/mcp-server/src/components.rs` – wiring between lifecycle manager and MCP responses.
-- `tests/structured_output_integration_test.rs` – end-to-end assertions covering the entire stack.
+- `crates/wassette-mcp-server/tests/structured_output_integration_test.rs` – end-to-end assertions covering the entire stack.
 
 Understanding this pipeline makes it easier to add new type translations, improve client ergonomics,
 or debug mismatched schemas.

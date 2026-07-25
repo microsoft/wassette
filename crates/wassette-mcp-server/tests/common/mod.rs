@@ -15,7 +15,9 @@ fn ensure_fetch_component_built() -> Result<()> {
         let result = std::panic::catch_unwind(|| {
             let top_level = PathBuf::from(
                 std::env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR not set"),
-            );
+            )
+            .join("..")
+            .join("..");
 
             // Use std::process::Command instead of tokio::process::Command to avoid runtime issues
             let status = std::process::Command::new("cargo")
@@ -40,7 +42,9 @@ fn ensure_fetch_component_built() -> Result<()> {
 #[allow(dead_code)]
 pub async fn build_fetch_component() -> Result<PathBuf> {
     let top_level =
-        PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").context("CARGO_MANIFEST_DIR not set")?);
+        PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").context("CARGO_MANIFEST_DIR not set")?)
+            .join("..")
+            .join("..");
 
     let component_path =
         top_level.join("examples/fetch-rs/target/wasm32-wasip2/release/fetch_rs.wasm");
@@ -64,7 +68,9 @@ fn ensure_filesystem_component_built() -> Result<()> {
         let result = std::panic::catch_unwind(|| {
             let top_level = PathBuf::from(
                 std::env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR not set"),
-            );
+            )
+            .join("..")
+            .join("..");
 
             // Use std::process::Command instead of tokio::process::Command to avoid runtime issues
             let status = std::process::Command::new("cargo")
@@ -89,7 +95,9 @@ fn ensure_filesystem_component_built() -> Result<()> {
 #[allow(dead_code)]
 pub async fn build_filesystem_component() -> Result<PathBuf> {
     let top_level =
-        PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").context("CARGO_MANIFEST_DIR not set")?);
+        PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").context("CARGO_MANIFEST_DIR not set")?)
+            .join("..")
+            .join("..");
 
     let component_path =
         top_level.join("examples/filesystem-rs/target/wasm32-wasip2/release/filesystem.wasm");

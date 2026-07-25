@@ -414,8 +414,12 @@ just ci-clean
 
 ```
 wassette/
-├── src/                    # Main source code
-├── crates/                 # Additional crates
+├── crates/                 # All crates live here
+│   ├── wassette-mcp-server/ # Main MCP server binary (src/, build.rs, tests/)
+│   ├── component2json/    # Component → JSON schema converter
+│   ├── mcp-server/        # MCP server library
+│   ├── policy/            # Policy management
+│   └── wassette/          # Core Wassette library
 ├── examples/               # Example WebAssembly components
 │   ├── fetch-rs/          # Rust example
 │   ├── filesystem-rs/     # Rust filesystem example
@@ -424,7 +428,6 @@ wassette/
 │   ├── eval-py/           # Python example
 │   └── gomodule-go/       # Go example
 ├── docs/                   # Documentation source (mdBook)
-├── tests/                  # Integration tests
 ├── scripts/                # Utility scripts
 ├── .github/               # GitHub workflows and instructions
 │   └── instructions/      # AI agent instruction files
