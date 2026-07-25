@@ -4,6 +4,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Removed
+
+- Removed the `rules/agent.md` agent-instructions file and the corresponding "Install agent instructions" step from the installation guide.
+
 ## [v0.5.0] - 2026-07-22
 
 ### Changed
