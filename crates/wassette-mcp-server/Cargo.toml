@@ -1,0 +1,61 @@
+[package]
+name = "wassette-mcp-server"
+version.workspace = true
+edition = "2021"
+license.workspace = true
+
+[dependencies]
+anyhow = { workspace = true }
+axum = "0.8"
+clap = { version = "4.5", features = ["derive"] }
+clap_complete = "4.5"
+etcetera = { workspace = true }
+figment = { version = "0.10", features = ["env", "toml"] }
+wassette = { workspace = true }
+mcp-server = { workspace = true }
+oci-client = { workspace = true }
+policy = { workspace = true }
+reqwest = { workspace = true }
+rmcp = { workspace = true, features = [
+    "server",
+    "transport-streamable-http-server",
+    "transport-io",
+    "macros",
+] }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+serde_yaml = { workspace = true }
+tokio = { workspace = true, features = ["full"] }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true, features = ["env-filter"] }
+
+[[bin]]
+name = "wassette"
+path = "src/main.rs"
+
+[build-dependencies]
+built = { version = "0.8", features = ["git2"] }
+
+[dev-dependencies]
+proptest = "1.4"
+temp-env = "0.3"
+reqwest = { workspace = true, features = ["json"] }
+serde_json = { workspace = true }
+tempfile = "3.8"
+test-log = { version = "0.2", features = ["trace"] }
+tokio-test = "0.4"
+tracing-test = "0.2"
+testcontainers = "0.27"
+oci-wasm = { version = "0.6", default-features = false, features = ["rustls-tls"] }
+oci-client = "0.17"
+hyper = { version = "1.0", features = ["server", "http1"] }
+http-body-util = "0.1"
+hyper-util = "0.1"
+futures-util = "0.3.30"
+rand = "0.9"
+bytes = "1"
+tokio-rustls = "0.26"
+rustls = { version = "0.23", features = ["aws-lc-rs"] }
+rcgen = "0.14"
+hex = "0.4"
+sha2 = "0.10"

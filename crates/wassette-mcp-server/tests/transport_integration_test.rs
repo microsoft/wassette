@@ -472,9 +472,7 @@ async fn test_sse_transport_is_rejected() -> Result<()> {
     let component_dir_arg = format!("--component-dir={}", temp_dir.path().display());
 
     // Get the path to the built binary
-    let binary_path = std::env::current_dir()
-        .context("Failed to get current directory")?
-        .join("target/debug/wassette");
+    let binary_path = std::path::PathBuf::from(env!("CARGO_BIN_EXE_wassette"));
 
     let output = tokio::process::Command::new(&binary_path)
         .args(["serve", &component_dir_arg, "--sse"])
@@ -499,9 +497,7 @@ async fn test_stdio_transport() -> Result<()> {
     let component_dir_arg = format!("--component-dir={}", temp_dir.path().display());
 
     // Get the path to the built binary
-    let binary_path = std::env::current_dir()
-        .context("Failed to get current directory")?
-        .join("target/debug/wassette");
+    let binary_path = std::path::PathBuf::from(env!("CARGO_BIN_EXE_wassette"));
 
     // Start the server with stdio transport (disable logs to avoid stdout pollution)
     let mut child = tokio::process::Command::new(&binary_path)
@@ -644,9 +640,7 @@ async fn test_tool_list_notification() -> Result<()> {
     let component_dir_arg = format!("--component-dir={}", temp_dir.path().display());
 
     // Get the path to the built binary
-    let binary_path = std::env::current_dir()
-        .context("Failed to get current directory")?
-        .join("target/debug/wassette");
+    let binary_path = std::path::PathBuf::from(env!("CARGO_BIN_EXE_wassette"));
 
     // Start the server with stdio transport (disable logs to avoid stdout pollution)
     let mut child = tokio::process::Command::new(&binary_path)
@@ -881,9 +875,7 @@ async fn test_http_transport() -> Result<()> {
     let component_dir_arg = format!("--component-dir={}", temp_dir.path().display());
 
     // Get the path to the built binary
-    let binary_path = std::env::current_dir()
-        .context("Failed to get current directory")?
-        .join("target/debug/wassette");
+    let binary_path = std::path::PathBuf::from(env!("CARGO_BIN_EXE_wassette"));
 
     let bind_address_arg = format!("--bind-address=127.0.0.1:{port}");
 
@@ -932,9 +924,7 @@ async fn test_default_stdio_transport() -> Result<()> {
     let component_dir_arg = format!("--component-dir={}", temp_dir.path().display());
 
     // Get the path to the built binary
-    let binary_path = std::env::current_dir()
-        .context("Failed to get current directory")?
-        .join("target/debug/wassette");
+    let binary_path = std::path::PathBuf::from(env!("CARGO_BIN_EXE_wassette"));
 
     // Start the server with run command (uses stdio transport)
     let mut child = tokio::process::Command::new(&binary_path)
@@ -1036,9 +1026,7 @@ async fn test_disable_builtin_tools() -> Result<()> {
     let component_dir_arg = format!("--component-dir={}", temp_dir.path().display());
 
     // Get the path to the built binary
-    let binary_path = std::env::current_dir()
-        .context("Failed to get current directory")?
-        .join("target/debug/wassette");
+    let binary_path = std::path::PathBuf::from(env!("CARGO_BIN_EXE_wassette"));
 
     // Start the server with stdio transport and disable-builtin-tools flag
     let mut child = tokio::process::Command::new(&binary_path)

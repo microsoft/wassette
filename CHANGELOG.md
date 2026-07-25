@@ -7,8 +7,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ### Removed
 
 - Removed the `rules/agent.md` agent-instructions file and the corresponding "Install agent instructions" step from the installation guide.
+- Removed the unused `changelog.d/` towncrier fragment mechanism and the changelog-fragment generation workflow; `CHANGELOG.md` remains the single source for changelog entries.
 ### Changed
 
+- Consolidated the workspace so all crates live under `crates/`: the top-level `wassette-mcp-server` package (its `src/`, `build.rs`, and integration tests) moved into `crates/wassette-mcp-server/`, and the repository root is now a virtual workspace manifest. The `wassette` binary and package name are unchanged.
 - Moved the one-liner install script to `scripts/install.sh`; installs now use `https://raw.githubusercontent.com/microsoft/wassette/main/scripts/install.sh` instead of the previous repository-root path.
 
 ## [v0.5.0] - 2026-07-22

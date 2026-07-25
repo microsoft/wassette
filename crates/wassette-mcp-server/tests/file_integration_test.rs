@@ -43,9 +43,7 @@ async fn test_filesystem_component_integration() -> Result<()> {
     let temp_dir = tempfile::tempdir()?;
     let component_dir_arg = format!("--component-dir={}", temp_dir.path().display());
 
-    let binary_path = std::env::current_dir()
-        .context("Failed to get current directory")?
-        .join("target/debug/wassette");
+    let binary_path = std::path::PathBuf::from(env!("CARGO_BIN_EXE_wassette"));
 
     let mut child = tokio::process::Command::new(&binary_path)
         .args(["run", &component_dir_arg])

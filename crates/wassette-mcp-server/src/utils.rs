@@ -81,7 +81,7 @@ pub fn load_env_file(path: &PathBuf) -> Result<HashMap<String, String>, anyhow::
 
 /// Load and parse the component registry JSON
 pub fn load_component_registry() -> Result<Vec<registry::RegistryComponent>> {
-    const COMPONENT_REGISTRY: &str = include_str!("../component-registry.json");
+    const COMPONENT_REGISTRY: &str = include_str!("../../../component-registry.json");
     registry::parse_registry(COMPONENT_REGISTRY).context("Failed to parse component registry")
 }
 
