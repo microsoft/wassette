@@ -149,16 +149,15 @@ cargo clippy --workspace
 just build
 just test
 
-# 3. Update CHANGELOG.md (for non-trivial changes)
-#    - Add entries under [Unreleased]
-#    - Categories: Added, Changed, Deprecated, Removed, Fixed, Security
-
-# 4. Commit and push
+# 3. Commit and push
 git add .
 git commit -m "Your descriptive commit message"
 git push origin feature/your-feature-name
 
-# 5. Create Pull Request on GitHub
+# 4. Create Pull Request on GitHub
+#    - Use a clear, user-facing title (it becomes the release note)
+#    - Apply a category label: enhancement, bug, documentation, security,
+#      breaking-change, or skip-changelog
 ```
 
 **Best Practices:**

@@ -199,9 +199,16 @@ jobs:
           ls -la release-assets/
 
       - name: Prepare release notes
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
-          python3 scripts/changelog_utils.py extract "$RELEASE_TAG" > release-notes.md
           VERSION="${RELEASE_TAG#v}"
+          gh api \
+            --method POST \
+            -H "Accept: application/vnd.github+json" \
+            "/repos/$GITHUB_REPOSITORY/releases/generate-notes" \
+            -f tag_name="$RELEASE_TAG" \
+            --jq '.body' > release-notes.md
           cat >> release-notes.md <<EOF
 
           ## Downloads
@@ -380,105 +387,3 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: gh workflow run docs.yml --repo "$GITHUB_REPOSITORY" --ref main -f tag_name="$RELEASE_TAG"
-
-  update-changelog:
-    name: Update CHANGELOG
-    runs-on: ubuntu-latest
-    needs: [validate-release, release]
-    # Skip for prerelease/dry-run tags (e.g., v0.3.4-test1)
-    if: needs.release.result == 'success' && !contains(github.event.inputs.tag_name || github.ref_name, '-')
-
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
-        with:
-          ref: ${{ env.RELEASE_TAG }}
-          fetch-depth: 0
-
-      - name: Get previous version
-        id: prev_version
-        run: |
-          PREV_TAG=$(
-            git tag --sort=-version:refname |
-              awk -v current="$RELEASE_TAG" '
-                $0 == current { found = 1; next }
-                found && $0 ~ /^v[0-9]+\.[0-9]+\.[0-9]+$/ { print; exit }
-              '
-          )
-          if [ -z "$PREV_TAG" ]; then
-            echo "Warning: Could not find previous tag, skipping changelog update"
-            echo "found=false" >> $GITHUB_OUTPUT
-          else
-            echo "found=true" >> $GITHUB_OUTPUT
-            echo "tag=$PREV_TAG" >> $GITHUB_OUTPUT
-            echo "Previous version: $PREV_TAG"
-          fi
-
-      - name: Extract version
-        if: steps.prev_version.outputs.found == 'true'
-        id: version
-        run: |
-          VERSION="${RELEASE_TAG#v}"
-          echo "version=$VERSION" >> $GITHUB_OUTPUT
-
-      - name: Create or update release branch
-        if: steps.prev_version.outputs.found == 'true'
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          
-          # Check if release branch exists
-          RELEASE_BRANCH="release/v${{ steps.version.outputs.version }}"
-          if git ls-remote --heads origin "$RELEASE_BRANCH" | grep -q "$RELEASE_BRANCH"; then
-            echo "Release branch $RELEASE_BRANCH exists, checking it out"
-            git fetch origin "$RELEASE_BRANCH"
-            git checkout "$RELEASE_BRANCH"
-          else
-            echo "Release branch $RELEASE_BRANCH does not exist, creating from current commit"
-            git checkout -b "$RELEASE_BRANCH"
-          fi
-          
-          # Update CHANGELOG
-          python3 scripts/changelog_utils.py update "$RELEASE_TAG" "${{ steps.prev_version.outputs.tag }}"
-          
-          # Commit and push if there are changes
-          git add CHANGELOG.md
-          if git diff --staged --quiet; then
-            echo "No changes to CHANGELOG.md"
-            echo "has_changes=false" >> $GITHUB_ENV
-          else
-            git commit -m "chore(release): update CHANGELOG for $RELEASE_TAG"
-            git push origin "$RELEASE_BRANCH"
-            echo "has_changes=true" >> $GITHUB_ENV
-          fi
-
-      - name: Create PR to merge release branch to main
-        if: steps.prev_version.outputs.found == 'true' && env.has_changes == 'true'
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          # Check if PR already exists
-          EXISTING_PR=$(gh pr list --head "release/v${{ steps.version.outputs.version }}" --base main --json number --jq '.[0].number')
-          
-          if [ -n "$EXISTING_PR" ]; then
-            echo "PR #$EXISTING_PR already exists, skipping creation"
-          else
-            PR_URL=$(gh pr create \
-              --base main \
-              --head "release/v${{ steps.version.outputs.version }}" \
-              --title "chore(release): merge release/v${{ steps.version.outputs.version }} back to main" \
-              --body "This PR merges the release branch \`release/v${{ steps.version.outputs.version }}\` back to main after the release process.
-
-            ## Changes
-            - Updated CHANGELOG.md with release date and version information for $RELEASE_TAG
-            - Added new empty [Unreleased] section for future changes
-            
-            ## Context
-            This PR is automatically created after the release workflow completes. The release branch was preserved during the release process to avoid blocking development on main.
-            
-            ## Next Steps
-            1. Review and merge this PR to complete the release process
-            2. The release branch can be deleted after merging" \
-              --label "automated")
-            echo "Created $PR_URL"
-          fi

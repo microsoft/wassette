@@ -7,7 +7,7 @@ This repository uses [GitHub Agentic Workflows](https://githubnext.github.io/gh-
 - **Issue Triage Bot** (`.github/workflows/issue-triage.md`) - Automatically analyzes and labels new issues when they are opened or reopened.
 - **Scout Research Agent** (`.github/workflows/scout.md`) - Responds to `/scout` commands to research topics using web search and provide comprehensive reports.
 - **CI Doctor** (`.github/workflows/ci-doctor.md`) - Automatically investigates and diagnoses CI failures when the Rust workflow completes on main.
-- **Release Doctor** (`.github/workflows/release-doctor.md`) - Monitors the entire release pipeline (prepare-release, release, update-package-manifests) and automatically creates diagnostic issues when failures occur, including verification of release binaries, CHANGELOG synchronization, version consistency, and package manifest updates.
+- **Release Doctor** (`.github/workflows/release-doctor.md`) - Monitors the entire release pipeline (prepare-release, release, update-package-manifests) and automatically creates diagnostic issues when failures occur, including verification of release binaries, version consistency, and package manifest updates.
 
 ## Creating Your Own Agentic Workflows
 
@@ -34,4 +34,4 @@ Compile with `gh aw compile` to generate the `.lock.yml` file that GitHub Action
 
 ## Contributing
 
-To add a new workflow: Create `workflow-name.md` in `.github/workflows/`, test with `workflow_dispatch`, run `gh aw compile`, commit both `.md` and `.lock.yml` files, and update `CHANGELOG.md`.
+To add a new workflow: Create `workflow-name.md` in `.github/workflows/`, test with `workflow_dispatch`, run `gh aw compile`, and commit both `.md` and `.lock.yml` files.

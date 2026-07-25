@@ -61,11 +61,10 @@ jobs:
             ## Next Steps
             1. Review and merge this PR to main
             2. After merge, the `auto-tag-release` workflow will automatically create and push tag `v${{ inputs.version }}`
-            3. The release workflow will automatically trigger and create the GitHub release
-            4. For stable releases, the release workflow will update CHANGELOG.md and create a PR to merge changes back to main
-            5. For stable releases, the update-package-manifests workflow will create a PR to update Homebrew and WinGet manifests
+            3. The release workflow will automatically trigger and create the GitHub release with auto-generated release notes
+            4. For stable releases, the update-package-manifests workflow will create a PR to update Homebrew and WinGet manifests
             
-            **Note:** Versions with a suffix are published as prereleases and skip changelog, package manifest, example component, and versioned documentation updates.
+            **Note:** Versions with a suffix are published as prereleases and skip package manifest, example component, and versioned documentation updates.
           labels: |
             release
             automated

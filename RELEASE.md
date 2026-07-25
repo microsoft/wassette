@@ -6,19 +6,17 @@ This document describes the process for releasing new versions of the Wassette p
 
 The release process is automated using GitHub Actions, specifically the [`release.yml`](.github/workflows/release.yml) workflow. Tags pushed manually trigger the workflow directly; tags created by `auto-tag-release.yml` use an explicit workflow dispatch because `GITHUB_TOKEN` tag pushes do not trigger other workflows. The workflow uses a matrix to compile `wassette` for different platforms on native runners and uses `sccache` to speed up compilation. The compiled binaries are then uploaded as release assets.
 
-### CHANGELOG Synchronization
+### Release Notes
 
-The release workflow automatically synchronizes with the `CHANGELOG.md` file:
-
-1. **Release Notes from CHANGELOG**: The workflow extracts the changelog content for the specific version being released and uses it as the release notes on GitHub. This ensures consistency between the CHANGELOG and release notes.
-
-2. **Post-Release CHANGELOG Update**: After the release is published, a separate job automatically updates the CHANGELOG:
-   - Converts the `[Unreleased]` section to the new version with the release date
-   - Adds a new empty `[Unreleased]` section at the top
-   - Updates the comparison links to point to the correct version ranges
-   - Commits and pushes these changes back to the main branch
-
-This automation eliminates the need to manually maintain release notes separately from the CHANGELOG.
+The release workflow generates release notes automatically. When the release is
+created, it calls GitHub's [automatically generated release
+notes](https://docs.github.com/en/repositories/releasing-projects-on-github/automatically-generated-release-notes)
+API, which groups the pull requests merged since the previous tag into the
+categories defined in [`.github/release.yml`](.github/release.yml). There is no
+`CHANGELOG.md` file to maintain: write clear pull request titles and apply
+category labels (`enhancement`, `bug`, `documentation`, `security`,
+`breaking-change`, or `skip-changelog`) and the release notes take care of
+themselves.
 
 ## Release Versioning
 
@@ -38,16 +36,6 @@ The release process is now largely automated through GitHub Actions workflows an
 The workflows use `GITHUB_TOKEN`; no separate `RELEASE_TOKEN` secret is
 required. Enable **Allow GitHub Actions to create and approve pull requests**
 in the repository Actions settings.
-
-1. **Prepare the CHANGELOG**: Before creating a release, ensure that the `[Unreleased]` section in `CHANGELOG.md` contains all the changes for the upcoming release. Follow the [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) format with sections for:
-   - `Added` - new features
-   - `Changed` - changes in existing functionality
-   - `Deprecated` - soon-to-be removed features
-   - `Removed` - now removed features
-   - `Fixed` - bug fixes
-   - `Security` - vulnerability fixes
-
-   The release workflow will automatically use this content for the GitHub release notes.
 
 1. **Prepare the release**: Trigger the `prepare-release` workflow to create a PR that bumps the version.
 
@@ -70,7 +58,7 @@ in the repository Actions settings.
 
 1. **Review and merge the version bump PR**: The workflow will create a pull request with the version changes. Review and merge this PR into the main branch.
 
-   **Important**: The release branch is preserved after merging and will be used during the release process.
+   **Important**: The release branch can be deleted after the version bump PR is merged and the tag is created.
 
 1. **Tag creation**: Once the version bump PR is merged, the `auto-tag-release.yml` workflow automatically:
    - Extracts the version from the merged PR's branch name
@@ -82,20 +70,13 @@ in the repository Actions settings.
 
 1. **Monitor the release workflow**: After the tag is pushed, `auto-tag-release.yml` dispatches `release.yml` with the new tag:
    - Builds binaries for all platforms (Linux, macOS, Windows; AMD64 and ARM64)
-   - Extracts the changelog content for the version from `CHANGELOG.md`
-   - Creates a draft GitHub release, uploads and verifies all compiled binaries, then publishes the immutable release with the changelog content as release notes
+   - Generates release notes automatically from the pull requests merged since the previous tag
+   - Creates a draft GitHub release, uploads and verifies all compiled binaries, then publishes the immutable release with the generated notes
    - Publishes the example components with the release version and `latest` tags
    - Publishes versioned documentation for the release
-   - Automatically updates `CHANGELOG.md` on the release branch:
-     - Converts `[Unreleased]` section to the new version with release date
-     - Adds a new empty `[Unreleased]` section
-     - Updates version comparison links
-   - Creates a PR to merge the release branch back to main with the updated CHANGELOG
    - Monitor the workflow progress in the [Actions tab](https://github.com/microsoft/wassette/actions)
 
    To recover a missing run, dispatch `release.yml` with the existing tag.
-
-1. **Merge the CHANGELOG update PR**: After the release workflow completes, a new PR will be created to merge the release branch back to main with the updated CHANGELOG. Review and merge this PR.
 
 1. **Package manifests are updated automatically**: After the release is published, the `update-package-manifests` workflow will automatically:
    - Download all release assets
@@ -108,7 +89,7 @@ in the repository Actions settings.
 
 ## Dry Run / Test Releases
 
-The release process supports dry run or test releases for validating the build and release process without updating the CHANGELOG or triggering package manifest updates. This is useful for:
+The release process supports dry run or test releases for validating the build and release process without triggering package manifest updates. This is useful for:
 - Testing the release workflow with pre-release versions
 - Creating release candidates for testing
 - Publishing test builds for validation before the official release
@@ -133,7 +114,7 @@ git tag -s v0.3.4-test1 -m "Test release v0.3.4-test1"
 git push origin v0.3.4-test1
 ```
 
-When a prerelease tag (containing a hyphen) is pushed, the release workflow builds binaries for all platforms and creates a GitHub release marked as "Pre-release". It does not update the CHANGELOG or package manifests, publish example components, or deploy versioned documentation.
+When a prerelease tag (containing a hyphen) is pushed, the release workflow builds binaries for all platforms and creates a GitHub release marked as "Pre-release". It does not update package manifests, publish example components, or deploy versioned documentation.
 
 ### Dry Run Tag Examples
 
@@ -160,22 +141,17 @@ gh release delete v0.3.4-test1 --yes
 
 ## Release Branch Strategy
 
-The release process uses a dedicated release branch strategy to prevent blocking development:
+The release process uses a dedicated release branch to keep the version bump off `main` until it is reviewed:
 
-1. **Release branch creation**: When the `prepare-release` workflow is triggered, it creates a branch named `release/vX.Y.Z` (e.g., `release/v0.4.0`)
+1. **Release branch creation**: When the `prepare-release` workflow is triggered, it creates a branch named `release/vX.Y.Z` (e.g., `release/v0.4.0`) containing the `Cargo.toml` and `Cargo.lock` version bump.
 
-2. **Release branch preservation**: Unlike typical feature branches, the release branch is not deleted after the initial version bump PR is merged. It remains available for the entire release process.
+2. **Version bump PR**: The branch is opened as a pull request against `main`. Merging it triggers `auto-tag-release.yml`, which tags the merge commit and dispatches the release workflow.
 
-3. **Release isolation**: All release-related activities (building binaries, updating CHANGELOG) happen on or reference the release branch, ensuring that ongoing development on `main` is not blocked or interrupted.
-
-4. **CHANGELOG updates**: After the release is published, the CHANGELOG is updated on the release branch (not on main), and a PR is created to merge these changes back to main.
-
-5. **Branch cleanup**: After the CHANGELOG update PR is merged, the release branch can be safely deleted as it has served its purpose.
+3. **Branch cleanup**: Once the version bump PR is merged and the tag is created, the release branch has served its purpose and can be safely deleted.
 
 This strategy ensures that:
 - Development can continue on `main` without interruption during the release process
-- Release activities are isolated to dedicated branches
-- All release-related changes are properly tracked and reviewed through PRs
+- The version bump is reviewed through a normal pull request
 
 ## Manual Release Process (If Automation Fails)
 

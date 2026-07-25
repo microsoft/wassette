@@ -48,13 +48,11 @@ The Wassette release pipeline consists of several interconnected workflows:
    - Creates: Release branch `release/vX.Y.Z` and PR to main
    - Expected outcome: PR merged to main with version bumps
 
-2. **Release** (`release.yml`): Builds binaries, creates GitHub release, updates CHANGELOG
+2. **Release** (`release.yml`): Builds binaries and creates a GitHub release
    - Triggered: When a version tag (e.g., `v0.3.4`) is pushed
    - Builds: Multi-platform binaries (Linux, macOS, Windows; AMD64 and ARM64)
-   - Creates: GitHub release with binaries and changelog content
-   - Updates: CHANGELOG.md on release branch (converts [Unreleased] to version)
-   - Creates: PR to merge release branch back to main with updated CHANGELOG
-   - Expected outcome: Release published, CHANGELOG updated, PR created
+   - Creates: GitHub release with binaries and auto-generated release notes
+   - Expected outcome: Release published
 
 3. **Update Package Manifests** (`update-package-manifests.yml`): Updates Homebrew and WinGet
    - Triggered: When a GitHub release is published
@@ -93,12 +91,11 @@ For each failed job, analyze the logs:
    - **Prepare Release**: Version format validation, Cargo.toml/lock update failures, PR creation errors
    - **Release Workflow**: 
      - Build job failures: Compilation errors, target-specific build failures, sccache issues
-     - Release job failures: Artifact download failures, changelog extraction errors, GitHub release creation failures, RELEASE_TOKEN authentication issues
-     - Update-changelog job failures: Branch checkout issues, Python script failures, PR creation failures
+     - Release job failures: Artifact download failures, GitHub release creation failures, RELEASE_TOKEN authentication issues
    - **Package Manifests**: Asset download failures, checksum computation errors, sed update failures, PR creation issues
 
 3. **Error Context**: Correlate failures with:
-   - Recent changes in Cargo.toml, CHANGELOG.md, or release scripts
+   - Recent changes in Cargo.toml or release scripts
    - Authentication or permission issues
    - External service failures (GitHub API, artifact storage)
 
@@ -115,20 +112,14 @@ For Release workflow completions (success or failure), verify release integrity:
      - `wassette_VERSION_darwin_arm64.tar.gz`
      - `wassette_VERSION_windows_amd64.zip`
      - `wassette_VERSION_windows_arm64.zip`
-   - Verify release body contains changelog content (not auto-generated notes)
+   - Verify release body contains the auto-generated release notes
 
-2. **CHANGELOG Consistency**: Verify CHANGELOG.md synchronization:
-   - Use `get_file_contents` to read CHANGELOG.md from both main and release branch
-   - For main branch: Check if [Unreleased] section has been restored after release
-   - For release branch: Check if version section matches the released version with correct date
-   - Verify comparison links are properly updated
-
-3. **Version Consistency**: Check version alignment across files:
+2. **Version Consistency**: Check version alignment across files:
    - Use `get_file_contents` to read Cargo.toml from main branch
    - Verify version in Cargo.toml matches the released version (after PR merge)
    - If versions are misaligned, flag this as a critical issue
 
-4. **Package Manifest Status**: Check if update-package-manifests workflow was triggered:
+3. **Package Manifest Status**: Check if update-package-manifests workflow was triggered:
    - Use `search_pull_requests` with query `is:pr label:release,automated author:app/github-actions head:release/*-post` to find manifest update PR
    - Verify PR exists and is properly formatted
    - Check that checksums in PR description match release assets
@@ -161,14 +152,7 @@ Based on all gathered evidence, determine the root cause:
 - **Release Job Failures**:
   - Missing RELEASE_TOKEN or incorrect permissions
   - Artifact download failures (job dependency issues)
-  - Changelog extraction script failures
   - Release creation API failures
-
-- **Update-Changelog Job Failures**:
-  - Previous version tag not found
-  - Python script errors in changelog_utils.py
-  - Git configuration or push failures
-  - PR creation when PR already exists
 
 - **Package Manifest Failures**:
   - Asset download failures (URLs incorrect or timing issues)
@@ -178,7 +162,6 @@ Based on all gathered evidence, determine the root cause:
 
 - **Release Integrity Issues**:
   - Missing binaries in release
-  - Changelog content not synchronized
   - Version mismatch between release tag and Cargo.toml
   - Package manifest PRs not created
 
@@ -223,7 +206,6 @@ Create a comprehensive GitHub issue with the following structure:
 [If this was a Release workflow, report on:]
 - ✅/❌ GitHub Release Created: [Yes/No, link if yes]
 - ✅/❌ All 6 Binaries Present: [List any missing]
-- ✅/❌ CHANGELOG Synchronized: [Check main and release branch]
 - ✅/❌ Version Consistency: [Cargo.toml vs tag]
 - ✅/❌ Package Manifest PR: [Link if exists]
 
@@ -260,7 +242,7 @@ Create a comprehensive GitHub issue with the following structure:
 - **Exit Early**: If workflow succeeded, exit immediately without creating an issue
 - **Be Thorough**: Investigate all aspects of the release pipeline
 - **Be Specific**: Provide exact error messages, file paths, and commands
-- **Verify Integrity**: Always check release artifacts, CHANGELOG sync, and version consistency
+- **Verify Integrity**: Always check release artifacts and version consistency
 - **Check Dependencies**: Verify that dependent workflows were triggered (e.g., package manifests after release)
 - **Action-Oriented**: Every finding must have clear next steps
 - **Avoid Duplicates**: Search for existing issues before creating new ones
