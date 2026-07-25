@@ -21,7 +21,7 @@ For the fastest installation experience, we recommend:
 The easiest way to install Wassette on Linux is using our automated install script:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/microsoft/wassette/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/microsoft/wassette/main/scripts/install.sh | bash
 ```
 
 This script will:
@@ -62,7 +62,7 @@ This method works for both Intel and Apple Silicon Macs.
 Alternatively, you can use our one-liner install script:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/microsoft/wassette/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/microsoft/wassette/main/scripts/install.sh | bash
 ```
 
 This script automatically detects whether you're running Intel or Apple Silicon and installs the appropriate binary.

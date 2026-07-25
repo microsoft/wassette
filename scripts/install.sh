@@ -15,7 +15,7 @@
 # - Works with bash, zsh, and other POSIX-compliant shells
 #
 # USAGE:
-#   curl -fsSL https://raw.githubusercontent.com/microsoft/wassette/main/install.sh | bash
+#   curl -fsSL https://raw.githubusercontent.com/microsoft/wassette/main/scripts/install.sh | bash
 #
 # REQUIREMENTS:
 # - curl (for downloading)

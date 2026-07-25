@@ -7,6 +7,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ### Removed
 
 - Removed the `rules/agent.md` agent-instructions file and the corresponding "Install agent instructions" step from the installation guide.
+### Changed
+
+- Moved the one-liner install script to `scripts/install.sh`; installs now use `https://raw.githubusercontent.com/microsoft/wassette/main/scripts/install.sh` instead of the previous repository-root path.
 
 ## [v0.5.0] - 2026-07-22
 

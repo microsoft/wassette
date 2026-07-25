@@ -30,7 +30,7 @@
 **Quick start:** For Linux/macOS, use our one-liner install script:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/microsoft/wassette/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/microsoft/wassette/main/scripts/install.sh | bash
 ```
 
 **For complete installation instructions** for all platforms (including Windows, Homebrew, Nix, Docker, and more), see our **[Installation Guide](https://microsoft.github.io/wassette/latest/installation.html)**.
