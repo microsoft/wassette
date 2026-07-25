@@ -13,9 +13,7 @@ WORKDIR /build
 
 # Copy the project files
 COPY Cargo.toml Cargo.lock ./
-COPY src ./src
 COPY crates ./crates
-COPY build.rs ./
 
 # Build the release binary
 RUN cargo build --release --bin wassette

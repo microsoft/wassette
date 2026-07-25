@@ -28,9 +28,7 @@ async fn test_structured_output_integration() -> Result<()> {
     let component_dir_arg = format!("--component-dir={}", temp_dir.path().display());
 
     // Build the binary first
-    let binary_path = std::env::current_dir()
-        .context("Failed to get current directory")?
-        .join("target/debug/wassette");
+    let binary_path = std::path::PathBuf::from(env!("CARGO_BIN_EXE_wassette"));
 
     // Start wassette mcp server with stdio transport (default)
     let mut child = Command::new(&binary_path)

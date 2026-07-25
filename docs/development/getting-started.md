@@ -191,16 +191,14 @@ just ci-clean
 
 ```
 wassette/
-├── src/                    # Main source code
-├── crates/                 # Additional crates
+├── crates/                 # All crates live here
+│   ├── wassette-mcp-server/ # Main MCP server binary (src/, build.rs, tests/)
 │   ├── component2json/    # Component to JSON converter
 │   ├── mcp-server/        # MCP server implementation
 │   ├── policy/            # Policy management
 │   └── wassette/          # Core Wassette library
 ├── examples/               # Example WebAssembly components
 ├── docs/                   # Documentation (mdBook)
-├── tests/                  # Integration tests
-├── Justfile               # Development commands
 └── Cargo.toml             # Workspace configuration
 ```
 
