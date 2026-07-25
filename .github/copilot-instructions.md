@@ -22,6 +22,6 @@ This PR refactors the component registry API to support versioning. The `Compone
 ## Additional Guidelines
 
 For comprehensive development guidelines, see:
-- **[AGENTS.md](../AGENTS.md)** - Complete AI agent development guide
+- **[Developer Guide](../docs/development/getting-started.md)** - Complete development guide, including agent skills
 - **[.github/instructions/rust.instructions.md](.github/instructions/rust.instructions.md)** - Rust-specific instructions
 - **[.github/instructions/docs.instructions.md](.github/instructions/docs.instructions.md)** - Documentation guidelines
