@@ -120,11 +120,9 @@ When making documentation changes that affect visual presentation:
 ## Release Notes
 
 Release notes are generated automatically from merged pull request titles when a
-release is tagged. Documentation-only changes usually do not need to appear in
-release notes unless they significantly impact user experience, document new
-features, or correct important errors. When they do, apply the `documentation`
-label so the change is grouped correctly; otherwise apply the `skip-changelog`
-label.
+release is published — every merged pull request becomes one entry in a flat
+"What's Changed" list, with no categories or changelog labels to manage. Just
+give documentation pull requests a clear, user-facing title.
 
 ## Common Documentation Tasks
 
@@ -177,7 +175,7 @@ Before submitting documentation changes:
 - [ ] Technical accuracy is verified
 - [ ] Consistency with existing documentation
 - [ ] Built locally without errors
-- [ ] Appropriate category label applied for release notes
+- [ ] Clear, user-facing PR title written for release notes
 
 ## Technical References
 

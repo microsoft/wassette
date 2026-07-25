@@ -89,16 +89,11 @@ cargo clippy --workspace
 ## Release Notes
 
 Release notes are generated automatically by GitHub from merged pull requests
-when a release is tagged, using the categories defined in
-[`.github/release.yml`](.github/release.yml). There is no `CHANGELOG.md` file to
-maintain. To keep the generated notes useful:
-
-- Write a clear, user-facing pull request title; it becomes the release-note
-  entry.
-- Apply a category label so the entry is grouped correctly: `enhancement`,
-  `bug`, `documentation`, `security`, or `breaking-change`.
-- Apply the `skip-changelog` label to changes with no user impact (tests,
-  internal refactors, formatting, or routine dependency maintenance).
+when a release is published. Every pull request merged since the previous
+release is listed as a single flat "What's Changed" list — there are no
+categories or per-pull-request labels to manage, and there is no `CHANGELOG.md`
+file to maintain. The one thing that matters is writing a clear, user-facing
+pull request title, because the title becomes the release-note entry.
 
 ## Copyright Headers
 

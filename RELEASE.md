@@ -11,12 +11,12 @@ The release process is automated using GitHub Actions, specifically the [`releas
 The release workflow generates release notes automatically. When the release is
 created, it calls GitHub's [automatically generated release
 notes](https://docs.github.com/en/repositories/releasing-projects-on-github/automatically-generated-release-notes)
-API, which groups the pull requests merged since the previous tag into the
-categories defined in [`.github/release.yml`](.github/release.yml). There is no
-`CHANGELOG.md` file to maintain: write clear pull request titles and apply
-category labels (`enhancement`, `bug`, `documentation`, `security`,
-`breaking-change`, or `skip-changelog`) and the release notes take care of
-themselves.
+API, which lists every pull request merged since the previous release as a
+single flat "What's Changed" list. There are no categories or changelog labels
+to manage and no `CHANGELOG.md` file to maintain — just write clear, user-facing
+pull request titles and the release notes take care of themselves. The only
+tuning in [`.github/release.yml`](.github/release.yml) is excluding bot-authored
+pull requests (like dependency bumps) so the list stays focused.
 
 ## Release Versioning
 

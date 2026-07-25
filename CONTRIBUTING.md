@@ -12,11 +12,9 @@ instructions provided by the bot. You will only need to do this once across all 
 ## Release Notes
 
 Release notes are generated automatically by GitHub from merged pull request
-titles when a release is tagged. Write a clear, user-facing PR title and apply a
-category label (`enhancement`, `bug`, `documentation`, `security`, or
-`breaking-change`) so your change is grouped correctly. For changes without user
-impact—tests, internal refactors, formatting, or routine dependency
-maintenance—maintainers can apply the `skip-changelog` label.
+titles when a release is published — every merged PR becomes one entry in a flat
+"What's Changed" list. There are no changelog labels to apply and no
+`CHANGELOG.md` to update; just write a clear, user-facing PR title.
 
 This project has adopted the [Microsoft Open Source Code of Conduct](https://opensource.microsoft.com/codeofconduct/).
 For more information see the [Code of Conduct FAQ](https://opensource.microsoft.com/codeofconduct/faq/)

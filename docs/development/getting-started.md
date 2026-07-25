@@ -155,9 +155,7 @@ git commit -m "Your descriptive commit message"
 git push origin feature/your-feature-name
 
 # 4. Create Pull Request on GitHub
-#    - Use a clear, user-facing title (it becomes the release note)
-#    - Apply a category label: enhancement, bug, documentation, security,
-#      breaking-change, or skip-changelog
+#    - Use a clear, user-facing title (it becomes the release note entry)
 ```
 
 **Best Practices:**

@@ -1,32 +1,13 @@
 # Configuration for GitHub's automatically generated release notes.
-# The release workflow calls the generate-notes API, which groups merged pull
-# requests into the categories below based on their labels.
+# The release workflow calls the generate-notes API, which lists every pull
+# request merged since the previous release as a single flat "What's Changed"
+# list. There are no categories and no per-pull-request labels to manage — the
+# pull request title is the release-note entry. Bot-authored pull requests (such
+# as dependency bumps and the automated version bump) are excluded so the list
+# stays focused on human-facing changes.
 # https://docs.github.com/en/repositories/releasing-projects-on-github/automatically-generated-release-notes
 changelog:
   exclude:
-    labels:
-      - skip-changelog
-      - automated
-      - release
     authors:
-      - dependabot
-      - github-actions
-  categories:
-    - title: Breaking Changes 🛠
-      labels:
-        - breaking-change
-    - title: New Features 🎉
-      labels:
-        - enhancement
-    - title: Bug Fixes 🐛
-      labels:
-        - bug
-    - title: Security 🔒
-      labels:
-        - security
-    - title: Documentation 📚
-      labels:
-        - documentation
-    - title: Other Changes
-      labels:
-        - "*"
+      - dependabot[bot]
+      - github-actions[bot]
