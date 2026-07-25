@@ -1,24 +1,21 @@
 name: Release
 
 on:
-  push:
-    tags:
-      - "v*"
   workflow_dispatch:
     inputs:
-      tag_name:
-        description: 'Existing release tag (e.g., v0.4.0 or v0.4.1-rc1)'
+      version:
+        description: 'Version to release without the v prefix (e.g., 0.4.0 or 0.4.1-rc1)'
         required: true
         type: string
 
 permissions:
   actions: write
   contents: write
-  pull-requests: write
 
 env:
   CARGO_TERM_COLOR: always
-  RELEASE_TAG: ${{ github.event.inputs.tag_name || github.ref_name }}
+  RELEASE_VERSION: ${{ github.event.inputs.version }}
+  RELEASE_TAG: v${{ github.event.inputs.version }}
 
 jobs:
   validate-release:
@@ -26,29 +23,27 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout release tag
+      - name: Checkout repository
         uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
         with:
-          ref: ${{ env.RELEASE_TAG }}
           fetch-depth: 0
 
-      - name: Validate tag and package version
+      - name: Validate version and package version
         run: |
-          if ! [[ "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
-            echo "Error: tag must use the vX.Y.Z or vX.Y.Z-suffix format"
+          if ! [[ "$RELEASE_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
+            echo "Error: version must use the X.Y.Z or X.Y.Z-suffix format"
             exit 1
           fi
 
-          if ! git show-ref --tags --verify --quiet "refs/tags/$RELEASE_TAG"; then
-            echo "Error: tag $RELEASE_TAG does not exist"
+          if git show-ref --tags --verify --quiet "refs/tags/$RELEASE_TAG"; then
+            echo "Error: tag $RELEASE_TAG already exists"
             exit 1
           fi
 
-          TAG_VERSION="${RELEASE_TAG#v}"
-          TAG_BASE_VERSION="${TAG_VERSION%%-*}"
+          BASE_VERSION="${RELEASE_VERSION%%-*}"
           PACKAGE_VERSION=$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -n1)
-          if [ "$TAG_VERSION" != "$PACKAGE_VERSION" ] && [ "$TAG_BASE_VERSION" != "$PACKAGE_VERSION" ]; then
-            echo "Error: tag $RELEASE_TAG does not match Cargo.toml version $PACKAGE_VERSION"
+          if [ "$RELEASE_VERSION" != "$PACKAGE_VERSION" ] && [ "$BASE_VERSION" != "$PACKAGE_VERSION" ]; then
+            echo "Error: version $RELEASE_VERSION does not match Cargo.toml version $PACKAGE_VERSION"
             exit 1
           fi
 
@@ -91,8 +86,6 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
-        with:
-          ref: ${{ env.RELEASE_TAG }}
 
       - name: Sccache Action
         if: matrix.target != 'aarch64-pc-windows-msvc' && matrix.target != 'x86_64-apple-darwin'
@@ -168,13 +161,11 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
-        with:
-          ref: ${{ env.RELEASE_TAG }}
 
       - name: Extract version and detect prerelease
         id: version
         run: |
-          VERSION="${RELEASE_TAG#v}"
+          VERSION="$RELEASE_VERSION"
           echo "version=$VERSION" >> $GITHUB_OUTPUT
           
           # Detect if this is a prerelease (contains hyphen, e.g., v0.3.4-test1)
@@ -208,6 +199,7 @@ jobs:
             -H "Accept: application/vnd.github+json" \
             "/repos/$GITHUB_REPOSITORY/releases/generate-notes" \
             -f tag_name="$RELEASE_TAG" \
+            -f target_commitish="$GITHUB_SHA" \
             --jq '.body' > release-notes.md
           cat >> release-notes.md <<EOF
 
@@ -316,7 +308,7 @@ jobs:
               "$RELEASE_TAG"
               --repo "$GITHUB_REPOSITORY"
               --draft
-              --verify-tag
+              --target "$GITHUB_SHA"
               --title "$RELEASE_TAG"
               --notes-file release-notes.md
             )
@@ -356,7 +348,7 @@ jobs:
     name: Update package manifests
     runs-on: ubuntu-latest
     needs: release
-    if: needs.release.result == 'success' && !contains(github.event.inputs.tag_name || github.ref_name, '-')
+    if: needs.release.result == 'success' && !contains(github.event.inputs.version, '-')
 
     steps:
       - name: Dispatch package manifest update
@@ -368,7 +360,7 @@ jobs:
     name: Publish example components
     runs-on: ubuntu-latest
     needs: release
-    if: needs.release.result == 'success' && !contains(github.event.inputs.tag_name || github.ref_name, '-')
+    if: needs.release.result == 'success' && !contains(github.event.inputs.version, '-')
 
     steps:
       - name: Dispatch example component publication
@@ -380,7 +372,7 @@ jobs:
     name: Publish versioned documentation
     runs-on: ubuntu-latest
     needs: release
-    if: needs.release.result == 'success' && !contains(github.event.inputs.tag_name || github.ref_name, '-')
+    if: needs.release.result == 'success' && !contains(github.event.inputs.version, '-')
 
     steps:
       - name: Dispatch versioned documentation

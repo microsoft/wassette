@@ -49,7 +49,7 @@ The Wassette release pipeline consists of several interconnected workflows:
    - Expected outcome: PR merged to main with version bumps
 
 2. **Release** (`release.yml`): Builds binaries and creates a GitHub release
-   - Triggered: When a version tag (e.g., `v0.3.4`) is pushed
+   - Triggered: Manually via workflow_dispatch with the release version (e.g., `0.3.4`)
    - Builds: Multi-platform binaries (Linux, macOS, Windows; AMD64 and ARM64)
    - Creates: GitHub release with binaries and auto-generated release notes
    - Expected outcome: Release published
@@ -80,7 +80,7 @@ When a release workflow fails, gather failure context:
 1. **Workflow Context**: Use `get_workflow_run` to get detailed run information
 2. **Job Status**: Use `list_workflow_jobs` to identify which jobs failed
 3. **Branch and Commit**: Use `get_commit` to see what triggered the failure
-4. **Related Release**: If this is a tagged release, extract the version from the tag
+4. **Related Release**: Extract the release version from the workflow_dispatch input or the created tag
 
 ### Phase 3: Deep Log Analysis
 

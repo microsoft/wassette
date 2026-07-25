@@ -77,7 +77,7 @@ prepare-release version:
             --base main \
             --head "$branch" \
             --title "chore(release): bump version to $version" \
-            --body "This pull request prepares the $version release by updating the version in \`Cargo.toml\` and \`Cargo.lock\`. After merge, the release automation will create and publish tag \`v$version\`. Versions with a suffix are prereleases and skip stable-release updates." \
+            --body "This pull request prepares the $version release by updating the version in \`Cargo.toml\` and \`Cargo.lock\`. After merge, run the Release workflow (e.g. \`gh workflow run release.yml -f version=$version\`) to build, tag \`v$version\`, and publish the GitHub release. Versions with a suffix are prereleases and skip stable-release updates." \
             --label release \
             --label automated
     }
