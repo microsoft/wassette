@@ -97,8 +97,6 @@ rules even when the agent does not support skills:
   `Added`, `Changed`, `Deprecated`, `Removed`, `Fixed`, or `Security`.
 - Describe the resulting user impact, not implementation details.
 - Do not add a release version or date; the release workflow owns that step.
-- Do not use `changelog.d/` as a substitute. The current release pipeline reads
-  `CHANGELOG.md` directly and does not run Towncrier.
 - For tests, internal refactors, formatting, routine dependency maintenance,
   and other changes without user impact, apply the `skip-changelog` label.
 

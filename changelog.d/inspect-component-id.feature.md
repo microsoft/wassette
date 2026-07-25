@@ -1,1 +1,0 @@
-Modified `wassette inspect` command to accept component ID instead of file path or URI. Components must now be loaded first using `component load` before inspection, which better aligns with the command's intended purpose of inspecting already-loaded components.
