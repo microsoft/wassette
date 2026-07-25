@@ -223,7 +223,7 @@ jobs:
           ### All Platforms (Shell Script)
 
           \`\`\`bash
-          curl -fsSL https://raw.githubusercontent.com/$GITHUB_REPOSITORY/main/install.sh | WASSETTE_GITHUB_REPO=$GITHUB_REPOSITORY bash
+          curl -fsSL https://raw.githubusercontent.com/$GITHUB_REPOSITORY/main/scripts/install.sh | WASSETTE_GITHUB_REPO=$GITHUB_REPOSITORY bash
           \`\`\`
 
           This will detect your platform and install the latest \`wassette\` binary to your \`\$PATH\`.

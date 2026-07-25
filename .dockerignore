@@ -60,4 +60,3 @@ assets
 .config
 rustfmt.toml
 component-registry.json
-install.sh
