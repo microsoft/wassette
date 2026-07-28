@@ -52,7 +52,7 @@ hyper = { version = "1.0", features = ["server", "http1"] }
 http-body-util = "0.1"
 hyper-util = "0.1"
 futures-util = "0.3.30"
-rand = "0.9"
+rand = "0.10"
 bytes = "1"
 tokio-rustls = "0.26"
 rustls = { version = "0.23", features = ["aws-lc-rs"] }
