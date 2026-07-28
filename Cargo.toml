@@ -19,7 +19,7 @@ oci-client = "0.17"
 oci-wasm = { version = "0.6", default-features = false, features = ["rustls-tls"] }
 policy = { path = "crates/policy" }
 reqwest = { version = "0.13", features = ["stream"] }
-rmcp = "1.4.0"
+rmcp = "2.2.0"
 serde = "1.0"
 serde_json = "1.0"
 serde_yaml = "0.9"
