@@ -18,11 +18,11 @@ jobs:
     - name: Verify gh-aw installation
       run: gh aw version
     - name: Checkout repository
-      uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8
+      uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
     - name: Install protobuf
       run: ./scripts/install-protobuf.sh
     - name: Setup Rust toolchain
-      uses: actions-rust-lang/setup-rust-toolchain@1780873c7b576612439a134613cc4cc74ce5538c
+      uses: actions-rust-lang/setup-rust-toolchain@1780873c7b576612439a134613cc4cc74ce5538c # v1.15.2
       with:
         components: rustfmt, clippy
     - name: Install nightly Rust for formatting
@@ -30,17 +30,17 @@ jobs:
     - name: Add wasm32-wasip2 target
       run: rustup target add wasm32-wasip2
     - name: Setup just
-      uses: extractions/setup-just@e33e0265a09d6d736e2ee1e0eb685ef1de4669ff
+      uses: extractions/setup-just@e33e0265a09d6d736e2ee1e0eb685ef1de4669ff # v3.0.0
     - name: Setup wasm-tools
-      uses: bytecodealliance/actions/wasm-tools/setup@3b93676295fd6f7eaa7af2c2785539e052fa8349
+      uses: bytecodealliance/actions/wasm-tools/setup@3b93676295fd6f7eaa7af2c2785539e052fa8349 # v1.1.1
     - name: Setup uv
-      uses: astral-sh/setup-uv@3259c6206f993105e3a61b142c2d97bf4b9ef83d
+      uses: astral-sh/setup-uv@3259c6206f993105e3a61b142c2d97bf4b9ef83d # v7.1.0
     - name: Setup Go
-      uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e
+      uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
       with:
         go-version: 1.26.5
     - name: Setup TinyGo
-      uses: acifani/setup-tinygo@db56321a62b9a67922bb9ac8f9d085e218807bb3
+      uses: acifani/setup-tinygo@db56321a62b9a67922bb9ac8f9d085e218807bb3 # v2.0.1
       with:
         tinygo-version: 0.41.1
     - name: Cache Rust dependencies
@@ -50,7 +50,7 @@ jobs:
       env:
         GH_TOKEN: ${{ github.token }}
     - name: Setup kind cluster
-      uses: helm/kind-action@0025e74a8c7512023d06dc019c617aa3cf561fde
+      uses: helm/kind-action@0025e74a8c7512023d06dc019c617aa3cf561fde # v1.10.0
       with:
         cluster_name: wassette-dev
         wait: 300s
