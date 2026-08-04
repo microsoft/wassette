@@ -33,10 +33,10 @@ tokio-util = "0.7.18"
 tracing = "0.1"
 tracing-subscriber = "0.3"
 tracing-test = "0.2"
-wasmtime = "36.0.5"
-wasmtime-wasi = "36.0.5"
-wasmtime-wasi-http = "36.0.5"
-wasmtime-wasi-config = "36.0.5"
+wasmtime = "47.0.3"
+wasmtime-wasi = "47.0.3"
+wasmtime-wasi-http = "47.0.3"
+wasmtime-wasi-config = "47.0.3"
 
 [profile.release]
 codegen-units = 1
