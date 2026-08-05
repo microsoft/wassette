@@ -117,4 +117,3 @@ wassette serve --streamable-http
 
 - [CLI Reference](cli.md) - Command-line usage and options
 - [Permissions Guide](permissions.md) - Working with permissions
-- [Docker Deployment](../deployment/docker.md) - Detailed Docker setup

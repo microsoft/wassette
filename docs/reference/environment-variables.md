@@ -79,4 +79,3 @@ permissions:
 
 - [Permissions](./permissions.md) - Permission system details
 - [Configuration Files](./configuration-files.md) - Complete config.toml reference  
-- [Docker Deployment](../deployment/docker.md) - Docker configuration
