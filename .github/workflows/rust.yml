@@ -26,7 +26,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-    - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
     - name: Verify Rust license headers
       shell: bash
       run: |
@@ -45,10 +45,10 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-    - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
     - run: ./scripts/install-protobuf.sh
       shell: bash
-    - uses: actions-rust-lang/setup-rust-toolchain@1780873c7b576612439a134613cc4cc74ce5538c # v1.15.2
+    - uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659 # v1.17.0
       with:
         components: rustfmt, clippy
     - run: 
@@ -63,11 +63,11 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
-    - uses: extractions/setup-just@e33e0265a09d6d736e2ee1e0eb685ef1de4669ff # v3.0.0
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+    - uses: extractions/setup-just@53165ef7e734c5c07cb06b3c8e7b647c5aa16db3 # v4.0.0
     - run: ./scripts/install-protobuf.sh
       shell: bash
-    - uses: actions-rust-lang/setup-rust-toolchain@1780873c7b576612439a134613cc4cc74ce5538c # v1.15.2
+    - uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659 # v1.17.0
     - run: rustup target add wasm32-wasip2
     - uses: ./.github/actions/rust-cache
     - name: Build
@@ -75,7 +75,7 @@ jobs:
     - name: Run tests
       run: just test
     - name: Upload artifacts
-      uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
       with:
         name: wassette
         path: bin/wassette
@@ -84,11 +84,11 @@ jobs:
     name: unused dependencies
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
-    - uses: actions-rust-lang/setup-rust-toolchain@1780873c7b576612439a134613cc4cc74ce5538c # v1.15.2
-    - uses: Swatinem/rust-cache@f13886b937689c021905a6b90929199931d60db1 # v2.8.1
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+    - uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659 # v1.17.0
+    - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
     - name: Check unused dependencies
-      uses: bnjbvr/cargo-machete@7959c845782fed02ee69303126d4a12d64f1db18 # v0.9.1
+      uses: bnjbvr/cargo-machete@ac30a525c0a8d163a92d727b3ff079ee3f6ecb08 # v0.9.2
 
   security:
     name: security audit
@@ -96,9 +96,9 @@ jobs:
     permissions:
       contents: read
     steps:
-    - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
-    - uses: actions-rust-lang/setup-rust-toolchain@1780873c7b576612439a134613cc4cc74ce5538c # v1.15.2
-    - uses: Swatinem/rust-cache@f13886b937689c021905a6b90929199931d60db1 # v2.8.1
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+    - uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659 # v1.17.0
+    - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
     - name: Install cargo-audit
       run: cargo install cargo-audit --locked
     - name: Install cargo-deny
@@ -116,10 +116,10 @@ jobs:
     permissions:
       contents: read
     steps:
-    - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
     - run: ./scripts/install-protobuf.sh
       shell: bash
-    - uses: actions-rust-lang/setup-rust-toolchain@1780873c7b576612439a134613cc4cc74ce5538c # v1.15.2
+    - uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659 # v1.17.0
       with:
         toolchain: nightly
         components: llvm-tools-preview
@@ -132,12 +132,12 @@ jobs:
         cargo llvm-cov --all-features --workspace --ignore-run-fail --lcov --output-path lcov.info
         cargo llvm-cov --all-features --workspace --ignore-run-fail --json --output-path coverage.json
     - name: Upload coverage to Codecov
-      uses: codecov/codecov-action@5a1091511ad55cbe89839c7260b706298ca349f7 # v6.1.0
+      uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v6.1.0
       with:
         file: ./lcov.info
         fail_ci_if_error: false
     - name: Coverage summary
-      uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v7.1.0
+      uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v7.1.0
       with:
         script: |
           const fs = require('fs');
@@ -154,7 +154,7 @@ jobs:
             .addRaw(summary)
             .write();
     - name: Upload coverage artifacts  
-      uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
       with:
         name: coverage-report
         path: |
@@ -165,9 +165,9 @@ jobs:
     name: spell check with typos
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
     - name: Spell Check Repo
-      uses: crate-ci/typos@80c8a4945eec0f6d464eaf9e65ed98ef085283d1 # v1.38.1
+      uses: crate-ci/typos@bee27e3a4fd1ea2111cf90ab89cd076c870fce14 # v1.48.0
       with:
         config: .config/_typos.toml
   
@@ -179,8 +179,8 @@ jobs:
     timeout-minutes: 15
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
-    - uses: lycheeverse/lychee-action@885c65f3dc543b57c898c8099f4e08c8afd178a2 # v2.6.1
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+    - uses: lycheeverse/lychee-action@e7477775783ea5526144ba13e8db5eec57747ce8 # v2.9.0
       with:
         fail: false # don't fail the build on broken links
         format: markdown

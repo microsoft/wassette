@@ -10,11 +10,11 @@ jobs:
   nix-flake:
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
-    - uses: cachix/install-nix-action@fd24c48048070c1be9acd18c9d369a83f0fe94d7 # v31.8.1
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+    - uses: cachix/install-nix-action@630ae543ea3a38a9a4166f03376c02c50f408342 # v31.11.0
       with:
         nix_path: nixpkgs=channel:nixos-unstable
-    - uses: cachix/cachix-action@0fc020193b5a1fa3ac4575aa3a7d3aa6a35435ad # v16
+    - uses: cachix/cachix-action@f495f3ffa2f3810a92e5cc0abc2c5d6a2a07ec82 # v16
       with:
         name: wassette
         authToken: '${{ secrets.CACHIX_AUTH_TOKEN }}'
