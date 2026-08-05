@@ -16,7 +16,7 @@ jobs:
     steps:
       - name: Dependabot metadata
         id: metadata
-        uses: dependabot/fetch-metadata@08eff52bf64351f401fb50d4972fa95b9f2c2d1b # v2.2.0
+        uses: dependabot/fetch-metadata@25dd0e34f4fe68f24cc83900b1fe3fe149efef98 # v2.2.0
         with:
           github-token: "${{ secrets.GITHUB_TOKEN }}"
       
@@ -33,7 +33,7 @@ jobs:
       
       - name: Comment on major updates
         if: ${{ steps.metadata.outputs.update-type == 'version-update:semver-major' }}
-        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v7.1.0
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v7.1.0
         with:
           script: |
             github.rest.issues.createComment({
