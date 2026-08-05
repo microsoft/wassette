@@ -58,4 +58,4 @@ tokio-rustls = "0.26"
 rustls = { version = "0.23", features = ["aws-lc-rs"] }
 rcgen = "0.14"
 hex = "0.4"
-sha2 = "0.10"
+sha2 = "0.11"
