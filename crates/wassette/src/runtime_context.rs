@@ -23,15 +23,17 @@ pub struct RuntimeContext {
 impl RuntimeContext {
     /// Build a runtime context with the standard configuration used by Wassette.
     pub fn initialize() -> Result<Self> {
+        let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
+
         let mut config = wasmtime::Config::new();
         config.wasm_component_model(true);
-        config.async_support(true);
+        config.wasm_component_model_map(true);
 
         let engine = Arc::new(Engine::new(&config)?);
 
         let mut linker = Linker::new(engine.as_ref());
         wasmtime_wasi::p2::add_to_linker_async(&mut linker)?;
-        wasmtime_wasi_http::add_only_http_to_linker_async(&mut linker)?;
+        wasmtime_wasi_http::p2::add_only_http_to_linker_async(&mut linker)?;
         wasmtime_wasi_config::add_to_linker(
             &mut linker,
             |h: &mut WassetteWasiState<WasiState>| WasiConfig::from(&h.inner.wasi_config_vars),

@@ -466,6 +466,7 @@ impl LifecycleManager {
         let instance_pre = self
             .runtime
             .instantiate_pre(&component)
+            .map_err(anyhow::Error::from)
             .context("failed to instantiate component")?;
 
         // Extract package docs from wasm bytes
@@ -886,6 +887,7 @@ impl LifecycleManager {
         let precompiled_data = self
             .runtime
             .precompile_component(wasm_bytes)
+            .map_err(anyhow::Error::from)
             .context("Failed to precompile component")?;
 
         self.storage
@@ -927,6 +929,7 @@ impl LifecycleManager {
             .context("Failed to read wasm file")?;
 
         let component = Component::new(self.runtime.as_ref(), &wasm_bytes)
+            .map_err(anyhow::Error::from)
             .context("Failed to compile component")?;
 
         // Save precompiled version for next time (async, don't block on this)
@@ -1052,9 +1055,15 @@ impl LifecycleManager {
         };
 
         let params: serde_json::Value = serde_json::from_str(parameters)?;
-        let argument_vals = json_to_vals(&params, &func.params(&store))?;
+        let func_type = func.ty(&store);
+        let parameter_types = func_type
+            .params()
+            .map(|(name, ty)| (name.to_string(), ty))
+            .collect::<Vec<_>>();
+        let argument_vals = json_to_vals(&params, &parameter_types)?;
 
-        let mut results = create_placeholder_results(&func.results(&store));
+        let result_types = func_type.results().collect::<Vec<_>>();
+        let mut results = create_placeholder_results(&result_types);
 
         let execution_start = Instant::now();
 
@@ -1073,7 +1082,7 @@ impl LifecycleManager {
                 return Err(anyhow!(perm_error.to_user_message(component_id)));
             }
             // Otherwise, return the original WASM execution error
-            return Err(e);
+            return Err(e.into());
         }
 
         let result_json = vals_to_json(&results);
