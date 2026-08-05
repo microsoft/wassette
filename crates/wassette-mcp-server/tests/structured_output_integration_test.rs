@@ -247,7 +247,7 @@ async fn test_structured_output_integration() -> Result<()> {
     if fetch_response["result"].is_object() {
         let result = &fetch_response["result"];
 
-        // With rmcp v0.5.0, we should have structured_content field for structured responses
+        // rmcp exposes structured_content for structured tool responses.
         let structured = result
             .get("structured_content")
             .or_else(|| result.get("structuredContent"));

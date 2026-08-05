@@ -7,7 +7,7 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use anyhow::Result;
-use rmcp::model::{CallToolRequestParams, CallToolResult, Content, Tool};
+use rmcp::model::{CallToolRequestParams, CallToolResult, ContentBlock, Tool};
 use rmcp::{Peer, RoleServer};
 use serde_json::{json, Value};
 use tracing::{debug, error, info, instrument, warn};
@@ -202,7 +202,7 @@ pub async fn handle_tools_call(
         Ok(result) => Ok(serde_json::to_value(result)?),
         Err(e) => {
             let error_text = format!("Error: {e}");
-            let contents = vec![Content::text(error_text)];
+            let contents = vec![ContentBlock::text(error_text)];
 
             let error_result = CallToolResult::error(contents);
             Ok(serde_json::to_value(error_result)?)
@@ -600,7 +600,7 @@ pub(crate) async fn handle_search_component(
         "components": filtered_components,
     }))?;
 
-    let contents = vec![Content::text(status_text)];
+    let contents = vec![ContentBlock::text(status_text)];
 
     Ok(CallToolResult::success(contents))
 }
@@ -646,7 +646,7 @@ pub async fn handle_get_policy(
         }))?
     };
 
-    let contents = vec![Content::text(status_text)];
+    let contents = vec![ContentBlock::text(status_text)];
 
     Ok(CallToolResult::success(contents))
 }
@@ -693,7 +693,7 @@ async fn handle_grant_permission_generic(
                 "details": details
             }))?;
 
-            let contents = vec![Content::text(status_text)];
+            let contents = vec![ContentBlock::text(status_text)];
 
             Ok(CallToolResult::success(contents))
         }
@@ -791,7 +791,7 @@ async fn handle_revoke_permission_generic(
                 "details": details
             }))?;
 
-            let contents = vec![Content::text(status_text)];
+            let contents = vec![ContentBlock::text(status_text)];
 
             Ok(CallToolResult::success(contents))
         }
@@ -854,7 +854,7 @@ pub async fn handle_revoke_storage_permission(
                 "message": "All access (read and write) to the specified URI has been revoked"
             }))?;
 
-            let contents = vec![Content::text(status_text)];
+            let contents = vec![ContentBlock::text(status_text)];
 
             Ok(CallToolResult::success(contents))
         }
@@ -919,7 +919,7 @@ pub async fn handle_reset_permission(
                 "component_id": component_id
             }))?;
 
-            let contents = vec![Content::text(status_text)];
+            let contents = vec![ContentBlock::text(status_text)];
 
             Ok(CallToolResult::success(contents))
         }
