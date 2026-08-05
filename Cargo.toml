@@ -20,6 +20,7 @@ oci-wasm = { version = "0.6", default-features = false, features = ["rustls-tls"
 policy = { path = "crates/policy" }
 reqwest = { version = "0.13", features = ["stream"] }
 rmcp = "1.4.0"
+rustls = { version = "0.23", default-features = false, features = ["aws-lc-rs"] }
 serde = "1.0"
 serde_json = "1.0"
 serde_yaml = "0.9"
@@ -33,10 +34,10 @@ tokio-util = "0.7.18"
 tracing = "0.1"
 tracing-subscriber = "0.3"
 tracing-test = "0.2"
-wasmtime = "36.0.13"
-wasmtime-wasi = "36.0.13"
-wasmtime-wasi-http = "36.0.13"
-wasmtime-wasi-config = "36.0.13"
+wasmtime = "47.0.3"
+wasmtime-wasi = "47.0.3"
+wasmtime-wasi-http = "47.0.3"
+wasmtime-wasi-config = "47.0.3"
 
 [profile.release]
 codegen-units = 1

@@ -6,11 +6,13 @@ use std::collections::HashSet;
 use anyhow::Result;
 use tracing::{debug, warn};
 use url::Url;
-use wasmtime::component::{Resource, ResourceTable};
 use wasmtime_wasi::{WasiCtxView, WasiView};
-use wasmtime_wasi_http::bindings::http::types;
-use wasmtime_wasi_http::types::{HostFutureIncomingResponse, OutgoingRequestConfig};
-use wasmtime_wasi_http::{HttpResult, WasiHttpView};
+use wasmtime_wasi_http::p2::bindings::http::types;
+use wasmtime_wasi_http::p2::body::HyperOutgoingBody;
+use wasmtime_wasi_http::p2::types::{HostFutureIncomingResponse, OutgoingRequestConfig};
+use wasmtime_wasi_http::p2::{
+    default_send_request, HttpResult, WasiHttpCtxView, WasiHttpHooks, WasiHttpView,
+};
 
 use crate::wasistate::PermissionError;
 
@@ -55,6 +57,10 @@ pub struct WassetteWasiState<T> {
     /// The underlying WASI state
     pub inner: T,
 
+    http_hooks: NetworkPolicyHttpHooks,
+}
+
+struct NetworkPolicyHttpHooks {
     /// Set of allowed hosts for network requests (extracted from policy document)
     allowed_hosts: HashSet<AllowedHost>,
 
@@ -81,12 +87,15 @@ impl<T> WassetteWasiState<T> {
 
         Ok(Self {
             inner,
-            allowed_hosts: parsed_hosts,
-            last_network_denial: std::sync::Arc::new(std::sync::Mutex::new(None)),
+            http_hooks: NetworkPolicyHttpHooks {
+                allowed_hosts: parsed_hosts,
+                last_network_denial: std::sync::Arc::new(std::sync::Mutex::new(None)),
+            },
         })
     }
+}
 
-    /// Check if a host is allowed by the policy
+impl NetworkPolicyHttpHooks {
     fn is_host_allowed(&self, uri: &hyper::Uri) -> bool {
         let request_host = if let Some(host) = uri.host() {
             host.to_string()
@@ -105,6 +114,37 @@ impl<T> WassetteWasiState<T> {
 
         false
     }
+
+    fn validate_request_uri(&self, uri: &hyper::Uri) -> HttpResult<()> {
+        let Some(host) = uri.host() else {
+            warn!("HTTP request missing host, blocking request");
+            return Err(types::ErrorCode::HttpRequestUriInvalid.into());
+        };
+
+        if !self.is_host_allowed(uri) {
+            let host = host.to_string();
+            let uri_str = uri.to_string();
+
+            warn!(
+                uri = %uri,
+                allowed_hosts = ?self.allowed_hosts,
+                "HTTP request blocked by network policy"
+            );
+
+            if let Ok(mut denial) = self.last_network_denial.lock() {
+                *denial = Some((host, uri_str));
+            }
+
+            return Err(types::ErrorCode::HttpRequestDenied.into());
+        }
+
+        if let Ok(mut denial) = self.last_network_denial.lock() {
+            *denial = None;
+        }
+
+        debug!(uri = %uri, "HTTP request allowed by network policy");
+        Ok(())
+    }
 }
 
 // Add helper methods specifically for WassetteWasiState<crate::wasistate::WasiState>
@@ -112,7 +152,7 @@ impl WassetteWasiState<crate::wasistate::WasiState> {
     /// Get the last permission error if any occurred (checks both sources)
     pub fn get_last_permission_error(&self) -> Option<PermissionError> {
         // First check if there was a network denial recorded
-        if let Ok(denial) = self.last_network_denial.lock() {
+        if let Ok(denial) = self.http_hooks.last_network_denial.lock() {
             if let Some((host, uri)) = denial.as_ref() {
                 return Some(PermissionError::NetworkDenied {
                     host: host.clone(),
@@ -130,63 +170,31 @@ impl WassetteWasiState<crate::wasistate::WasiState> {
     }
 }
 
-impl<T: WasiView> WasiView for WassetteWasiState<T> {
+impl<T: WasiView + Send> WasiView for WassetteWasiState<T> {
     fn ctx(&mut self) -> WasiCtxView<'_> {
         self.inner.ctx()
     }
 }
 
-impl<T: WasiHttpView> WasiHttpView for WassetteWasiState<T> {
-    fn ctx(&mut self) -> &mut wasmtime_wasi_http::WasiHttpCtx {
-        self.inner.ctx()
+impl WasiHttpView for WassetteWasiState<crate::wasistate::WasiState> {
+    fn http(&mut self) -> WasiHttpCtxView<'_> {
+        WasiHttpCtxView {
+            ctx: &mut self.inner.http,
+            table: &mut self.inner.table,
+            hooks: &mut self.http_hooks,
+        }
     }
+}
 
-    fn table(&mut self) -> &mut ResourceTable {
-        self.inner.table()
-    }
-
-    fn new_response_outparam(
-        &mut self,
-        result: tokio::sync::oneshot::Sender<
-            Result<hyper::Response<wasmtime_wasi_http::body::HyperOutgoingBody>, types::ErrorCode>,
-        >,
-    ) -> wasmtime::Result<Resource<wasmtime_wasi_http::types::HostResponseOutparam>> {
-        self.inner.new_response_outparam(result)
-    }
-
+impl WasiHttpHooks for NetworkPolicyHttpHooks {
     fn send_request(
         &mut self,
-        request: hyper::Request<wasmtime_wasi_http::body::HyperOutgoingBody>,
+        request: hyper::Request<HyperOutgoingBody>,
         config: OutgoingRequestConfig,
     ) -> HttpResult<HostFutureIncomingResponse> {
-        let uri = request.uri();
+        self.validate_request_uri(request.uri())?;
 
-        if uri.host().is_none() {
-            warn!("HTTP request missing host, blocking request");
-            return Err(types::ErrorCode::HttpRequestUriInvalid.into());
-        }
-
-        if !self.is_host_allowed(uri) {
-            let host = uri.host().unwrap_or("").to_string();
-            let uri_str = uri.to_string();
-
-            warn!(
-                uri = %uri,
-                allowed_hosts = ?self.allowed_hosts,
-                "HTTP request blocked by network policy"
-            );
-
-            // Record the network denial for later retrieval
-            if let Ok(mut denial) = self.last_network_denial.lock() {
-                *denial = Some((host, uri_str));
-            }
-
-            return Err(types::ErrorCode::HttpRequestDenied.into());
-        }
-
-        debug!(uri = %uri, "HTTP request allowed by network policy");
-
-        self.inner.send_request(request, config)
+        Ok(default_send_request(request, config))
     }
 }
 
@@ -196,56 +204,22 @@ mod tests {
 
     use super::*;
 
-    fn create_mock_wasi_state() -> MockWasiState {
-        MockWasiState
-    }
-
     struct MockWasiState;
-
-    impl WasiHttpView for MockWasiState {
-        fn ctx(&mut self) -> &mut wasmtime_wasi_http::WasiHttpCtx {
-            unimplemented!("Mock for testing")
-        }
-
-        fn table(&mut self) -> &mut ResourceTable {
-            unimplemented!("Mock for testing")
-        }
-
-        fn new_response_outparam(
-            &mut self,
-            _result: tokio::sync::oneshot::Sender<
-                Result<
-                    hyper::Response<wasmtime_wasi_http::body::HyperOutgoingBody>,
-                    types::ErrorCode,
-                >,
-            >,
-        ) -> wasmtime::Result<Resource<wasmtime_wasi_http::types::HostResponseOutparam>> {
-            unimplemented!("Mock for testing")
-        }
-
-        fn send_request(
-            &mut self,
-            _request: hyper::Request<wasmtime_wasi_http::body::HyperOutgoingBody>,
-            _config: OutgoingRequestConfig,
-        ) -> HttpResult<HostFutureIncomingResponse> {
-            unimplemented!("Mock for testing")
-        }
-    }
 
     #[test]
     fn test_host_allowed_exact_match() {
         let mut allowed_hosts = HashSet::new();
         allowed_hosts.insert("api.example.com".to_string());
 
-        let state = WassetteWasiState::new(create_mock_wasi_state(), allowed_hosts).unwrap();
+        let state = WassetteWasiState::new(MockWasiState, allowed_hosts).unwrap();
 
         let uri1: hyper::Uri = "http://api.example.com".parse().unwrap();
         let uri2: hyper::Uri = "http://other.example.com".parse().unwrap();
         let uri3: hyper::Uri = "http://malicious.com".parse().unwrap();
 
-        assert!(state.is_host_allowed(&uri1));
-        assert!(!state.is_host_allowed(&uri2));
-        assert!(!state.is_host_allowed(&uri3));
+        assert!(state.http_hooks.is_host_allowed(&uri1));
+        assert!(!state.http_hooks.is_host_allowed(&uri2));
+        assert!(!state.http_hooks.is_host_allowed(&uri3));
     }
 
     #[test]
@@ -253,15 +227,15 @@ mod tests {
         let mut allowed_hosts = HashSet::new();
         allowed_hosts.insert("https://api.example.com".to_string());
 
-        let state = WassetteWasiState::new(create_mock_wasi_state(), allowed_hosts).unwrap();
+        let state = WassetteWasiState::new(MockWasiState, allowed_hosts).unwrap();
 
         let uri1: hyper::Uri = "http://api.example.com".parse().unwrap();
         let uri2: hyper::Uri = "https://api.example.com".parse().unwrap();
         let uri3: hyper::Uri = "http://api.example.com".parse().unwrap();
 
-        assert!(!state.is_host_allowed(&uri1));
-        assert!(state.is_host_allowed(&uri2));
-        assert!(!state.is_host_allowed(&uri3));
+        assert!(!state.http_hooks.is_host_allowed(&uri1));
+        assert!(state.http_hooks.is_host_allowed(&uri2));
+        assert!(!state.http_hooks.is_host_allowed(&uri3));
     }
 
     #[test]
@@ -269,13 +243,13 @@ mod tests {
         let mut allowed_hosts = HashSet::new();
         allowed_hosts.insert("api.example.com".to_string());
 
-        let state = WassetteWasiState::new(create_mock_wasi_state(), allowed_hosts).unwrap();
+        let state = WassetteWasiState::new(MockWasiState, allowed_hosts).unwrap();
 
         let uri1: hyper::Uri = "http://api.example.com:8080".parse().unwrap();
         let uri2: hyper::Uri = "http://api.example.com:443".parse().unwrap();
 
-        assert!(state.is_host_allowed(&uri1));
-        assert!(state.is_host_allowed(&uri2));
+        assert!(state.http_hooks.is_host_allowed(&uri1));
+        assert!(state.http_hooks.is_host_allowed(&uri2));
     }
 
     #[test]
@@ -284,21 +258,21 @@ mod tests {
         allowed_hosts.insert("https://secure.api.com".to_string());
         allowed_hosts.insert("api.example.com".to_string()); // scheme-agnostic
 
-        let state = WassetteWasiState::new(create_mock_wasi_state(), allowed_hosts).unwrap();
+        let state = WassetteWasiState::new(MockWasiState, allowed_hosts).unwrap();
 
         // Scheme-specific host should only match HTTPS
         let https_secure: hyper::Uri = "https://secure.api.com".parse().unwrap();
         let http_secure: hyper::Uri = "http://secure.api.com".parse().unwrap();
 
-        assert!(state.is_host_allowed(&https_secure));
-        assert!(!state.is_host_allowed(&http_secure));
+        assert!(state.http_hooks.is_host_allowed(&https_secure));
+        assert!(!state.http_hooks.is_host_allowed(&http_secure));
 
         // Scheme-agnostic host should match both
         let https_example: hyper::Uri = "https://api.example.com".parse().unwrap();
         let http_example: hyper::Uri = "http://api.example.com".parse().unwrap();
 
-        assert!(state.is_host_allowed(&https_example));
-        assert!(state.is_host_allowed(&http_example));
+        assert!(state.http_hooks.is_host_allowed(&https_example));
+        assert!(state.http_hooks.is_host_allowed(&http_example));
     }
 
     #[test]
@@ -307,7 +281,7 @@ mod tests {
         allowed_hosts.insert("http://".to_string());
         allowed_hosts.insert("".to_string());
 
-        match WassetteWasiState::new(create_mock_wasi_state(), allowed_hosts) {
+        match WassetteWasiState::new(MockWasiState, allowed_hosts) {
             Ok(_) => panic!("Expected error, got Ok"),
             Err(e) => assert!(e.to_string().contains("Invalid host format")),
         }
@@ -318,12 +292,38 @@ mod tests {
         let mut allowed_hosts = HashSet::new();
         allowed_hosts.insert("api.example.com".to_string());
 
-        let state = WassetteWasiState::new(create_mock_wasi_state(), allowed_hosts).unwrap();
+        let state = WassetteWasiState::new(MockWasiState, allowed_hosts).unwrap();
 
         let uri1: hyper::Uri = "http://api.example.com".parse().unwrap();
         let uri2: hyper::Uri = "http://API.EXAMPLE.COM".parse().unwrap();
 
-        assert!(state.is_host_allowed(&uri1));
-        assert!(state.is_host_allowed(&uri2));
+        assert!(state.http_hooks.is_host_allowed(&uri1));
+        assert!(state.http_hooks.is_host_allowed(&uri2));
+    }
+
+    #[test]
+    fn test_allowed_request_clears_previous_network_denial() {
+        let mut allowed_hosts = HashSet::new();
+        allowed_hosts.insert("api.example.com".to_string());
+
+        let state = WassetteWasiState::new(MockWasiState, allowed_hosts).unwrap();
+        let denied_uri: hyper::Uri = "https://denied.example.com".parse().unwrap();
+        let allowed_uri: hyper::Uri = "https://api.example.com".parse().unwrap();
+
+        assert!(state.http_hooks.validate_request_uri(&denied_uri).is_err());
+        assert!(state
+            .http_hooks
+            .last_network_denial
+            .lock()
+            .unwrap()
+            .is_some());
+
+        assert!(state.http_hooks.validate_request_uri(&allowed_uri).is_ok());
+        assert!(state
+            .http_hooks
+            .last_network_denial
+            .lock()
+            .unwrap()
+            .is_none());
     }
 }

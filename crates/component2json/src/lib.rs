@@ -136,7 +136,7 @@ pub fn component_exports_to_tools(
             export_name,
             None,
             None,
-            &export_item,
+            &export_item.ty,
             engine,
             &mut tools,
             output,
@@ -228,7 +228,7 @@ pub fn component_exports_to_tools_with_docs(
             export_name,
             None,
             None,
-            &export_item,
+            &export_item.ty,
             &mut tools,
             &context,
         );
@@ -325,6 +325,21 @@ fn type_to_json_schema(t: &Type) -> Value {
             json!({
                 "type": "array",
                 "items": elem_schema
+            })
+        }
+        Type::Map(map_handle) => {
+            let key_schema = type_to_json_schema(&map_handle.key());
+            let value_schema = type_to_json_schema(&map_handle.value());
+            json!({
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "key": key_schema,
+                        "value": value_schema
+                    },
+                    "required": ["key", "value"]
+                }
             })
         }
 
@@ -624,7 +639,7 @@ fn gather_exported_functions_with_metadata_internal(
                     export_name,
                     previous_name.clone(),
                     package_name.clone(),
-                    &export_item,
+                    &export_item.ty,
                     results,
                     context,
                 );
@@ -637,7 +652,7 @@ fn gather_exported_functions_with_metadata_internal(
                     export_name,
                     previous_name.clone(),
                     package_name.clone(),
-                    &export_item,
+                    &export_item.ty,
                     results,
                     context,
                 );
@@ -671,6 +686,17 @@ fn val_to_json(val: &Val) -> Value {
         Val::String(s) => Value::String(s.clone()),
 
         Val::List(list) => Value::Array(list.iter().map(val_to_json).collect()),
+        Val::Map(entries) => Value::Array(
+            entries
+                .iter()
+                .map(|(key, value)| {
+                    json!({
+                        "key": val_to_json(key),
+                        "value": val_to_json(value)
+                    })
+                })
+                .collect(),
+        ),
         Val::Record(fields) => {
             let mut map = Map::new();
             for (k, v) in fields {
@@ -830,6 +856,28 @@ fn json_to_val(value: &Value, ty: &Type) -> Result<Val, ValError> {
             }
             _ => Err(ValError::ShapeError("list", format!("{value:?}"))),
         },
+        Type::Map(map_handle) => match value {
+            Value::Array(entries) => {
+                let mut pairs = Vec::with_capacity(entries.len());
+                for entry in entries {
+                    let entry = entry
+                        .as_object()
+                        .ok_or_else(|| ValError::ShapeError("map entry", format!("{entry:?}")))?;
+                    let key = entry.get("key").ok_or_else(|| {
+                        ValError::ShapeError("map entry", "missing key".to_string())
+                    })?;
+                    let value = entry.get("value").ok_or_else(|| {
+                        ValError::ShapeError("map entry", "missing value".to_string())
+                    })?;
+                    pairs.push((
+                        json_to_val(key, &map_handle.key())?,
+                        json_to_val(value, &map_handle.value())?,
+                    ));
+                }
+                Ok(Val::Map(pairs))
+            }
+            _ => Err(ValError::ShapeError("map", format!("{value:?}"))),
+        },
         Type::Record(r) => match value {
             Value::Object(obj) => {
                 let mut fields = Vec::<(String, Val)>::new();
@@ -967,6 +1015,7 @@ fn default_val_for_type(ty: &Type) -> Val {
         Type::Char => Val::Char('\0'),
         Type::String => Val::String("".to_string()),
         Type::List(_) => Val::List(Vec::new()),
+        Type::Map(_) => Val::Map(Vec::new()),
 
         Type::Record(r) => {
             let fields = r
@@ -1246,7 +1295,6 @@ mod tests {
     fn test_root_component_exports() {
         let mut config = wasmtime::Config::new();
         config.wasm_component_model(true);
-        config.async_support(true);
         let engine = Engine::new(&config).unwrap();
         let component = Component::from_file(&engine, "testdata/filesystem.wasm").unwrap();
         let schema = component_exports_to_json_schema(&component, &engine, true);
@@ -1748,6 +1796,7 @@ mod tests {
     fn test_roundtrip() {
         let mut config = wasmtime::Config::new();
         config.wasm_component_model(true);
+        config.wasm_component_model_map(true);
         let engine = Engine::new(&config).unwrap();
 
         // A component that directly exports the types we want to test.
@@ -1774,6 +1823,8 @@ mod tests {
           (export (;13;) "f" (type (eq 12)))
           (type (;14;) (list 5))
           (export (;15;) "l" (type (eq 14)))
+          (type (;16;) (map string u32))
+          (export (;17;) "m" (type (eq 16)))
         )
       )
       (export (;0;) "wassette:test/types@0.1.0" (instance (type 0)))
@@ -1802,6 +1853,8 @@ mod tests {
               (export (;13;) "f" (type (eq 12)))
               (type (;14;) (list 5))
               (export (;15;) "l" (type (eq 14)))
+              (type (;16;) (map string u32))
+              (export (;17;) "m" (type (eq 16)))
             )
           )
           (import "wassette:test/types@0.1.0" (instance (;0;) (type 0)))
@@ -1838,7 +1891,7 @@ mod tests {
         let component_type = component.component_type();
 
         let types_component_export = component_type.get_export(&engine, "types").unwrap();
-        let types_component = match types_component_export {
+        let types_component = match types_component_export.ty {
             wasmtime::component::types::ComponentItem::Component(c) => c,
             _ => panic!("Expected 'types' to be a component export"),
         };
@@ -1846,16 +1899,16 @@ mod tests {
         let types_instance_export = types_component
             .get_export(&engine, "wassette:test/types@0.1.0")
             .unwrap();
-        let types_instance = match types_instance_export {
+        let types_instance = match types_instance_export.ty {
             wasmtime::component::types::ComponentItem::ComponentInstance(i) => i,
             _ => panic!("Expected an instance export"),
         };
 
-        let get_exported_type = |name: &str| match types_instance.get_export(&engine, name).unwrap()
-        {
-            wasmtime::component::types::ComponentItem::Type(ty) => ty,
-            _ => panic!("Expected a type export for '{name}'"),
-        };
+        let get_exported_type =
+            |name: &str| match types_instance.get_export(&engine, name).unwrap().ty {
+                wasmtime::component::types::ComponentItem::Type(ty) => ty,
+                _ => panic!("Expected a type export for '{name}'"),
+            };
 
         let record_type = get_exported_type("r");
         let original_record = Val::Record(vec![
@@ -1918,6 +1971,29 @@ mod tests {
         let json_list = val_to_json(&original_list);
         let roundtrip_list = json_to_val(&json_list, &list_type).unwrap();
         assert_eq!(original_list, roundtrip_list);
+
+        let map_type = get_exported_type("m");
+        let original_map = Val::Map(vec![
+            (Val::String("first".to_string()), Val::U32(1)),
+            (Val::String("second".to_string()), Val::U32(2)),
+        ]);
+        let json_map = val_to_json(&original_map);
+        let roundtrip_map = json_to_val(&json_map, &map_type).unwrap();
+        assert_eq!(original_map, roundtrip_map);
+        assert_eq!(
+            type_to_json_schema(&map_type),
+            json!({
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "key": { "type": "string" },
+                        "value": { "type": "number" }
+                    },
+                    "required": ["key", "value"]
+                }
+            })
+        );
     }
 
     #[test]
@@ -2396,7 +2472,6 @@ mod tests {
 
         let mut config = wasmtime::Config::new();
         config.wasm_component_model(true);
-        config.async_support(true);
         let engine = Engine::new(&config).unwrap();
 
         for file_path in &test_files {
