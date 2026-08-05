@@ -114,6 +114,37 @@ impl NetworkPolicyHttpHooks {
 
         false
     }
+
+    fn validate_request_uri(&self, uri: &hyper::Uri) -> HttpResult<()> {
+        let Some(host) = uri.host() else {
+            warn!("HTTP request missing host, blocking request");
+            return Err(types::ErrorCode::HttpRequestUriInvalid.into());
+        };
+
+        if !self.is_host_allowed(uri) {
+            let host = host.to_string();
+            let uri_str = uri.to_string();
+
+            warn!(
+                uri = %uri,
+                allowed_hosts = ?self.allowed_hosts,
+                "HTTP request blocked by network policy"
+            );
+
+            if let Ok(mut denial) = self.last_network_denial.lock() {
+                *denial = Some((host, uri_str));
+            }
+
+            return Err(types::ErrorCode::HttpRequestDenied.into());
+        }
+
+        if let Ok(mut denial) = self.last_network_denial.lock() {
+            *denial = None;
+        }
+
+        debug!(uri = %uri, "HTTP request allowed by network policy");
+        Ok(())
+    }
 }
 
 // Add helper methods specifically for WassetteWasiState<crate::wasistate::WasiState>
@@ -161,32 +192,7 @@ impl WasiHttpHooks for NetworkPolicyHttpHooks {
         request: hyper::Request<HyperOutgoingBody>,
         config: OutgoingRequestConfig,
     ) -> HttpResult<HostFutureIncomingResponse> {
-        let uri = request.uri();
-
-        if uri.host().is_none() {
-            warn!("HTTP request missing host, blocking request");
-            return Err(types::ErrorCode::HttpRequestUriInvalid.into());
-        }
-
-        if !self.is_host_allowed(uri) {
-            let host = uri.host().unwrap_or("").to_string();
-            let uri_str = uri.to_string();
-
-            warn!(
-                uri = %uri,
-                allowed_hosts = ?self.allowed_hosts,
-                "HTTP request blocked by network policy"
-            );
-
-            // Record the network denial for later retrieval
-            if let Ok(mut denial) = self.last_network_denial.lock() {
-                *denial = Some((host, uri_str));
-            }
-
-            return Err(types::ErrorCode::HttpRequestDenied.into());
-        }
-
-        debug!(uri = %uri, "HTTP request allowed by network policy");
+        self.validate_request_uri(request.uri())?;
 
         Ok(default_send_request(request, config))
     }
@@ -293,5 +299,31 @@ mod tests {
 
         assert!(state.http_hooks.is_host_allowed(&uri1));
         assert!(state.http_hooks.is_host_allowed(&uri2));
+    }
+
+    #[test]
+    fn test_allowed_request_clears_previous_network_denial() {
+        let mut allowed_hosts = HashSet::new();
+        allowed_hosts.insert("api.example.com".to_string());
+
+        let state = WassetteWasiState::new(MockWasiState, allowed_hosts).unwrap();
+        let denied_uri: hyper::Uri = "https://denied.example.com".parse().unwrap();
+        let allowed_uri: hyper::Uri = "https://api.example.com".parse().unwrap();
+
+        assert!(state.http_hooks.validate_request_uri(&denied_uri).is_err());
+        assert!(state
+            .http_hooks
+            .last_network_denial
+            .lock()
+            .unwrap()
+            .is_some());
+
+        assert!(state.http_hooks.validate_request_uri(&allowed_uri).is_ok());
+        assert!(state
+            .http_hooks
+            .last_network_denial
+            .lock()
+            .unwrap()
+            .is_none());
     }
 }

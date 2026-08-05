@@ -23,7 +23,12 @@ pub struct RuntimeContext {
 impl RuntimeContext {
     /// Build a runtime context with the standard configuration used by Wassette.
     pub fn initialize() -> Result<Self> {
-        let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
+        if rustls::crypto::aws_lc_rs::default_provider()
+            .install_default()
+            .is_err()
+        {
+            tracing::debug!("Using the previously installed rustls crypto provider");
+        }
 
         let mut config = wasmtime::Config::new();
         config.wasm_component_model(true);
