@@ -8,7 +8,6 @@ use std::sync::{Arc, Mutex};
 use policy::{AccessType, PolicyDocument};
 use wasmtime_wasi::{WasiCtx, WasiCtxBuilder, WasiCtxView};
 use wasmtime_wasi_config::WasiConfigVariables;
-use wasmtime_wasi_http::p2::{WasiHttpCtxView, WasiHttpView};
 use wasmtime_wasi_http::WasiHttpCtx;
 
 /// Represents a permission-related error that occurred during component execution
@@ -102,16 +101,6 @@ impl wasmtime_wasi::WasiView for WasiState {
         WasiCtxView {
             ctx: &mut self.ctx,
             table: &mut self.table,
-        }
-    }
-}
-
-impl WasiHttpView for WasiState {
-    fn http(&mut self) -> WasiHttpCtxView<'_> {
-        WasiHttpCtxView {
-            ctx: &mut self.http,
-            table: &mut self.table,
-            hooks: Default::default(),
         }
     }
 }
