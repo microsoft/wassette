@@ -117,24 +117,12 @@ When making documentation changes that affect visual presentation:
    - Annotate important changes if needed
    - Store in appropriate docs directory
 
-## Changelog Considerations
+## Release Notes
 
-**Documentation-only changes** typically don't require changelog entries unless they:
-- Significantly impact user experience
-- Document new features
-- Correct important errors or omissions
-
-When changelog entries are needed, use the format:
-
-```markdown
-## [Unreleased]
-
-### Added
-- New documentation section on component security ([#123](https://github.com/microsoft/wassette/pull/123))
-
-### Changed
-- Updated installation guide with clearer prerequisites ([#124](https://github.com/microsoft/wassette/pull/124))
-```
+Release notes are generated automatically from merged pull request titles when a
+release is published — every merged pull request becomes one entry in a flat
+"What's Changed" list, with no categories or changelog labels to manage. Just
+give documentation pull requests a clear, user-facing title.
 
 ## Common Documentation Tasks
 
@@ -187,7 +175,7 @@ Before submitting documentation changes:
 - [ ] Technical accuracy is verified
 - [ ] Consistency with existing documentation
 - [ ] Built locally without errors
-- [ ] Changelog updated if required
+- [ ] Clear, user-facing PR title written for release notes
 
 ## Technical References
 
@@ -214,7 +202,6 @@ Documentation should stay synchronized with code changes:
 ## Resources
 
 - [mdBook Documentation](https://rust-lang.github.io/mdBook/)
-- [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 - [Microsoft Writing Style Guide](https://learn.microsoft.com/en-us/style-guide/welcome/)
 - [Markdown Guide](https://www.markdownguide.org/)
 

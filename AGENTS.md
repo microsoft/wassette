@@ -86,23 +86,14 @@ Run Clippy to catch common mistakes and non-idiomatic code:
 cargo clippy --workspace
 ```
 
-## Changelog Maintenance
+## Release Notes
 
-Every pull request with a user-visible change must update the `[Unreleased]`
-section of `CHANGELOG.md`. Use the repository-local
-[`changelog`](.agents/skills/changelog/SKILL.md) agent skill, and follow these
-rules even when the agent does not support skills:
-
-- Add one concise bullet under the appropriate Keep a Changelog heading:
-  `Added`, `Changed`, `Deprecated`, `Removed`, `Fixed`, or `Security`.
-- Describe the resulting user impact, not implementation details.
-- Do not add a release version or date; the release workflow owns that step.
-- For tests, internal refactors, formatting, routine dependency maintenance,
-  and other changes without user impact, apply the `skip-changelog` label.
-
-The `Changelog Check` workflow enforces this policy. Automated release
-maintenance PRs are exempt because they are generated after or during the
-release transition.
+Release notes are generated automatically by GitHub from merged pull requests
+when a release is published. Every pull request merged since the previous
+release is listed as a single flat "What's Changed" list — there are no
+categories or per-pull-request labels to manage, and there is no `CHANGELOG.md`
+file to maintain. The one thing that matters is writing a clear, user-facing
+pull request title, because the title becomes the release-note entry.
 
 ## Copyright Headers
 
