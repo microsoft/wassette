@@ -4,18 +4,7 @@
 # Advisory database configuration
 [advisories]
 # Ignore list for known issues that are acceptable
-ignore = [
-    # fxhash is unmaintained but still widely used and safe; pulled in transitively by wasmtime
-    { id = "RUSTSEC-2025-0057", reason = "fxhash is transitively required by wasmtime and still safe despite being unmaintained" },
-    # rustls-webpki 0.102.8 is an internal dependency of wasmtime-wasi-http 36.x via rustls 0.22.4.
-    # The fixes require rustls-webpki >=0.103.x which requires rustls 0.23.x.
-    # Wasmtime 36.x uses rustls 0.22.x internally; this will be resolved when wasmtime is upgraded
-    # to a version that uses rustls 0.23+.
-    { id = "RUSTSEC-2026-0049", reason = "rustls-webpki 0.102.8 is an internal dep of wasmtime-wasi-http 36.x; fix requires rustls 0.23+ which wasmtime 36.x does not use" },
-    { id = "RUSTSEC-2026-0098", reason = "rustls-webpki 0.102.8 is an internal dep of wasmtime-wasi-http 36.x; fix requires rustls 0.23+ which wasmtime 36.x does not use" },
-    { id = "RUSTSEC-2026-0099", reason = "rustls-webpki 0.102.8 is an internal dep of wasmtime-wasi-http 36.x; fix requires rustls 0.23+ which wasmtime 36.x does not use" },
-    { id = "RUSTSEC-2026-0104", reason = "rustls-webpki 0.102.8 is an internal dep of wasmtime-wasi-http 36.x; fix requires rustls 0.23+ which wasmtime 36.x does not use" },
-]
+ignore = []
 
 # License checking configuration
 [licenses]
