@@ -123,7 +123,9 @@ npx @modelcontextprotocol/inspector --cli http://127.0.0.1:9001/mcp --transport 
 npx @modelcontextprotocol/inspector --cli http://127.0.0.1:9001/mcp --transport http --method tools/call --tool-name tool-name --tool-arg param=value
 ```
 
-Always validate tool changes with the MCP Inspector before committing: list the tools, call the ones you changed, and include the Inspector output in your pull request.
+Validate server-facing changes with the MCP Inspector before committing: list
+the tools and call the ones whose behavior changed. Capture the output when it
+helps reviewers understand the change.
 
 ## Building Documentation
 
@@ -161,8 +163,6 @@ git push origin feature/your-feature-name
 #    - Use a clear, user-facing title (it becomes the release note entry)
 ```
 
-**Changelog:** Every user-visible change must add a categorized bullet to the `[Unreleased]` section of `CHANGELOG.md`; see the [CHANGELOG Synchronization Workflow](../changelog-workflow.md). For tests, internal refactors, formatting, and routine dependency bumps, apply the `skip-changelog` label instead — the `Changelog Check` workflow enforces this. The repo-local `changelog` agent skill (`.agents/skills/changelog/SKILL.md`) can draft the entry.
-
 **Best Practices:**
 - Single responsibility per function/struct
 - DRY (Don't Repeat Yourself)
@@ -187,7 +187,6 @@ The repository ships focused **agent skills** under [`.agents/skills/`](https://
 | `documentation` | Build, serve, and write the mdBook documentation |
 | `pull-request` | Write a concise, focused pull request description |
 | `ci-local` | Reproduce CI locally with the Docker-based recipes |
-| `changelog` | Update the `[Unreleased]` section of `CHANGELOG.md` |
 
 ## CI/CD and Docker
 

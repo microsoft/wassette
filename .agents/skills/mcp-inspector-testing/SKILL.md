@@ -6,10 +6,9 @@ allowed-tools: Bash, Read, Write, Edit, Glob, Grep
 
 # mcp-inspector-testing skill
 
-Test Wassette changes with the MCP Inspector before committing. This confirms
-the server starts, tools are exposed over MCP, tool calls behave as expected,
-and no regressions slipped in. Apply it to every change: bug fixes, new
-features, and refactors.
+Test server-facing Wassette changes with the MCP Inspector before committing.
+This confirms the server starts, tools are exposed over MCP, tool calls behave
+as expected, and no regressions slipped in.
 
 ## Workflow
 
@@ -18,7 +17,7 @@ features, and refactors.
    `just run-fetch-rs`. The server listens at `127.0.0.1:9001/mcp` over
    Streamable HTTP.
 3. Drive it with the Inspector (Terminal 2) — always run `tools/list` first.
-4. Capture the Inspector output and include it in your commit or PR description.
+4. Capture Inspector output when it helps demonstrate or debug the change.
 
 ## Running the server
 
@@ -63,8 +62,8 @@ npx @modelcontextprotocol/inspector --cli $BASE --transport http \
   --method tools/list > inspector-output.txt
 ```
 
-Include captured output in commit messages, pull request descriptions, progress
-reports, and issue comments that demonstrate a fix.
+Include captured output in review notes or issue comments when it helps
+demonstrate a fix.
 
 ## Troubleshooting
 

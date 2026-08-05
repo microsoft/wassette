@@ -6,8 +6,7 @@ allowed-tools: Bash, Read, Write, Edit, Glob, Grep
 
 # rust-code-style skill
 
-Apply Wassette's Rust conventions when writing or refactoring `.rs` files. These
-rules also live in `.github/instructions/rust.instructions.md`.
+Apply Wassette's Rust conventions when writing or refactoring `.rs` files.
 
 ## Best practices
 

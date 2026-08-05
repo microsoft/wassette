@@ -33,7 +33,7 @@ code should pass a version string as the second argument.
 
 ## Before opening
 
-- Update the `[Unreleased]` section of `CHANGELOG.md` for user-visible changes
-  (see the `changelog` skill), or apply the `skip-changelog` label.
+- Use a clear, user-facing title because GitHub generates release notes from
+  merged pull request titles.
 - Most contributions require a Contributor License Agreement; the CLA bot will
   tell you if one is needed. See `CONTRIBUTING.md`.

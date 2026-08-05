@@ -12,7 +12,8 @@ WebAssembly component prerequisites are built automatically.
 
 ## Prerequisites
 
-- **Rust**: latest stable (nightly is required only for formatting).
+- **Rust**: the version pinned in `rust-toolchain.toml` (nightly is required
+  only for formatting).
 - **Cargo**: Rust's package manager.
 - **Just**: the command runner used for every development task.
 - **Node.js**: only needed for the MCP Inspector when debugging.

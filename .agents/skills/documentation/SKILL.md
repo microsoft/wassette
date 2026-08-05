@@ -1,14 +1,13 @@
 ---
 name: documentation
-description: Build, serve, and write Wassette's mdBook documentation under docs/ — concise, code-first prose, the multi-version URL layout, navigation in SUMMARY.md, and Playwright screenshots for visual changes. Use when editing docs/ pages or previewing the documentation site.
+description: Build, serve, and write Wassette's mdBook documentation under docs/ — concise, code-first prose, the multi-version URL layout, and navigation in SUMMARY.md. Use when editing docs/ pages or previewing the documentation site.
 allowed-tools: Bash, Read, Write, Edit, Glob, Grep
 ---
 
 # documentation skill
 
 Wassette documentation lives under `docs/` and is built with
-[mdBook](https://rust-lang.github.io/mdBook/). Related rules also live in
-`.github/instructions/docs.instructions.md`.
+[mdBook](https://rust-lang.github.io/mdBook/).
 
 ## Build and serve
 
@@ -39,9 +38,8 @@ locally:
 
 ## Visual changes
 
-For changes that affect layout or presentation, use Playwright to capture
-before/after screenshots and include them in progress reports so reviewers can
-see the impact.
+Preview layout or presentation changes locally. Include screenshots when they
+help reviewers understand a meaningful visual difference.
 
 ## Adding a page
 
