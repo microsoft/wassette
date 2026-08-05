@@ -285,7 +285,6 @@ If tools fail with permission errors:
 
 ## Related Documentation
 
-- [Docker Deployment](./docker.md) - Running Wassette in containers
 - [CLI Reference](../reference/cli.md) - Command-line interface
 - [Environment Variables](../reference/environment-variables.md) - Configuration options
 - [Permissions](../reference/permissions.md) - Security and access control

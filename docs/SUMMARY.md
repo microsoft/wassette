@@ -9,7 +9,6 @@
 
 # Deployment
 
-- [Docker](./deployment/docker.md)
 - [Operations](./deployment/operations.md)
 
 # Developer Guide
