@@ -12,7 +12,8 @@ Quick guide for contributing to Wassette.
 - [Running the Development Server](#running-the-development-server)
 - [Building Documentation](#building-documentation)
 - [Development Workflow](#development-workflow)
-- [CI/CD and Docker](#cicd-and-docker)
+- [Agent Skills](#agent-skills)
+- [CI Checks](#ci-checks)
 - [Project Structure](#project-structure)
 - [Contributing](#contributing)
 
@@ -122,6 +123,10 @@ npx @modelcontextprotocol/inspector --cli http://127.0.0.1:9001/mcp --transport 
 npx @modelcontextprotocol/inspector --cli http://127.0.0.1:9001/mcp --transport http --method tools/call --tool-name tool-name --tool-arg param=value
 ```
 
+Validate server-facing changes with the MCP Inspector before committing: list
+the tools and call the ones whose behavior changed. Capture the output when it
+helps reviewers understand the change.
+
 ## Building Documentation
 
 ```bash
@@ -169,19 +174,25 @@ git push origin feature/your-feature-name
 - Use `Arc`/`Mutex` for thread safety
 - Prefer `&str` over `String` when possible
 
-## CI/CD and Docker
+## Agent Skills
+
+The repository ships focused **agent skills** under [`.agents/skills/`](https://github.com/microsoft/wassette/tree/main/.agents/skills) that capture common development workflows for AI agents and are useful reading for contributors. Each skill is a self-contained `SKILL.md`; agents that support skills invoke them by name, otherwise read the file directly.
+
+| Skill | Use it to |
+| ----- | --------- |
+| `build-and-test` | Build the workspace and example components, and run the test suite |
+| `rust-code-style` | Write idiomatic Rust and run `fmt`, `clippy`, and `machete` |
+| `copyright-headers` | Add the required Microsoft copyright header to Rust files |
+| `mcp-inspector-testing` | Run the server and validate changes with the MCP Inspector |
+| `documentation` | Build, serve, and write the mdBook documentation |
+| `pull-request` | Write a concise, focused pull request description |
+
+## CI Checks
 
 ```bash
-# Run CI locally with Docker
-just ci-local
-
-# Build and test (no Docker)
+# Build and test
 just ci-build-test
 just ci-build-test-ghcr
-
-# Docker commands
-just ci-cache-info
-just ci-clean
 ```
 
 ## Project Structure
@@ -243,8 +254,8 @@ cargo clippy            # Lint
 just docs-serve         # Serve docs locally
 just docs-build         # Build docs
 
-# CI/Docker
-just ci-local           # Run CI locally
+# CI
+just ci-build-test      # Run the build and test checks
 
 # Utilities
 ./scripts/copyright.sh  # Add copyright headers
