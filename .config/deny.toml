@@ -5,8 +5,6 @@
 [advisories]
 # Ignore list for known issues that are acceptable
 ignore = [
-    # paste crate is unmaintained but still widely used and safe
-    { id = "RUSTSEC-2024-0436", reason = "paste crate is unmaintained but still widely used and safe" },
     # fxhash is unmaintained but still widely used and safe; pulled in transitively by wasmtime
     { id = "RUSTSEC-2025-0057", reason = "fxhash is transitively required by wasmtime and still safe despite being unmaintained" },
     # rustls-webpki 0.102.8 is an internal dependency of wasmtime-wasi-http 36.x via rustls 0.22.4.
