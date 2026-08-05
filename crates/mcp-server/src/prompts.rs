@@ -2,9 +2,11 @@
 // Licensed under the MIT license.
 
 use anyhow::Result;
+#[cfg(test)]
+use rmcp::model::ContentBlock;
 use rmcp::model::{
     GetPromptRequestParams, GetPromptResult, ListPromptsResult, Prompt, PromptArgument,
-    PromptMessage, PromptMessageRole,
+    PromptMessage, Role,
 };
 
 const RUST_COMPONENT_TEMPLATE: &str = r#"# Building a Rust WebAssembly Component for Wassette
@@ -506,14 +508,14 @@ fn build_rust_component_prompt(
 
     let content = RUST_COMPONENT_TEMPLATE.replace("{component_name}", component_name);
 
-    Ok(GetPromptResult::new(vec![PromptMessage::new_text(
-        PromptMessageRole::User,
-        content,
-    )])
-    .with_description(format!(
-        "A step-by-step guide to building a Rust WebAssembly component named '{}'",
-        component_name
-    )))
+    Ok(
+        GetPromptResult::new(vec![PromptMessage::new_text(Role::User, content)]).with_description(
+            format!(
+                "A step-by-step guide to building a Rust WebAssembly component named '{}'",
+                component_name
+            ),
+        ),
+    )
 }
 
 /// Generate the JavaScript component building prompt
@@ -527,14 +529,14 @@ fn build_javascript_component_prompt(
 
     let content = JAVASCRIPT_COMPONENT_TEMPLATE.replace("{component_name}", component_name);
 
-    Ok(GetPromptResult::new(vec![PromptMessage::new_text(
-        PromptMessageRole::User,
-        content,
-    )])
-    .with_description(format!(
-        "A step-by-step guide to building a JavaScript WebAssembly component named '{}'",
-        component_name
-    )))
+    Ok(
+        GetPromptResult::new(vec![PromptMessage::new_text(Role::User, content)]).with_description(
+            format!(
+                "A step-by-step guide to building a JavaScript WebAssembly component named '{}'",
+                component_name
+            ),
+        ),
+    )
 }
 
 #[cfg(test)]
@@ -574,11 +576,11 @@ mod tests {
         assert!(get_result.description.is_some());
         assert!(get_result.description.unwrap().contains("test-component"));
         assert_eq!(get_result.messages.len(), 1);
-        assert_eq!(get_result.messages[0].role, PromptMessageRole::User);
+        assert_eq!(get_result.messages[0].role, Role::User);
 
         // Check content includes expected sections
         let content_text = match &get_result.messages[0].content {
-            rmcp::model::PromptMessageContent::Text { text } => text,
+            ContentBlock::Text(text) => &text.text,
             _ => panic!("Expected text content"),
         };
         assert!(content_text.contains("Building a Rust WebAssembly Component"));
@@ -604,7 +606,7 @@ mod tests {
         assert_eq!(get_result.messages.len(), 1);
 
         let content_text = match &get_result.messages[0].content {
-            rmcp::model::PromptMessageContent::Text { text } => text,
+            ContentBlock::Text(text) => &text.text,
             _ => panic!("Expected text content"),
         };
         assert!(content_text.contains("Building a JavaScript WebAssembly Component"));
@@ -622,7 +624,7 @@ mod tests {
         let get_result: GetPromptResult = serde_json::from_value(result).unwrap();
 
         let content_text = match &get_result.messages[0].content {
-            rmcp::model::PromptMessageContent::Text { text } => text,
+            ContentBlock::Text(text) => &text.text,
             _ => panic!("Expected text content"),
         };
         // Should use default "my-component" when no argument provided

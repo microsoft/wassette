@@ -5,7 +5,7 @@ use std::sync::Arc;
 
 use anyhow::Result;
 use futures::stream::{self, StreamExt};
-use rmcp::model::{CallToolRequestParams, CallToolResult, Content, Tool};
+use rmcp::model::{CallToolRequestParams, CallToolResult, ContentBlock, Tool};
 use rmcp::{Peer, RoleServer};
 use serde_json::{json, Value};
 use tracing::{debug, error, info, instrument};
@@ -171,7 +171,7 @@ pub async fn handle_component_call(
                 align_structured_result_with_schema(Some(schema), parsed_value.clone())
             });
 
-            let contents = vec![Content::text(response_text)];
+            let contents = vec![ContentBlock::text(response_text)];
 
             let mut result = CallToolResult::success(contents);
             result.structured_content = structured_content;
@@ -270,7 +270,7 @@ pub async fn handle_list_components(
         "total": components_info.len()
     }))?;
 
-    let contents = vec![Content::text(result_text)];
+    let contents = vec![ContentBlock::text(result_text)];
 
     Ok(CallToolResult::success(contents))
 }
@@ -302,7 +302,7 @@ fn create_component_success_result(
         "id": component_id
     }))?;
 
-    let contents = vec![Content::text(status_text)];
+    let contents = vec![ContentBlock::text(status_text)];
 
     Ok(CallToolResult::success(contents))
 }
@@ -319,7 +319,7 @@ fn create_load_component_success_result(outcome: &ComponentLoadOutcome) -> Resul
         "tools": &outcome.tool_names,
     }))?;
 
-    let contents = vec![Content::text(status_text)];
+    let contents = vec![ContentBlock::text(status_text)];
 
     Ok(CallToolResult::success(contents))
 }
@@ -339,7 +339,7 @@ fn create_component_error_result(
         format!("{{\"status\":\"error\",\"message\":\"Failed to {operation_name} component\"}}",)
     });
 
-    let contents = vec![Content::text(error_text)];
+    let contents = vec![ContentBlock::text(error_text)];
 
     CallToolResult::error(contents)
 }

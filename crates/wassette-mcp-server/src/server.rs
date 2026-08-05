@@ -12,7 +12,7 @@ use mcp_server::{
     LifecycleManager,
 };
 use rmcp::model::{
-    CallToolRequestParams, CallToolResult, ErrorData, ListPromptsResult, ListResourcesResult,
+    CallToolRequestParams, CallToolResponse, ErrorData, ListPromptsResult, ListResourcesResult,
     ListToolsResult, PaginatedRequestParams, ServerCapabilities, ServerInfo,
 };
 use rmcp::service::{RequestContext, RoleServer};
@@ -81,7 +81,7 @@ Key points:
         &'a self,
         params: CallToolRequestParams,
         ctx: RequestContext<RoleServer>,
-    ) -> Pin<Box<dyn Future<Output = Result<CallToolResult, ErrorData>> + Send + 'a>> {
+    ) -> Pin<Box<dyn Future<Output = Result<CallToolResponse, ErrorData>> + Send + 'a>> {
         let peer_clone = ctx.peer.clone();
 
         // Store peer on first request
@@ -97,9 +97,11 @@ Key points:
             )
             .await;
             match result {
-                Ok(value) => serde_json::from_value(value).map_err(|e| {
-                    ErrorData::parse_error(format!("Failed to parse result: {e}"), None)
-                }),
+                Ok(value) => serde_json::from_value(value)
+                    .map(CallToolResponse::Complete)
+                    .map_err(|e| {
+                        ErrorData::parse_error(format!("Failed to parse result: {e}"), None)
+                    }),
                 Err(err) => Err(ErrorData::parse_error(err.to_string(), None)),
             }
         })

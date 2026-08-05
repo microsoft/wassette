@@ -603,12 +603,14 @@ async fn main() -> Result<()> {
                     };
 
                     print_result(
-                        &rmcp::model::CallToolResult::success(vec![rmcp::model::Content::text(
-                            serde_json::to_string_pretty(&json!({
-                                "component_id": component_id,
-                                "secrets": result
-                            }))?,
-                        )]),
+                        &rmcp::model::CallToolResult::success(vec![
+                            rmcp::model::ContentBlock::text(serde_json::to_string_pretty(
+                                &json!({
+                                    "component_id": component_id,
+                                    "secrets": result
+                                }),
+                            )?),
+                        ]),
                         *output_format,
                     )?;
                 }
@@ -629,9 +631,9 @@ async fn main() -> Result<()> {
                     });
 
                     print_result(
-                        &rmcp::model::CallToolResult::success(vec![rmcp::model::Content::text(
-                            serde_json::to_string_pretty(&result)?,
-                        )]),
+                        &rmcp::model::CallToolResult::success(vec![
+                            rmcp::model::ContentBlock::text(serde_json::to_string_pretty(&result)?),
+                        ]),
                         OutputFormat::Json,
                     )?;
                 }
@@ -652,9 +654,9 @@ async fn main() -> Result<()> {
                     });
 
                     print_result(
-                        &rmcp::model::CallToolResult::success(vec![rmcp::model::Content::text(
-                            serde_json::to_string_pretty(&result)?,
-                        )]),
+                        &rmcp::model::CallToolResult::success(vec![
+                            rmcp::model::ContentBlock::text(serde_json::to_string_pretty(&result)?),
+                        ]),
                         OutputFormat::Json,
                     )?;
                 }
@@ -684,9 +686,9 @@ async fn main() -> Result<()> {
                     }))?;
 
                     print_result(
-                        &rmcp::model::CallToolResult::success(vec![rmcp::model::Content::text(
-                            content,
-                        )]),
+                        &rmcp::model::CallToolResult::success(vec![
+                            rmcp::model::ContentBlock::text(content),
+                        ]),
                         *output_format,
                     )?;
                 }
@@ -716,9 +718,9 @@ async fn main() -> Result<()> {
                     }))?;
 
                     print_result(
-                        &rmcp::model::CallToolResult::success(vec![rmcp::model::Content::text(
-                            content,
-                        )]),
+                        &rmcp::model::CallToolResult::success(vec![
+                            rmcp::model::ContentBlock::text(content),
+                        ]),
                         *output_format,
                     )?;
                 }
@@ -834,9 +836,9 @@ async fn main() -> Result<()> {
                     });
 
                     print_result(
-                        &rmcp::model::CallToolResult::success(vec![rmcp::model::Content::text(
-                            serde_json::to_string_pretty(&result)?,
-                        )]),
+                        &rmcp::model::CallToolResult::success(vec![
+                            rmcp::model::ContentBlock::text(serde_json::to_string_pretty(&result)?),
+                        ]),
                         *output_format,
                     )?;
                 }
