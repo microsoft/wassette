@@ -22,8 +22,8 @@
           inherit system overlays;
         };
 
-        rustToolchain = pkgs.rust-bin.stable.latest.default.override {
-          extensions = [ "rust-src" "rust-analyzer" ];
+        rustToolchain = (pkgs.rust-bin.fromRustupToolchainFile ./rust-toolchain.toml).override {
+          extensions = [ "rustfmt" "clippy" "rust-src" "rust-analyzer" ];
           targets = [ "wasm32-wasip2" "wasm32-wasip1" "wasm32-unknown-unknown" ];
         };
 
@@ -35,6 +35,7 @@
             filter = path: type:
               (craneLib.filterCargoSources path type)
               || (pkgs.lib.hasSuffix "README.md" path)
+              || (pkgs.lib.hasSuffix "rust-toolchain.toml" path)
               || (pkgs.lib.hasSuffix "component-registry.json" path);
           };
           strictDeps = true;
