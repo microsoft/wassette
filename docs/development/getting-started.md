@@ -13,7 +13,7 @@ Quick guide for contributing to Wassette.
 - [Building Documentation](#building-documentation)
 - [Development Workflow](#development-workflow)
 - [Agent Skills](#agent-skills)
-- [CI/CD and Docker](#cicd-and-docker)
+- [CI Checks](#ci-checks)
 - [Project Structure](#project-structure)
 - [Contributing](#contributing)
 
@@ -186,21 +186,13 @@ The repository ships focused **agent skills** under [`.agents/skills/`](https://
 | `mcp-inspector-testing` | Run the server and validate changes with the MCP Inspector |
 | `documentation` | Build, serve, and write the mdBook documentation |
 | `pull-request` | Write a concise, focused pull request description |
-| `ci-local` | Reproduce CI locally with the Docker-based recipes |
 
-## CI/CD and Docker
+## CI Checks
 
 ```bash
-# Run CI locally with Docker
-just ci-local
-
-# Build and test (no Docker)
+# Build and test
 just ci-build-test
 just ci-build-test-ghcr
-
-# Docker commands
-just ci-cache-info
-just ci-clean
 ```
 
 ## Project Structure
@@ -262,8 +254,8 @@ cargo clippy            # Lint
 just docs-serve         # Serve docs locally
 just docs-build         # Build docs
 
-# CI/Docker
-just ci-local           # Run CI locally
+# CI
+just ci-build-test      # Run the build and test checks
 
 # Utilities
 ./scripts/copyright.sh  # Add copyright headers

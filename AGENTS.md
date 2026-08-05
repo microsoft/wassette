@@ -27,7 +27,6 @@ Focused workflows live under [`.agents/skills/`](.agents/skills/):
 | `mcp-inspector-testing` | Testing server behavior through MCP Inspector |
 | `documentation` | Writing, building, and previewing the mdBook |
 | `pull-request` | Writing concise, user-facing pull requests |
-| `ci-local` | Reproducing CI with the repository `just` recipes |
 
 Agents that support the Agent Skills standard should invoke the relevant skill.
 Other agents should read its `SKILL.md` before performing that workflow.
