@@ -45,7 +45,7 @@ tempfile = "3.8"
 test-log = { version = "0.2", features = ["trace"] }
 tokio-test = "0.4"
 tracing-test = "0.2"
-testcontainers = "0.27"
+testcontainers = "0.28"
 oci-wasm = { version = "0.6", default-features = false, features = ["rustls-tls"] }
 oci-client = "0.17"
 hyper = { version = "1.0", features = ["server", "http1"] }
