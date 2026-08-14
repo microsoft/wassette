@@ -1,16 +1,20 @@
-//! ACP wasmtime host.
+//! ACP host for Wassette.
 //!
 //! Loads an ACP agent component and bridges it to the editor over the ACP
-//! JSON-RPC wire protocol on stdio. Logs go to stderr; configure verbosity
-//! with the `RUST_LOG` environment variable (e.g. `RUST_LOG=host=debug`).
-//! Pass `--log-file <path>` to also write logs to a file (useful for
-//! debugging when stderr is hidden behind the editor).
+//! JSON-RPC wire protocol on stdio. Logs go to stderr — stdout is the
+//! protocol channel. Configure verbosity with the `RUST_LOG` environment
+//! variable (e.g. `RUST_LOG=wassette_acp=debug`), or with `--log-level` /
+//! `--log-filter`. Pass `--log-file <path>` to also write logs to a file
+//! (useful for debugging when stderr is hidden behind the editor).
+//!
+//! The crate is driven through [`AcpArgs`] and [`run`], which
+//! `wassette acp` wires up as a subcommand.
 
 use std::path::PathBuf;
 use std::sync::Arc;
 
 use anyhow::{Context, Result};
-use clap::Parser;
+use etcetera::BaseStrategy;
 use tokio::sync::mpsc;
 use tokio::task::LocalSet;
 use tracing::info;
@@ -27,7 +31,6 @@ mod secrets;
 mod secrets_impl;
 mod state;
 mod translate;
-mod utils;
 mod wasi_log;
 mod wasm;
 
@@ -82,6 +85,11 @@ mod layer_bindings {
     });
 }
 
+pub use layer_bindings::Layer;
+
+use crate::install::Resolver;
+use crate::state::StageKind;
+use crate::wasm::{SessionFactory, SessionRegistry, Stage};
 /// `Host` trait for the layer's *imported* `agent` interface. Since the
 /// `with:` clause on the layer bindgen shares this interface with the
 /// provider's top-level bindgen (both worlds import `agent` for the
@@ -90,21 +98,13 @@ mod layer_bindings {
 /// `HostWithStore` impl on `HasSelf<HostState>` therefore satisfies
 /// both worlds' linkers.
 pub use crate::yosh::acp::agent as layer_agent;
-pub use layer_bindings::Layer;
 
-use crate::state::StageKind;
-use crate::wasm::{SessionFactory, SessionRegistry, Stage};
-
-#[derive(Parser)]
-struct Args {
-    /// Optional admin subcommand. When omitted, the host runs an ACP
-    /// agent chain (the default). When present, it manages per-component
-    /// secrets and exits.
-    #[command(subcommand)]
-    command: Option<Command>,
-
-    /// Path or WIT name of a terminal ACP **provider** wasm component
-    /// (the bottom of a chain). At least one is required.
+/// Arguments for `wassette acp`: run Wassette as an ACP agent whose brain
+/// is a WebAssembly component.
+#[derive(clap::Args, Debug)]
+pub struct AcpArgs {
+    /// Path, URI, or component id of a terminal ACP **provider** wasm
+    /// component (the bottom of a chain). At least one is required.
     ///
     /// May be passed multiple times to load several providers at once.
     /// Every provider is instantiated for each session and its models
@@ -114,116 +114,66 @@ struct Args {
     /// … — follow the provider owning the active model). The same set
     /// of `--layer`s wraps every provider.
     ///
-    /// Accepts either a filesystem path (`./my-agent.wasm`) or a
-    /// WIT-style package name (`namespace:package[@version]`) — the
-    /// latter is resolved against the local component cache, installing
-    /// from the registry on first use. `--provider` takes precedence
-    /// over the legacy positional argument.
-    #[arg(long = "provider", value_name = "PATH|WIT_NAME")]
-    providers: Vec<String>,
+    /// Accepts anything `wassette component load` does — a filesystem
+    /// path (`./my-agent.wasm`), an `oci://` reference, or an `https://`
+    /// URL — plus the id of a component already in the component
+    /// directory. Downloads are stored in the component directory, so a
+    /// component only has to be fetched once.
+    #[arg(long = "provider", value_name = "PATH|URI|COMPONENT_ID")]
+    pub providers: Vec<String>,
 
-    /// Legacy positional alias for `--provider`. Retained so existing
-    /// single-provider invocations keep working unchanged; used only
-    /// when no `--provider` flag is given.
-    wasm_path: Option<String>,
-
-    /// Path or WIT name of a **layer** wasm component to wrap the
-    /// provider. May be passed multiple times; layers are applied
+    /// Path, URI, or component id of a **layer** wasm component to wrap
+    /// the providers. May be passed multiple times; layers are applied
     /// editor-side → provider-side in the order given (the first
     /// `--layer` is the outermost stage closest to the host).
     /// Same syntax as `--provider`.
-    #[arg(long = "layer", value_name = "PATH|WIT_NAME")]
-    layers: Vec<String>,
+    #[arg(long = "layer", value_name = "PATH|URI|COMPONENT_ID")]
+    pub layers: Vec<String>,
+
+    /// Directory where components are stored. Defaults to
+    /// `$XDG_DATA_HOME/wassette/components` — the same store
+    /// `wassette component load` writes to.
+    #[arg(long)]
+    pub component_dir: Option<PathBuf>,
+
+    /// Directory where component secrets are stored. Defaults to
+    /// `$XDG_CONFIG_HOME/wassette/secrets` — the same store
+    /// `wassette secret set` writes to.
+    #[arg(long)]
+    pub secrets_dir: Option<PathBuf>,
 
     /// Optional path to a file to mirror logs into. The same events that
     /// go to stderr are appended to this file (no ANSI colors). Useful
     /// when running under an editor that swallows or hides the host's
     /// stderr.
     #[arg(long)]
-    log_file: Option<PathBuf>,
+    pub log_file: Option<PathBuf>,
 
-    /// Coarse log level. Equivalent to `RUST_LOG=host=<level>`. Use
-    /// `--log-filter` for full `tracing` directive syntax (per-target
+    /// Coarse log level. Equivalent to `RUST_LOG=wassette_acp=<level>`.
+    /// Use `--log-filter` for full `tracing` directive syntax (per-target
     /// levels). `RUST_LOG`, if set, takes precedence over both flags.
     #[arg(long, value_enum, default_value_t = LogLevel::Info)]
-    log_level: LogLevel,
+    pub log_level: LogLevel,
 
     /// Full `tracing-subscriber` env-filter directive. Overrides
     /// `--log-level` when set. Example:
-    /// `--log-filter "host=debug,agent_client_protocol=trace"`.
+    /// `--log-filter "wassette_acp=debug,agent_client_protocol=trace"`.
     #[arg(long)]
-    log_filter: Option<String>,
-
-    /// Which `keyring-core` credential store backs per-component
-    /// secrets. Defaults to the platform-native OS store (`native`); pass
-    /// `mock` for an in-memory store (tests/CI, empty each run). Applies
-    /// to both the host run path and the `secret` subcommands.
-    #[arg(long, value_name = "native|mock")]
-    keyring_store: Option<crate::secrets::keyring_store::Backend>,
-
-    /// Prefix for keyring `service` names. Each component's secrets live
-    /// under `service = "<prefix>:<component-id>"`, keeping this host's
-    /// entries from colliding with other apps in a shared OS keychain.
-    #[arg(long, value_name = "PREFIX", default_value = crate::secrets::DEFAULT_SERVICE_PREFIX)]
-    keyring_service_prefix: String,
+    pub log_filter: Option<String>,
 }
 
-/// Admin subcommands. Absent = run the ACP host (the default).
-#[derive(clap::Subcommand)]
-enum Command {
-    /// Manage per-component secrets in the keyring store.
-    #[command(subcommand)]
-    Secret(SecretCommand),
-}
-
-#[derive(clap::Subcommand)]
-enum SecretCommand {
-    /// Store a secret for a component, reading the value from stdin.
-    ///
-    /// The value is stored under `service = "<prefix>:<component-id>"`,
-    /// `user = <key>`, in the store selected by `--keyring-store`. A
-    /// single trailing newline is stripped from string values (pass
-    /// `--bytes` to store stdin verbatim).
-    Set {
-        /// Component identity `namespace:component-name`. Registry
-        /// components use their WIT `namespace:package` (e.g.
-        /// `yosh:ollama-provider`); components loaded from a file use
-        /// `local:<filename-stem>` (e.g. `local:ollama_provider`). The
-        /// host logs this identity at startup.
-        component_id: String,
-        /// Secret key name the component looks up via `store.get`.
-        key: String,
-        /// Store stdin as raw bytes instead of a UTF-8 string (no
-        /// newline stripping).
-        #[arg(long)]
-        bytes: bool,
-    },
-    /// Delete a component's secret. Succeeds even if it does not exist.
-    Delete {
-        /// Component identity `namespace:component-name` (e.g.
-        /// `local:ollama_provider` or `yosh:ollama-provider`).
-        component_id: String,
-        /// Secret key name.
-        key: String,
-    },
-    /// Check whether a component's secret is set, without revealing its
-    /// value. Exits `0` if the secret exists, `1` if it does not — so it
-    /// can be used as a predicate (e.g. `host secret check … && …`).
-    Check {
-        /// Component identity `namespace:component-name` (e.g.
-        /// `local:ollama_provider` or `yosh:ollama-provider`).
-        component_id: String,
-        /// Secret key name.
-        key: String,
-    },
-}
-
+/// Coarse verbosity for the host's own logs.
 #[derive(Copy, Clone, Debug, clap::ValueEnum)]
-enum LogLevel {
+pub enum LogLevel {
+    /// Everything, including per-message wire traces.
     Trace,
+    /// Debugging detail.
     Debug,
+    /// Lifecycle events (the default).
     Info,
+    /// Recoverable problems only.
     Warn,
+    /// Failures only.
     Error,
 }
 
@@ -239,7 +189,13 @@ impl LogLevel {
     }
 }
 
-fn main() -> Result<()> {
+/// Run the ACP host: resolve the provider/layer chain, then speak ACP
+/// JSON-RPC on stdio until the client disconnects.
+///
+/// Session actors are `!Send` (they own a `Store<HostState>`), so the
+/// work happens inside a [`LocalSet`] pinned to the calling thread of the
+/// *current* runtime — no nested runtime is created.
+pub async fn run(args: AcpArgs) -> Result<()> {
     // rustls 0.23 links both crypto backends in this dependency graph
     // (wasmtime-wasi-http + oci-client pull `aws-lc-rs`; reqwest/hyper-rustls
     // pull `ring`), so it cannot auto-select a process-level CryptoProvider
@@ -248,25 +204,7 @@ fn main() -> Result<()> {
     // `Err` (provider already installed) is safe to ignore.
     let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
 
-    let args = Args::parse();
     init_logging(&args)?;
-
-    // The keyring store backs both secret resolution (the host run path)
-    // and the `secret` admin subcommands, so initialize it once up front
-    // for every invocation. Setting the store is cheap and doesn't touch
-    // the keychain until a secret is actually read or written.
-    let backend = args
-        .keyring_store
-        .unwrap_or(crate::secrets::keyring_store::Backend::Native);
-    crate::secrets::keyring_store::init_default_store(backend)
-        .context("initializing keyring store")?;
-    info!(?backend, "initialized keyring store");
-
-    // Admin subcommands need neither the wasm engine nor the async
-    // runtime: run and exit.
-    if let Some(command) = args.command {
-        return run_secret_command(command, &args.keyring_service_prefix);
-    }
 
     let mut config = Config::new();
     config.wasm_component_model(true);
@@ -278,150 +216,113 @@ fn main() -> Result<()> {
     config.wasm_features(wasmtime::WasmFeatures::CM_ASYNC_STACKFUL, true);
     let engine = Engine::new(&config)?;
 
-    // Resolve provider args: every `--provider` flag, falling back to
-    // the legacy positional argument when none were given. At least one
-    // provider is required.
-    let provider_args: Vec<String> = if !args.providers.is_empty() {
-        args.providers.clone()
-    } else {
-        args.wasm_path.clone().into_iter().collect()
-    };
-    if provider_args.is_empty() {
+    if args.providers.is_empty() {
         anyhow::bail!(
-            "missing provider wasm component: pass `--provider <path|wit-name>` \
-             (repeatable) or as a positional arg"
+            "missing provider wasm component: pass `--provider <path|uri|component-id>` \
+             (repeatable)"
         );
     }
+
+    let component_dir = match args.component_dir.clone() {
+        Some(dir) => dir,
+        None => default_component_dir()?,
+    };
+    let secrets_dir = match args.secrets_dir.clone() {
+        Some(dir) => dir,
+        None => default_secrets_dir()?,
+    };
+    info!(
+        component_dir = %component_dir.display(),
+        secrets_dir = %secrets_dir.display(),
+        "wassette stores",
+    );
 
     let data_root = init_data_root()?;
+    let resolver = Arc::new(Resolver::new(component_dir));
 
-    // Each component gets a private secret store namespaced by its
-    // identity: `store.get(key)` resolves against
-    // `service = "<prefix>:<component-id>"` in the keyring store.
-    let secrets = Arc::new(crate::secrets::SecretsRegistry::new(
-        args.keyring_service_prefix.clone(),
-    ));
+    // Each component gets a private secret store keyed by its Wassette
+    // component id: `store.get(key)` reads that component's secrets file
+    // and nothing else.
+    let secrets = Arc::new(crate::secrets::SecretsRegistry::new(secrets_dir));
 
-    // Multi-threaded runtime + `LocalSet`: pins `!Send` session actors to
-    // the `block_on` thread while `Send` work runs on the worker pool.
-    let runtime = tokio::runtime::Builder::new_multi_thread()
-        .enable_all()
-        .build()?;
-
+    // `LocalSet` pins the `!Send` session actors to this thread while
+    // `Send` work keeps running on the caller's runtime worker pool.
     let local = LocalSet::new();
-    local.block_on(&runtime, async move {
-        // Resolve provider/layer args (filesystem paths pass through;
-        // WIT names install-on-miss against the component cache). The
-        // component identity (`namespace:component-name`) that keys its
-        // secret store and `/data` comes from the same arg.
-        let mut providers: Vec<Stage> = Vec::with_capacity(provider_args.len());
-        for arg in &provider_args {
-            let provider_path = install::resolve(arg)
-                .await
-                .with_context(|| format!("resolving provider `{arg}`"))?;
-            let provider_id = install::component_id_for_arg(arg)
-                .with_context(|| format!("deriving component id for `{arg}`"))?;
-            let stage = load_stage(&engine, &provider_path, StageKind::Provider, provider_id)?;
-            info!(path = %provider_path.display(), provider = %stage.component_id, "loaded provider component");
-            providers.push(stage);
-        }
-        info!(
-            provider_count = providers.len(),
-            layer_count = args.layers.len(),
-            "chain configuration",
-        );
+    local
+        .run_until(async move {
+            // Resolve provider/layer args (filesystem paths pass through;
+            // URIs download into the Wassette component dir; bare ids come
+            // from it). The Wassette component id that keys a stage's
+            // secret store and `/data` comes from the same arg.
+            let mut providers: Vec<Stage> = Vec::with_capacity(args.providers.len());
+            for arg in &args.providers {
+                let resolved = resolver
+                    .resolve(arg)
+                    .await
+                    .with_context(|| format!("resolving provider `{arg}`"))?;
+                let stage = load_stage(
+                    &engine,
+                    &resolved.path,
+                    StageKind::Provider,
+                    resolved.component_id,
+                )?;
+                info!(path = %resolved.path.display(), provider = %stage.component_id, "loaded provider component");
+                providers.push(stage);
+            }
+            info!(
+                provider_count = providers.len(),
+                layer_count = args.layers.len(),
+                "chain configuration",
+            );
 
-        let mut layers: Vec<Stage> = Vec::with_capacity(args.layers.len());
-        for arg in &args.layers {
-            let p = install::resolve(arg)
-                .await
-                .with_context(|| format!("resolving layer `{arg}`"))?;
-            let layer_id = install::component_id_for_arg(arg)
-                .with_context(|| format!("deriving component id for `{arg}`"))?;
-            layers.push(load_stage(&engine, &p, StageKind::Layer, layer_id)?);
-        }
-        for (idx, stage) in layers.iter().enumerate() {
-            info!(idx, layer = %stage.component_id, "loaded layer");
-        }
+            let mut layers: Vec<Stage> = Vec::with_capacity(args.layers.len());
+            for arg in &args.layers {
+                let resolved = resolver
+                    .resolve(arg)
+                    .await
+                    .with_context(|| format!("resolving layer `{arg}`"))?;
+                layers.push(load_stage(
+                    &engine,
+                    &resolved.path,
+                    StageKind::Layer,
+                    resolved.component_id,
+                )?);
+            }
+            for (idx, stage) in layers.iter().enumerate() {
+                info!(idx, layer = %stage.component_id, "loaded layer");
+            }
 
-        let (outbound_tx, outbound_rx) = mpsc::channel(64);
-        let factory = Arc::new(SessionFactory::new(
-            engine,
-            providers,
-            layers,
-            outbound_tx,
-            data_root,
-            secrets,
-        ));
-        let registry = Arc::new(SessionRegistry::new());
+            let (outbound_tx, outbound_rx) = mpsc::channel(64);
+            let factory = Arc::new(SessionFactory::new(
+                engine,
+                providers,
+                layers,
+                outbound_tx,
+                data_root,
+                secrets,
+                resolver,
+            ));
+            let registry = Arc::new(SessionRegistry::new());
 
-        info!("listening for ACP JSON-RPC on stdio");
+            info!("listening for ACP JSON-RPC on stdio");
 
-        bridge::run(factory, registry, outbound_rx).await
-    })
+            bridge::run(factory, registry, outbound_rx).await
+        })
+        .await
 }
 
-/// Run a `secret` admin subcommand against the initialized keyring store.
-/// Synchronous: keyring access blocks but needs no async runtime. Secret
-/// values are read from stdin and never logged.
-fn run_secret_command(command: Command, prefix: &str) -> Result<()> {
-    use std::io::Read;
-    let Command::Secret(command) = command;
-    match command {
-        SecretCommand::Set {
-            component_id,
-            key,
-            bytes,
-        } => {
-            let value = if bytes {
-                let mut buf = Vec::new();
-                std::io::stdin()
-                    .read_to_end(&mut buf)
-                    .context("reading secret bytes from stdin")?;
-                crate::secrets::SecretValue::Bytes(buf)
-            } else {
-                let mut s = String::new();
-                std::io::stdin()
-                    .read_to_string(&mut s)
-                    .context("reading secret from stdin")?;
-                // Strip a single trailing newline so `echo secret | …`
-                // stores `secret`, not `secret\n`.
-                if s.ends_with('\n') {
-                    s.pop();
-                    if s.ends_with('\r') {
-                        s.pop();
-                    }
-                }
-                crate::secrets::SecretValue::String(s)
-            };
-            crate::secrets::set_secret(prefix, &component_id, &key, &value)
-                .with_context(|| format!("setting secret for `{component_id}` key `{key}`"))?;
-            info!(component_id = %component_id, key = %key, "stored secret");
-            eprintln!("stored secret for component `{component_id}`, key `{key}`");
-        }
-        SecretCommand::Delete { component_id, key } => {
-            crate::secrets::delete_secret(prefix, &component_id, &key)
-                .with_context(|| format!("deleting secret for `{component_id}` key `{key}`"))?;
-            info!(component_id = %component_id, key = %key, "deleted secret");
-            eprintln!("deleted secret for component `{component_id}`, key `{key}`");
-        }
-        SecretCommand::Check { component_id, key } => {
-            let present = crate::secrets::check_secret(prefix, &component_id, &key)
-                .with_context(|| format!("checking secret for `{component_id}` key `{key}`"))?;
-            if present {
-                info!(component_id = %component_id, key = %key, "secret is set");
-                eprintln!("secret is set for component `{component_id}`, key `{key}`");
-            } else {
-                info!(component_id = %component_id, key = %key, "secret is not set");
-                eprintln!("secret is NOT set for component `{component_id}`, key `{key}`");
-                // Signal absence with a non-zero exit so `check` works as a
-                // shell predicate. No async runtime or wasm resources are
-                // live on this admin path, so exiting directly is safe.
-                std::process::exit(1);
-            }
-        }
-    }
-    Ok(())
+/// `$XDG_DATA_HOME/wassette/components` — the same component store
+/// `wassette component load` and `wassette run` use.
+fn default_component_dir() -> Result<PathBuf> {
+    let strategy = etcetera::choose_base_strategy().context("unable to get home directory")?;
+    Ok(strategy.data_dir().join("wassette").join("components"))
+}
+
+/// `$XDG_CONFIG_HOME/wassette/secrets` — the same secret store
+/// `wassette secret set` writes to.
+fn default_secrets_dir() -> Result<PathBuf> {
+    let strategy = etcetera::choose_base_strategy().context("unable to get home directory")?;
+    Ok(strategy.config_dir().join("wassette").join("secrets"))
 }
 
 /// Load a wasm component from disk and pair it with its component
@@ -544,19 +445,23 @@ fn validate_imports(engine: &Engine, component: &Component, kind: StageKind) -> 
     }
 }
 
-/// Configure the global `tracing` subscriber. Stderr is always wired up;
-/// `--log-file` adds an opt-in file layer (ANSI off, so the file stays
-/// grep-friendly). Each boot writes to its own timestamped file —
-/// e.g. `host.log` becomes `host-<unix-ts>.log` — so runs never
-/// stomp each other and old logs stick around for postmortems.
-/// `RUST_LOG` takes precedence over the
-/// `--log-filter` / `--log-level` flags.
-fn init_logging(args: &Args) -> Result<()> {
+/// Configure the global `tracing` subscriber. **Stderr only** — stdout is
+/// the ACP protocol channel. `--log-file` adds an opt-in file layer (ANSI
+/// off, so the file stays grep-friendly). Each boot writes to its own
+/// timestamped file — e.g. `host.log` becomes `host-<unix-ts>.log` — so
+/// runs never stomp each other and old logs stick around for postmortems.
+/// `RUST_LOG` takes precedence over the `--log-filter` / `--log-level`
+/// flags.
+///
+/// A subscriber installed by the caller wins; the flags are then inert.
+fn init_logging(args: &AcpArgs) -> Result<()> {
     let env_filter = tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| {
-        let directive = args
-            .log_filter
-            .clone()
-            .unwrap_or_else(|| format!("host={},wasm_stderr=info", args.log_level.as_str()));
+        let directive = args.log_filter.clone().unwrap_or_else(|| {
+            format!(
+                "wassette_acp={level},wasm_stderr=info",
+                level = args.log_level.as_str()
+            )
+        });
         tracing_subscriber::EnvFilter::new(directive)
     });
 
@@ -564,11 +469,18 @@ fn init_logging(args: &Args) -> Result<()> {
     let log_path = args.log_file.as_deref().map(timestamped_log_path);
     let file_layer = log_path.as_deref().map(open_log_file).transpose()?;
 
-    tracing_subscriber::registry()
+    if tracing_subscriber::registry()
         .with(env_filter)
         .with(stderr_layer)
         .with(file_layer)
-        .init();
+        .try_init()
+        .is_err()
+    {
+        // Someone (the `wassette` binary, a test harness) already
+        // installed a subscriber. Keep going rather than aborting the
+        // session.
+        return Ok(());
+    }
 
     if let Some(path) = log_path.as_deref() {
         info!(path = %path.display(), "mirroring logs to file");
@@ -644,16 +556,21 @@ fn init_data_root() -> Result<PathBuf> {
     Ok(data_root)
 }
 
-/// `$XDG_STATE_HOME/playground-wasm-acp`, falling back to
-/// `$HOME/.local/state/playground-wasm-acp`. This is the *root*; per-session
+/// `$XDG_STATE_HOME/wassette/acp`, falling back to
+/// `$HOME/.local/state/wassette/acp`. This is the *root*; per-session
 /// data dirs are subpaths underneath.
 fn resolve_data_root() -> Result<PathBuf> {
-    const APP: &str = "playground-wasm-acp";
+    const APP: &str = "wassette";
+    const SUBDIR: &str = "acp";
     if let Some(base) = std::env::var_os("XDG_STATE_HOME").filter(|v| !v.is_empty()) {
-        return Ok(PathBuf::from(base).join(APP));
+        return Ok(PathBuf::from(base).join(APP).join(SUBDIR));
     }
     let home = std::env::var_os("HOME")
         .filter(|v| !v.is_empty())
         .ok_or_else(|| anyhow::anyhow!("neither XDG_STATE_HOME nor HOME is set"))?;
-    Ok(PathBuf::from(home).join(".local").join("state").join(APP))
+    Ok(PathBuf::from(home)
+        .join(".local")
+        .join("state")
+        .join(APP)
+        .join(SUBDIR))
 }

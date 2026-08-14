@@ -82,6 +82,19 @@ async fn main() -> Result<()> {
         return Ok(());
     }
 
+    // `acp` owns its arguments (and, like `run`, logs to stderr only —
+    // stdout is the ACP JSON-RPC protocol channel), so peel it off before
+    // the borrowing match below and hand the args over.
+    if matches!(cli.command, Some(Commands::Acp(_))) {
+        let Some(Commands::Acp(args)) = cli.command else {
+            unreachable!("just matched")
+        };
+        // `wassette_acp::run` installs the stderr (and optional
+        // `--log-file`) subscriber itself so its `--log-level` /
+        // `--log-filter` flags configure it.
+        return wassette_acp::run(args).await;
+    }
+
     match &cli.command {
         Some(command) => match command {
             Commands::Run(cfg) => {
@@ -936,6 +949,8 @@ async fn main() -> Result<()> {
                     }
                 }
             }
+            // Handled above, before this (borrowing) match.
+            Commands::Acp(_) => unreachable!("acp is dispatched before the command match"),
         },
         None => {
             eprintln!("No command provided. Use --help for usage information.");

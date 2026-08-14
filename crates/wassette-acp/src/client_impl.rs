@@ -17,9 +17,10 @@
 //! (no captures), so per-stage routing reads [`HostState::current_stage`]
 //! from a stack pushed/popped around each `bindings.call_*()` invocation.
 
-use agent_client_protocol::Error as AcpError;
 use std::marker::PhantomData;
 use std::sync::Arc;
+
+use agent_client_protocol::Error as AcpError;
 use tokio::sync::{mpsc, oneshot};
 use wasmtime::component::{Accessor, AccessorTask, HasSelf};
 
@@ -32,9 +33,6 @@ use crate::yosh::acp::filesystem::{
 };
 use crate::yosh::acp::prompts::SessionUpdate;
 use crate::yosh::acp::sessions::SessionId;
-use crate::yosh::acp::terminals::{
-    CreateTerminalRequest, CreateTerminalResponse, TerminalExitStatus, TerminalId, TerminalOutput,
-};
 use crate::yosh::acp::tools::{RequestPermissionRequest, RequestPermissionResponse};
 
 const OUTBOUND_REQUEST_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
@@ -117,7 +115,8 @@ where
 {
     accessor.with(|mut a| a.get().push_stage(idx));
     let (tx, rx) = oneshot::channel();
-    accessor.spawn(make_task(tx));
+    // The spawned task's own result is surfaced through `rx` below.
+    let _ = accessor.spawn(make_task(tx));
     let res = match rx.await {
         Ok(r) => r,
         Err(_) => Err(wasmtime::Error::msg(format!(
@@ -301,8 +300,7 @@ impl<T: Send> client::HostWithStore<T> for HasSelf<HostState> {
         async move {
             match route {
                 Routing::Outbound(outbound) => {
-                    let Some(schema_req) =
-                        translate::request_permission_request_wit_to_schema(req)
+                    let Some(schema_req) = translate::request_permission_request_wit_to_schema(req)
                     else {
                         return Err(translate::internal_error(
                             "request-permission: could not translate request",

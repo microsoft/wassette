@@ -13,17 +13,17 @@
 use std::sync::Arc;
 
 use agent_client_protocol::role::acp::Client;
-use agent_client_protocol::{ConnectionTo, Error as AcpError, Responder, schema::v1 as schema};
+use agent_client_protocol::schema::v1 as schema;
+use agent_client_protocol::{ConnectionTo, Error as AcpError, Responder};
 use tracing::debug;
 
 use super::gate::NotificationGate;
 use super::require_session;
-use crate::install;
-use crate::translate;
 use crate::wasm::{
     PromptOutcome, SessionFactory, SessionRegistry, SetConfigOptionOutcome, SetModeOutcome,
 };
 use crate::yosh::acp::sessions::{LoadSessionResponse, NewSessionResponse};
+use crate::{install, translate};
 
 pub(super) async fn handle_initialize(
     factory: &SessionFactory,
@@ -144,7 +144,11 @@ pub(super) async fn handle_new_session(
     let group_entries: Vec<_> = collected
         .into_iter()
         .map(|(component_id, session, resp)| {
-            (component_id, session, resp.config_options.unwrap_or_default())
+            (
+                component_id,
+                session,
+                resp.config_options.unwrap_or_default(),
+            )
         })
         .collect();
     let group = crate::group::SessionGroup::new(
@@ -216,7 +220,11 @@ pub(super) async fn handle_load_session(
     let group_entries: Vec<_> = collected
         .into_iter()
         .map(|(component_id, session, resp)| {
-            (component_id, session, resp.config_options.unwrap_or_default())
+            (
+                component_id,
+                session,
+                resp.config_options.unwrap_or_default(),
+            )
         })
         .collect();
     let group = crate::group::SessionGroup::new(
@@ -398,11 +406,13 @@ pub(super) fn handle_set_session_config_option(
         let outcome = handle.set_config_option(config_id, value).await;
         match outcome {
             SetConfigOptionOutcome::Done(options) => {
-                let resp =
-                    match translate::set_config_option_response(options, handle.terminal_option()) {
-                        Ok(r) => r,
-                        Err(e) => return responder.respond_with_error(e),
-                    };
+                let resp = match translate::set_config_option_response(
+                    options,
+                    handle.terminal_option(),
+                ) {
+                    Ok(r) => r,
+                    Err(e) => return responder.respond_with_error(e),
+                };
                 responder.respond(resp)
             }
             SetConfigOptionOutcome::Wit(e) => {
@@ -597,7 +607,7 @@ fn handle_install_command(
 
         let result = if arg.is_empty() {
             Err(anyhow::anyhow!(
-                "missing argument; usage: `/install <namespace>:<package>[@version]`"
+                "missing argument; usage: `/install <path|oci://…|https://…|component-id>`"
             ))
         } else {
             // Channel for phase messages from the install pipeline.
@@ -627,7 +637,7 @@ fn handle_install_command(
 
         match &result {
             Ok(installed) => {
-                let text = format!("Installed `{}`.", installed.wit_name);
+                let text = format!("Installed `{}`.", installed.component_id);
                 send_tool_call_finish(&cx, &session_key, &tool_call_id, "completed", &text);
             }
             Err(e) => {
@@ -645,17 +655,30 @@ fn handle_install_command(
     Ok(())
 }
 
-/// Install a WIT-named component and validate that it implements the
-/// host's currently supported `yosh:acp` world. On validation failure
-/// the just-vendored `.wasm` file is removed so a subsequent `/install`
-/// of the same name re-fetches it (in case the package gets rebuilt
-/// upstream against the right WIT version).
+/// Install a component and validate that it implements the host's
+/// currently supported `yosh:acp` world. On validation failure the
+/// just-fetched `.wasm` file is removed from the component directory so a
+/// subsequent `/install` of the same reference re-fetches it (in case the
+/// package gets rebuilt upstream against the right WIT version). A
+/// component resolved from a path the user already had on disk is left
+/// alone.
 async fn run_install(
     factory: &SessionFactory,
     arg: &str,
     progress: Option<tokio::sync::mpsc::Sender<String>>,
-) -> anyhow::Result<install::InstalledComponent> {
-    let installed = install::install_wit_with_progress(arg, progress.clone()).await?;
+) -> anyhow::Result<install::ResolvedComponent> {
+    let resolver = factory.resolver();
+    let installed = resolver
+        .resolve_with_progress(arg, progress.clone())
+        .await?;
+    // Only files that live in the component directory were fetched by us
+    // and are ours to roll back.
+    let owned = installed.path.starts_with(resolver.component_dir());
+    let discard = |path: std::path::PathBuf| async move {
+        if owned {
+            let _ = tokio::fs::remove_file(path).await;
+        }
+    };
     if let Some(tx) = progress.as_ref() {
         let _ = tx.try_send("Validating component…".to_string());
     }
@@ -663,12 +686,12 @@ async fn run_install(
         match wasmtime::component::Component::from_file(factory.engine(), &installed.path) {
             Ok(c) => c,
             Err(e) => {
-                let _ = tokio::fs::remove_file(&installed.path).await;
+                discard(installed.path.clone()).await;
                 return Err(anyhow::Error::from(e).context("loading installed component"));
             }
         };
     if let Err(e) = crate::classify_acp_component(factory.engine(), &component) {
-        let _ = tokio::fs::remove_file(&installed.path).await;
+        discard(installed.path.clone()).await;
         return Err(e);
     }
     Ok(installed)
