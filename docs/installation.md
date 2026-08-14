@@ -35,9 +35,10 @@ This script will:
 If you prefer using Homebrew on Linux:
 
 ```bash
-brew tap microsoft/wassette https://github.com/microsoft/wassette
 brew install wassette
 ```
+
+Wassette is available in `homebrew/core`, so no tap is required. Bottles are published for both x86_64 and ARM64 Linux.
 
 ### Manual Download
 
@@ -51,11 +52,10 @@ You can also download the latest Linux release manually from the [GitHub Release
 The recommended way to install Wassette on macOS is using Homebrew:
 
 ```bash
-brew tap microsoft/wassette https://github.com/microsoft/wassette
 brew install wassette
 ```
 
-This method works for both Intel and Apple Silicon Macs.
+Wassette is available in `homebrew/core`, so no tap is required. This method works for both Intel and Apple Silicon Macs.
 
 ### Quick Install Script
 
@@ -124,6 +124,17 @@ This provides a reproducible environment for using and developing Wassette.
 
 {{#endtab }}
 {{#endtabs }}
+
+## Homebrew Tap (Alternative)
+
+`brew install wassette` installs from `homebrew/core` and is the recommended path on both macOS and Linux. This repository also maintains its own formula, which you can use if you need a version that is not yet in `homebrew/core`:
+
+```bash
+brew tap microsoft/wassette https://github.com/microsoft/wassette
+brew install microsoft/wassette/wassette
+```
+
+Note the fully qualified formula name: Homebrew resolves the bare name `wassette` to `homebrew/core` even when the tap is installed, so `brew install wassette` will not pick up the tap's formula.
 
 ## Verifying the Installation
 
