@@ -269,6 +269,9 @@ pub(super) async fn handle_load_session(
 /// even though the layer advertised commands at session start. A small
 /// delay reliably gives the editor's response handler time to wire up
 /// the session before our held notifications arrive.
+///
+/// The delay is only ever an upper bound: [`open_gate_now`] cuts it
+/// short as soon as the editor proves it knows the session id.
 fn flush_held_notifications(
     gate: &Arc<NotificationGate>,
     session_id: &str,
@@ -281,30 +284,64 @@ fn flush_held_notifications(
         // 200ms is comfortably above the inter-task scheduling latency
         // we've observed in Zed and small enough to feel instantaneous.
         tokio::time::sleep(std::time::Duration::from_millis(200)).await;
-        // Advertise the host-side `/install` command. Sent unconditionally
-        // so it shows up even when no layer ever emits an
-        // `available-commands-update`. Chain-emitted updates have
-        // `/install` appended in `translate::session_update_wit_to_schema`,
-        // so a later chain update won't drop it.
-        if let Some(notif) = translate::synthetic_install_command_update(&session_id) {
-            if let Ok(json) = serde_json::to_string(&notif) {
-                tracing::info!(payload = %json, "→ wire: synthetic /install advertisement");
-            }
-            if let Err(e) = cx_inner.send_notification(notif) {
-                tracing::warn!(error = ?e, "failed to send /install advertisement");
-            }
-        }
-        for notif in gate.open_session(&session_id) {
-            if let Ok(json) = serde_json::to_string(&notif) {
-                tracing::info!(payload = %json, "→ wire: flushed session/update");
-            }
-            if let Err(e) = cx_inner.send_notification(notif) {
-                tracing::warn!(error = ?e, "failed to flush held session/update");
-                break;
-            }
-        }
+        advertise_and_flush(&gate, &session_id, &cx_inner);
         Ok(())
     });
+}
+
+/// Open the gate for `session_id` immediately, if it is still closed.
+///
+/// The delay in [`flush_held_notifications`] is a proxy for "the editor
+/// has registered this session". An inbound request naming the session
+/// is direct proof of the same thing, and it makes waiting out the rest
+/// of the delay actively harmful: every `session/update` the turn emits
+/// queues behind the held ones, so a client that prompts inside the
+/// window gets its `session/prompt` response — `end_turn` — *before* a
+/// single chunk of the answer. Editors treat that as an empty turn, and
+/// one that disconnects on `end_turn` never sees the text at all.
+///
+/// Cheap and idempotent: after the first call this is one lock and a set
+/// lookup, and the gate hands the flush to exactly one caller.
+pub(super) fn open_gate_now(
+    gate: &Arc<NotificationGate>,
+    session_id: &str,
+    cx: &ConnectionTo<Client>,
+) {
+    advertise_and_flush(gate, session_id, cx);
+}
+
+/// Claim the open for `session_id`, then advertise `/install` and replay
+/// whatever the gate held. Does nothing if another caller already
+/// claimed it.
+fn advertise_and_flush(gate: &Arc<NotificationGate>, session_id: &str, cx: &ConnectionTo<Client>) {
+    // Claim the transition before sending anything: the delayed task and
+    // an early inbound request can arrive together, and only one of them
+    // may write these notifications to the wire.
+    let Some(held) = gate.open_session(session_id) else {
+        return;
+    };
+    // Advertise the host-side `/install` command. Sent unconditionally
+    // so it shows up even when no layer ever emits an
+    // `available-commands-update`. Chain-emitted updates have
+    // `/install` appended in `translate::session_update_wit_to_schema`,
+    // so a later chain update won't drop it.
+    if let Some(notif) = translate::synthetic_install_command_update(session_id) {
+        if let Ok(json) = serde_json::to_string(&notif) {
+            tracing::info!(payload = %json, "→ wire: synthetic /install advertisement");
+        }
+        if let Err(e) = cx.send_notification(notif) {
+            tracing::warn!(error = ?e, "failed to send /install advertisement");
+        }
+    }
+    for notif in held {
+        if let Ok(json) = serde_json::to_string(&notif) {
+            tracing::info!(payload = %json, "→ wire: flushed session/update");
+        }
+        if let Err(e) = cx.send_notification(notif) {
+            tracing::warn!(error = ?e, "failed to flush held session/update");
+            break;
+        }
+    }
 }
 
 /// Spawn the wasm round-trip so this handler returns immediately. If we
@@ -314,12 +351,14 @@ fn flush_held_notifications(
 /// request timing out even though the editor responded in milliseconds.
 pub(super) fn handle_set_session_mode(
     registry: &SessionRegistry,
+    gate: &Arc<NotificationGate>,
     req: schema::SetSessionModeRequest,
     responder: Responder<schema::SetSessionModeResponse>,
     cx: ConnectionTo<Client>,
 ) -> Result<(), AcpError> {
     let session_key = req.session_id.0.to_string();
     debug!(session = %session_key, "session/set_mode");
+    open_gate_now(gate, &session_key, &cx);
 
     let handle = require_session(registry, &session_key)?;
     let mode_id = req.mode_id.0.to_string();
@@ -349,12 +388,14 @@ pub(super) fn handle_set_session_mode(
 /// full updated option set the wasm chain returns.
 pub(super) fn handle_set_session_config_option(
     registry: &SessionRegistry,
+    gate: &Arc<NotificationGate>,
     req: schema::SetSessionConfigOptionRequest,
     responder: Responder<schema::SetSessionConfigOptionResponse>,
     cx: ConnectionTo<Client>,
 ) -> Result<(), AcpError> {
     let session_key = req.session_id.0.to_string();
     debug!(session = %session_key, "session/set_config_option");
+    open_gate_now(gate, &session_key, &cx);
 
     let handle = require_session(registry, &session_key)?;
     let config_id = req.config_id.0.to_string();
@@ -433,6 +474,7 @@ pub(super) fn handle_set_session_config_option(
 pub(super) fn handle_prompt(
     factory: &Arc<SessionFactory>,
     registry: &SessionRegistry,
+    gate: &Arc<NotificationGate>,
     req: schema::PromptRequest,
     responder: Responder<schema::PromptResponse>,
     cx: ConnectionTo<Client>,
@@ -442,6 +484,9 @@ pub(super) fn handle_prompt(
     if let Ok(payload) = serde_json::to_string(&req) {
         tracing::info!(session = %session_key, payload = %payload, "← wire: session/prompt");
     }
+    // Drain the gate before this turn emits anything, so the turn's own
+    // chunks can't queue behind notifications held from `session/new`.
+    open_gate_now(gate, &session_key, &cx);
 
     // Host-side `/install <wit-name>` interception. Runs entirely in
     // the host (not in the wasm chain) because the package manager

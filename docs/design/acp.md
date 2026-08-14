@@ -198,4 +198,10 @@ cannot be pulled either.
 * Session updates emitted *during* `session/new` are held by a
   notification gate and flushed just after the response, because an
   editor cannot route an update for a session id it has not been told
-  about yet.
+  about yet. The flush runs on a 200ms timer (editors need a beat to
+  register the session before the notification task is polled), but any
+  inbound request naming the session opens the gate immediately — the
+  request is itself proof the editor knows the id. Without that, a client
+  prompting inside the window has its turn's chunks queued behind the
+  held ones and delivered *after* `end_turn`, which reads as an empty
+  turn.

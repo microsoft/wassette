@@ -34,10 +34,10 @@ const LINE_TIMEOUT: Duration = Duration::from_secs(60);
 
 /// The host holds `session/update` notifications emitted during
 /// `session/new` until just after the `session/new` response goes out,
-/// then flushes them (see `bridge/gate.rs`). Prompting before the flush
-/// makes the prompt's own updates queue behind it, so wait out the flush
-/// before sending the prompt. That ordering is the host's deliberate
-/// behaviour, not a race to fix here.
+/// then flushes them (see `bridge/gate.rs`). Waiting the flush out keeps
+/// `session/new`'s own updates from landing in the middle of a later
+/// assertion. A client that does *not* wait is still served correctly —
+/// `a_prompt_before_the_gate_flush_still_streams_first` covers that.
 const GATE_FLUSH_GRACE: Duration = Duration::from_millis(500);
 
 /// The `wassette` binary under test: a sibling of the test executable's
@@ -213,8 +213,19 @@ impl Harness {
         out
     }
 
-    /// `initialize` → `session/new`, returning the new session id.
+    /// `initialize` → `session/new`, returning the new session id, then
+    /// wait out the gate flush so `session/new`'s own updates don't land
+    /// in the middle of what a later assertion is reading.
     fn open_session(&mut self) -> String {
+        let session_id = self.open_session_without_grace();
+        std::thread::sleep(GATE_FLUSH_GRACE);
+        self.drain_pending();
+        session_id
+    }
+
+    /// `initialize` → `session/new`, returning as soon as the response
+    /// lands — the way an editor that prompts immediately behaves.
+    fn open_session_without_grace(&mut self) -> String {
         let id = self.request(
             "initialize",
             json!({"protocolVersion": 1, "clientCapabilities": {}}),
@@ -230,15 +241,10 @@ impl Harness {
             json!({"cwd": std::env::temp_dir(), "mcpServers": []}),
         );
         let (_, new_session) = self.await_response(id);
-        let session_id = new_session["sessionId"]
+        new_session["sessionId"]
             .as_str()
             .unwrap_or_else(|| panic!("session/new result has no sessionId: {new_session}"))
-            .to_string();
-
-        // Let the notification gate flush before prompting.
-        std::thread::sleep(GATE_FLUSH_GRACE);
-        self.drain_pending();
-        session_id
+            .to_string()
     }
 }
 
@@ -332,6 +338,50 @@ fn a_prompt_streams_chunks_and_ends_the_turn() {
             "update carried the wrong session id: {update}"
         );
     }
+}
+
+/// Prompting the instant `session/new` returns — inside the gate's flush
+/// delay — must still stream the answer *before* the turn's response.
+///
+/// The gate holds `session/update`s until it believes the editor has
+/// registered the session, and it used to reach that belief only on a
+/// timer. A client that prompted first therefore had its whole turn
+/// buffered and replayed after `end_turn`: the editor saw a completed
+/// turn with no text in it, and one that stops reading at `end_turn` saw
+/// nothing at all. The inbound `session/prompt` is itself proof the
+/// editor knows the session id, so it now opens the gate on arrival.
+#[test]
+fn a_prompt_before_the_gate_flush_still_streams_first() {
+    let Some((bin, wasm)) = artifacts() else {
+        return;
+    };
+    let mut h = Harness::start(&bin, &wasm, &[]);
+    // Deliberately no GATE_FLUSH_GRACE: this is the race.
+    let session_id = h.open_session_without_grace();
+
+    let prompt = "no grace period";
+    let id = h.request(
+        "session/prompt",
+        json!({
+            "sessionId": session_id,
+            "prompt": [{"type": "text", "text": prompt}],
+        }),
+    );
+    // Everything in `updates` arrived strictly before the response.
+    let (updates, result) = h.await_response(id);
+
+    assert_eq!(
+        result["stopReason"], "end_turn",
+        "unexpected stop reason in {result}"
+    );
+    let echoed: String = updates
+        .iter()
+        .filter_map(agent_message_chunk_text)
+        .collect();
+    assert!(
+        echoed.contains(prompt),
+        "the turn's text should arrive before its response, but only {updates:#?} did"
+    );
 }
 
 #[test]
