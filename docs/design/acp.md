@@ -168,8 +168,14 @@ wasmtime 47 rather than upstream's 44:
   `wasip3` 0.7.1 pulls its own 0.57 copy that does not unify features with the
   0.54 used elsewhere, leaving `async_support::spawn` a private module.
 
-This was verified end to end: `ollama_provider.wasm` streaming a chat
-completion over real `wasi:http`, and refused without a network grant. Because
+Both steps are captured as a patch in
+`crates/wassette-acp/real-providers/wstd-p3-wasmtime47.patch` and applied by
+`just build-acp-real-provider <path-to-playground-wasm-acp>`, which clones the
+branch, patches it, and builds the component.
+
+This was verified end to end from a clean checkout: `ollama_provider.wasm`
+streaming a chat completion over real `wasi:http`, and refused without a
+network grant. Because
 those are local patches over an unmerged branch, the in-tree demo and the
 end-to-end tests deliberately use the echo provider instead, so they never
 depend on a model or on a moving upstream.
