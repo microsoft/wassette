@@ -88,7 +88,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Sccache Action
-        if: matrix.target != 'aarch64-pc-windows-msvc' && matrix.target != 'x86_64-apple-darwin'
+        if: matrix.target != 'x86_64-apple-darwin'
         uses: Mozilla-Actions/sccache-action@fc920bf0ec8de6ee65d409111f7ec508035751ba # v0.0.11
 
       - name: Setup Rust toolchain
@@ -102,8 +102,8 @@ jobs:
       - name: Build release binary
         run: cargo build --release
         env:
-          SCCACHE_GHA_ENABLED: ${{ matrix.target != 'aarch64-pc-windows-msvc' && matrix.target != 'x86_64-apple-darwin' && 'true' || 'false' }}
-          RUSTC_WRAPPER: ${{ matrix.target != 'aarch64-pc-windows-msvc' && matrix.target != 'x86_64-apple-darwin' && 'sccache' || '' }}
+          SCCACHE_GHA_ENABLED: ${{ matrix.target != 'x86_64-apple-darwin' && 'true' || 'false' }}
+          RUSTC_WRAPPER: ${{ matrix.target != 'x86_64-apple-darwin' && 'sccache' || '' }}
 
       - name: Extract version (Unix)
         if: "!contains(matrix.target, 'windows')"
