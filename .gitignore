@@ -13,3 +13,6 @@ mdbook-mermaid
 # typos binary
 typos
 __pycache__/
+
+# Standalone example component build dirs
+examples/*/target/
