@@ -1,3 +1,6 @@
+// Copyright (c) Microsoft Corporation.
+// Licensed under the MIT license.
+
 //! Per-method handler functions for the ACP bridge.
 //!
 //! The builder closures in [`super::run`] are thin shims that forward to

@@ -1,3 +1,6 @@
+// Copyright (c) Microsoft Corporation.
+// Licensed under the MIT license.
+
 //! WASI stdout/stderr adapter that pipes wasm guest output into the host's
 //! `tracing` system. The default `inherit_stderr()` writes to the host
 //! process's stderr — fine when run from a terminal, but invisible when

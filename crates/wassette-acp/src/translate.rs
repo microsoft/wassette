@@ -1,3 +1,6 @@
+// Copyright (c) Microsoft Corporation.
+// Licensed under the MIT license.
+
 //! Type translation between the wasmtime-generated WIT types
 //! (`yosh::acp` interfaces) and the `agent_client_protocol::schema` types.
 //!

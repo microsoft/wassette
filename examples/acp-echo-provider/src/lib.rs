@@ -1,3 +1,6 @@
+// Copyright (c) Microsoft Corporation.
+// Licensed under the MIT license.
+
 //! A self-contained ACP provider used to demo and test the host without a
 //! model backend.
 //!

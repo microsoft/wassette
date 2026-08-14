@@ -5355,9 +5355,13 @@ version = "0.7.1"
 dependencies = [
  "agent-client-protocol",
  "anyhow",
+ "bytes",
  "clap",
  "etcetera",
  "futures-concurrency",
+ "http",
+ "http-body-util",
+ "policy",
  "rustls",
  "semver",
  "serde",

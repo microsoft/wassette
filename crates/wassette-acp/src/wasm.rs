@@ -1,3 +1,6 @@
+// Copyright (c) Microsoft Corporation.
+// Licensed under the MIT license.
+
 //! Wasm chain lifecycle and per-session ownership.
 //!
 //! Every ACP session owns one [`Session`]: a single
@@ -42,10 +45,11 @@ use wasmtime::component::{
     StreamReader, StreamResult, VecBuffer,
 };
 use wasmtime::{Engine, Store, StoreContextMut};
-use wasmtime_wasi::{DirPerms, FilePerms, WasiCtxBuilder};
 use wasmtime_wasi_http::WasiHttpCtx;
 
+use crate::http_policy::HttpPolicyHooks;
 use crate::install::Resolver;
+use crate::sandbox::{ChainSandbox, Sandbox};
 use crate::secrets::SecretsRegistry;
 use crate::state::{Bindings, ClientSink, HostState, OutboundEvent, StageData, StageKind};
 use crate::yosh::acp::errors::Error;
@@ -67,6 +71,9 @@ use crate::{Layer, Provider};
 pub struct Stage {
     pub component: Component,
     pub component_id: String,
+    /// Capabilities this stage is granted, from its Wassette policy (or
+    /// `--allow-all`). See [`crate::sandbox`].
+    pub sandbox: Sandbox,
 }
 
 /// Produces fresh single-store chains on demand. Cheap: instantiation
@@ -233,21 +240,26 @@ impl SessionFactory {
             });
         }
 
-        // Single WasiCtx for the whole session — layers do not want
-        // distinct preopens. The `/data` preopen is provider-scoped.
+        // A store has one `WasiCtx`, and a chain is one store, so the
+        // stages' policy grants are unioned. The `/data` preopen is
+        // provider-scoped and host-owned: it exists no matter what the
+        // policies say.
         let provider_data = stage_data_dir(project_dir, &provider.component_id)?;
-        let mut wasi = WasiCtxBuilder::new();
-        wasi.stderr(crate::wasi_log::TracingStream::new("stderr"))
-            .stdout(crate::wasi_log::TracingStream::new("stdout"))
-            .inherit_network()
-            .inherit_env();
-        if let Some(dir) = provider_data.as_deref() {
-            wasi.preopened_dir(dir, "/data", DirPerms::all(), FilePerms::all())?;
+        let mut chain_sandbox = ChainSandbox::default();
+        chain_sandbox.merge(&provider.sandbox);
+        for layer in &self.layers {
+            chain_sandbox.merge(&layer.sandbox);
         }
+        let wasi = chain_sandbox
+            .build_ctx(provider_data.as_deref())
+            .with_context(|| {
+                format!("building the sandbox for chain `{}`", provider.component_id)
+            })?;
 
         let state = HostState {
-            wasi: wasi.build(),
+            wasi,
             http: WasiHttpCtx::new(),
+            http_hooks: HttpPolicyHooks::new(chain_sandbox.http_allowlist()),
             table: ResourceTable::new(),
             stages,
             stage_stack: Vec::with_capacity(4),
@@ -1665,10 +1677,11 @@ mod terminal_tests {
     }
 
     fn test_host_state() -> HostState {
-        let mut wasi = WasiCtxBuilder::new();
+        let mut wasi = wasmtime_wasi::WasiCtxBuilder::new();
         HostState {
             wasi: wasi.build(),
             http: WasiHttpCtx::new(),
+            http_hooks: HttpPolicyHooks::new(None),
             table: ResourceTable::new(),
             stages: Vec::new(),
             stage_stack: Vec::new(),

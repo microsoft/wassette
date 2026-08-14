@@ -1,3 +1,6 @@
+// Copyright (c) Microsoft Corporation.
+// Licensed under the MIT license.
+
 //! Multi-provider session grouping.
 //!
 //! One ACP session maps to a [`SessionGroup`]: a bundle of one

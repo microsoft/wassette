@@ -1,3 +1,6 @@
+// Copyright (c) Microsoft Corporation.
+// Licensed under the MIT license.
+
 //! Host-side implementation of `wasmcloud:secrets@0.1.0-draft`.
 //!
 //! The `with:` clause on the layer's bindgen reuses the provider's

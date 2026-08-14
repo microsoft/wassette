@@ -1,3 +1,6 @@
+// Copyright (c) Microsoft Corporation.
+// Licensed under the MIT license.
+
 //! Drains wasm-emitted [`OutboundEvent`]s and forwards them to the editor
 //! over the ACP connection.
 //!

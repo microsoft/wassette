@@ -1,3 +1,6 @@
+// Copyright (c) Microsoft Corporation.
+// Licensed under the MIT license.
+
 //! Per-store host state shared across every chain stage.
 //!
 //! One [`Store<HostState>`] per session. Every stage in the chain
@@ -22,8 +25,9 @@ use tokio::sync::{mpsc, oneshot};
 use wasmtime::component::ResourceTable;
 use wasmtime_wasi::{WasiCtx, WasiCtxView, WasiView};
 use wasmtime_wasi_http::WasiHttpCtx;
-use wasmtime_wasi_http::p2::{WasiHttpCtxView, WasiHttpView, default_hooks};
+use wasmtime_wasi_http::p2::{WasiHttpCtxView, WasiHttpView};
 
+use crate::http_policy::HttpPolicyHooks;
 use crate::secrets::SecretsRegistry;
 use crate::{Layer, Provider};
 
@@ -98,6 +102,10 @@ pub struct StageData {
 pub struct HostState {
     pub wasi: WasiCtx,
     pub http: WasiHttpCtx,
+    /// Outbound-HTTP policy for this chain. `wasi:http` requests bypass
+    /// the `WasiCtx` socket permissions entirely, so the allow-list is
+    /// enforced here instead (see [`crate::http_policy`]).
+    pub http_hooks: HttpPolicyHooks,
     pub table: ResourceTable,
     pub stages: Vec<StageData>,
     /// Stack of stage indices currently inside a host import. The top
@@ -188,7 +196,7 @@ impl WasiHttpView for HostState {
         WasiHttpCtxView {
             ctx: &mut self.http,
             table: &mut self.table,
-            hooks: default_hooks(),
+            hooks: &mut self.http_hooks,
         }
     }
 }
@@ -198,7 +206,7 @@ impl wasmtime_wasi_http::p3::WasiHttpView for HostState {
         wasmtime_wasi_http::p3::WasiHttpCtxView {
             ctx: &mut self.http,
             table: &mut self.table,
-            hooks: Default::default(),
+            hooks: &mut self.http_hooks,
         }
     }
 }

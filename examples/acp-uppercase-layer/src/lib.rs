@@ -1,3 +1,6 @@
+// Copyright (c) Microsoft Corporation.
+// Licensed under the MIT license.
+
 //! ACP layer that uppercases all agent-emitted text flowing toward the
 //! editor. Every other call is forwarded verbatim to the next stage.
 //!

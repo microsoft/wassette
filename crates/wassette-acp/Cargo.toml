@@ -9,9 +9,13 @@ readme = "README.md"
 [dependencies]
 agent-client-protocol = { workspace = true }
 anyhow = { workspace = true }
+bytes = "1"
 clap = { version = "4.5", features = ["derive"] }
 etcetera = { workspace = true }
 futures-concurrency = { workspace = true }
+http = "1.4"
+http-body-util = "0.1"
+policy = { workspace = true }
 rustls = { workspace = true }
 semver = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
