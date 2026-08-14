@@ -133,13 +133,13 @@ layers wrap every provider, outermost first.
 7. **Tests.** `crates/wassette-acp/tests/` — spawn the binary, drive
    `initialize` → `session/new` → `session/prompt` → `session/cancel` over
    stdio, assert the responses. Port the upstream harness minus `wiremock`.
-8. **Just + docs.** `just build-acp-example`, `just test-acp`;
+8. **Just + docs.** `just build-acp-examples`, `just test-acp`;
    `docs/design/acp.md` + a `docs/SUMMARY.md` entry.
 
 ## Demo
 
 ```sh
-just build-acp-example
+just build-acp-examples
 cargo run -p wassette-mcp-server -- acp \
   --provider examples/acp-echo-provider/target/wasm32-wasip2/release/acp_echo_provider.wasm \
   --allow-all < fixture.jsonl
