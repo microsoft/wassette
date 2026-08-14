@@ -1,3 +1,6 @@
+// Copyright (c) Microsoft Corporation.
+// Licensed under the MIT license.
+
 //! Implementation of the ACP `client` interface (the methods the wasm guest
 //! imports).
 //!

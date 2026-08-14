@@ -88,6 +88,18 @@ impl SecretsRegistry {
         self.manager.secrets_dir()
     }
 
+    /// Every secret this component owns, as a plain map. Used to seed
+    /// policy-declared environment variables (the MCP path does the same
+    /// through `SecretsManager::load_component_secrets`). `None` when the
+    /// store cannot be read — a missing file is an empty map, not an
+    /// error.
+    pub async fn snapshot(
+        &self,
+        component_id: &str,
+    ) -> Option<std::collections::HashMap<String, String>> {
+        self.manager.load_component_secrets(component_id).await.ok()
+    }
+
     /// Resolve `key` from `component_id`'s private store. Returns
     /// [`SecretsError::NotFound`] when the component has no such entry.
     ///
