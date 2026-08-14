@@ -83,6 +83,9 @@ pub async fn run(
     let registry_cancel = registry.clone();
     let gate_new = gate.clone();
     let gate_load = gate.clone();
+    let gate_set_mode = gate.clone();
+    let gate_set_config_option = gate.clone();
+    let gate_prompt = gate.clone();
     let gate_drain = gate.clone();
 
     AgentRole
@@ -130,14 +133,9 @@ pub async fn run(
         )
         .on_receive_request(
             async move |req, responder, cx| {
-                handlers::handle_set_session_mode(&registry_set_mode, req, responder, cx)
-            },
-            agent_client_protocol::on_receive_request!(),
-        )
-        .on_receive_request(
-            async move |req, responder, cx| {
-                handlers::handle_set_session_config_option(
-                    &registry_set_config_option,
+                handlers::handle_set_session_mode(
+                    &registry_set_mode,
+                    &gate_set_mode,
                     req,
                     responder,
                     cx,
@@ -147,7 +145,26 @@ pub async fn run(
         )
         .on_receive_request(
             async move |req, responder, cx| {
-                handlers::handle_prompt(&factory_prompt, &registry_prompt, req, responder, cx)
+                handlers::handle_set_session_config_option(
+                    &registry_set_config_option,
+                    &gate_set_config_option,
+                    req,
+                    responder,
+                    cx,
+                )
+            },
+            agent_client_protocol::on_receive_request!(),
+        )
+        .on_receive_request(
+            async move |req, responder, cx| {
+                handlers::handle_prompt(
+                    &factory_prompt,
+                    &registry_prompt,
+                    &gate_prompt,
+                    req,
+                    responder,
+                    cx,
+                )
             },
             agent_client_protocol::on_receive_request!(),
         )
