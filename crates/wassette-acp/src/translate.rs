@@ -472,9 +472,7 @@ fn session_config_select_option_to_json(option: SessionConfigSelectOption) -> se
 
 /// Serialize the (untagged) select-options variant: ungrouped → a flat
 /// array of option objects; grouped → an array of group objects.
-fn session_config_select_options_to_json(
-    options: SessionConfigSelectOptions,
-) -> serde_json::Value {
+fn session_config_select_options_to_json(options: SessionConfigSelectOptions) -> serde_json::Value {
     match options {
         SessionConfigSelectOptions::Ungrouped(list) => serde_json::Value::Array(
             list.into_iter()
@@ -549,8 +547,8 @@ pub fn empty_authenticate_response() -> Result<schema::AuthenticateResponse, Acp
 fn install_command_json() -> serde_json::Value {
     serde_json::json!({
         "name": "install",
-        "description": "Install a wasm component plugin by WIT name (e.g. `wasi:clocks@0.2.0`).",
-        "input": { "hint": "<namespace>:<package>[@version]" },
+        "description": "Install a wasm component into the Wassette component directory (path, `oci://…`, or `https://…`).",
+        "input": { "hint": "<path|oci://…|https://…|component-id>" },
     })
 }
 
@@ -701,9 +699,7 @@ pub fn session_update_wit_to_schema(
             // Context-window usage: forward as ACP's stable `usage_update`
             // so the editor can render a "context %" indicator
             // (context % = used / size).
-            let cost = usage
-                .cost
-                .map(|c| schema::Cost::new(c.amount, c.currency));
+            let cost = usage.cost.map(|c| schema::Cost::new(c.amount, c.currency));
             let upd = schema::SessionUpdate::UsageUpdate(
                 schema::UsageUpdate::new(usage.used, usage.size).cost(cost),
             );
@@ -815,7 +811,7 @@ fn mcp_server_to_wit(s: schema::McpServer) -> McpServer {
     match s {
         schema::McpServer::Stdio(server) => McpServer::Stdio(McpServerStdio {
             name: server.name,
-            command: path_to_string(&PathBuf::from(server.command)),
+            command: path_to_string(&server.command),
             args: server.args,
             env: server
                 .env
@@ -1025,7 +1021,11 @@ fn tool_call_to_schema_update(
 ) -> Option<schema::SessionUpdate> {
     // The initial announcement is a `tool_call`; every later state change is a
     // `tool_call_update`. Both carry the same top-level field layout.
-    let discriminator = if is_update { "tool_call_update" } else { "tool_call" };
+    let discriminator = if is_update {
+        "tool_call_update"
+    } else {
+        "tool_call"
+    };
     let mut json = tool_call_snapshot_to_json(session_id, call);
     json["sessionUpdate"] = serde_json::Value::String(discriminator.to_string());
     serde_json::from_value(json).ok()
@@ -1154,7 +1154,10 @@ mod tests {
         )
         .expect("usage update translates to a notification");
         let json = serde_json::to_value(&note).expect("serialize notification");
-        assert_eq!(json.pointer("/sessionId"), Some(&serde_json::json!("sess-1")));
+        assert_eq!(
+            json.pointer("/sessionId"),
+            Some(&serde_json::json!("sess-1"))
+        );
         assert_eq!(
             json.pointer("/update/sessionUpdate"),
             Some(&serde_json::json!("usage_update")),
@@ -1197,8 +1200,9 @@ mod tests {
 
     #[test]
     fn initialize_request_translation() {
-        let req = schema::InitializeRequest::new(agent_client_protocol::schema::ProtocolVersion::V1)
-            .client_info(schema::Implementation::new("editor", "1.0").title(Some("Ed".into())));
+        let req =
+            schema::InitializeRequest::new(agent_client_protocol::schema::ProtocolVersion::V1)
+                .client_info(schema::Implementation::new("editor", "1.0").title(Some("Ed".into())));
         let wit_req = init_request_schema_to_wit(req);
         assert_eq!(wit_req.protocol_version, 1);
         let info = wit_req.client_info.unwrap();

@@ -45,6 +45,7 @@ use wasmtime::{Engine, Store, StoreContextMut};
 use wasmtime_wasi::{DirPerms, FilePerms, WasiCtxBuilder};
 use wasmtime_wasi_http::WasiHttpCtx;
 
+use crate::install::Resolver;
 use crate::secrets::SecretsRegistry;
 use crate::state::{Bindings, ClientSink, HostState, OutboundEvent, StageData, StageKind};
 use crate::yosh::acp::errors::Error;
@@ -83,6 +84,9 @@ pub struct SessionFactory {
     outbound: mpsc::Sender<OutboundEvent>,
     data_root: PathBuf,
     secrets: Arc<SecretsRegistry>,
+    /// Resolves component references for the host-side `/install` slash
+    /// command against the Wassette component directory.
+    resolver: Arc<Resolver>,
     /// Whether the client advertised support for boolean session config
     /// options (`session.configOptions.boolean` in `initialize`). Read
     /// when building `session/new` and `session/load` responses to decide
@@ -101,6 +105,7 @@ impl SessionFactory {
         outbound: mpsc::Sender<OutboundEvent>,
         data_root: PathBuf,
         secrets: Arc<SecretsRegistry>,
+        resolver: Arc<Resolver>,
     ) -> Self {
         assert!(!providers.is_empty(), "SessionFactory needs >= 1 provider");
         Self {
@@ -110,8 +115,15 @@ impl SessionFactory {
             outbound,
             data_root,
             secrets,
+            resolver,
             boolean_config_supported: std::sync::atomic::AtomicBool::new(false),
         }
+    }
+
+    /// Resolver for the Wassette component directory, used by the
+    /// host-side `/install` slash command.
+    pub fn resolver(&self) -> &Arc<Resolver> {
+        &self.resolver
     }
 
     /// Whether the client advertised support for boolean session config
@@ -362,10 +374,10 @@ fn update_project_meta(project_dir: &std::path::Path, cwd: &std::path::Path) {
     }
     meta.last_used = now;
     meta.cwd = canon.to_string_lossy().into_owned();
-    if let Ok(bytes) = serde_json::to_vec_pretty(&meta) {
-        if let Err(e) = std::fs::write(&meta_path, bytes) {
-            tracing::debug!(path = %meta_path.display(), error = %e, "failed to write project meta");
-        }
+    if let Ok(bytes) = serde_json::to_vec_pretty(&meta)
+        && let Err(e) = std::fs::write(&meta_path, bytes)
+    {
+        tracing::debug!(path = %meta_path.display(), error = %e, "failed to write project meta");
     }
 }
 
@@ -781,11 +793,10 @@ impl SessionRegistry {
 // oneshot. Push/pop the stage stack around the call so the linker's
 // host getter returns the correct stage for any nested host imports.
 
-use crate::layer_agent;
-use crate::translate;
 use crate::yosh::acp::sessions::{
     ListSessionsRequest, ListSessionsResponse, ResumeSessionRequest, ResumeSessionResponse,
 };
+use crate::{layer_agent, translate};
 
 /// Stash a downstream `ResourceAny` (returned from the next stage's
 /// exported `agent.session`) in `HostState` and mint a fresh typed
@@ -1056,6 +1067,7 @@ where
     R: tokio::io::AsyncRead + Unpin + Send + 'static,
 {
     use std::sync::atomic::Ordering;
+
     use tokio::io::AsyncReadExt;
 
     tokio::spawn(async move {
@@ -1180,6 +1192,10 @@ impl crate::yosh::acp::client::HostTerminal for HostState {
     }
 }
 
+// The generated `*WithStore` trait methods return `impl Future + Send`; an
+// `async fn` in a trait impl cannot restate that bound, so the desugared form
+// stays.
+#[allow(clippy::manual_async_fn)]
 impl<T: Send> crate::yosh::acp::client::HostTerminalWithStore<T> for HasSelf<HostState> {
     fn output(
         accessor: &wasmtime::component::Accessor<T, Self>,
@@ -1269,6 +1285,10 @@ impl crate::yosh::acp::tools::HostToolCall for HostState {
     }
 }
 
+// The generated `*WithStore` trait methods return `impl Future + Send`; an
+// `async fn` in a trait impl cannot restate that bound, so the desugared form
+// stays.
+#[allow(clippy::manual_async_fn)]
 impl<T: Send> crate::yosh::acp::tools::HostToolCallWithStore<T> for HasSelf<HostState> {
     fn update(
         _accessor: &wasmtime::component::Accessor<T, Self>,

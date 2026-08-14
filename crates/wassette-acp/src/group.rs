@@ -329,10 +329,10 @@ impl GroupInner {
                 });
             }
         }
-        if current_value.is_empty() {
-            if let Some(first) = groups.iter().flat_map(|g| g.options.iter()).next() {
-                current_value = first.value.clone();
-            }
+        if current_value.is_empty()
+            && let Some(first) = groups.iter().flat_map(|g| g.options.iter()).next()
+        {
+            current_value = first.value.clone();
         }
         *self.model_map.lock().unwrap() = map;
 
@@ -379,9 +379,7 @@ fn is_model(o: &SessionConfigOption) -> bool {
 /// single sequence. Grouping is a display concern the host re-derives per
 /// provider, so scanning a provider's own options ignores any inbound
 /// grouping.
-fn flatten_select_options(
-    opts: &SessionConfigSelectOptions,
-) -> Vec<&SessionConfigSelectOption> {
+fn flatten_select_options(opts: &SessionConfigSelectOptions) -> Vec<&SessionConfigSelectOption> {
     match opts {
         SessionConfigSelectOptions::Ungrouped(list) => list.iter().collect(),
         SessionConfigSelectOptions::Grouped(groups) => {

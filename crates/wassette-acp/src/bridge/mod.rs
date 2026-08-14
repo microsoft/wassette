@@ -30,13 +30,12 @@ use std::sync::Arc;
 use agent_client_protocol::role::acp::Agent as AgentRole;
 use agent_client_protocol::{ByteStreams, Error as AcpError};
 use anyhow::Result;
+pub use gate::NotificationGate;
 use tokio::sync::mpsc;
 use tokio_util::compat::{TokioAsyncReadCompatExt, TokioAsyncWriteCompatExt};
 
 use crate::state::OutboundEvent;
 use crate::wasm::{SessionFactory, SessionRegistry};
-
-pub use gate::NotificationGate;
 
 /// Look up a session group, or return an ACP `invalid-params` error if the
 /// session id is unknown.

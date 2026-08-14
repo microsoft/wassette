@@ -11,8 +11,11 @@ use tokio::io::AsyncWriteExt;
 use tracing::{debug, info, warn};
 
 /// Represents a downloaded resource, either from a local file or a temporary one.
-pub enum DownloadedResource {
+pub(crate) enum DownloadedResource {
+    /// A file that already exists on the local filesystem.
     Local(PathBuf),
+    /// A freshly downloaded file inside a temporary directory. Dropping the
+    /// resource deletes the file, so it must be copied somewhere durable.
     Temp((tempfile::TempDir, PathBuf)),
 }
 
@@ -31,7 +34,7 @@ impl DownloadedResource {
     ///
     /// The `name` parameter must be unique across all components as it is used to identify the
     /// component.
-    pub async fn new_temp_file(
+    pub(crate) async fn new_temp_file(
         name: impl AsRef<str>,
         extension: &str,
     ) -> Result<(Self, tokio::fs::File)> {
@@ -43,7 +46,9 @@ impl DownloadedResource {
         Ok((DownloadedResource::Temp((tempdir, file_path)), temp_file))
     }
 
-    pub fn id(&self) -> Result<String> {
+    /// Returns a stable identifier for the resource: the file stem of its
+    /// path.
+    pub(crate) fn id(&self) -> Result<String> {
         // NOTE(thomastaylor312): Unfortunately the rust tooling (and I think some of the others),
         // doesn't preserve the package ID from the wit world defined for the component. It just
         // ends up as "root-component". So for now we rely on the file name to give us a unique ID
@@ -69,7 +74,9 @@ impl DownloadedResource {
             .ok_or_else(|| anyhow::anyhow!("Failed to extract resource ID from path"))
     }
 
-    pub async fn copy_to(self, dest: impl AsRef<Path>) -> Result<()> {
+    /// Moves (or copies) the resource, and any co-located policy file, into the
+    /// `dest` directory.
+    pub(crate) async fn copy_to(self, dest: impl AsRef<Path>) -> Result<()> {
         let meta = tokio::fs::metadata(&dest).await?;
         if !meta.is_dir() {
             bail!(
@@ -148,21 +155,26 @@ impl DownloadedResource {
 }
 
 /// A trait for resources that can be loaded from a URI.
-pub trait Loadable: Sized {
+pub(crate) trait Loadable: Sized {
+    /// File extension used for downloaded copies of this resource.
     const FILE_EXTENSION: &'static str;
+    /// Human readable name of the resource type, used in error messages.
     const RESOURCE_TYPE: &'static str;
 
+    /// Load the resource from an absolute path on the local filesystem.
     async fn from_local_file(path: &Path) -> Result<DownloadedResource>;
+    /// Pull the resource from an OCI registry reference.
     async fn from_oci_reference_with_progress(
         reference: &str,
         oci_client: &oci_client::Client,
         show_progress: bool,
     ) -> Result<DownloadedResource>;
+    /// Download the resource over HTTP(S).
     async fn from_url(url: &str, http_client: &reqwest::Client) -> Result<DownloadedResource>;
 }
 
 /// Loadable implementation for WebAssembly components
-pub struct ComponentResource;
+pub(crate) struct ComponentResource;
 
 impl Loadable for ComponentResource {
     const FILE_EXTENSION: &'static str = "wasm";
@@ -314,7 +326,7 @@ impl Loadable for ComponentResource {
 }
 
 /// Loadable implementation for policies
-pub struct PolicyResource;
+pub(crate) struct PolicyResource;
 
 impl Loadable for PolicyResource {
     const FILE_EXTENSION: &'static str = "yaml";
@@ -402,6 +414,40 @@ pub(crate) async fn load_resource_with_progress<T: Loadable>(
         "oci" => T::from_oci_reference_with_progress(reference, oci_client, show_progress).await,
         "https" => T::from_url(uri, http_client).await,
         _ => bail!("Unsupported {} scheme: {}", T::RESOURCE_TYPE, scheme),
+    }
+}
+
+/// Fetch a WebAssembly component referenced by `uri` and return its Wassette
+/// component id (the `.wasm` file stem) together with a local path to it.
+///
+/// `uri` is one of `file://<absolute path>`, `oci://<reference>` or
+/// `https://<url>`. Local files are used where they are; remote artifacts are
+/// downloaded and persisted into `dest_dir` — the Wassette component directory
+/// — as `<component-id>.wasm`, so a component fetched once is reachable by id
+/// afterwards.
+pub async fn fetch_component(uri: &str, dest_dir: &Path) -> Result<(String, PathBuf)> {
+    let oci_client = oci_wasm::WasmClient::from(oci_client::Client::default());
+    let http_client = reqwest::Client::default();
+    let resource = load_resource::<ComponentResource>(uri, &oci_client, &http_client)
+        .await
+        .with_context(|| format!("Failed to fetch component from {uri}"))?;
+    let id = resource.id()?;
+    match resource {
+        DownloadedResource::Local(path) => Ok((id, path)),
+        downloaded => {
+            tokio::fs::create_dir_all(dest_dir).await.with_context(|| {
+                format!(
+                    "Failed to create component directory: {}",
+                    dest_dir.display()
+                )
+            })?;
+            let dest = dest_dir.join(format!("{id}.{}", ComponentResource::FILE_EXTENSION));
+            downloaded
+                .copy_to(dest_dir)
+                .await
+                .with_context(|| format!("Failed to store component in {}", dest_dir.display()))?;
+            Ok((id, dest))
+        }
     }
 }
 

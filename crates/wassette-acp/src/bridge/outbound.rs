@@ -13,7 +13,8 @@
 //! `block_task` inside a `cx.spawn`-ed task is the supported pattern.
 
 use agent_client_protocol::role::acp::Client;
-use agent_client_protocol::{ConnectionTo, Error as AcpError, schema::v1 as schema};
+use agent_client_protocol::schema::v1 as schema;
+use agent_client_protocol::{ConnectionTo, Error as AcpError};
 use tokio::sync::{mpsc, oneshot};
 use tracing::{debug, warn};
 
