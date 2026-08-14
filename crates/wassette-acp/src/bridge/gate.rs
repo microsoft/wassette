@@ -1,3 +1,6 @@
+// Copyright (c) Microsoft Corporation.
+// Licensed under the MIT license.
+
 //! Notification gate for held-back `session/update` events.
 //!
 //! `available_commands_update` (and other notifications) emitted by a

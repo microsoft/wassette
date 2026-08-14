@@ -1,3 +1,6 @@
+// Copyright (c) Microsoft Corporation.
+// Licensed under the MIT license.
+
 //! Wires the ACP `agent_client_protocol::Builder` over stdio and dispatches
 //! incoming JSON-RPC messages to per-session actors.
 //!

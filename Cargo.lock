@@ -5366,9 +5366,13 @@ version = "0.6.0"
 dependencies = [
  "agent-client-protocol",
  "anyhow",
+ "bytes",
  "clap",
  "etcetera",
  "futures-concurrency",
+ "http",
+ "http-body-util",
+ "policy",
  "rustls",
  "semver",
  "serde",

@@ -1,3 +1,6 @@
+// Copyright (c) Microsoft Corporation.
+// Licensed under the MIT license.
+
 //! ACP host for Wassette.
 //!
 //! Loads an ACP agent component and bridges it to the editor over the ACP
@@ -26,7 +29,9 @@ use wasmtime::{Config, Engine};
 mod bridge;
 mod client_impl;
 mod group;
+mod http_policy;
 mod install;
+mod sandbox;
 mod secrets;
 mod secrets_impl;
 mod state;
@@ -88,6 +93,7 @@ mod layer_bindings {
 pub use layer_bindings::Layer;
 
 use crate::install::Resolver;
+use crate::sandbox::Sandbox;
 use crate::state::StageKind;
 use crate::wasm::{SessionFactory, SessionRegistry, Stage};
 /// `Host` trait for the layer's *imported* `agent` interface. Since the
@@ -141,6 +147,22 @@ pub struct AcpArgs {
     /// `wassette secret set` writes to.
     #[arg(long)]
     pub secrets_dir: Option<PathBuf>,
+
+    /// Run every stage with the host's network and environment instead of
+    /// its Wassette policy.
+    ///
+    /// By default each provider and layer is sandboxed from its
+    /// `<component-id>.policy.yaml` (looked up in the component
+    /// directory, then beside the `.wasm`), exactly as
+    /// `wassette component load` + `wassette policy attach` set it up for
+    /// MCP. **A component with no policy therefore gets no network and no
+    /// filesystem access beyond its own per-session `/data` directory.**
+    /// Grant reach with a policy — `permissions.network.allow` for hosts,
+    /// `permissions.storage.allow` for paths, `permissions.environment.allow`
+    /// for environment variables — or pass this flag to skip policy
+    /// enforcement entirely. Intended for demos and local debugging.
+    #[arg(long)]
+    pub allow_all: bool,
 
     /// Optional path to a file to mirror logs into. The same events that
     /// go to stderr are appended to this file (no ANSI colors). Useful
@@ -260,13 +282,28 @@ pub async fn run(args: AcpArgs) -> Result<()> {
                     .resolve(arg)
                     .await
                     .with_context(|| format!("resolving provider `{arg}`"))?;
+                let sandbox = Sandbox::load(
+                    args.allow_all,
+                    &resolved.component_id,
+                    &resolved.path,
+                    resolver.component_dir(),
+                    &secrets,
+                )
+                .await
+                .with_context(|| format!("sandboxing provider `{arg}`"))?;
                 let stage = load_stage(
                     &engine,
                     &resolved.path,
                     StageKind::Provider,
                     resolved.component_id,
+                    sandbox,
                 )?;
-                info!(path = %resolved.path.display(), provider = %stage.component_id, "loaded provider component");
+                info!(
+                    path = %resolved.path.display(),
+                    provider = %stage.component_id,
+                    sandbox = %stage.sandbox.describe(),
+                    "loaded provider component",
+                );
                 providers.push(stage);
             }
             info!(
@@ -281,15 +318,30 @@ pub async fn run(args: AcpArgs) -> Result<()> {
                     .resolve(arg)
                     .await
                     .with_context(|| format!("resolving layer `{arg}`"))?;
+                let sandbox = Sandbox::load(
+                    args.allow_all,
+                    &resolved.component_id,
+                    &resolved.path,
+                    resolver.component_dir(),
+                    &secrets,
+                )
+                .await
+                .with_context(|| format!("sandboxing layer `{arg}`"))?;
                 layers.push(load_stage(
                     &engine,
                     &resolved.path,
                     StageKind::Layer,
                     resolved.component_id,
+                    sandbox,
                 )?);
             }
             for (idx, stage) in layers.iter().enumerate() {
-                info!(idx, layer = %stage.component_id, "loaded layer");
+                info!(
+                    idx,
+                    layer = %stage.component_id,
+                    sandbox = %stage.sandbox.describe(),
+                    "loaded layer",
+                );
             }
 
             let (outbound_tx, outbound_rx) = mpsc::channel(64);
@@ -337,6 +389,7 @@ fn load_stage(
     path: &std::path::Path,
     kind: StageKind,
     component_id: String,
+    sandbox: Sandbox,
 ) -> Result<Stage> {
     let component = Component::from_file(engine, path)
         .map_err(anyhow::Error::from)
@@ -346,6 +399,7 @@ fn load_stage(
     Ok(Stage {
         component,
         component_id,
+        sandbox,
     })
 }
 
