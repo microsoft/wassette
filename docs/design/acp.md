@@ -153,17 +153,29 @@ The tests drive exactly this flow over real stdio:
 just test-acp
 ```
 
-## Known blockers
+## Building the real providers
 
-* **The `ollama` and `copilot` providers cannot be built from source
-  here.** Both depend on `wstd` with a `wasip3` feature that exists in
-  neither the published crate nor `yoshuawuyts/wstd@main`; upstream's
-  manifest patches `wstd` to an unpublished local working copy. The host
-  will happily run a **prebuilt** `ollama_provider.wasm` — only building
-  one from source is blocked. Real-model providers are otherwise a
-  drop-in.
-* Consequently the in-tree demo runs on the echo provider, and the
-  end-to-end tests never touch a model.
+The `ollama` and `copilot` providers build against the `p3` branch of
+`bytecodealliance/wstd` (PR #129) — the `wasip3` feature is not on crates.io
+or on `main`. Two further adjustments are needed to target this crate's
+wasmtime 47 rather than upstream's 44:
+
+* Bump wstd's `wasip3` pin from `0.5` to `0.7.1`. Wasmtime 44 ships
+  `wasi:http@0.3.0-rc-2026-03-15`; wasmtime 47 ships final `wasi:http@0.3.0`.
+  A guest built against the older pin fails to link, and the error names the
+  mismatched import directly.
+* Add a renamed `wit-bindgen` 0.57 dep to wstd with `async-spawn` enabled.
+  `wasip3` 0.7.1 pulls its own 0.57 copy that does not unify features with the
+  0.54 used elsewhere, leaving `async_support::spawn` a private module.
+
+This was verified end to end: `ollama_provider.wasm` streaming a chat
+completion over real `wasi:http`, and refused without a network grant. Because
+those are local patches over an unmerged branch, the in-tree demo and the
+end-to-end tests deliberately use the echo provider instead, so they never
+depend on a model or on a moving upstream.
+
+GHCR is not anonymously reachable from this sandbox, so prebuilt components
+cannot be pulled either.
 
 ## Implementation notes
 
