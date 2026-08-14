@@ -147,21 +147,37 @@ cargo run -p wassette-mcp-server -- acp \
 
 …and the same with `--layer uppercase_layer.wasm` to show chaining.
 
-## Known blockers
+## Building the real providers
 
-* **`ollama-provider` and `copilot-provider` cannot be built here.** Both
-  depend on `wstd` with a `wasip3` feature. That feature exists in neither
-  crates.io (`0.6.1`–`0.6.8` expose only `json`) nor `yoshuawuyts/wstd@main`;
-  upstream's `Cargo.toml` patches `wstd` to `/Users/yosh/Code/wstd`, an
-  unpublished working copy. The host will still run a **prebuilt**
-  `ollama_provider.wasm` if one is supplied — only building from source is
-  blocked.
-* **GHCR is not anonymously reachable** from this sandbox (`403` on the token
-  endpoint) and `gh` is unauthenticated, so prebuilt provider components could
-  not be pulled either.
+`ollama-provider` and `copilot-provider` **do** build; the `wasip3` feature
+they need lives on the `p3` branch of `bytecodealliance/wstd` (PR #129), on top
+of PR #134's `src/sys/` modular-backend refactor. It is not on crates.io and
+not on `main`. Note that `yoshuawuyts/wstd` 301-redirects to the
+`bytecodealliance` org — follow the redirect.
 
-Net effect: the demo runs on the in-tree echo provider. Real-model providers are
-a drop-in once a `.wasm` is available.
+Targeting wasmtime 47 takes three steps:
+
+1. Patch `wstd` to the branch:
+   `[patch.crates-io] wstd = { git = "https://github.com/bytecodealliance/wstd", branch = "p3" }`
+2. **Bump its `wasip3` pin from `0.5` to `0.7.1`.** The branch targets
+   `wasi-0.3.0-rc-2026-03-15`, which is what wasmtime **44** ships; wasmtime
+   **47** ships **final `wasi:http@0.3.0`**. Without the bump the guest fails
+   to link: `component imports instance wasi:http/types@0.3.0-rc-2026-03-15,
+   but a matching implementation was not found`.
+3. `wasip3` 0.7.1 pulls its own `wit-bindgen` 0.57 copy, separate from the 0.54
+   everything else uses, so features do not unify and `async-spawn` is off —
+   `async_support::spawn` resolves to a private module. Add a renamed dep to
+   `wstd` purely for feature unification:
+   `wit-bindgen-p3 = { package = "wit-bindgen", version = "0.57", features = ["async", "async-spawn", "inter-task-wakeup"] }`
+
+Verified: `ollama_provider.wasm` streams a chat completion through
+`wassette acp` over real `wasi:http`, and is **denied** without a network
+grant. Steps 2 and 3 are local patches on top of an unmerged branch, so they
+will need revisiting as that branch moves — which is why the in-tree demo and
+the tests still use the echo provider.
+
+**GHCR is not anonymously reachable** from this sandbox (`403` on the token
+endpoint) and `gh` is unauthenticated, so prebuilt components cannot be pulled.
 
 ## Conventions to respect
 
