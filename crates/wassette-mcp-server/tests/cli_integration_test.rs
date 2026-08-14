@@ -778,10 +778,16 @@ async fn test_cli_autocomplete_bash() -> Result<()> {
         "Autocomplete bash command failed with stderr: {stderr}"
     );
 
-    // Verify the output contains bash completion script markers
+    // Verify the output contains bash completion script markers.
+    // Deliberately does not assert the generated function's name: clap_complete
+    // renamed it from _wassette-mcp-server to _wassette__mcp__server in 4.6.9.
     assert!(
-        stdout.contains("_wassette-mcp-server"),
-        "Bash completion should contain completion function"
+        stdout.contains("complete -F"),
+        "Bash completion should register a completion function"
+    );
+    assert!(
+        stdout.contains("wassette-mcp-server"),
+        "Bash completion should be registered for wassette-mcp-server"
     );
     assert!(
         stdout.contains("COMPREPLY"),
