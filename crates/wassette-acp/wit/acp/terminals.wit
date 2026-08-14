@@ -1,0 +1,52 @@
+package yosh:acp@7.0.0;
+
+/// Client-side terminal execution (agent → client).
+///
+/// See: <https://agentclientprotocol.com/protocol/terminals>
+interface terminals {
+    use sessions.{session-id, env-var};
+
+    /// Unique identifier for a terminal created via `create-terminal`.
+    type terminal-id = string;
+
+    /// Parameters to `create-terminal`.
+    record create-terminal-request {
+        /// The session this terminal belongs to.
+        session-id: session-id,
+        /// Command to execute.
+        command: string,
+        /// Arguments.
+        args: list<string>,
+        /// Environment variables.
+        env: list<env-var>,
+        /// Working directory (absolute path).
+        cwd: option<string>,
+        /// Maximum bytes of output to retain. Once exceeded, output is
+        /// truncated from the start, on a character boundary.
+        output-byte-limit: option<u64>,
+    }
+
+    /// Response to `create-terminal`.
+    record create-terminal-response {
+        /// The id of the newly created terminal.
+        terminal-id: terminal-id,
+    }
+
+    /// Snapshot of a terminal's output.
+    record terminal-output {
+        /// Output captured so far.
+        output: string,
+        /// Whether the output was truncated due to byte limits.
+        truncated: bool,
+        /// Present if the command has exited.
+        exit-status: option<terminal-exit-status>,
+    }
+
+    /// How a terminal command finished.
+    record terminal-exit-status {
+        /// Exit code, if the process exited normally.
+        exit-code: option<s32>,
+        /// Signal name, if killed by signal.
+        signal: option<string>,
+    }
+}
