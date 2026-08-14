@@ -1,282 +1,250 @@
-//! WIT-named component plugin installer.
+// Copyright (c) Microsoft Corporation.
+// Licensed under the MIT license.
+
+//! Resolution of `--provider` / `--layer` arguments to on-disk wasm
+//! components.
 //!
-//! Wraps [`wasm_package_manager::manager::Manager`] with an
-//! app-scoped XDG cache and a couple of convenience helpers used by the
-//! CLI (`--provider`/`--layer`) and by the host-side `/install` slash
-//! command.
+//! ACP components live in the *same* store as Wassette's MCP components:
+//! the Wassette component directory (`--component-dir`, defaulting to
+//! `$XDG_DATA_HOME/wassette/components`). Downloads go through
+//! [`wassette::loader`], so `wassette acp --provider` accepts exactly the
+//! references `wassette component load` does:
 //!
-//! The on-disk layout is:
+//! | Argument | Meaning |
+//! | --- | --- |
+//! | `./agent.wasm`, `/abs/agent.wasm`, `file:///abs/agent.wasm` | a local file, used in place |
+//! | `oci://ghcr.io/org/agent:0.1.0` | pulled from a registry into the component dir |
+//! | `https://example.com/agent.wasm` | downloaded into the component dir |
+//! | `agent` | a component already in the component dir (`agent.wasm`) |
 //!
-//! ```text
-//! $XDG_DATA_HOME/acp-wasm/components/
-//!   store/     # cacache-managed OCI blobs + metadata.db3
-//!   vendor/    # reflinked .wasm components, one subdir per WIT name
-//! ```
-//!
-//! Component lookups always live in `vendor/<slug>/` so subsequent
-//! launches can find the file without going through the package
-//! manager.
+//! The **component id** is the Wassette component id — the `.wasm` file
+//! stem — and is what scopes a stage's `/data` directory and its secrets,
+//! so `wassette secret set <id> KEY=…` and `wassette acp --provider <id>`
+//! agree on the name.
 
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, anyhow};
-use wasm_package_manager::manager::{
-    Manager, SyncPolicy, SyncResult,
-    install::{looks_like_wit_name, resolve_wit_name},
-};
+use tokio::sync::mpsc::Sender;
 
-/// Returns the app-scoped XDG data directory for installed components.
-///
-/// Honours `$XDG_DATA_HOME` when set, else falls back to
-/// `dirs::data_dir()` (e.g. `~/.local/share` on Linux, `~/Library/
-/// Application Support` on macOS).
-pub fn cache_root() -> Result<PathBuf> {
-    if let Some(val) = std::env::var_os("XDG_DATA_HOME") {
-        let p = PathBuf::from(val);
-        if p.is_absolute() {
-            return Ok(p.join("acp-wasm").join("components"));
-        }
-    }
-    let base = dirs::data_dir()
-        .ok_or_else(|| anyhow!("cannot determine user data dir for component cache"))?;
-    Ok(base.join("acp-wasm").join("components"))
-}
-
-fn store_dir() -> Result<PathBuf> {
-    Ok(cache_root()?.join("store"))
-}
-
-fn vendor_root() -> Result<PathBuf> {
-    Ok(cache_root()?.join("vendor"))
-}
-
-/// Per-WIT-name vendor subdirectory. Slug is `namespace__package[@version]`
-/// with `:` replaced by `__` so the path is filesystem-safe.
-fn vendor_dir_for(wit_name: &str) -> Result<PathBuf> {
-    let slug = wit_name.replace(':', "__");
-    Ok(vendor_root()?.join(slug))
-}
-
-/// Open the package manager rooted at our app-scoped cache.
-pub async fn manager() -> Result<Manager> {
-    let dir = store_dir()?;
-    tokio::fs::create_dir_all(&dir)
-        .await
-        .with_context(|| format!("failed to create component cache dir at {}", dir.display()))?;
-    Manager::open_at(dir).await
-}
-
-/// Sync the local known-package index from the meta-registry. Best
-/// effort: any failure is logged but not propagated, so installs can
-/// still proceed against a previously-cached index.
-async fn sync_registry(mgr: &Manager) {
-    match mgr
-        .sync_from_meta_registry(
-            Manager::DEFAULT_REGISTRY_URL,
-            Manager::DEFAULT_SYNC_INTERVAL,
-            SyncPolicy::IfStale,
-        )
-        .await
-    {
-        Ok(SyncResult::Degraded { error }) => {
-            tracing::warn!(error = %error, "registry sync degraded");
-        }
-        Err(e) => tracing::warn!(error = %e, "registry sync failed"),
-        Ok(_) => {}
-    }
-}
-
-/// Result of installing a single WIT-named component.
+/// A provider or layer argument resolved to a concrete component.
 #[derive(Debug, Clone)]
-pub struct InstalledComponent {
-    /// Fully qualified `namespace:package@version` (version always
-    /// filled in from the resolved OCI tag, even when the input WIT
-    /// name omitted it).
-    pub wit_name: String,
+pub struct ResolvedComponent {
+    /// Wassette component id (the `.wasm` file stem). Keys the stage's
+    /// secret store and its `/data` directory.
+    pub component_id: String,
+    /// Path to the component on disk.
     pub path: PathBuf,
 }
 
-/// Install (or refresh) a WIT-named component and return the path to
-/// its `.wasm` file. Always goes through the package manager: cache
-/// hits are cheap (cacache + reflink) and a no-op on disk.
-pub async fn install_wit(wit_name: &str) -> Result<InstalledComponent> {
-    install_wit_with_progress(wit_name, None).await
+/// How a CLI argument names a component.
+#[derive(Debug, PartialEq, Eq)]
+enum Reference<'a> {
+    /// A remote URI understood by [`wassette::loader`] (`oci://`,
+    /// `https://`) or an explicit `file://` path.
+    Uri(&'a str),
+    /// A filesystem path.
+    Path(&'a str),
+    /// A component id already present in the component directory.
+    Id(&'a str),
 }
 
-/// Like [`install_wit`] but emits coarse phase messages
-/// ("Syncing registry…", "Pulling…", byte counts, …) on `progress`
-/// when set. Used by the host-side `/install` command to drive an
-/// ACP tool-call progress card. Failures on the channel are ignored
-/// so progress reporting never blocks the install itself.
-pub async fn install_wit_with_progress(
-    wit_name: &str,
-    progress: Option<tokio::sync::mpsc::Sender<String>>,
-) -> Result<InstalledComponent> {
-    if !looks_like_wit_name(wit_name) {
-        return Err(anyhow!(
-            "`{wit_name}` is not a WIT-style name (expected `namespace:package[@version]`)"
-        ));
-    }
-    let report = |msg: String| {
-        if let Some(tx) = progress.as_ref() {
-            let _ = tx.try_send(msg);
-        }
-    };
-
-    report("Opening component cache…".to_string());
-    let mgr = manager().await?;
-
-    report("Syncing package index…".to_string());
-    // Best-effort: refresh the local known-package index from the
-    // meta-registry so freshly published WIT names resolve. Failures
-    // are logged but don't block resolution against any cached index.
-    sync_registry(&mgr).await;
-
-    report(format!("Resolving `{wit_name}`…"));
-    let reference = resolve_wit_name(wit_name, &mgr)
-        .await
-        .with_context(|| format!("resolving WIT name `{wit_name}`"))?;
-    // Build a fully-qualified `namespace:package@version` string. The
-    // input may have omitted `@version`; the resolved OCI reference
-    // always carries a concrete tag.
-    let base = wit_name.split_once('@').map_or(wit_name, |(b, _)| b);
-    let qualified = match reference.tag() {
-        Some(tag) => format!("{base}@{tag}"),
-        None => base.to_string(),
-    };
-    let vendor_dir = vendor_dir_for(&qualified)?;
-
-    report(format!(
-        "Pulling `{qualified}` from {}…",
-        reference.registry()
-    ));
-    let install = if let Some(tx) = progress.clone() {
-        // Forward the package manager's own ProgressEvents as
-        // human-readable strings on the same channel.
-        let (pe_tx, mut pe_rx) =
-            tokio::sync::mpsc::channel::<wasm_package_manager::ProgressEvent>(32);
-        let forward = tokio::spawn(async move {
-            let mut total: Option<u64> = None;
-            while let Some(ev) = pe_rx.recv().await {
-                if let Some(msg) = format_progress(&ev, &mut total) {
-                    let _ = tx.try_send(msg);
-                }
-            }
-        });
-        let result = mgr
-            .install_with_progress(reference, &vendor_dir, &pe_tx)
-            .await;
-        drop(pe_tx);
-        let _ = forward.await;
-        result
-    } else {
-        mgr.install(reference, &vendor_dir).await
-    }
-    .with_context(|| format!("installing `{wit_name}`"))?;
-
-    let path = install
-        .vendored_files
-        .into_iter()
-        .next()
-        .ok_or_else(|| anyhow!("package `{wit_name}` contained no wasm layers"))?;
-    Ok(InstalledComponent {
-        wit_name: qualified,
-        path,
-    })
-}
-
-/// Map a [`wasm_package_manager::ProgressEvent`] to a one-line
-/// user-facing string. Returns `None` for events that don't merit a
-/// UI update (e.g. fine-grained byte deltas — we throttle those to a
-/// single "downloaded N bytes" line per layer at a time).
-fn format_progress(
-    ev: &wasm_package_manager::ProgressEvent,
-    total: &mut Option<u64>,
-) -> Option<String> {
-    use wasm_package_manager::ProgressEvent as P;
-    match ev {
-        P::ManifestFetched { layer_count, .. } => {
-            *total = None;
-            Some(format!("Manifest fetched ({layer_count} layer(s))"))
-        }
-        P::LayerStarted {
-            index,
-            total_bytes,
-            title,
-            ..
-        } => {
-            *total = *total_bytes;
-            let label = title.clone().unwrap_or_else(|| format!("layer {index}"));
-            match total_bytes {
-                Some(n) => Some(format!("Downloading {label} ({})…", human_bytes(*n))),
-                None => Some(format!("Downloading {label}…")),
-            }
-        }
-        P::LayerProgress {
-            bytes_downloaded, ..
-        } => match *total {
-            Some(t) if t > 0 => Some(format!(
-                "Downloaded {} / {}",
-                human_bytes(*bytes_downloaded),
-                human_bytes(t)
-            )),
-            _ => Some(format!("Downloaded {}", human_bytes(*bytes_downloaded))),
-        },
-        P::LayerStored { .. } => Some("Stored layer".to_string()),
-        P::LayerDownloaded { .. } | P::InstallComplete => None,
-    }
-}
-
-fn human_bytes(n: u64) -> String {
-    const KB: u64 = 1024;
-    const MB: u64 = KB * 1024;
-    const GB: u64 = MB * 1024;
-    if n >= GB {
-        format!("{:.2} GB", n as f64 / GB as f64)
-    } else if n >= MB {
-        format!("{:.2} MB", n as f64 / MB as f64)
-    } else if n >= KB {
-        format!("{:.2} KB", n as f64 / KB as f64)
-    } else {
-        format!("{n} B")
-    }
-}
-
-/// Resolve a CLI argument to a wasm component path.
+/// Classify a `--provider` / `--layer` argument.
 ///
-/// - If `arg` looks like a WIT name (`namespace:package[@version]`),
-///   reuse an already-vendored copy when present, otherwise install it.
-/// - Otherwise treat `arg` as a filesystem path and return it as-is.
-pub async fn resolve(arg: &str) -> Result<PathBuf> {
-    if looks_like_wit_name(arg) {
-        if let Some(existing) = first_wasm_in(&vendor_dir_for(arg)?).await? {
-            return Ok(existing);
-        }
-        Ok(install_wit(arg).await?.path)
+/// Anything with a `<scheme>://` prefix is a URI and handed to the
+/// loader. Otherwise an argument that looks like a path (contains a
+/// separator, ends in `.wasm`, or exists on disk) is a local file; what
+/// remains is a component id to look up in the component directory.
+fn classify(arg: &str) -> Result<Reference<'_>> {
+    if let Some((scheme, _)) = arg.split_once("://") {
+        return match scheme {
+            "file" | "oci" | "https" => Ok(Reference::Uri(arg)),
+            other => Err(anyhow!(
+                "unsupported component scheme `{other}://`; expected `oci://`, `https://`, \
+                 `file://`, a filesystem path, or a component id"
+            )),
+        };
+    }
+    let looks_like_path = arg.contains(std::path::MAIN_SEPARATOR)
+        || arg.contains('/')
+        || arg.ends_with(".wasm")
+        || Path::new(arg).exists();
+    if looks_like_path {
+        Ok(Reference::Path(arg))
     } else {
-        Ok(PathBuf::from(arg))
+        Ok(Reference::Id(arg))
     }
 }
 
-/// The component identity (`namespace:component-name`) for a provider or
-/// layer argument, using the same WIT-name-vs-path classification as
-/// [`resolve`]. See [`crate::utils::component_id_from_arg`].
-pub fn component_id_for_arg(arg: &str) -> Result<String> {
-    crate::utils::component_id_from_arg(arg, looks_like_wit_name(arg))
+/// Reject ids that would escape the component directory or collide with
+/// the secret store's per-component file naming.
+fn validate_component_id(id: &str) -> Result<()> {
+    let ok = !id.is_empty()
+        && id
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '-' | '.'))
+        && id != "."
+        && id != "..";
+    if !ok {
+        anyhow::bail!("`{id}` is not a valid component id (allowed characters: [A-Za-z0-9._-])");
+    }
+    Ok(())
 }
 
-/// Return the first `*.wasm` file in `dir` if the directory exists.
-async fn first_wasm_in(dir: &Path) -> Result<Option<PathBuf>> {
-    let mut rd = match tokio::fs::read_dir(dir).await {
-        Ok(rd) => rd,
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
-        Err(e) => return Err(e.into()),
-    };
-    while let Some(entry) = rd.next_entry().await? {
-        let path = entry.path();
-        if path.extension().and_then(|e| e.to_str()) == Some("wasm") {
-            return Ok(Some(path));
+/// Resolves component references against a Wassette component directory.
+pub struct Resolver {
+    component_dir: PathBuf,
+}
+
+impl Resolver {
+    /// Resolve against `component_dir`, the Wassette component store.
+    pub fn new(component_dir: impl Into<PathBuf>) -> Self {
+        Self {
+            component_dir: component_dir.into(),
         }
     }
-    Ok(None)
+
+    /// The component directory this resolver reads from and downloads into.
+    pub fn component_dir(&self) -> &Path {
+        &self.component_dir
+    }
+
+    /// Resolve `arg` to a component on disk, downloading it if needed.
+    pub async fn resolve(&self, arg: &str) -> Result<ResolvedComponent> {
+        self.resolve_with_progress(arg, None).await
+    }
+
+    /// Like [`Resolver::resolve`] but emits coarse phase messages on
+    /// `progress` when set. Used by the host-side `/install` slash
+    /// command to drive an ACP tool-call progress card; send failures are
+    /// ignored so reporting never blocks resolution.
+    pub async fn resolve_with_progress(
+        &self,
+        arg: &str,
+        progress: Option<Sender<String>>,
+    ) -> Result<ResolvedComponent> {
+        let report = |msg: String| {
+            if let Some(tx) = progress.as_ref() {
+                let _ = tx.try_send(msg);
+            }
+        };
+
+        match classify(arg)? {
+            Reference::Id(id) => {
+                validate_component_id(id)?;
+                let path = self.component_dir.join(format!("{id}.wasm"));
+                if !tokio::fs::try_exists(&path).await.unwrap_or(false) {
+                    anyhow::bail!(
+                        "no component `{id}` in {}; load it first (`wassette component load \
+                         <oci://…|https://…|file://…>`) or pass a path or URI",
+                        self.component_dir.display()
+                    );
+                }
+                report(format!("Using `{id}`."));
+                Ok(ResolvedComponent {
+                    component_id: id.to_string(),
+                    path,
+                })
+            }
+            Reference::Path(path) => {
+                // The loader requires absolute paths; relative CLI
+                // arguments are the common case, so anchor them at the
+                // current directory before handing them over.
+                let abs = std::path::absolute(path)
+                    .with_context(|| format!("resolving component path `{path}`"))?;
+                report(format!("Loading `{}`…", abs.display()));
+                self.fetch(&format!("file://{}", abs.display())).await
+            }
+            Reference::Uri(uri) => {
+                report(format!("Fetching `{uri}`…"));
+                let resolved = self.fetch(uri).await?;
+                report(format!("Fetched `{}`.", resolved.component_id));
+                Ok(resolved)
+            }
+        }
+    }
+
+    /// Hand `uri` to [`wassette::loader`]. Remote artifacts land in the
+    /// component directory; local files are used where they are.
+    async fn fetch(&self, uri: &str) -> Result<ResolvedComponent> {
+        let (component_id, path) = wassette::loader::fetch_component(uri, &self.component_dir)
+            .await
+            .with_context(|| format!("fetching component `{uri}`"))?;
+        validate_component_id(&component_id)
+            .with_context(|| format!("deriving a component id from `{uri}`"))?;
+        Ok(ResolvedComponent { component_id, path })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn schemes_are_uris() {
+        assert_eq!(
+            classify("oci://ghcr.io/org/agent:0.1.0").unwrap(),
+            Reference::Uri("oci://ghcr.io/org/agent:0.1.0")
+        );
+        assert_eq!(
+            classify("https://example.com/agent.wasm").unwrap(),
+            Reference::Uri("https://example.com/agent.wasm")
+        );
+        assert_eq!(
+            classify("file:///tmp/agent.wasm").unwrap(),
+            Reference::Uri("file:///tmp/agent.wasm")
+        );
+    }
+
+    #[test]
+    fn unknown_scheme_is_rejected() {
+        assert!(classify("ftp://example.com/agent.wasm").is_err());
+    }
+
+    #[test]
+    fn paths_are_paths() {
+        assert_eq!(
+            classify("./target/agent.wasm").unwrap(),
+            Reference::Path("./target/agent.wasm")
+        );
+        assert_eq!(
+            classify("agent.wasm").unwrap(),
+            Reference::Path("agent.wasm")
+        );
+    }
+
+    #[test]
+    fn bare_names_are_ids() {
+        assert_eq!(
+            classify("acp-echo-provider").unwrap(),
+            Reference::Id("acp-echo-provider")
+        );
+    }
+
+    #[test]
+    fn traversal_ids_are_rejected() {
+        assert!(validate_component_id("../etc/passwd").is_err());
+        assert!(validate_component_id("..").is_err());
+        assert!(validate_component_id("").is_err());
+    }
+
+    #[tokio::test]
+    async fn missing_id_reports_the_component_dir() {
+        let dir = tempfile::tempdir().unwrap();
+        let resolver = Resolver::new(dir.path());
+        let err = resolver.resolve("nope").await.unwrap_err().to_string();
+        assert!(err.contains("no component `nope`"), "{err}");
+        assert!(err.contains(&dir.path().display().to_string()), "{err}");
+    }
+
+    #[tokio::test]
+    async fn id_resolves_against_the_component_dir() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("agent.wasm");
+        tokio::fs::write(&path, b"\0asm").await.unwrap();
+        let resolver = Resolver::new(dir.path());
+        let resolved = resolver.resolve("agent").await.unwrap();
+        assert_eq!(resolved.component_id, "agent");
+        assert_eq!(resolved.path, path);
+    }
 }
