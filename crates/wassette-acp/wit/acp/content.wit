@@ -1,0 +1,92 @@
+package yosh:acp@7.0.0;
+
+/// Displayable content blocks. Mirrors MCP's `ContentBlock` so that MCP tool
+/// output can be forwarded without transformation.
+///
+/// See: <https://agentclientprotocol.com/protocol/content>
+interface content {
+    /// A displayable block of content.
+    variant content-block {
+        /// Plain text or Markdown. Always supported.
+        text(text-content),
+        /// Image content. Requires the `image` prompt capability.
+        image(image-content),
+        /// Audio content. Requires the `audio` prompt capability.
+        audio(audio-content),
+        /// A reference to a resource the agent can fetch. Always supported.
+        resource-link(resource-link),
+        /// An embedded resource with content inline. Requires the
+        /// `embedded-context` prompt capability. Mirrors MCP's
+        /// `"type": "resource"` content block.
+        %resource(embedded-resource),
+    }
+
+    record text-content {
+        /// The text. May be plain or Markdown.
+        text: string,
+    }
+
+    record image-content {
+        /// Base64-encoded image bytes.
+        data: string,
+        /// MIME type, e.g. `"image/png"`.
+        mime-type: string,
+        /// Optional source URI.
+        uri: option<string>,
+    }
+
+    record audio-content {
+        /// Base64-encoded audio bytes.
+        data: string,
+        /// MIME type, e.g. `"audio/wav"`.
+        mime-type: string,
+    }
+
+    record resource-link {
+        /// Absolute URI of the resource.
+        uri: string,
+        /// Human-readable name.
+        name: string,
+        /// Optional MIME type.
+        mime-type: option<string>,
+        /// Optional display title.
+        title: option<string>,
+        /// Optional description.
+        description: option<string>,
+        /// Optional size in bytes.
+        size: option<u64>,
+    }
+
+    record embedded-resource {
+        /// The embedded contents.
+        %resource: resource-contents,
+    }
+
+    /// Inline contents of an embedded resource — either text or binary.
+    variant resource-contents {
+        /// Text contents.
+        text(text-resource-contents),
+        /// Binary contents (base64-encoded).
+        blob(blob-resource-contents),
+    }
+
+    /// Inline text resource.
+    record text-resource-contents {
+        /// URI identifying the resource.
+        uri: string,
+        /// Optional MIME type of the text content.
+        mime-type: option<string>,
+        /// The text contents.
+        text: string,
+    }
+
+    /// Inline binary resource.
+    record blob-resource-contents {
+        /// URI identifying the resource.
+        uri: string,
+        /// Optional MIME type of the binary content.
+        mime-type: option<string>,
+        /// Base64-encoded binary data.
+        blob: string,
+    }
+}

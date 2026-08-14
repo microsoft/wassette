@@ -1,0 +1,79 @@
+package yosh:acp@7.0.0;
+
+/// Host-capability callbacks invoked by the agent on the client side:
+/// permission prompts, file system access, and terminal control.
+///
+/// All methods are called by the agent and implemented by the client.
+/// Maps to the JSON-RPC methods listed under "Client" in the protocol
+/// overview: <https://agentclientprotocol.com/protocol/overview#client>
+///
+/// Per-turn `session-update`s flow on the streaming body of a
+/// [`agent.prompt-turn`]. Out-of-turn session events (slash-command
+/// advertisements, mode/model state changes from the agent, session
+/// info updates) still need a channel and arrive here via
+/// [`notify-session`].
+interface client {
+    use errors.{error};
+    use sessions.{session-id};
+    use prompts.{session-update};
+    use tools.{request-permission-request, request-permission-response};
+    use filesystem.{
+        read-text-file-request, read-text-file-response,
+        write-text-file-request,
+    };
+    use terminals.{create-terminal-request, terminal-exit-status};
+
+    /// One-way out-of-turn session notification. Mirrors the legacy
+    /// `session/update` JSON-RPC method for events that don't belong
+    /// to any in-flight prompt-turn (e.g. an agent-emitted
+    /// `available-commands-update` advertised during session startup,
+    /// or a `current-mode-update` reflecting a mode flip the user
+    /// triggered out-of-band).
+    notify-session: async func(session-id: session-id, update: session-update);
+
+    /// Ask the user to authorize a tool call. Returns the user's
+    /// decision.
+    ///
+    /// See: <https://agentclientprotocol.com/protocol/tool-calls#requesting-permission>
+    request-permission: async func(req: request-permission-request) -> result<request-permission-response, error>;
+
+    /// Read a text file from the client's environment, including any
+    /// unsaved editor state. Requires `client-capabilities.fs.read-text-file`.
+    ///
+    /// See: <https://agentclientprotocol.com/protocol/file-system#reading-files>
+    read-text-file: async func(req: read-text-file-request) -> result<read-text-file-response, error>;
+
+    /// Write a text file in the client's environment. Creates the file
+    /// if missing. Requires `client-capabilities.fs.write-text-file`.
+    ///
+    /// See: <https://agentclientprotocol.com/protocol/file-system#writing-files>
+    write-text-file: async func(req: write-text-file-request) -> result<_, error>;
+
+    /// A live terminal owned by the client. Construct with
+    /// [`terminal.constructor`] to start a command; consume `output()`
+    /// as a stream of raw bytes; await `wait-for-exit()` for the exit
+    /// status. Drop the resource to kill and release.
+    ///
+    /// Drop = kill + release: there is no separate `kill` /
+    /// `release-terminal` distinction; if you need to read final
+    /// output, consume `output()` to completion or capture
+    /// `wait-for-exit()` before dropping.
+    resource terminal {
+        /// Start a command in a fresh terminal. The terminal begins
+        /// running immediately; `output()` and `wait-for-exit()` may
+        /// be called any time after construction.
+        ///
+        /// See: <https://agentclientprotocol.com/protocol/terminals#executing-commands>
+        constructor(req: create-terminal-request);
+
+        /// Raw byte stream of the terminal's combined output (stdout +
+        /// stderr in interleaved order). The stream ends when the
+        /// process exits and any remaining bytes have been flushed.
+        output: async func() -> stream<u8>;
+
+        /// Resolves once the command has exited. Calling this after
+        /// drop traps; capture the future before dropping if you need
+        /// the post-mortem.
+        wait-for-exit: async func() -> result<terminal-exit-status, error>;
+    }
+}

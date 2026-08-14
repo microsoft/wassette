@@ -1,0 +1,113 @@
+package yosh:acp@7.0.0;
+
+/// Methods exported by an agent. The client calls these.
+///
+/// Maps to the JSON-RPC methods listed under "Agent" in the protocol
+/// overview: <https://agentclientprotocol.com/protocol/overview#agent>
+///
+/// The session lifecycle is resource-shaped: `new-session` /
+/// `load-session` / `resume-session` each return an owned [`session`]
+/// resource alongside an initial state snapshot. Dropping the
+/// `session` closes it; there is no `close-session` method.
+///
+/// `session.prompt` is a plain async function that returns the
+/// terminal `prompt-response` when the turn ends. Intermediate
+/// `session-update`s (agent message chunks, tool-call lifecycle,
+/// plan/mode notifications, etc.) flow over `client.notify-session`
+/// in the opposite direction.
+interface agent {
+    use errors.{error};
+    use init.{initialize-request, initialize-response, authenticate-request};
+    use sessions.{
+        session-mode-id, session-model-id,
+        session-config-id, session-config-value-id, session-config-option,
+        new-session-request, new-session-response,
+        load-session-request, load-session-response,
+        list-sessions-request, list-sessions-response,
+        resume-session-request, resume-session-response,
+    };
+    use content.{content-block};
+    use prompts.{prompt-response};
+
+    /// Opaque handle to an active session.
+    ///
+    /// Returned (owned) from `new-session` / `load-session` /
+    /// `resume-session`; dropping the handle closes the session — no
+    /// separate `close-session` method.
+    resource session {
+        /// Run a prompt turn to completion. Resolves with the
+        /// terminal `prompt-response` when the turn ends. Intermediate
+        /// `session-update`s are emitted via `client.notify-session`
+        /// during the call.
+        ///
+        /// To cancel, drop the future (or use the host's cancel
+        /// machinery); the agent MUST resolve with
+        /// `stop-reason::cancelled`.
+        ///
+        /// See: <https://agentclientprotocol.com/protocol/prompt-turn>
+        prompt: async func(prompt: list<content-block>) -> result<prompt-response, error>;
+
+        /// Switch the active mode for this session. The `mode-id` MUST
+        /// be one of the modes returned in the session's lifecycle
+        /// response.
+        ///
+        /// See: <https://agentclientprotocol.com/protocol/session-modes>
+        set-mode: async func(mode-id: session-mode-id) -> result<_, error>;
+
+        /// Switch the active model for this session. **UNSTABLE**.
+        /// The `model-id` MUST be one of the models returned in the
+        /// session's lifecycle response.
+        select-model: async func(model-id: session-model-id) -> result<_, error>;
+
+        /// Set a configuration option (model / mode / thought-level) for
+        /// this session. The `config-id` and `value` MUST come from the
+        /// option set advertised in the session's lifecycle response.
+        /// Returns the full updated option set (mirroring the ACP
+        /// `session/set_config_option` response).
+        ///
+        /// See: <https://agentclientprotocol.com/protocol/session-config>
+        set-config-option: async func(config-id: session-config-id, value: session-config-value-id) -> result<list<session-config-option>, error>;
+    }
+
+    /// Establish the connection. Negotiate protocol version, exchange
+    /// capabilities, and identify implementations.
+    ///
+    /// MUST be the first method called on the agent.
+    ///
+    /// See: <https://agentclientprotocol.com/protocol/initialization>
+    initialize: async func(req: initialize-request) -> result<initialize-response, error>;
+
+    /// Authenticate using one of the methods advertised in
+    /// `initialize-response.auth-methods`.
+    ///
+    /// See: <https://agentclientprotocol.com/protocol/initialization#authentication>
+    authenticate: async func(req: authenticate-request) -> result<_, error>;
+
+    /// Create a fresh conversation session. MUST be called after
+    /// `initialize`. Returns an owned [`session`] resource paired with
+    /// the initial response record.
+    ///
+    /// See: <https://agentclientprotocol.com/protocol/session-setup#creating-a-session>
+    new-session: async func(req: new-session-request) -> result<tuple<session, new-session-response>, error>;
+
+    /// Resume a previous session, replaying its history. The agent
+    /// will emit history `session-update`s via a synthetic startup
+    /// `prompt-turn` BEFORE this call returns — currently exposed by
+    /// the host calling `prompt(...)` on the returned session with an
+    /// empty prompt; subject to refinement.
+    ///
+    /// See: <https://agentclientprotocol.com/protocol/session-setup#loading-sessions>
+    load-session: async func(req: load-session-request) -> result<tuple<session, load-session-response>, error>;
+
+    /// Discover existing sessions known to the agent. Pagination via
+    /// the opaque `cursor` field.
+    ///
+    /// See: <https://agentclientprotocol.com/protocol/session-list>
+    list-sessions: async func(req: list-sessions-request) -> result<list-sessions-response, error>;
+
+    /// Reconnect to an existing session without replaying history.
+    /// Unlike `load-session`, the agent MUST NOT stream history.
+    ///
+    /// See: <https://agentclientprotocol.com/protocol/session-setup#resuming-sessions>
+    resume-session: async func(req: resume-session-request) -> result<tuple<session, resume-session-response>, error>;
+}
