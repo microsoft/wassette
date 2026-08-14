@@ -1,0 +1,395 @@
+package yosh:acp@7.0.0;
+
+/// Session lifecycle types: identifiers, MCP server configuration, modes, and
+/// new/load/list/resume payloads.
+///
+/// See: <https://agentclientprotocol.com/protocol/session-setup>
+///      <https://agentclientprotocol.com/protocol/session-list>
+///      <https://agentclientprotocol.com/protocol/session-modes>
+interface sessions {
+    /// Unique identifier for an active session, returned by `new-session`.
+    type session-id = string;
+
+    /// Unique identifier for a session mode.
+    type session-mode-id = string;
+
+    /// Unique identifier for a session model. **UNSTABLE** — mirrors
+    /// the unstable `session/set_model` capability in upstream ACP.
+    /// Selectable independently of `session-mode`.
+    type session-model-id = string;
+
+    // ------------------------------------------------------------------
+    // Common helpers
+    // ------------------------------------------------------------------
+
+    /// An environment variable, used when launching MCP stdio servers or
+    /// terminal commands.
+    record env-var {
+        /// Variable name.
+        name: string,
+        /// Variable value.
+        value: string,
+    }
+
+    /// An HTTP header, used when connecting to MCP HTTP/SSE servers.
+    record http-header {
+        /// Header name.
+        name: string,
+        /// Header value.
+        value: string,
+    }
+
+    // ------------------------------------------------------------------
+    // MCP server configuration
+    //
+    // See: https://agentclientprotocol.com/protocol/session-setup#mcp-servers
+    // ------------------------------------------------------------------
+
+    /// Configuration for connecting to an MCP server.
+    variant mcp-server {
+        /// Stdio transport (always supported).
+        stdio(mcp-server-stdio),
+        /// HTTP transport (requires `agent-capabilities.mcp-capabilities.http`).
+        http(mcp-server-http),
+        /// SSE transport (requires `agent-capabilities.mcp-capabilities.sse`).
+        sse(mcp-server-sse),
+    }
+
+    record mcp-server-stdio {
+        /// Human-readable name.
+        name: string,
+        /// Absolute path to the MCP server executable.
+        command: string,
+        /// Command-line arguments.
+        args: list<string>,
+        /// Environment variables.
+        env: list<env-var>,
+    }
+
+    record mcp-server-http {
+        /// Human-readable name.
+        name: string,
+        /// URL of the MCP server.
+        url: string,
+        /// HTTP headers to include on every request.
+        headers: list<http-header>,
+    }
+
+    record mcp-server-sse {
+        /// Human-readable name.
+        name: string,
+        /// SSE endpoint URL.
+        url: string,
+        /// HTTP headers to include when establishing the connection.
+        headers: list<http-header>,
+    }
+
+    // ------------------------------------------------------------------
+    // Component provenance
+    // ------------------------------------------------------------------
+
+    /// Identifies the component (provider or layer) that contributed a
+    /// session mode or model.
+    ///
+    /// Providers set this to their own component id. Layers that
+    /// synthesize new modes/models (which the downstream stage doesn't
+    /// know about) set this to their own component id; layers
+    /// forwarding downstream entries MUST pass the existing value
+    /// through unchanged.
+    record component-source {
+        /// Stable component identifier. Format is host-defined but
+        /// conventionally `namespace:name` (e.g. `local:plan-layer`,
+        /// `ghcr.io/yosh:ollama-provider`).
+        component-id: string,
+    }
+
+    // ------------------------------------------------------------------
+    // Session modes
+    //
+    // See: https://agentclientprotocol.com/protocol/session-modes
+    // ------------------------------------------------------------------
+
+    /// A mode the agent can operate in within a session. Modes typically
+    /// affect system prompts, tool availability, and permission behavior.
+    record session-mode {
+        /// Stable identifier for this mode.
+        id: session-mode-id,
+        /// Human-readable display name.
+        name: string,
+        /// Optional longer description.
+        description: option<string>,
+        /// Which component contributed this mode. Layers that synthesize
+        /// new modes set this to their own component id; layers
+        /// forwarding downstream entries pass it through unchanged.
+        /// Providers set it to their own component id.
+        provided-by: component-source,
+    }
+
+    /// The set of modes available for a session and which one is active.
+    record session-mode-state {
+        /// The currently active mode.
+        current-mode-id: session-mode-id,
+        /// All modes the agent can operate in for this session.
+        available-modes: list<session-mode>,
+    }
+
+    /// Parameters to `set-session-mode`.
+    record set-session-mode-request {
+        /// The session whose mode is being changed.
+        session-id: session-id,
+        /// The mode to switch to. MUST be one of the `available-modes`.
+        mode-id: session-mode-id,
+    }
+
+    // ------------------------------------------------------------------
+    // Session models (UNSTABLE)
+    //
+    // Mirrors the unstable `session/set_model` capability in upstream
+    // ACP. Models are orthogonal to modes: a session has one active
+    // mode (how the agent behaves) AND one active model (which LLM
+    // backs it).
+    // ------------------------------------------------------------------
+
+    /// A selectable model for a session. **UNSTABLE**.
+    record session-model {
+        /// Stable identifier (e.g. `"llama3.2:8b"`, `"gpt-4o"`).
+        id: session-model-id,
+        /// Human-readable name.
+        name: string,
+        /// Optional longer description.
+        description: option<string>,
+        /// Which component contributed this model.
+        provided-by: component-source,
+    }
+
+    /// The set of models available for a session and which one is
+    /// active. **UNSTABLE**.
+    record session-model-state {
+        /// The currently active model.
+        current-model-id: session-model-id,
+        /// All models the agent can run for this session.
+        available-models: list<session-model>,
+    }
+
+    /// Parameters to `select-model`. **UNSTABLE**.
+    record select-model-request {
+        /// The session whose model is being changed.
+        session-id: session-id,
+        /// The model to switch to. MUST be one of `available-models`.
+        model-id: session-model-id,
+    }
+
+    // ------------------------------------------------------------------
+    // Session configuration options
+    //
+    // The unified selector mechanism that supersedes the legacy
+    // `modes`/`models` fields. Each option is a labelled dropdown with a
+    // semantic `category` (mode / model / thought-level) that clients use
+    // for UX placement and keyboard shortcuts. Setting a value
+    // round-trips through `set-config-option`, which returns the full
+    // updated option set.
+    //
+    // See: https://agentclientprotocol.com/protocol/session-config
+    // ------------------------------------------------------------------
+
+    /// Unique identifier for a configuration option (e.g. `"model"`,
+    /// `"reasoning-effort"`).
+    type session-config-id = string;
+
+    /// Unique identifier for one selectable value of a configuration
+    /// option (e.g. `"gpt-4o"`, `"high"`).
+    type session-config-value-id = string;
+
+    /// Unique identifier for a group of selectable values within a
+    /// `select`-type configuration option (e.g. one group per provider
+    /// backing a merged model selector).
+    type session-config-group-id = string;
+
+    /// Semantic category for a configuration option. Clients use this to
+    /// place the selector and bind shortcuts; it MUST NOT be required for
+    /// correctness, and clients MUST handle unknown categories
+    /// gracefully.
+    variant session-config-option-category {
+        /// Session mode selector.
+        mode,
+        /// Model selector.
+        model,
+        /// Thought / reasoning level selector.
+        thought-level,
+        /// Uncategorized selector, carrying its raw category string.
+        other(string),
+    }
+
+    /// One selectable value of a `select`-type configuration option.
+    record session-config-select-option {
+        /// Stable identifier for this value.
+        value: session-config-value-id,
+        /// Human-readable label.
+        name: string,
+        /// Optional longer description.
+        description: option<string>,
+    }
+
+    /// A labelled group of selectable values, rendered under a header.
+    /// Used e.g. to group models by the provider that offers them.
+    record session-config-select-group {
+        /// Stable identifier for this group.
+        group: session-config-group-id,
+        /// Human-readable group label (header).
+        name: string,
+        /// The selectable values in this group.
+        options: list<session-config-select-option>,
+    }
+
+    /// The selectable values of a `select`-type configuration option:
+    /// either a flat (ungrouped) list or a list of labelled groups.
+    /// Values MUST be unique across all groups — selection round-trips by
+    /// value id alone (no group id).
+    variant session-config-select-options {
+        /// A flat list of values with no grouping.
+        ungrouped(list<session-config-select-option>),
+        /// A list of values grouped under headers.
+        grouped(list<session-config-select-group>),
+    }
+
+    /// A single-value selector (dropdown) configuration option and its
+    /// current state.
+    record session-config-option {
+        /// Stable identifier for this option.
+        id: session-config-id,
+        /// Human-readable label.
+        name: string,
+        /// Optional longer description.
+        description: option<string>,
+        /// Optional semantic category (UX only).
+        category: option<session-config-option-category>,
+        /// The currently selected value. MUST be one of `options`.
+        current-value: session-config-value-id,
+        /// The selectable values (flat or grouped).
+        options: session-config-select-options,
+        /// Which component contributed this option. Providers set it to
+        /// their own component id; layers pass downstream entries through
+        /// unchanged.
+        provided-by: component-source,
+    }
+
+    // ------------------------------------------------------------------
+    // New / load
+    //
+    // See: https://agentclientprotocol.com/protocol/session-setup
+    // ------------------------------------------------------------------
+
+    /// Parameters to `new-session`.
+    record new-session-request {
+        /// The working directory for this session. MUST be absolute.
+        cwd: string,
+        /// MCP servers the agent should connect to for this session.
+        mcp-servers: list<mcp-server>,
+    }
+
+    /// Response to `new-session`.
+    record new-session-response {
+        /// The id assigned to the new session.
+        session-id: session-id,
+        /// Modes the agent can operate in for this session, if any.
+        modes: option<session-mode-state>,
+        /// Models the agent can run for this session, if any.
+        /// **UNSTABLE**.
+        models: option<session-model-state>,
+        /// Configuration option selectors (model / mode / thought-level)
+        /// for this session, if any. Supersedes `modes`/`models` on
+        /// clients that support it.
+        config-options: option<list<session-config-option>>,
+    }
+
+    /// Parameters to `load-session` (only valid if
+    /// `agent-capabilities.load-session` is true).
+    record load-session-request {
+        /// The id of the session to resume.
+        session-id: session-id,
+        /// The working directory for the session.
+        cwd: string,
+        /// MCP servers to (re)connect to.
+        mcp-servers: list<mcp-server>,
+    }
+
+    /// Response to `load-session`.
+    record load-session-response {
+        /// Modes the agent can operate in for this session, if any.
+        modes: option<session-mode-state>,
+        /// Models the agent can run for this session, if any.
+        /// **UNSTABLE**.
+        models: option<session-model-state>,
+        /// Configuration option selectors (model / mode / thought-level)
+        /// for this session, if any. Supersedes `modes`/`models` on
+        /// clients that support it.
+        config-options: option<list<session-config-option>>,
+    }
+
+    // ------------------------------------------------------------------
+    // List / resume / close
+    // ------------------------------------------------------------------
+
+    /// Metadata about a session, returned by `list-sessions` and pushed via
+    /// `session-info-update` notifications.
+    record session-info {
+        /// The session's id.
+        session-id: session-id,
+        /// Working directory for the session (absolute path).
+        cwd: string,
+        /// Optional human-readable title (often agent-generated).
+        title: option<string>,
+        /// Optional ISO 8601 timestamp of last activity.
+        updated-at: option<string>,
+    }
+
+    /// Parameters to `list-sessions`. All fields are optional; an empty
+    /// request returns the first page of sessions.
+    record list-sessions-request {
+        /// Filter by working directory (absolute path).
+        cwd: option<string>,
+        /// Opaque cursor from a previous response's `next-cursor` field.
+        cursor: option<string>,
+    }
+
+    /// Response to `list-sessions`.
+    record list-sessions-response {
+        /// Discovered sessions. May be empty.
+        sessions: list<session-info>,
+        /// Opaque cursor for the next page, if more results exist.
+        next-cursor: option<string>,
+    }
+
+    /// Parameters to `resume-session`. Reconnects to an existing session
+    /// without replaying conversation history (unlike `load-session`).
+    record resume-session-request {
+        /// The id of the session to resume.
+        session-id: session-id,
+        /// The working directory for the session.
+        cwd: string,
+        /// MCP servers to (re)connect to.
+        mcp-servers: list<mcp-server>,
+    }
+
+    /// Response to `resume-session`.
+    record resume-session-response {
+        /// Modes the agent can operate in for this session, if any.
+        modes: option<session-mode-state>,
+        /// Models the agent can run for this session, if any.
+        /// **UNSTABLE**.
+        models: option<session-model-state>,
+        /// Configuration option selectors (model / mode / thought-level)
+        /// for this session, if any. Supersedes `modes`/`models` on
+        /// clients that support it.
+        config-options: option<list<session-config-option>>,
+    }
+
+    /// Update to a session's metadata, pushed by the agent. Only included
+    /// fields are changed; omitted fields are left unchanged.
+    record session-info-update {
+        /// New title. `none` means "unchanged".
+        title: option<string>,
+        /// New ISO 8601 last-activity timestamp. `none` means "unchanged".
+        updated-at: option<string>,
+    }
+}

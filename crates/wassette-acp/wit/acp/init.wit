@@ -1,0 +1,130 @@
+package yosh:acp@7.0.0;
+
+/// Connection initialization: capabilities, identification, and authentication.
+///
+/// See: <https://agentclientprotocol.com/protocol/initialization>
+interface init {
+    /// Identification metadata for a client or agent implementation.
+    ///
+    /// See: <https://agentclientprotocol.com/protocol/initialization#implementation-information>
+    record implementation-info {
+        /// Programmatic name (e.g. `"my-agent"`).
+        name: string,
+        /// Optional human-readable display name.
+        title: option<string>,
+        /// Implementation version (e.g. `"1.0.0"`).
+        version: string,
+    }
+
+    // ------------------------------------------------------------------
+    // Capabilities
+    //
+    // See: https://agentclientprotocol.com/protocol/initialization#capabilities
+    // ------------------------------------------------------------------
+
+    /// File system features the client supports.
+    record fs-capabilities {
+        /// Client supports `read-text-file`.
+        read-text-file: bool,
+        /// Client supports `write-text-file`.
+        write-text-file: bool,
+    }
+
+    /// Capabilities advertised by the client during `initialize`.
+    record client-capabilities {
+        /// File system read/write capabilities.
+        fs: fs-capabilities,
+        /// Whether the client supports the terminal API.
+        terminal: bool,
+    }
+
+    /// Content types the agent can accept in `prompt` requests beyond the
+    /// baseline (text and resource links, which are always supported).
+    record prompt-capabilities {
+        /// Image content blocks may appear in prompts.
+        image: bool,
+        /// Audio content blocks may appear in prompts.
+        audio: bool,
+        /// Embedded resources may appear in prompts.
+        embedded-context: bool,
+    }
+
+    /// MCP transports the agent supports for `mcp-server` configurations.
+    record mcp-capabilities {
+        /// HTTP transport.
+        http: bool,
+        /// SSE transport (deprecated by the MCP spec).
+        sse: bool,
+    }
+
+    /// Capabilities related to session lifecycle methods.
+    record session-capabilities {
+        /// Whether the agent supports `list-sessions`.
+        %list: bool,
+        /// Whether the agent supports `resume-session`.
+        resume: bool,
+        /// Whether the agent supports `close-session`.
+        close: bool,
+    }
+
+    /// Capabilities advertised by the agent during `initialize`.
+    record agent-capabilities {
+        /// Whether the agent supports `load-session`.
+        load-session: bool,
+        /// Content types the agent accepts in prompts.
+        prompt-capabilities: prompt-capabilities,
+        /// MCP transports the agent supports.
+        mcp-capabilities: mcp-capabilities,
+        /// Optional session lifecycle capabilities (list/resume/close).
+        session-capabilities: session-capabilities,
+    }
+
+    // ------------------------------------------------------------------
+    // Authentication
+    //
+    // See: https://agentclientprotocol.com/protocol/initialization#authentication
+    // ------------------------------------------------------------------
+
+    /// An authentication method the agent supports.
+    record auth-method {
+        /// Stable identifier for this method.
+        id: string,
+        /// Human-readable display name.
+        name: string,
+        /// Optional longer description.
+        description: option<string>,
+    }
+
+    /// Parameters to `authenticate`.
+    record authenticate-request {
+        /// The id of the auth method to use, from `auth-methods` in
+        /// `initialize-response`.
+        method-id: string,
+    }
+
+    // ------------------------------------------------------------------
+    // Initialize
+    // ------------------------------------------------------------------
+
+    /// Parameters to `initialize`.
+    record initialize-request {
+        /// The latest ACP protocol major version the client supports.
+        protocol-version: u32,
+        /// What the client can do.
+        client-capabilities: client-capabilities,
+        /// Optional client identification.
+        client-info: option<implementation-info>,
+    }
+
+    /// Response to `initialize`.
+    record initialize-response {
+        /// The protocol major version the agent has selected.
+        protocol-version: u32,
+        /// What the agent can do.
+        agent-capabilities: agent-capabilities,
+        /// Optional agent identification.
+        agent-info: option<implementation-info>,
+        /// Authentication methods available, if any.
+        auth-methods: list<auth-method>,
+    }
+}

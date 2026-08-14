@@ -1,0 +1,36 @@
+package yosh:acp@7.0.0;
+
+/// Client-side file system access (agent → client).
+///
+/// See: <https://agentclientprotocol.com/protocol/file-system>
+interface filesystem {
+    use sessions.{session-id};
+
+    /// Parameters to `read-text-file`.
+    record read-text-file-request {
+        /// The session this request belongs to.
+        session-id: session-id,
+        /// Absolute path to the file.
+        path: string,
+        /// Optional 1-based line to start reading from.
+        line: option<u32>,
+        /// Optional maximum number of lines.
+        limit: option<u32>,
+    }
+
+    /// Response to `read-text-file`.
+    record read-text-file-response {
+        /// The file contents.
+        content: string,
+    }
+
+    /// Parameters to `write-text-file`.
+    record write-text-file-request {
+        /// The session this request belongs to.
+        session-id: session-id,
+        /// Absolute path to the file. The client MUST create it if missing.
+        path: string,
+        /// New file contents.
+        content: string,
+    }
+}

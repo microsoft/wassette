@@ -1,0 +1,102 @@
+package yosh:acp@7.0.0;
+
+/// Prompt turns, streaming session updates, and slash commands.
+///
+/// The streaming update body is consumed via
+/// [`agent.prompt-turn.updates`] (a `stream<session-update>`).
+/// Tool-call lifecycle entries (`tool-call`, `tool-call-update`) are
+/// emitted into that stream by the [`tools.tool-call`] resource —
+/// guests don't construct those variants directly.
+///
+/// See: <https://agentclientprotocol.com/protocol/prompt-turn>
+///      <https://agentclientprotocol.com/protocol/slash-commands>
+interface prompts {
+    use sessions.{session-mode-id, session-info-update};
+    use content.{content-block};
+    use tools.{tool-call-snapshot, plan};
+
+    record prompt-response {
+        stop-reason: stop-reason,
+    }
+
+    enum stop-reason {
+        end-turn,
+        max-tokens,
+        max-turn-requests,
+        refusal,
+        /// The caller dropped the [`agent.prompt-turn`] before the
+        /// agent finished. Agents MUST resolve `response()` with this
+        /// when their turn is cancelled.
+        cancelled,
+    }
+
+    // ------------------------------------------------------------------
+    // Slash commands
+    // ------------------------------------------------------------------
+
+    record available-command-input {
+        hint: string,
+    }
+
+    record available-command {
+        name: string,
+        description: string,
+        input: option<available-command-input>,
+    }
+
+    // ------------------------------------------------------------------
+    // Session updates (streamed body of a prompt-turn)
+    // ------------------------------------------------------------------
+
+    /// Token usage for a session's context window, letting the client
+    /// render a "context %" indicator. Context % = `used` / `size`.
+    ///
+    /// Mirrors ACP's stable `usage_update` session update.
+    /// See: <https://agentclientprotocol.com/protocol/session-updates>
+    record usage-update {
+        /// Tokens currently occupying the model's context window.
+        used: u64,
+        /// Total size of the model's context window, in tokens.
+        size: u64,
+        /// Optional cost accrued by the session so far, in the units named
+        /// by [`usage-cost.currency`].
+        cost: option<usage-cost>,
+    }
+
+    /// Cost associated with a [`usage-update`]. May be a monetary amount or a
+    /// provider-specific usage unit (e.g. GitHub AI Units).
+    record usage-cost {
+        /// The cost amount, expressed in `currency` units.
+        amount: f64,
+        /// The unit of `amount`: an ISO 4217 currency code (e.g. `USD`) or a
+        /// provider-specific usage unit (e.g. `AIU` for GitHub AI Units).
+        currency: string,
+    }
+
+    /// A single item in [`agent.prompt-turn.updates`]'s stream.
+    /// Variants follow the `sessionUpdate` discriminator in the JSON
+    /// wire protocol.
+    variant session-update {
+        user-message-chunk(content-block),
+        agent-message-chunk(content-block),
+        agent-thought-chunk(content-block),
+
+        /// A new tool call has been initiated. Emitted automatically
+        /// when a [`tools.tool-call`] resource is constructed.
+        tool-call(tool-call-snapshot),
+
+        /// An update to an existing tool call. Emitted automatically
+        /// when [`tools.tool-call.update`] is invoked. The snapshot
+        /// carries the tool-call's post-update state.
+        tool-call-update(tool-call-snapshot),
+
+        plan(plan),
+        current-mode-update(session-mode-id),
+        session-info-update(session-info-update),
+        available-commands-update(list<available-command>),
+
+        /// Token usage for the session context, so the client can show
+        /// a "context %" indicator (context % = `used` / `size`).
+        usage-update(usage-update),
+    }
+}
