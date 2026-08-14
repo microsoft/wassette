@@ -206,20 +206,6 @@ docs-serve:
 docs-watch:
     cd docs && mdbook serve
 
-# CI Docker commands - automatically handle user mapping to prevent permission issues
-ci-local:
-    docker build \
-        --build-arg USER_ID=$(id -u) \
-        --build-arg GROUP_ID=$(id -g) \
-        -f Dockerfile.ci \
-        --target ci-test \
-        -t wassette-ci-local .
-    docker run --rm \
-        -v $(PWD):/workspace \
-        -w /workspace \
-        -e GITHUB_TOKEN \
-        wassette-ci-local just ci-build-test
-
 ci-build-test:
     just build-test-components
     cargo build --workspace
@@ -231,11 +217,3 @@ ci-build-test-ghcr:
     cargo build --workspace
     cargo test --workspace -- --nocapture --include-ignored
     cargo test --doc --workspace -- --nocapture
-
-ci-cache-info:
-    docker system df
-    docker images wassette-ci-*
-
-ci-clean:
-    docker rmi $(docker images -q wassette-ci-* 2>/dev/null) 2>/dev/null || true
-    docker builder prune -f
