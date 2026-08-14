@@ -41,3 +41,4 @@
 - [Permission System](./design/permission-system.md)
 - [MCP Threat Model](./design/mcp-threat-model.md)
 - [Component Schemas & Structured Output](./design/component2json-structured-output.md)
+- [ACP: Running Agents as Components](./design/acp.md)

@@ -3,7 +3,7 @@
 The Agent Client Protocol (ACP) host for Wassette. `wassette acp` speaks ACP
 JSON-RPC on stdio and routes it into a chain of WebAssembly components: one or
 more terminal **providers** (`--provider`) wrapped by zero or more bidirectional
-**layers** (`--layer`).
+**layers** (`--layer`). See [the ACP design](../../docs/design/acp.md).
 
 ```sh
 wassette acp --provider ./my_agent.wasm --layer ./uppercase_layer.wasm
