@@ -98,6 +98,10 @@ A deployment addressed by a name other than `localhost`, such as a container or 
 
 This does not replace the reverse proxy, because the allowlist authenticates nothing. It only decides which names the server will answer to, and Wassette still performs no authentication or authorization of its own on the HTTP transport.
 
+Serving stateless clients does not change this. MCP protocol revision `2026-07-28` removes the `initialize` handshake and the `Mcp-Session-Id`, so a stateless request has no session for an attacker to steal, replay or fixate, and `--legacy-sessions=false` removes that surface for every client. What it does not remove is the reason the `Host` and `Origin` checks exist: a browser can still be induced to POST to the local server, and a stateless POST is a complete, self-describing request that would be executed on arrival. Those checks are applied to every request, stateless or not, before any MCP processing, and they remain the load-bearing defence against DNS rebinding. The allow list described above governs them, so a deployment that widens it is responsible for keeping it as narrow as its real hostnames.
+
+Statelessness is also not a licence to scale horizontally. Component and policy state lives in the server's memory, so identical instances behind a load balancer would disagree about which tools exist and what they may do. See the [operations guide](../deployment/operations.md) for the supported alternatives.
+
 ## Attack Consequences
 
 The threat categories described above are root causes that can lead to various security consequences. Understanding these consequences helps in designing monitoring, incident response, and defense-in-depth strategies.

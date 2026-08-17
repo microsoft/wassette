@@ -228,6 +228,62 @@ readinessProbe:
 **Note**: Health endpoints are only available with `--streamable-http`
 transport. For stdio transport, monitor the process status instead.
 
+## Streamable HTTP Protocol Modes
+
+Wassette serves both the session-based MCP lifecycle used before protocol
+revision `2026-07-28` and the stateless lifecycle introduced by that revision.
+Which one a request gets is decided per request, from the revision the request
+declares, so no configuration is needed to support stateless clients.
+
+Two options let an operator narrow that behaviour:
+
+| Option | Environment variable | Config key | Default |
+|--------|----------------------|------------|---------|
+| `--legacy-sessions <BOOL>` | `WASSETTE_LEGACY_SESSIONS` | `legacy_sessions` | `true` |
+| `--json-response [<BOOL>]` | `WASSETTE_JSON_RESPONSE` | `json_response` | `false` |
+
+`--legacy-sessions=false` drops the older lifecycle: `initialize` no longer
+mints an `Mcp-Session-Id`, and `GET /mcp` and `DELETE /mcp` return `405 Method
+Not Allowed`. Use it only where every client speaks `2026-07-28` or later,
+since older clients cannot fall back.
+
+`--json-response` returns `application/json` for a request that produces a
+single reply, instead of a request-scoped `text/event-stream`. This suits
+proxies and gateways that buffer responses. A request that produces more than
+one message (a subscription stream, or a handler that sends a notification
+first) still uses an event stream, so nothing is dropped.
+
+### Notifying Stateless Clients
+
+A stateless client has no long-lived connection for the server to push to. To
+hear about tool changes it opens a `subscriptions/listen` request and keeps the
+response stream open; Wassette sends `notifications/tools/list_changed` on that
+stream whenever a component is loaded or unloaded, including by another client.
+Session-based clients keep receiving the same notification on their session
+stream.
+
+### Horizontal Scaling Is Not Supported
+
+Do not run multiple Wassette instances behind a load balancer as if they were
+interchangeable. Statelessness at the protocol layer does not make the server
+stateless: `LifecycleManager` holds loaded components and their policies in
+memory, so a `load-component` or a `grant-*` handled by instance A is invisible
+to instance B, even when both instances share a component directory. A client
+whose requests are balanced across instances will see the tool list and the
+permission set change from request to request.
+
+For a scaled deployment, run a single writable instance, or serve a fixed,
+read-only tool set from every instance:
+
+```bash
+# Provision components at startup, then refuse runtime changes
+wassette serve --streamable-http --manifest /etc/wassette/manifest.yaml --disable-builtin-tools
+```
+
+With `--disable-builtin-tools` the management plane (loading, unloading and
+permission grants) is rejected, so every instance keeps serving exactly the
+tools it was provisioned with and the instances stay equivalent.
+
 ## Performance Tuning
 
 ### Resource Limits

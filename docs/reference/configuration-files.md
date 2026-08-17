@@ -31,6 +31,14 @@ secrets_dir = "/path/to/secrets"
 # Default: 127.0.0.1:9001
 bind_address = "0.0.0.0:8080"
 
+# Keep serving the pre-2026-07-28 MCP session lifecycle
+# Default: true
+legacy_sessions = true
+
+# Reply to a simple stateless request with application/json
+# Default: false
+json_response = false
+
 # Environment variables to be made available to components
 # These are global defaults and can be overridden per-component in policy files
 [environment_vars]
@@ -68,6 +76,18 @@ DATABASE_URL = "postgresql://localhost/mydb"
 ```toml
 allowed_hosts = ["wassette.internal", "localhost", "127.0.0.1"]
 ```
+
+#### `legacy_sessions`
+
+- **Type**: Boolean
+- **Default**: `true`
+- **Description**: Whether to keep serving the MCP session lifecycle used by protocol revisions before `2026-07-28`. Clients that negotiate `2026-07-28` or later are served statelessly either way, so setting this to `false` only removes support for older clients: `initialize` stops minting a session id and `GET`/`DELETE` on `/mcp` return `405`. This setting is ignored when using stdio transport.
+
+#### `json_response`
+
+- **Type**: Boolean
+- **Default**: `false`
+- **Description**: Whether a simple stateless request that produces a single reply is answered with `application/json` instead of a request-scoped `text/event-stream`. Requests that produce more than one message still fall back to an event stream. This setting is ignored when using stdio transport.
 
 #### `environment_vars`
 
