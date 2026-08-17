@@ -12,7 +12,7 @@
 //! These tests exercise `wassette serve --streamable-http` end to end over
 //! real HTTP so the behaviour is pinned at the wire, not at the rmcp API.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::time::Duration;
 
@@ -340,6 +340,230 @@ async fn legacy_initialize_still_issues_a_session() -> Result<()> {
     assert!(
         response.headers().get("mcp-session-id").is_some(),
         "a legacy initialize must still mint a session id"
+    );
+
+    Ok(())
+}
+
+/// A component checked into the repository, cheap to load and always present.
+fn test_component_path() -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../component2json/testdata/fetch-rs.wasm")
+        .canonicalize()
+        .expect("test component should exist")
+}
+
+/// Open a `subscriptions/listen` stream and return the response to read from.
+///
+/// `params.notifications` is required: rmcp answers a listen request whose
+/// params do not parse with `-32601`, which reads exactly like the method
+/// being unimplemented.
+async fn open_subscription(client: &reqwest::Client, port: u16) -> Result<reqwest::Response> {
+    let response = post_stateless(
+        client,
+        port,
+        "subscriptions/listen",
+        None,
+        json!({
+            "notifications": { "toolsListChanged": true },
+            "_meta": stateless_meta(),
+        }),
+    )
+    .await?;
+
+    if response.status() != 200 {
+        bail!(
+            "subscriptions/listen was rejected with HTTP {}: {}",
+            response.status(),
+            response.text().await.unwrap_or_default()
+        );
+    }
+    Ok(response)
+}
+
+/// Read SSE `data:` payloads until one satisfies `predicate`, or time out.
+async fn wait_for_sse_message(
+    response: reqwest::Response,
+    timeout: Duration,
+    predicate: impl Fn(&Value) -> bool,
+) -> Result<Value> {
+    let mut response = response;
+    let mut buffer = String::new();
+
+    let deadline = tokio::time::Instant::now() + timeout;
+    loop {
+        let chunk = tokio::time::timeout_at(deadline, response.chunk())
+            .await
+            .context("timed out waiting for a subscription notification")?
+            .context("subscription stream failed")?;
+        let Some(chunk) = chunk else {
+            bail!("subscription stream ended before the expected notification");
+        };
+        buffer.push_str(&String::from_utf8_lossy(&chunk));
+
+        for line in buffer.lines() {
+            let Some(payload) = line.strip_prefix("data:") else {
+                continue;
+            };
+            let Ok(message) = serde_json::from_str::<Value>(payload.trim()) else {
+                continue;
+            };
+            if predicate(&message) {
+                return Ok(message);
+            }
+        }
+    }
+}
+
+/// A stateless subscriber is told when loading a component changes the tools.
+///
+/// This is the whole point of `subscriptions/listen`: a stateless client has no
+/// long-lived peer, so without this stream it can never learn that the tool
+/// list it cached is stale. The change is driven from a second connection
+/// precisely because the subscriber is not the client making the change.
+#[tokio::test]
+async fn stateless_subscription_receives_tool_list_changed() -> Result<()> {
+    let port = find_open_port().await?;
+    let temp_dir = tempfile::tempdir()?;
+    let _server = spawn_server(port, temp_dir.path(), &[]).await?;
+    wait_until_listening(port).await?;
+
+    let client = reqwest::Client::new();
+    let subscription = open_subscription(&client, port).await?;
+
+    let component = format!("file://{}", test_component_path().display());
+    let load = post_stateless(
+        &client,
+        port,
+        "tools/call",
+        Some("load-component"),
+        json!({
+            "name": "load-component",
+            "arguments": { "path": component },
+            "_meta": stateless_meta(),
+        }),
+    )
+    .await?;
+    assert_eq!(
+        load.status(),
+        200,
+        "stateless load-component should succeed"
+    );
+    let loaded = read_json_rpc(load).await?;
+    assert!(
+        loaded.get("error").is_none(),
+        "loading the test component failed: {loaded}"
+    );
+
+    let notification = wait_for_sse_message(subscription, Duration::from_secs(30), |message| {
+        message["method"] == "notifications/tools/list_changed"
+    })
+    .await?;
+
+    assert_eq!(
+        notification["method"], "notifications/tools/list_changed",
+        "the subscription stream must carry the tool list change: {notification}"
+    );
+
+    Ok(())
+}
+
+/// `--json-response` answers a simple request with a plain JSON body.
+#[tokio::test]
+async fn json_response_returns_plain_json() -> Result<()> {
+    let port = find_open_port().await?;
+    let temp_dir = tempfile::tempdir()?;
+    let _server = spawn_server(port, temp_dir.path(), &["--json-response"]).await?;
+    wait_until_listening(port).await?;
+
+    let client = reqwest::Client::new();
+    let response = post_stateless(
+        &client,
+        port,
+        "tools/list",
+        None,
+        json!({ "_meta": stateless_meta() }),
+    )
+    .await?;
+
+    assert_eq!(
+        response.status(),
+        200,
+        "stateless tools/list should succeed"
+    );
+    let content_type = response
+        .headers()
+        .get(reqwest::header::CONTENT_TYPE)
+        .and_then(|value| value.to_str().ok())
+        .unwrap_or_default()
+        .to_string();
+    assert!(
+        content_type.starts_with("application/json"),
+        "--json-response should reply with application/json, got: {content_type}"
+    );
+
+    let message = read_json_rpc(response).await?;
+    assert!(
+        message.pointer("/result/tools").is_some(),
+        "the JSON body should still carry the tool list: {message}"
+    );
+
+    Ok(())
+}
+
+/// `--legacy-sessions=false` drops the session lifecycle entirely.
+///
+/// A legacy `initialize` is then answered without a session id, and the
+/// session-scoped GET and DELETE verbs on /mcp are no longer allowed.
+#[tokio::test]
+async fn legacy_sessions_disabled_removes_the_session_lifecycle() -> Result<()> {
+    let port = find_open_port().await?;
+    let temp_dir = tempfile::tempdir()?;
+    let _server = spawn_server(port, temp_dir.path(), &["--legacy-sessions=false"]).await?;
+    wait_until_listening(port).await?;
+
+    let client = reqwest::Client::new();
+    let initialize = client
+        .post(mcp_url(port))
+        .header("Content-Type", "application/json")
+        .header("Accept", "application/json, text/event-stream")
+        .json(&json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "initialize",
+            "params": {
+                "protocolVersion": LEGACY_VERSION,
+                "capabilities": {},
+                "clientInfo": { "name": "legacy-client", "version": "1.0.0" },
+            },
+        }))
+        .send()
+        .await?;
+    assert!(
+        initialize.headers().get("mcp-session-id").is_none(),
+        "no session id may be minted once legacy sessions are off"
+    );
+
+    let get = client
+        .get(mcp_url(port))
+        .header("Accept", "text/event-stream")
+        .send()
+        .await?;
+    assert_eq!(
+        get.status(),
+        405,
+        "GET /mcp must not open a session stream once legacy sessions are off"
+    );
+
+    let delete = client
+        .delete(mcp_url(port))
+        .header("Accept", "application/json, text/event-stream")
+        .send()
+        .await?;
+    assert_eq!(
+        delete.status(),
+        405,
+        "DELETE /mcp must not terminate a session once legacy sessions are off"
     );
 
     Ok(())
