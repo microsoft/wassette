@@ -40,17 +40,36 @@ impl McpServer {
         }
     }
 
-    /// Store the peer for background notifications (called on first request)
-    fn store_peer_if_empty(&self, peer: rmcp::Peer<rmcp::RoleServer>) {
+    /// Track the peer used for background notifications (called on every request).
+    ///
+    /// Under a stateless request (protocol revision 2026-07-28 and later) the
+    /// peer is scoped to that single request and its transport closes as soon
+    /// as the response is written. Keeping the first peer forever would let one
+    /// such request permanently silence notifications for every later client,
+    /// so a peer is only adopted when there is no live one already.
+    fn track_peer(&self, peer: rmcp::Peer<rmcp::RoleServer>) {
         let mut peer_guard = self.peer.lock().unwrap();
-        if peer_guard.is_none() {
+        let stale = peer_guard
+            .as_ref()
+            .is_none_or(rmcp::Peer::is_transport_closed);
+        if stale {
             *peer_guard = Some(peer);
         }
     }
 
-    /// Get a clone of the stored peer if available
+    /// Get a clone of the stored peer if it is still usable.
+    ///
+    /// A peer whose transport has closed is dropped rather than returned, so a
+    /// dead peer never masks a live one that arrives later.
     pub fn get_peer(&self) -> Option<rmcp::Peer<rmcp::RoleServer>> {
-        self.peer.lock().unwrap().clone()
+        let mut peer_guard = self.peer.lock().unwrap();
+        if peer_guard
+            .as_ref()
+            .is_some_and(rmcp::Peer::is_transport_closed)
+        {
+            *peer_guard = None;
+        }
+        peer_guard.clone()
     }
 }
 
@@ -84,8 +103,8 @@ Key points:
     ) -> Pin<Box<dyn Future<Output = Result<CallToolResponse, ErrorData>> + Send + 'a>> {
         let peer_clone = ctx.peer.clone();
 
-        // Store peer on first request
-        self.store_peer_if_empty(peer_clone.clone());
+        // Track the peer for background notifications
+        self.track_peer(peer_clone.clone());
 
         let disable_builtin_tools = self.disable_builtin_tools;
         Box::pin(async move {
@@ -112,8 +131,8 @@ Key points:
         _params: Option<PaginatedRequestParams>,
         ctx: RequestContext<RoleServer>,
     ) -> Pin<Box<dyn Future<Output = Result<ListToolsResult, ErrorData>> + Send + 'a>> {
-        // Store peer on first request
-        self.store_peer_if_empty(ctx.peer.clone());
+        // Track the peer for background notifications
+        self.track_peer(ctx.peer.clone());
 
         let disable_builtin_tools = self.disable_builtin_tools;
         Box::pin(async move {
@@ -132,8 +151,8 @@ Key points:
         _params: Option<PaginatedRequestParams>,
         ctx: RequestContext<RoleServer>,
     ) -> Pin<Box<dyn Future<Output = Result<ListPromptsResult, ErrorData>> + Send + 'a>> {
-        // Store peer on first request
-        self.store_peer_if_empty(ctx.peer.clone());
+        // Track the peer for background notifications
+        self.track_peer(ctx.peer.clone());
 
         Box::pin(async move {
             let result = handle_prompts_list(serde_json::Value::Null).await;
@@ -151,8 +170,8 @@ Key points:
         _params: Option<PaginatedRequestParams>,
         ctx: RequestContext<RoleServer>,
     ) -> Pin<Box<dyn Future<Output = Result<ListResourcesResult, ErrorData>> + Send + 'a>> {
-        // Store peer on first request
-        self.store_peer_if_empty(ctx.peer.clone());
+        // Track the peer for background notifications
+        self.track_peer(ctx.peer.clone());
 
         Box::pin(async move {
             let result = handle_resources_list(serde_json::Value::Null).await;
