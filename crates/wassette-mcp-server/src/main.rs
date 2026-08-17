@@ -130,17 +130,9 @@ async fn main() -> Result<()> {
                 let server_clone = server.clone();
                 let lifecycle_manager_clone = lifecycle_manager.clone();
                 tokio::spawn(async move {
-                    let notify_fn = move || {
-                        // Notify clients when a new component is loaded (if peer is available)
-                        if let Some(peer) = server_clone.get_peer() {
-                            let peer_clone = peer.clone();
-                            tokio::spawn(async move {
-                                if let Err(e) = peer_clone.notify_tool_list_changed().await {
-                                    tracing::warn!("Failed to notify tool list changed: {}", e);
-                                }
-                            });
-                        }
-                    };
+                    // Announce newly loaded components to session peers and to
+                    // stateless `subscriptions/listen` streams alike.
+                    let notify_fn = move || server_clone.publish_tool_list_changed();
 
                     if let Err(e) = lifecycle_manager_clone
                         .load_existing_components_async(None, Some(notify_fn))
@@ -243,17 +235,9 @@ async fn main() -> Result<()> {
                 let server_clone = server.clone();
                 let lifecycle_manager_clone = lifecycle_manager.clone();
                 tokio::spawn(async move {
-                    let notify_fn = move || {
-                        // Notify clients when a new component is loaded (if peer is available)
-                        if let Some(peer) = server_clone.get_peer() {
-                            let peer_clone = peer.clone();
-                            tokio::spawn(async move {
-                                if let Err(e) = peer_clone.notify_tool_list_changed().await {
-                                    tracing::warn!("Failed to notify tool list changed: {}", e);
-                                }
-                            });
-                        }
-                    };
+                    // Announce newly loaded components to session peers and to
+                    // stateless `subscriptions/listen` streams alike.
+                    let notify_fn = move || server_clone.publish_tool_list_changed();
 
                     if let Err(e) = lifecycle_manager_clone
                         .load_existing_components_async(None, Some(notify_fn))

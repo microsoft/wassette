@@ -13,10 +13,24 @@ use mcp_server::{
 };
 use rmcp::model::{
     CallToolRequestParams, CallToolResponse, ErrorData, ListPromptsResult, ListResourcesResult,
-    ListToolsResult, PaginatedRequestParams, ServerCapabilities, ServerInfo,
+    ListToolsResult, PaginatedRequestParams, ServerCapabilities, ServerInfo, ServerNotification,
+    SubscriptionFilter, ToolListChangedNotification,
 };
-use rmcp::service::{RequestContext, RoleServer};
+use rmcp::service::{RequestContext, RoleServer, SubscriptionContext, SubscriptionSendError};
 use rmcp::ServerHandler;
+use tokio::sync::broadcast;
+
+/// Buffered tool-list changes per subscriber.
+///
+/// Every change carries the same "go re-read the list" payload, so a subscriber
+/// that falls behind only ever needs one more notification to catch up.
+const TOOL_LIST_CHANGED_CAPACITY: usize = 16;
+
+/// Built-in tools that change which tools the server exposes.
+///
+/// Calling one of these has to reach `subscriptions/listen` streams, which
+/// belong to clients other than the one making the call.
+const TOOL_LIST_MUTATING_TOOLS: [&str; 2] = ["load-component", "unload-component"];
 
 /// A security-oriented runtime that runs WebAssembly Components via MCP.
 #[derive(Clone)]
@@ -24,6 +38,7 @@ pub struct McpServer {
     lifecycle_manager: LifecycleManager,
     peer: Arc<Mutex<Option<rmcp::Peer<rmcp::RoleServer>>>>,
     disable_builtin_tools: bool,
+    tool_list_changed: broadcast::Sender<()>,
 }
 
 impl McpServer {
@@ -37,7 +52,41 @@ impl McpServer {
             lifecycle_manager,
             peer: Arc::new(Mutex::new(None)),
             disable_builtin_tools,
+            tool_list_changed: broadcast::channel(TOOL_LIST_CHANGED_CAPACITY).0,
         }
+    }
+
+    /// Announce that the tool list changed to every client shape.
+    ///
+    /// A stateless client (protocol revision 2026-07-28 and later) has no
+    /// long-lived peer, so it learns about changes by holding open a
+    /// `subscriptions/listen` stream; a legacy client is told through its
+    /// session peer. Callers should not have to know which one is attached, so
+    /// this feeds both.
+    pub fn publish_tool_list_changed(&self) {
+        // An error here only means nobody is subscribed right now.
+        let _ = self.tool_list_changed.send(());
+
+        if let Some(peer) = self.get_peer() {
+            tokio::spawn(async move {
+                if let Err(e) = peer.notify_tool_list_changed().await {
+                    tracing::warn!("Failed to notify tool list changed: {}", e);
+                }
+            });
+        }
+    }
+
+    /// Subscribe to tool-list changes for one `subscriptions/listen` stream.
+    pub fn subscribe_tool_list_changed(&self) -> broadcast::Receiver<()> {
+        self.tool_list_changed.subscribe()
+    }
+
+    /// Announce a tool-list change to subscription streams only.
+    ///
+    /// Used after a built-in tool mutated the tool list, where the calling
+    /// peer has already been notified by the tool handler itself.
+    fn broadcast_tool_list_changed(&self) {
+        let _ = self.tool_list_changed.send(());
     }
 
     /// Track the peer used for background notifications (called on every request).
@@ -107,6 +156,8 @@ Key points:
         self.track_peer(peer_clone.clone());
 
         let disable_builtin_tools = self.disable_builtin_tools;
+        let mutates_tool_list =
+            !disable_builtin_tools && TOOL_LIST_MUTATING_TOOLS.contains(&params.name.as_ref());
         Box::pin(async move {
             let result = handle_tools_call(
                 params,
@@ -115,6 +166,11 @@ Key points:
                 disable_builtin_tools,
             )
             .await;
+            if result.is_ok() && mutates_tool_list {
+                // The tool handler already told the calling peer; subscription
+                // streams belong to other clients and still need telling.
+                self.broadcast_tool_list_changed();
+            }
             match result {
                 Ok(value) => serde_json::from_value(value)
                     .map(CallToolResponse::Complete)
@@ -180,6 +236,53 @@ Key points:
                     ErrorData::parse_error(format!("Failed to parse result: {e}"), None)
                 }),
                 Err(err) => Err(ErrorData::parse_error(err.to_string(), None)),
+            }
+        })
+    }
+
+    fn accepted_subscription_filter(
+        &self,
+        _requested: &SubscriptionFilter,
+    ) -> Option<SubscriptionFilter> {
+        // rmcp intersects this with the client's request and with the
+        // capabilities from `get_info`, which already advertise tool list
+        // changes. Returning `None` would leave `subscriptions/listen`
+        // unimplemented, which is what left a stateless client unable to hear
+        // about a newly loaded component.
+        Some(SubscriptionFilter::builder().tools_list_changed().build())
+    }
+
+    fn listen<'a>(
+        &'a self,
+        context: SubscriptionContext,
+    ) -> Pin<Box<dyn Future<Output = Result<(), ErrorData>> + Send + 'a>> {
+        let mut receiver = self.subscribe_tool_list_changed();
+        Box::pin(async move {
+            loop {
+                tokio::select! {
+                    _ = context.cancelled() => return Ok(()),
+                    changed = receiver.recv() => {
+                        match changed {
+                            Ok(()) => {}
+                            // The stream only ever says "re-read the list", so a
+                            // subscriber that fell behind is caught up by one
+                            // notification.
+                            Err(broadcast::error::RecvError::Lagged(_)) => {}
+                            Err(broadcast::error::RecvError::Closed) => return Ok(()),
+                        }
+
+                        let notification = ServerNotification::ToolListChangedNotification(
+                            ToolListChangedNotification::default(),
+                        );
+                        match context.sink().send(notification).await {
+                            Ok(()) => {}
+                            Err(SubscriptionSendError::SubscriptionClosed) => return Ok(()),
+                            Err(e) => {
+                                tracing::warn!("Failed to send tool list changed to subscription: {}", e);
+                            }
+                        }
+                    }
+                }
             }
         })
     }
