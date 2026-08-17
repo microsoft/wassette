@@ -198,8 +198,8 @@ async fn main() -> Result<()> {
                     environment_vars,
                     bind_address,
                     allowed_hosts,
-                    legacy_sessions: _,
-                    json_response: _,
+                    legacy_sessions,
+                    json_response,
                 } = config;
 
                 // Keep a clone of component_dir for provisioning
@@ -272,6 +272,13 @@ async fn main() -> Result<()> {
                             }
                             _ => StreamableHttpServerConfig::default(),
                         };
+
+                        // Override only what the operator chose, so the `Host`
+                        // allow list resolved above stays in place. A literal
+                        // struct here would silently drop it.
+                        let http_config = http_config
+                            .with_legacy_session_mode(legacy_sessions)
+                            .with_json_response(json_response);
 
                         let service = StreamableHttpService::new(
                             move || Ok(server.clone()),
