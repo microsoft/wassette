@@ -167,6 +167,20 @@ pub struct Serve {
     #[arg(long = "allowed-host", value_name = "HOST")]
     #[serde(skip)]
     pub allowed_hosts: Option<Vec<String>>,
+    /// Keep serving the pre-2026-07-28 session lifecycle (default: true).
+    ///
+    /// Requests that negotiate protocol revision 2026-07-28 or later are always
+    /// served statelessly, so turning this off only removes the session
+    /// lifecycle (and the GET SSE stream) that older clients depend on.
+    #[arg(long, value_name = "BOOL")]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub legacy_sessions: Option<bool>,
+
+    /// Reply to a simple stateless request with `application/json` instead of a
+    /// request-scoped `text/event-stream` (default: false)
+    #[arg(long, num_args = 0..=1, default_missing_value = "true", value_name = "BOOL")]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub json_response: Option<bool>,
 }
 
 /// HTTP transport options for the Serve command

@@ -113,6 +113,8 @@ async fn main() -> Result<()> {
                     environment_vars,
                     bind_address: _,
                     allowed_hosts: _,
+                    legacy_sessions: _,
+                    json_response: _,
                 } = config;
 
                 let lifecycle_manager = LifecycleManager::builder(component_dir)
@@ -196,6 +198,8 @@ async fn main() -> Result<()> {
                     environment_vars,
                     bind_address,
                     allowed_hosts,
+                    legacy_sessions: _,
+                    json_response: _,
                 } = config;
 
                 // Keep a clone of component_dir for provisioning
