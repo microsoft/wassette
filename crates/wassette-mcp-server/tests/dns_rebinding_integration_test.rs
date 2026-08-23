@@ -101,6 +101,14 @@ impl Drop for ServerGuard {
 }
 
 async fn spawn_server(port: u16, component_dir: &Path) -> Result<ServerGuard> {
+    spawn_server_with_args(port, component_dir, &[]).await
+}
+
+async fn spawn_server_with_args(
+    port: u16,
+    component_dir: &Path,
+    extra_args: &[String],
+) -> Result<ServerGuard> {
     let child = Command::new(env!("CARGO_BIN_EXE_wassette"))
         .args([
             "serve",
@@ -109,6 +117,7 @@ async fn spawn_server(port: u16, component_dir: &Path) -> Result<ServerGuard> {
             &format!("127.0.0.1:{port}"),
             &format!("--component-dir={}", component_dir.display()),
         ])
+        .args(extra_args)
         .env("RUST_LOG", "error")
         .stdin(Stdio::null())
         .stdout(Stdio::null())
@@ -138,6 +147,41 @@ async fn dns_rebinding_foreign_host_is_rejected() -> Result<()> {
         forged_status, 403,
         "forged Host `{forged_host}` must be rejected with 403 to prevent DNS \
          rebinding (got {forged_status})"
+    );
+
+    Ok(())
+}
+
+/// A deployment addressed by service or container name needs its own `Host` accepted.
+/// `--allowed-host` must widen the list to exactly what is configured, and no further:
+/// the protection above still has to hold for every other value.
+#[tokio::test]
+async fn configured_allowed_host_is_accepted_and_others_still_rejected() -> Result<()> {
+    const CONFIGURED_HOST: &str = "wassette.internal";
+
+    let port = find_open_port().await?;
+    let temp_dir = tempfile::tempdir()?;
+    let _server = spawn_server_with_args(
+        port,
+        temp_dir.path(),
+        &["--allowed-host".to_string(), CONFIGURED_HOST.to_string()],
+    )
+    .await?;
+    wait_until_listening(port).await?;
+
+    let configured_host = format!("{CONFIGURED_HOST}:{port}");
+    let configured_status = post_initialize_status(port, &configured_host).await?;
+    assert_eq!(
+        configured_status, 200,
+        "configured Host `{configured_host}` should be accepted (got {configured_status})"
+    );
+
+    let forged_host = format!("{FORGED_HOST}:{port}");
+    let forged_status = post_initialize_status(port, &forged_host).await?;
+    assert_eq!(
+        forged_status, 403,
+        "Host `{forged_host}` is not in the configured allowlist and must still be \
+         rejected with 403 (got {forged_status})"
     );
 
     Ok(())

@@ -12,7 +12,7 @@ use mcp_server::{handle_tools_list, LifecycleManager};
 use rmcp::service::serve_server;
 use rmcp::transport::stdio as stdio_transport;
 use rmcp::transport::streamable_http_server::session::local::LocalSessionManager;
-use rmcp::transport::streamable_http_server::StreamableHttpService;
+use rmcp::transport::streamable_http_server::{StreamableHttpServerConfig, StreamableHttpService};
 use serde_json::{json, Map};
 use tracing_subscriber::layer::SubscriberExt as _;
 use tracing_subscriber::util::SubscriberInitExt as _;
@@ -107,6 +107,7 @@ async fn main() -> Result<()> {
                     secrets_dir,
                     environment_vars,
                     bind_address: _,
+                    allowed_hosts: _,
                 } = config;
 
                 let lifecycle_manager = LifecycleManager::builder(component_dir)
@@ -197,6 +198,7 @@ async fn main() -> Result<()> {
                     secrets_dir,
                     environment_vars,
                     bind_address,
+                    allowed_hosts,
                 } = config;
 
                 // Keep a clone of component_dir for provisioning
@@ -263,10 +265,25 @@ async fn main() -> Result<()> {
                         "Starting MCP server on {} with streamable HTTP transport. Components will load in the background.",
                         bind_address
                     );
+                        // The transport accepts loopback Host headers only unless told
+                        // otherwise, so a server addressed as `http://wassette:9001/mcp`
+                        // is refused before MCP dispatch until allowed_hosts is set.
+                        let http_config = match allowed_hosts.as_deref() {
+                            Some(hosts) if !hosts.is_empty() => {
+                                tracing::info!(
+                                    allowed_hosts = ?hosts,
+                                    "Accepting these Host values on the MCP endpoint"
+                                );
+                                StreamableHttpServerConfig::default()
+                                    .with_allowed_hosts(hosts.to_vec())
+                            }
+                            _ => StreamableHttpServerConfig::default(),
+                        };
+
                         let service = StreamableHttpService::new(
                             move || Ok(server.clone()),
                             LocalSessionManager::default().into(),
-                            Default::default(),
+                            http_config,
                         );
 
                         let router = axum::Router::new()

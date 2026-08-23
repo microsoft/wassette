@@ -94,6 +94,8 @@ When Wassette runs as an HTTP server, it exposes the MCP management plane, inclu
 
 Wassette mitigates this attack through rmcp's `StreamableHttpService`, which rejects HTTP requests whose `Host` header is not a trusted loopback value before MCP processing begins. Streamable HTTP at `/mcp` is now the only supported HTTP transport because the removed SSE transport did not provide this validation. Operators exposing Wassette beyond loopback should place it behind an authenticating reverse proxy.
 
+A deployment addressed by a name other than `localhost`, such as a container or service name, must add that name to the allowlist with `--allowed-host`, `WASSETTE_ALLOWED_HOSTS`, or the `allowed_hosts` configuration key. This widens the check to exactly the names configured and no further: every other `Host` value is still rejected, so the protection above continues to hold. It does not replace the reverse proxy, because the allowlist authenticates nothing. It only decides which names the server will answer to, and Wassette still performs no authentication or authorization of its own on the HTTP transport.
+
 ## Attack Consequences
 
 The threat categories described above are root causes that can lead to various security consequences. Understanding these consequences helps in designing monitoring, incident response, and defense-in-depth strategies.

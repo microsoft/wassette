@@ -272,6 +272,39 @@ If tools fail with permission errors:
 2. Check logs for specific permission denials
 3. Grant necessary permissions using `wassette permission grant` commands
 
+### MCP Requests Return 403
+
+If `/mcp` answers `403` while the server is plainly running and listening, the `Host`
+header is being rejected before MCP dispatch. By default only loopback values are
+accepted, as protection against DNS rebinding, so this is the expected result of
+addressing the server by a container name, service name or DNS name.
+
+Note that `/health`, `/ready` and `/info` sit outside `/mcp` and are not subject to this
+check, so they answer normally while `/mcp` refuses. A reachability probe against
+`/health` therefore proves the process is up and tells you nothing about whether MCP
+clients can connect.
+
+Add the name the clients actually use:
+
+```bash
+wassette serve --streamable-http --bind-address 0.0.0.0:9001 \
+  --allowed-host wassette.internal
+```
+
+Changing `--bind-address` alone does not help, as the bind address and the `Host`
+allowlist are independent. Confirm what clients are sending by comparing a request that
+works against one that does not:
+
+```bash
+# Accepted: loopback is allowed by default
+curl -s -o /dev/null -w '%{http_code}\n' -X POST http://127.0.0.1:9001/mcp \
+  -H 'Host: 127.0.0.1:9001'
+
+# Rejected with 403 unless wassette.internal is on the allowlist
+curl -s -o /dev/null -w '%{http_code}\n' -X POST http://127.0.0.1:9001/mcp \
+  -H 'Host: wassette.internal:9001'
+```
+
 ## Best Practices
 
 1. **Use INFO level in production** for a good balance between visibility and performance

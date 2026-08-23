@@ -39,6 +39,26 @@ WASSETTE_CONFIG_FILE=/path/to/config.toml wassette serve
 
 Default: `$XDG_CONFIG_HOME/wassette/config.toml`
 
+### WASSETTE_ALLOWED_HOSTS
+Comma-separated `Host` header values accepted on the `/mcp` endpoint.
+
+```bash
+WASSETTE_ALLOWED_HOSTS=wassette.internal,wassette.example.com:9001 \
+  wassette serve --streamable-http --bind-address 0.0.0.0:9001
+```
+
+Default: unset, which accepts loopback (`localhost`, `127.0.0.1`, `::1`) only.
+
+Requests whose `Host` is not listed are rejected with `403` before MCP dispatch, which
+is what prevents DNS rebinding against a locally running server. This is independent of
+the bind address: binding to `0.0.0.0` does not by itself make a server reachable as
+`http://wassette:9001/mcp`. Entries may be a bare hostname, which matches any port, or
+`host:port`, which must match exactly. Empty entries are ignored, and a value that is
+empty after trimming leaves the loopback default in place rather than disabling the
+check.
+
+**Precedence:** CLI (`--allowed-host`) > `WASSETTE_ALLOWED_HOSTS` > Config file (`allowed_hosts`) > Default (loopback only)
+
 ## Component Environment Variables
 
 ### Quick Start

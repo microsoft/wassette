@@ -97,15 +97,28 @@ wassette serve --streamable-http
 
 # Use a custom bind address
 wassette serve --bind-address 0.0.0.0:8080
+
+# Accept requests addressed by a name other than localhost
+wassette serve --streamable-http \
+  --bind-address 0.0.0.0:9001 \
+  --allowed-host wassette.internal
 ```
 
 **Options:**
 - `--streamable-http`: Explicitly select Streamable HTTP transport
 - `--bind-address <ADDRESS>`: Set the bind address (default: `127.0.0.1:9001`)
+- `--allowed-host <HOST>`: Accept this `Host` header value on `/mcp`. Repeat for several. Defaults to loopback only
 - `--component-dir <PATH>`: Set component storage directory (default: `$XDG_DATA_HOME/wassette/components`)
 - `--env <KEY=VALUE>`: Set environment variables (can be specified multiple times)
 - `--env-file <PATH>`: Load environment variables from a file
 - `--disable-builtin-tools`: Disable built-in tools (load-component, unload-component, etc.)
+
+**Note:** `--bind-address` and `--allowed-host` are independent. Binding to `0.0.0.0`
+makes the server reachable on every interface, but requests are still rejected with
+`403` before MCP dispatch unless their `Host` header is on the allowlist. That check
+defends against DNS rebinding, so a server addressed as `http://wassette:9001/mcp` needs
+`--allowed-host wassette` even though it is already listening. An entry without a port
+matches any port; an entry with one must match exactly.
 
 ## Component Management
 
