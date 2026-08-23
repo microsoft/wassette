@@ -186,3 +186,56 @@ async fn configured_allowed_host_is_accepted_and_others_still_rejected() -> Resu
 
     Ok(())
 }
+
+/// Configuring an allowlist *replaces* the loopback default rather than adding to it,
+/// so a deployment that still needs local clients has to list loopback explicitly. This
+/// is easy to trip over, so it is pinned here rather than left to be discovered.
+#[tokio::test]
+async fn configured_allowlist_replaces_the_loopback_default() -> Result<()> {
+    const CONFIGURED_HOST: &str = "wassette.internal";
+
+    let port = find_open_port().await?;
+    let temp_dir = tempfile::tempdir()?;
+    let _server = spawn_server_with_args(
+        port,
+        temp_dir.path(),
+        &["--allowed-host".to_string(), CONFIGURED_HOST.to_string()],
+    )
+    .await?;
+    wait_until_listening(port).await?;
+
+    let loopback_host = format!("127.0.0.1:{port}");
+    let loopback_status = post_initialize_status(port, &loopback_host).await?;
+    assert_eq!(
+        loopback_status, 403,
+        "loopback Host `{loopback_host}` is rejected once an allowlist is configured, \
+         because the configured list replaces the default rather than extending it \
+         (got {loopback_status})"
+    );
+
+    // ...and listing loopback alongside the deployment name restores it.
+    let port = find_open_port().await?;
+    let temp_dir = tempfile::tempdir()?;
+    let _server = spawn_server_with_args(
+        port,
+        temp_dir.path(),
+        &[
+            "--allowed-host".to_string(),
+            CONFIGURED_HOST.to_string(),
+            "--allowed-host".to_string(),
+            "127.0.0.1".to_string(),
+        ],
+    )
+    .await?;
+    wait_until_listening(port).await?;
+
+    let loopback_host = format!("127.0.0.1:{port}");
+    let loopback_status = post_initialize_status(port, &loopback_host).await?;
+    assert_eq!(
+        loopback_status, 200,
+        "loopback Host `{loopback_host}` should be accepted when listed explicitly \
+         (got {loopback_status})"
+    );
+
+    Ok(())
+}

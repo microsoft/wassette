@@ -292,18 +292,37 @@ wassette serve --streamable-http --bind-address 0.0.0.0:9001 \
 ```
 
 Changing `--bind-address` alone does not help, as the bind address and the `Host`
-allowlist are independent. Confirm what clients are sending by comparing a request that
-works against one that does not:
+allowlist are independent.
+
+Note also that a configured allowlist **replaces** the loopback default rather than
+extending it. If `/mcp` started returning `403` for `localhost` right after you added
+`--allowed-host`, that is why: list loopback explicitly alongside the deployment name.
+
+Confirm what the server accepts by sending a real `initialize` request and comparing
+status codes:
 
 ```bash
-# Accepted: loopback is allowed by default
-curl -s -o /dev/null -w '%{http_code}\n' -X POST http://127.0.0.1:9001/mcp \
-  -H 'Host: 127.0.0.1:9001'
+BODY='{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"probe","version":"1"}}}'
 
-# Rejected with 403 unless wassette.internal is on the allowlist
+# 200: this Host is on the allowlist
 curl -s -o /dev/null -w '%{http_code}\n' -X POST http://127.0.0.1:9001/mcp \
-  -H 'Host: wassette.internal:9001'
+  -H 'Host: 127.0.0.1:9001' \
+  -H 'Content-Type: application/json' \
+  -H 'Accept: application/json, text/event-stream' \
+  -d "$BODY"
+
+# 403: this Host is not
+curl -s -o /dev/null -w '%{http_code}\n' -X POST http://127.0.0.1:9001/mcp \
+  -H 'Host: wassette.internal:9001' \
+  -H 'Content-Type: application/json' \
+  -H 'Accept: application/json, text/event-stream' \
+  -d "$BODY"
 ```
+
+The headers and body matter for reading the result. `403` always means the `Host` check
+rejected the request. Any other status means the `Host` was accepted and you are seeing
+the MCP layer respond, so a bare `curl -X POST` with no body returns `406` rather than
+`200` even when the `Host` is fine.
 
 ## Best Practices
 

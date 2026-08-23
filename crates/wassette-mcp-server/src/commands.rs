@@ -158,12 +158,12 @@ pub struct Serve {
     pub manifest: Option<PathBuf>,
 
     /// Hostname or host:port authority to accept in the inbound `Host` header for
-    /// Streamable HTTP. Repeat the flag to allow several. When unset, only loopback
-    /// hosts are accepted, which blocks requests addressed by service or container name.
-    ///
-    /// Skipped during serialization and applied explicitly in `Config::from_serve`, as
-    /// `env_vars` and `env_file` are, because figment's `admerge` would concatenate this
-    /// list with a configured one rather than overriding it.
+    /// Streamable HTTP. Repeat the flag to allow several. Replaces the default allowlist
+    /// rather than adding to it, so include `localhost` and `127.0.0.1` explicitly if
+    /// loopback clients must keep working. When unset, only loopback is accepted.
+    // Serialization is skipped and the value applied explicitly in `Config::from_serve`,
+    // as `env_vars` and `env_file` are, because figment's `admerge` would concatenate
+    // this list with a configured one rather than overriding it.
     #[arg(long = "allowed-host", value_name = "HOST")]
     #[serde(skip)]
     pub allowed_hosts: Option<Vec<String>>,

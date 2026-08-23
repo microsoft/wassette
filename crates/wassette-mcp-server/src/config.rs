@@ -625,6 +625,74 @@ bind_address = "0.0.0.0:8080"
     }
 
     #[test]
+    fn test_allowed_hosts_env_var_replaces_config_file_list() {
+        let temp_dir = TempDir::new().unwrap();
+        let config_path = temp_dir.path().join("config.toml");
+        fs::write(&config_path, "allowed_hosts = [\"from-file\"]\n").unwrap();
+
+        temp_env::with_var("WASSETTE_ALLOWED_HOSTS", Some("from-env"), || {
+            let config = Config::new_from_path(&empty_test_cli_config(), &config_path)
+                .unwrap_or_else(|e| {
+                    panic!("Failed to create config: {e}");
+                });
+
+            // Not ["from-file", "from-env"]. figment's admerge concatenates sequences,
+            // which is why this field is resolved outside figment.
+            assert_eq!(
+                config.allowed_hosts,
+                Some(vec!["from-env".to_string()]),
+                "the environment value must replace the file list, not extend it"
+            );
+        });
+    }
+
+    #[test]
+    fn test_allowed_hosts_cli_replaces_config_file_list() {
+        let temp_dir = TempDir::new().unwrap();
+        let config_path = temp_dir.path().join("config.toml");
+        fs::write(&config_path, "allowed_hosts = [\"from-file\"]\n").unwrap();
+
+        temp_env::with_vars(
+            vec![
+                ("WASSETTE_ALLOWED_HOSTS", None),
+                ("WASSETTE_CONFIG_FILE", Some(config_path.to_str().unwrap())),
+            ],
+            || {
+                let cli_config = Serve {
+                    allowed_hosts: Some(vec!["from-cli".to_string()]),
+                    ..empty_test_cli_config()
+                };
+
+                let config = Config::from_serve(&cli_config).expect("Failed to create config");
+
+                assert_eq!(
+                    config.allowed_hosts,
+                    Some(vec!["from-cli".to_string()]),
+                    "the CLI value must replace the file list, not extend it"
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn test_allowed_hosts_empty_toml_list_is_treated_as_unset() {
+        temp_env::with_var("WASSETTE_ALLOWED_HOSTS", None::<&str>, || {
+            let temp_dir = TempDir::new().unwrap();
+            let config_path = temp_dir.path().join("config.toml");
+            fs::write(&config_path, "allowed_hosts = []\n").unwrap();
+
+            let config = Config::new_from_path(&empty_test_cli_config(), &config_path)
+                .expect("Failed to create config");
+
+            // An empty list reaches the transport as "allow every Host", so serve must
+            // fall back to the loopback default rather than passing it through. The
+            // guard for that lives at the call site in main.rs; this pins the shape the
+            // guard depends on.
+            assert_eq!(config.allowed_hosts, Some(vec![]));
+        });
+    }
+
+    #[test]
     fn test_allowed_hosts_from_config_file() {
         temp_env::with_var("WASSETTE_ALLOWED_HOSTS", None::<&str>, || {
             let temp_dir = TempDir::new().unwrap();

@@ -57,6 +57,14 @@ the bind address: binding to `0.0.0.0` does not by itself make a server reachabl
 empty after trimming leaves the loopback default in place rather than disabling the
 check.
 
+A configured list **replaces** the loopback default rather than extending it, so include
+loopback explicitly if local clients must keep working:
+
+```bash
+WASSETTE_ALLOWED_HOSTS=wassette.internal,localhost,127.0.0.1 \
+  wassette serve --streamable-http --bind-address 0.0.0.0:9001
+```
+
 **Precedence:** CLI (`--allowed-host`) > `WASSETTE_ALLOWED_HOSTS` > Config file (`allowed_hosts`) > Default (loopback only)
 
 ## Component Environment Variables

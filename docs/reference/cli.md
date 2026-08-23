@@ -120,6 +120,20 @@ defends against DNS rebinding, so a server addressed as `http://wassette:9001/mc
 `--allowed-host wassette` even though it is already listening. An entry without a port
 matches any port; an entry with one must match exactly.
 
+**A configured allowlist replaces the loopback default, it does not extend it.** After
+`--allowed-host wassette.internal`, requests with `Host: localhost` or `Host: 127.0.0.1`
+are rejected. Pass loopback explicitly if local clients must keep working:
+
+```bash
+wassette serve --streamable-http --bind-address 0.0.0.0:9001 \
+  --allowed-host wassette.internal \
+  --allowed-host localhost \
+  --allowed-host 127.0.0.1
+```
+
+The `/health`, `/ready` and `/info` endpoints sit outside `/mcp` and are not subject to
+this check, so health probes are unaffected either way.
+
 ## Component Management
 
 ### `wassette component load`
