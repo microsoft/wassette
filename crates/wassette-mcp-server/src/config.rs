@@ -675,7 +675,7 @@ bind_address = "0.0.0.0:8080"
     }
 
     #[test]
-    fn test_allowed_hosts_empty_toml_list_is_treated_as_unset() {
+    fn test_allowed_hosts_empty_toml_list_extracts_as_empty_vec() {
         temp_env::with_var("WASSETTE_ALLOWED_HOSTS", None::<&str>, || {
             let temp_dir = TempDir::new().unwrap();
             let config_path = temp_dir.path().join("config.toml");
@@ -684,10 +684,10 @@ bind_address = "0.0.0.0:8080"
             let config = Config::new_from_path(&empty_test_cli_config(), &config_path)
                 .expect("Failed to create config");
 
-            // An empty list reaches the transport as "allow every Host", so serve must
-            // fall back to the loopback default rather than passing it through. The
-            // guard for that lives at the call site in main.rs; this pins the shape the
-            // guard depends on.
+            // Deliberately Some(vec![]) rather than None: the empty list survives
+            // extraction, and the guard that stops it reaching the transport lives at
+            // the call site in main.rs, because an empty list there would mean "allow
+            // every Host". This pins the shape that guard depends on.
             assert_eq!(config.allowed_hosts, Some(vec![]));
         });
     }
