@@ -171,13 +171,14 @@ RUST_LOG=warn "$WASSETTE_BIN" serve \
 WASSETTE_PID=$!
 wait_for_url "$WASSETTE_PID" "$READY_URL" "Wassette" "$TMP_DIR/wassette.log"
 
-inspector() {
-    local server=$1
+inspector_with_config() {
+    local config=$1
+    local server=$2
     local output
-    shift
+    shift 2
     if [[ -x "$INSPECTOR_BIN" ]]; then
         if ! output="$("$INSPECTOR_BIN" --cli \
-            --config "$INSPECTOR_CONFIG" \
+            --config "$config" \
             --server "$server" \
             "$@" \
             --format json)"; then
@@ -186,7 +187,7 @@ inspector() {
         fi
     else
         if ! output="$(npx --yes "$INSPECTOR_PACKAGE" --cli \
-            --config "$INSPECTOR_CONFIG" \
+            --config "$config" \
             --server "$server" \
             "$@" \
             --format json)"; then
@@ -195,6 +196,12 @@ inspector() {
         fi
     fi
     printf '%s\n' "$output"
+}
+
+inspector() {
+    local server=$1
+    shift
+    inspector_with_config "$INSPECTOR_CONFIG" "$server" "$@"
 }
 
 call_tool() {
@@ -445,8 +452,8 @@ LOCKED_PID=$!
 wait_for_url "$LOCKED_PID" "http://127.0.0.1:$LOCKED_PORT/ready" \
     "Wassette (--disable-builtin-tools)" "$TMP_DIR/wassette-locked.log"
 
-locked_tools="$("$INSPECTOR_BIN" --cli --config "$LOCKED_CONFIG" --server wassette-modern \
-    --method tools/list --format json)"
+locked_tools="$(inspector_with_config "$LOCKED_CONFIG" wassette-modern \
+    --method tools/list)"
 
 # Every management tool must be gone...
 for management_tool in load-component unload-component list-components \
@@ -464,10 +471,10 @@ done
 jq -e '.result.tools | length > 0' <<<"$locked_tools" >/dev/null
 jq -e '.result.tools | any(.name == "read-file")' <<<"$locked_tools" >/dev/null
 
-locked_load="$("$INSPECTOR_BIN" --cli --config "$LOCKED_CONFIG" --server wassette-modern \
+locked_load="$(inspector_with_config "$LOCKED_CONFIG" wassette-modern \
     --method tools/call --tool-name load-component \
     --tool-args-json "$(jq -cn --arg uri "$TIME_COMPONENT_URI" '{path: $uri}')" \
-    --format json 2>&1 || true)"
+    2>&1 || true)"
 if ! grep -qiE "error|not found|unknown" <<<"$locked_load"; then
     echo "error: load-component was accepted despite --disable-builtin-tools" >&2
     exit 1
