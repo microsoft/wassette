@@ -213,6 +213,24 @@ assert_tool_call_succeeded() {
     ' >/dev/null
 }
 
+# A component denied by policy does not fail the MCP call. Wasmtime simply never
+# shows it the resource, so the component reports its own error and `isError`
+# stays false. Assert on the component's payload, not on the MCP envelope.
+assert_component_reported_error() {
+    jq -e '
+        .result
+        | (.structuredContent.result.err // empty)
+        | type == "string" and length > 0
+    ' >/dev/null
+}
+
+assert_component_succeeded() {
+    jq -e '
+        .result
+        | (.structuredContent.result.err // null) == null
+    ' >/dev/null
+}
+
 echo "Checking MCP 2 discovery and legacy initialization"
 modern_info="$(inspector wassette-modern --method initialize)"
 legacy_info="$(inspector wassette-legacy --method initialize)"
@@ -286,6 +304,23 @@ for server in wassette-modern wassette-legacy; do
     ' <<<"$time_result" >/dev/null
 done
 
+echo "Confirming policy denies access before any grant is made"
+unauthorized_read="$(call_tool wassette-modern read-file "$(jq -cn --arg path "$TMP_DIR/fs/component.txt" '{path: $path}')")"
+assert_component_reported_error <<<"$unauthorized_read"
+if jq -e '.result.content[0].text | contains("read through a real filesystem component")' \
+    <<<"$unauthorized_read" >/dev/null; then
+    echo "error: filesystem component read a file it was never granted" >&2
+    exit 1
+fi
+
+unauthorized_fetch="$(call_tool wassette-modern fetch "$(jq -cn --arg url "$FIXTURE_URL" '{url: $url}')")"
+assert_component_reported_error <<<"$unauthorized_fetch"
+if jq -e '.result.content[0].text | contains("served by the Wassette Inspector fixture")' \
+    <<<"$unauthorized_fetch" >/dev/null; then
+    echo "error: fetch component reached a host it was never granted" >&2
+    exit 1
+fi
+
 echo "Granting and exercising filesystem access through MCP 2"
 storage_args="$(jq -cn \
     --arg component_id "$filesystem_id" \
@@ -295,8 +330,23 @@ call_tool wassette-modern grant-storage-permission "$storage_args" | assert_tool
 read_args="$(jq -cn --arg path "$TMP_DIR/fs/component.txt" '{path: $path}')"
 read_result="$(call_tool wassette-modern read-file "$read_args")"
 assert_tool_call_succeeded <<<"$read_result"
+assert_component_succeeded <<<"$read_result"
 jq -e '.result.content[0].text | contains("read through a real filesystem component")' \
     <<<"$read_result" >/dev/null
+
+echo "Revoking the storage grant and confirming access is refused again"
+revoke_args="$(jq -cn \
+    --arg component_id "$filesystem_id" \
+    --arg uri "fs://$TMP_DIR/fs" \
+    '{component_id: $component_id, details: {uri: $uri, access: ["read"]}}')"
+call_tool wassette-modern revoke-storage-permission "$revoke_args" | assert_tool_call_succeeded
+revoked_read="$(call_tool wassette-modern read-file "$read_args")"
+assert_component_reported_error <<<"$revoked_read"
+if jq -e '.result.content[0].text | contains("read through a real filesystem component")' \
+    <<<"$revoked_read" >/dev/null; then
+    echo "error: filesystem component still read the file after its grant was revoked" >&2
+    exit 1
+fi
 
 echo "Granting and exercising network access through legacy MCP"
 network_args="$(jq -cn \
@@ -326,5 +376,44 @@ for server in wassette-modern wassette-legacy; do
           and (length == 3)
     ' <<<"$components" >/dev/null
 done
+
+echo "Unloading a component and confirming its tools leave the list"
+call_tool wassette-modern unload-component "$(jq -cn --arg id "$time_id" '{id: $id}')" \
+    | assert_tool_call_succeeded
+for server in wassette-modern wassette-legacy; do
+    if inspector "$server" --method tools/list \
+        | jq -e --arg name "$time_tool" '.result.tools | any(.name == $name)' >/dev/null; then
+        echo "error: $time_tool is still listed by $server after unload-component" >&2
+        exit 1
+    fi
+done
+remaining="$(call_tool wassette-modern list-components '{}')"
+jq -e --arg id "$time_id" '
+    .result.content[0].text | fromjson | .components
+    | (any(.id == $id) | not) and (length == 2)
+' <<<"$remaining" >/dev/null
+
+echo "Checking error paths return errors rather than hanging or panicking"
+# The Inspector CLI exits non-zero and prints an extra error envelope when a tool
+# reports isError, so tolerate the exit status and assert on the tool result it
+# also emits.
+missing_load="$(call_tool wassette-modern load-component \
+    '{"path": "file:///nonexistent/definitely-not-a-component.wasm"}' 2>&1 || true)"
+jq -e -s '
+    map(select(.result != null))
+    | length > 0
+    and (.[0].result.isError == true)
+    and (.[0].result.content[0].text | test("does not exist"; "i"))
+' <<<"$missing_load" >/dev/null
+
+unknown_tool="$(inspector wassette-modern --method tools/call \
+    --tool-name definitely-not-a-tool --tool-args-json '{}' 2>&1 || true)"
+if ! grep -qiE "error|not found|unknown" <<<"$unknown_tool"; then
+    echo "error: calling an unknown tool did not report an error" >&2
+    exit 1
+fi
+
+# The server must still be healthy after being handed bad input.
+curl --fail --silent "$READY_URL" >/dev/null
 
 echo "MCP Inspector dual-era component tests passed"
