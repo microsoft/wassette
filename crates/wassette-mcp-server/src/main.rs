@@ -4,6 +4,11 @@
 //! The main `wassette(1)` command.
 
 #![warn(missing_docs)]
+// `call_tool` in `server.rs` boxes an async block whose `Send` obligation chain runs
+// through the whole tool-call path, and the next trait solver reports the resulting
+// depth as `recursion_depth_exceeding_limit`. The default limit of 128 is not enough
+// for that chain; see rust-lang/rust#159228.
+#![recursion_limit = "256"]
 
 use anyhow::{bail, Context, Result};
 use clap::{CommandFactory, Parser};
