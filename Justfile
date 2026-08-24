@@ -18,6 +18,16 @@ test:
     cargo test --workspace -- --nocapture
     cargo test --doc --workspace -- --nocapture
 
+build-mcp-inspector-components:
+    just build-test-components
+    (cd examples/time-server-js && npm ci && npm run build)
+
+test-mcp-inspector:
+    just build
+    just build-mcp-inspector-components
+    npm ci --prefix tests/mcp-inspector
+    ./scripts/test-mcp-inspector.sh
+
 build mode="debug":
     mkdir -p bin
     cargo build --workspace {{ if mode == "release" { "--release" } else { "" } }}

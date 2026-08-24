@@ -1,0 +1,19 @@
+{
+  "mcpServers": {
+    "deep-link": {
+      "type": "http",
+      "url": "http://127.0.0.1:9001/mcp",
+      "protocolEra": "modern"
+    },
+    "wassette-modern": {
+      "type": "http",
+      "url": "http://127.0.0.1:9001/mcp",
+      "protocolEra": "modern"
+    },
+    "wassette-legacy": {
+      "type": "http",
+      "url": "http://127.0.0.1:9001/mcp",
+      "protocolEra": "legacy"
+    }
+  }
+}

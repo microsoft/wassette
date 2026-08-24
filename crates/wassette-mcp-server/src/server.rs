@@ -12,9 +12,10 @@ use mcp_server::{
     LifecycleManager,
 };
 use rmcp::model::{
-    CallToolRequestParams, CallToolResponse, ErrorData, ListPromptsResult, ListResourcesResult,
-    ListToolsResult, PaginatedRequestParams, ServerCapabilities, ServerInfo, ServerNotification,
-    SubscriptionFilter, ToolListChangedNotification,
+    CacheScope, CallToolRequestParams, CallToolResponse, ErrorData, ListPromptsResult,
+    ListResourceTemplatesResult, ListResourcesResult, ListToolsResult, PaginatedRequestParams,
+    ProtocolVersion, ServerCapabilities, ServerInfo, ServerNotification, SubscriptionFilter,
+    ToolListChangedNotification,
 };
 use rmcp::service::{RequestContext, RoleServer, SubscriptionContext, SubscriptionSendError};
 use rmcp::ServerHandler;
@@ -31,6 +32,12 @@ const TOOL_LIST_CHANGED_CAPACITY: usize = 16;
 /// Calling one of these has to reach `subscriptions/listen` streams, which
 /// belong to clients other than the one making the call.
 const TOOL_LIST_MUTATING_TOOLS: [&str; 2] = ["load-component", "unload-component"];
+
+fn supports_cache_hints(context: &RequestContext<RoleServer>) -> bool {
+    context
+        .protocol_version()
+        .is_some_and(|version| version >= ProtocolVersion::V_2026_07_28)
+}
 
 /// A security-oriented runtime that runs WebAssembly Components via MCP.
 #[derive(Clone)]
@@ -189,14 +196,23 @@ Key points:
     ) -> Pin<Box<dyn Future<Output = Result<ListToolsResult, ErrorData>> + Send + 'a>> {
         // Track the peer for background notifications
         self.track_peer(ctx.peer.clone());
+        let supports_cache_hints = supports_cache_hints(&ctx);
 
         let disable_builtin_tools = self.disable_builtin_tools;
         Box::pin(async move {
             let result = handle_tools_list(&self.lifecycle_manager, disable_builtin_tools).await;
             match result {
-                Ok(value) => serde_json::from_value(value).map_err(|e| {
-                    ErrorData::parse_error(format!("Failed to parse result: {e}"), None)
-                }),
+                Ok(value) => {
+                    let mut result: ListToolsResult =
+                        serde_json::from_value(value).map_err(|e| {
+                            ErrorData::parse_error(format!("Failed to parse result: {e}"), None)
+                        })?;
+                    if supports_cache_hints {
+                        result.ttl_ms.get_or_insert(0);
+                        result.cache_scope.get_or_insert(CacheScope::Public);
+                    }
+                    Ok(result)
+                }
                 Err(err) => Err(ErrorData::parse_error(err.to_string(), None)),
             }
         })
@@ -209,13 +225,22 @@ Key points:
     ) -> Pin<Box<dyn Future<Output = Result<ListPromptsResult, ErrorData>> + Send + 'a>> {
         // Track the peer for background notifications
         self.track_peer(ctx.peer.clone());
+        let supports_cache_hints = supports_cache_hints(&ctx);
 
         Box::pin(async move {
             let result = handle_prompts_list(serde_json::Value::Null).await;
             match result {
-                Ok(value) => serde_json::from_value(value).map_err(|e| {
-                    ErrorData::parse_error(format!("Failed to parse result: {e}"), None)
-                }),
+                Ok(value) => {
+                    let mut result: ListPromptsResult =
+                        serde_json::from_value(value).map_err(|e| {
+                            ErrorData::parse_error(format!("Failed to parse result: {e}"), None)
+                        })?;
+                    if supports_cache_hints {
+                        result.ttl_ms.get_or_insert(0);
+                        result.cache_scope.get_or_insert(CacheScope::Public);
+                    }
+                    Ok(result)
+                }
                 Err(err) => Err(ErrorData::parse_error(err.to_string(), None)),
             }
         })
@@ -228,15 +253,43 @@ Key points:
     ) -> Pin<Box<dyn Future<Output = Result<ListResourcesResult, ErrorData>> + Send + 'a>> {
         // Track the peer for background notifications
         self.track_peer(ctx.peer.clone());
+        let supports_cache_hints = supports_cache_hints(&ctx);
 
         Box::pin(async move {
-            let result = handle_resources_list(serde_json::Value::Null).await;
+            let result = handle_resources_list().await;
             match result {
-                Ok(value) => serde_json::from_value(value).map_err(|e| {
-                    ErrorData::parse_error(format!("Failed to parse result: {e}"), None)
-                }),
+                Ok(value) => {
+                    let mut result: ListResourcesResult =
+                        serde_json::from_value(value).map_err(|e| {
+                            ErrorData::parse_error(format!("Failed to parse result: {e}"), None)
+                        })?;
+                    if supports_cache_hints {
+                        result.ttl_ms.get_or_insert(0);
+                        result.cache_scope.get_or_insert(CacheScope::Public);
+                    }
+                    Ok(result)
+                }
                 Err(err) => Err(ErrorData::parse_error(err.to_string(), None)),
             }
+        })
+    }
+
+    fn list_resource_templates<'a>(
+        &'a self,
+        _params: Option<PaginatedRequestParams>,
+        ctx: RequestContext<RoleServer>,
+    ) -> Pin<Box<dyn Future<Output = Result<ListResourceTemplatesResult, ErrorData>> + Send + 'a>>
+    {
+        self.track_peer(ctx.peer.clone());
+        let supports_cache_hints = supports_cache_hints(&ctx);
+
+        Box::pin(async move {
+            let mut result = ListResourceTemplatesResult::default();
+            if supports_cache_hints {
+                result.ttl_ms = Some(0);
+                result.cache_scope = Some(CacheScope::Public);
+            }
+            Ok(result)
         })
     }
 

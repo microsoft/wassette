@@ -198,6 +198,56 @@ async fn stateless_tools_list_needs_no_initialize() -> Result<()> {
     Ok(())
 }
 
+/// Cacheable list responses carry the fields required by the modern schema.
+#[tokio::test]
+async fn stateless_cacheable_lists_include_cache_hints() -> Result<()> {
+    let port = find_open_port().await?;
+    let temp_dir = tempfile::tempdir()?;
+    let _server = spawn_server(port, temp_dir.path(), &[]).await?;
+    wait_until_listening(port).await?;
+
+    let client = reqwest::Client::new();
+    for method in [
+        "tools/list",
+        "prompts/list",
+        "resources/list",
+        "resources/templates/list",
+    ] {
+        let response = post_stateless(
+            &client,
+            port,
+            method,
+            None,
+            json!({ "_meta": stateless_meta() }),
+        )
+        .await?;
+        assert_eq!(
+            response.status(),
+            200,
+            "stateless {method} should return HTTP 200"
+        );
+
+        let message = read_json_rpc(response).await?;
+        assert_eq!(
+            message.pointer("/result/resultType"),
+            Some(&json!("complete")),
+            "{method} must identify a complete modern result: {message}"
+        );
+        assert_eq!(
+            message.pointer("/result/ttlMs"),
+            Some(&json!(0)),
+            "{method} must disable stale caching by default: {message}"
+        );
+        assert_eq!(
+            message.pointer("/result/cacheScope"),
+            Some(&json!("public")),
+            "{method} must include the modern cache scope: {message}"
+        );
+    }
+
+    Ok(())
+}
+
 /// A mirrored header that disagrees with the body is rejected with -32020.
 ///
 /// This matters because an intermediary may route on the header while the
@@ -297,7 +347,11 @@ async fn stateless_tools_call_round_trips() -> Result<()> {
     )
     .await?;
 
-    assert_eq!(response.status(), 200, "stateless tools/call should succeed");
+    assert_eq!(
+        response.status(),
+        200,
+        "stateless tools/call should succeed"
+    );
     let message = read_json_rpc(response).await?;
     assert!(
         message.get("error").is_none(),
