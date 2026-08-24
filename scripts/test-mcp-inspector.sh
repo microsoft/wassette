@@ -20,6 +20,7 @@ TMP_DIR="$(mktemp -d "${TMPDIR:-/tmp}/wassette-inspector.XXXXXX")"
 INSPECTOR_CONFIG="$TMP_DIR/mcp-inspector.json"
 WASSETTE_PID=""
 HTTP_PID=""
+LOCKED_PID=""
 
 stop_process() {
     local pid=$1
@@ -48,6 +49,7 @@ cleanup() {
     trap - EXIT INT TERM
 
     stop_process "$WASSETTE_PID"
+    stop_process "$LOCKED_PID"
     stop_process "$HTTP_PID"
     rm -rf "$TMP_DIR"
     exit "$exit_code"
@@ -415,5 +417,63 @@ fi
 
 # The server must still be healthy after being handed bad input.
 curl --fail --silent "$READY_URL" >/dev/null
+
+echo "Checking --disable-builtin-tools removes the management plane"
+LOCKED_PORT="$(python3 - <<'PORT'
+import socket
+sock = socket.socket()
+sock.bind(("127.0.0.1", 0))
+print(sock.getsockname()[1])
+sock.close()
+PORT
+)"
+LOCKED_CONFIG="$TMP_DIR/inspector-locked.json"
+jq --arg url "http://127.0.0.1:$LOCKED_PORT/mcp" '
+    (.mcpServers[] | select(.type == "http") | .url) = $url
+' "$INSPECTOR_CONFIG_SOURCE" > "$LOCKED_CONFIG"
+
+# Reuse the component directory the main server populated, so this instance
+# starts with real components already present and the only difference is that
+# the management tools are refused.
+RUST_LOG=warn "$WASSETTE_BIN" serve \
+    --streamable-http \
+    --bind-address "127.0.0.1:$LOCKED_PORT" \
+    --component-dir "$TMP_DIR/components" \
+    --disable-builtin-tools \
+    >"$TMP_DIR/wassette-locked.log" 2>&1 &
+LOCKED_PID=$!
+wait_for_url "$LOCKED_PID" "http://127.0.0.1:$LOCKED_PORT/ready" \
+    "Wassette (--disable-builtin-tools)" "$TMP_DIR/wassette-locked.log"
+
+locked_tools="$("$INSPECTOR_BIN" --cli --config "$LOCKED_CONFIG" --server wassette-modern \
+    --method tools/list --format json)"
+
+# Every management tool must be gone...
+for management_tool in load-component unload-component list-components \
+    grant-storage-permission grant-network-permission grant-environment-variable-permission \
+    revoke-storage-permission revoke-network-permission revoke-environment-variable-permission \
+    reset-permission get-policy search-components; do
+    if jq -e --arg name "$management_tool" '.result.tools | any(.name == $name)' \
+        <<<"$locked_tools" >/dev/null; then
+        echo "error: $management_tool is still exposed with --disable-builtin-tools" >&2
+        exit 1
+    fi
+done
+
+# ...while the components provisioned from disk stay callable.
+jq -e '.result.tools | length > 0' <<<"$locked_tools" >/dev/null
+jq -e '.result.tools | any(.name == "read-file")' <<<"$locked_tools" >/dev/null
+
+locked_load="$("$INSPECTOR_BIN" --cli --config "$LOCKED_CONFIG" --server wassette-modern \
+    --method tools/call --tool-name load-component \
+    --tool-args-json "$(jq -cn --arg uri "$TIME_COMPONENT_URI" '{path: $uri}')" \
+    --format json 2>&1 || true)"
+if ! grep -qiE "error|not found|unknown" <<<"$locked_load"; then
+    echo "error: load-component was accepted despite --disable-builtin-tools" >&2
+    exit 1
+fi
+
+stop_process "$LOCKED_PID" "Wassette (--disable-builtin-tools)"
+LOCKED_PID=""
 
 echo "MCP Inspector dual-era component tests passed"
