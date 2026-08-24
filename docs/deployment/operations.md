@@ -272,6 +272,58 @@ If tools fail with permission errors:
 2. Check logs for specific permission denials
 3. Grant necessary permissions using `wassette permission grant` commands
 
+### MCP Requests Return 403
+
+If `/mcp` answers `403` while the server is plainly running and listening, the `Host`
+header is being rejected before MCP dispatch. By default only loopback values are
+accepted, as protection against DNS rebinding, so this is the expected result of
+addressing the server by a container name, service name or DNS name.
+
+Note that `/health`, `/ready` and `/info` sit outside `/mcp` and are not subject to this
+check, so they answer normally while `/mcp` refuses. A reachability probe against
+`/health` therefore proves the process is up and tells you nothing about whether MCP
+clients can connect.
+
+Add the name the clients actually use:
+
+```bash
+wassette serve --streamable-http --bind-address 0.0.0.0:9001 \
+  --allowed-host wassette.internal
+```
+
+Changing `--bind-address` alone does not help, as the bind address and the `Host`
+allowlist are independent.
+
+Note also that a configured allowlist **replaces** the loopback default rather than
+extending it. If `/mcp` started returning `403` for `localhost` right after you added
+`--allowed-host`, that is why: list loopback explicitly alongside the deployment name.
+
+Confirm what the server accepts by sending a real `initialize` request and comparing
+status codes:
+
+```bash
+BODY='{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"probe","version":"1"}}}'
+
+# 200: this Host is on the allowlist
+curl -s -o /dev/null -w '%{http_code}\n' -X POST http://127.0.0.1:9001/mcp \
+  -H 'Host: 127.0.0.1:9001' \
+  -H 'Content-Type: application/json' \
+  -H 'Accept: application/json, text/event-stream' \
+  -d "$BODY"
+
+# 403: this Host is not
+curl -s -o /dev/null -w '%{http_code}\n' -X POST http://127.0.0.1:9001/mcp \
+  -H 'Host: wassette.internal:9001' \
+  -H 'Content-Type: application/json' \
+  -H 'Accept: application/json, text/event-stream' \
+  -d "$BODY"
+```
+
+The headers and body matter for reading the result. `403` always means the `Host` check
+rejected the request. Any other status means the `Host` was accepted and you are seeing
+the MCP layer respond, so a bare `curl -X POST` with no body returns `406` rather than
+`200` even when the `Host` is fine.
+
 ## Best Practices
 
 1. **Use INFO level in production** for a good balance between visibility and performance

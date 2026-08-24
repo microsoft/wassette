@@ -37,6 +37,16 @@ fn default_secrets_dir() -> PathBuf {
     })
 }
 
+/// Split a comma-separated `Host` allowlist, dropping empty entries and surrounding
+/// whitespace. Returns an empty vector when nothing usable is present.
+fn parse_allowed_hosts(raw: &str) -> Vec<String> {
+    raw.split(',')
+        .map(|host| host.trim())
+        .filter(|host| !host.is_empty())
+        .map(ToString::to_string)
+        .collect()
+}
+
 fn default_bind_address() -> String {
     // Default bind address using PORT and BIND_HOST environment variables (twelve-factor app compliance).
     // This is only used when bind_address is not set via CLI, config file, or other higher-precedence sources.
@@ -64,6 +74,15 @@ pub struct Config {
     /// Configured via PORT and BIND_HOST environment variables or CLI/config file
     #[serde(default = "default_bind_address", rename = "bind_address")]
     pub bind_address: String,
+
+    /// Hostnames or `host:port` authorities accepted in the inbound `Host` header for
+    /// Streamable HTTP.
+    ///
+    /// `None` leaves the transport's own default in place, which accepts loopback only
+    /// as protection against DNS rebinding. Set this when the server is addressed by a
+    /// service name, container name or DNS name rather than by `localhost`.
+    #[serde(default)]
+    pub allowed_hosts: Option<Vec<String>>,
 }
 
 impl Config {
@@ -97,14 +116,36 @@ impl Config {
         // Build figment config, excluding bind_address from WASSETTE_ environment variables.
         // Instead, bind_address uses PORT and BIND_HOST env vars as defaults (via default_bind_address())
         // when not explicitly set via CLI or config file.
-        let env_provider = Env::prefixed("WASSETTE_").filter(|key| key != "bind_address");
+        //
+        // allowed_hosts is excluded for a different reason: it is a list, and the generic
+        // env provider has no separator configured, so `WASSETTE_ALLOWED_HOSTS=a,b` would
+        // arrive as one string. It is parsed explicitly below instead of teaching the
+        // provider to split every value.
+        let env_provider = Env::prefixed("WASSETTE_")
+            .filter(|key| key != "bind_address" && key != "allowed_hosts");
 
-        figment::Figment::new()
+        let mut config: Self = figment::Figment::new()
             .admerge(Toml::file(config_file_path))
             .admerge(env_provider)
             .admerge(Serialized::defaults(cli_config))
             .extract()
-            .context("Unable to merge configs")
+            .context("Unable to merge configs")?;
+
+        // Applied after extraction rather than as another figment layer because `admerge`
+        // concatenates sequences instead of replacing them, so a file value and an env
+        // value would combine into one longer allowlist rather than the env winning.
+        //
+        // An empty or whitespace-only value is ignored rather than treated as an empty
+        // list: an empty list disables Host validation entirely in the transport, and
+        // that must not be reachable by accident.
+        if let Some(raw) = std::env::var_os("WASSETTE_ALLOWED_HOSTS") {
+            let hosts = parse_allowed_hosts(&raw.to_string_lossy());
+            if !hosts.is_empty() {
+                config.allowed_hosts = Some(hosts);
+            }
+        }
+
+        Ok(config)
     }
 
     /// Creates a new config from a Run struct for local stdio transport
@@ -166,6 +207,16 @@ impl Config {
             config.environment_vars.entry(key).or_insert(value);
         }
 
+        // Highest precedence, so it lands after the config file and WASSETTE_ALLOWED_HOSTS.
+        // Empty entries are dropped; if nothing usable remains the lower-precedence value
+        // stands rather than becoming an empty list, which would disable Host validation.
+        if let Some(cli_hosts) = &serve_config.allowed_hosts {
+            let hosts = parse_allowed_hosts(&cli_hosts.join(","));
+            if !hosts.is_empty() {
+                config.allowed_hosts = Some(hosts);
+            }
+        }
+
         Ok(config)
     }
 }
@@ -207,6 +258,7 @@ mod tests {
             disable_builtin_tools: false,
             bind_address: None,
             manifest: None,
+            allowed_hosts: None,
         }
     }
 
@@ -219,6 +271,7 @@ mod tests {
             disable_builtin_tools: false,
             bind_address: None,
             manifest: None,
+            allowed_hosts: None,
         }
     }
 
@@ -412,6 +465,7 @@ bind_address = "0.0.0.0:8080"
             disable_builtin_tools: false,
             bind_address: Some("192.168.1.100:9090".to_string()),
             manifest: None,
+            allowed_hosts: None,
         };
 
         let config =
@@ -464,5 +518,191 @@ bind_address = "0.0.0.0:8080"
                 assert_eq!(config.bind_address, "0.0.0.0:3000");
             },
         );
+    }
+
+    #[test]
+    fn test_allowed_hosts_defaults_to_none() {
+        temp_env::with_var("WASSETTE_ALLOWED_HOSTS", None::<&str>, || {
+            let temp_dir = TempDir::new().unwrap();
+            let non_existent_config = temp_dir.path().join("non_existent_config.toml");
+
+            let config = Config::new_from_path(&empty_test_cli_config(), &non_existent_config)
+                .expect("Failed to create config");
+
+            // None leaves the transport's loopback-only default untouched. An empty
+            // Vec would disable Host validation entirely, so it must not be the default.
+            assert_eq!(config.allowed_hosts, None);
+        });
+    }
+
+    #[test]
+    fn test_allowed_hosts_env_var_is_split_on_commas() {
+        temp_env::with_var(
+            "WASSETTE_ALLOWED_HOSTS",
+            Some("wassette.internal, example.com:8080 ,"),
+            || {
+                let temp_dir = TempDir::new().unwrap();
+                let non_existent_config = temp_dir.path().join("non_existent_config.toml");
+
+                let config = Config::new_from_path(&empty_test_cli_config(), &non_existent_config)
+                    .expect("Failed to create config");
+
+                assert_eq!(
+                    config.allowed_hosts,
+                    Some(vec![
+                        "wassette.internal".to_string(),
+                        "example.com:8080".to_string()
+                    ]),
+                    "entries should be trimmed and empty ones dropped"
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn test_allowed_hosts_empty_env_var_is_ignored() {
+        temp_env::with_var("WASSETTE_ALLOWED_HOSTS", Some(" , "), || {
+            let temp_dir = TempDir::new().unwrap();
+            let non_existent_config = temp_dir.path().join("non_existent_config.toml");
+
+            let config = Config::new_from_path(&empty_test_cli_config(), &non_existent_config)
+                .expect("Failed to create config");
+
+            // Falling through to None keeps the loopback default rather than
+            // silently disabling Host validation.
+            assert_eq!(config.allowed_hosts, None);
+        });
+    }
+
+    #[test]
+    fn test_allowed_hosts_cli_overrides_env_var() {
+        let temp_dir = TempDir::new().unwrap();
+        let non_existent_config = temp_dir.path().join("non_existent_config.toml");
+
+        temp_env::with_vars(
+            vec![
+                ("WASSETTE_ALLOWED_HOSTS", Some("from-env")),
+                (
+                    "WASSETTE_CONFIG_FILE",
+                    Some(non_existent_config.to_str().unwrap()),
+                ),
+            ],
+            || {
+                let cli_config = Serve {
+                    allowed_hosts: Some(vec!["from-cli".to_string()]),
+                    ..empty_test_cli_config()
+                };
+
+                // from_serve is the path that applies the CLI value, mirroring how
+                // env_vars and env_file are handled.
+                let config = Config::from_serve(&cli_config).expect("Failed to create config");
+
+                assert_eq!(config.allowed_hosts, Some(vec!["from-cli".to_string()]));
+            },
+        );
+    }
+
+    #[test]
+    fn test_allowed_hosts_env_var_used_when_no_cli_value() {
+        let temp_dir = TempDir::new().unwrap();
+        let non_existent_config = temp_dir.path().join("non_existent_config.toml");
+
+        temp_env::with_vars(
+            vec![
+                ("WASSETTE_ALLOWED_HOSTS", Some("from-env")),
+                (
+                    "WASSETTE_CONFIG_FILE",
+                    Some(non_existent_config.to_str().unwrap()),
+                ),
+            ],
+            || {
+                let config =
+                    Config::from_serve(&empty_test_cli_config()).expect("Failed to create config");
+
+                assert_eq!(config.allowed_hosts, Some(vec!["from-env".to_string()]));
+            },
+        );
+    }
+
+    #[test]
+    fn test_allowed_hosts_env_var_replaces_config_file_list() {
+        let temp_dir = TempDir::new().unwrap();
+        let config_path = temp_dir.path().join("config.toml");
+        fs::write(&config_path, "allowed_hosts = [\"from-file\"]\n").unwrap();
+
+        temp_env::with_var("WASSETTE_ALLOWED_HOSTS", Some("from-env"), || {
+            let config = Config::new_from_path(&empty_test_cli_config(), &config_path)
+                .unwrap_or_else(|e| {
+                    panic!("Failed to create config: {e}");
+                });
+
+            // Not ["from-file", "from-env"]. figment's admerge concatenates sequences,
+            // which is why this field is resolved outside figment.
+            assert_eq!(
+                config.allowed_hosts,
+                Some(vec!["from-env".to_string()]),
+                "the environment value must replace the file list, not extend it"
+            );
+        });
+    }
+
+    #[test]
+    fn test_allowed_hosts_cli_replaces_config_file_list() {
+        let temp_dir = TempDir::new().unwrap();
+        let config_path = temp_dir.path().join("config.toml");
+        fs::write(&config_path, "allowed_hosts = [\"from-file\"]\n").unwrap();
+
+        temp_env::with_vars(
+            vec![
+                ("WASSETTE_ALLOWED_HOSTS", None),
+                ("WASSETTE_CONFIG_FILE", Some(config_path.to_str().unwrap())),
+            ],
+            || {
+                let cli_config = Serve {
+                    allowed_hosts: Some(vec!["from-cli".to_string()]),
+                    ..empty_test_cli_config()
+                };
+
+                let config = Config::from_serve(&cli_config).expect("Failed to create config");
+
+                assert_eq!(
+                    config.allowed_hosts,
+                    Some(vec!["from-cli".to_string()]),
+                    "the CLI value must replace the file list, not extend it"
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn test_allowed_hosts_empty_toml_list_extracts_as_empty_vec() {
+        temp_env::with_var("WASSETTE_ALLOWED_HOSTS", None::<&str>, || {
+            let temp_dir = TempDir::new().unwrap();
+            let config_path = temp_dir.path().join("config.toml");
+            fs::write(&config_path, "allowed_hosts = []\n").unwrap();
+
+            let config = Config::new_from_path(&empty_test_cli_config(), &config_path)
+                .expect("Failed to create config");
+
+            // Deliberately Some(vec![]) rather than None: the empty list survives
+            // extraction, and the guard that stops it reaching the transport lives at
+            // the call site in main.rs, because an empty list there would mean "allow
+            // every Host". This pins the shape that guard depends on.
+            assert_eq!(config.allowed_hosts, Some(vec![]));
+        });
+    }
+
+    #[test]
+    fn test_allowed_hosts_from_config_file() {
+        temp_env::with_var("WASSETTE_ALLOWED_HOSTS", None::<&str>, || {
+            let temp_dir = TempDir::new().unwrap();
+            let config_path = temp_dir.path().join("config.toml");
+            fs::write(&config_path, "allowed_hosts = [\"from-file\"]\n").unwrap();
+
+            let config = Config::new_from_path(&empty_test_cli_config(), &config_path)
+                .expect("Failed to create config");
+
+            assert_eq!(config.allowed_hosts, Some(vec!["from-file".to_string()]));
+        });
     }
 }

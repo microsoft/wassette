@@ -59,6 +59,16 @@ DATABASE_URL = "postgresql://localhost/mydb"
 - **Default**: `127.0.0.1:9001`
 - **Description**: Bind address for Streamable HTTP. The address should be in the format `host:port`. Use `0.0.0.0` to bind to all network interfaces, or a specific IP address to bind to a particular interface. This setting is ignored when using stdio transport.
 
+#### `allowed_hosts`
+
+- **Type**: Array of strings
+- **Default**: Unset, which accepts loopback (`localhost`, `127.0.0.1`, `::1`) only
+- **Description**: `Host` header values accepted on the `/mcp` endpoint for Streamable HTTP. Requests whose `Host` is not listed are rejected with `403` before MCP dispatch, which is what prevents DNS rebinding against a locally running server. Set this when the server is addressed by a service name, container name or DNS name rather than by `localhost`. Entries may be a bare hostname, which matches any port, or `host:port`, which must match exactly. A configured list **replaces** the loopback default rather than extending it, so include loopback explicitly if local clients must keep working. An empty list is treated as unset, leaving the loopback default in place. This setting is independent of `bind_address` and is ignored when using stdio transport.
+
+```toml
+allowed_hosts = ["wassette.internal", "localhost", "127.0.0.1"]
+```
+
 #### `environment_vars`
 
 - **Type**: Table/Map
