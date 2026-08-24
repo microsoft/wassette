@@ -146,9 +146,10 @@ async fn read_json_rpc(response: reqwest::Response) -> Result<Value> {
     if content_type.starts_with("text/event-stream") {
         let payload = text
             .lines()
-            .find_map(|line| line.strip_prefix("data:"))
+            .filter_map(|line| line.strip_prefix("data:").map(str::trim))
+            .find(|payload| !payload.is_empty())
             .context("SSE response carried no data line")?;
-        return serde_json::from_str(payload.trim()).context("malformed SSE JSON-RPC payload");
+        return serde_json::from_str(payload).context("malformed SSE JSON-RPC payload");
     }
     serde_json::from_str(&text).context("malformed JSON-RPC payload")
 }
@@ -242,6 +243,100 @@ async fn stateless_cacheable_lists_include_cache_hints() -> Result<()> {
             message.pointer("/result/cacheScope"),
             Some(&json!("public")),
             "{method} must include the modern cache scope: {message}"
+        );
+    }
+
+    Ok(())
+}
+
+/// Cache hints did not exist in legacy schemas, so leaking them across the
+/// revision boundary can break strict older clients even though modern clients
+/// require them.
+#[tokio::test]
+async fn legacy_cacheable_lists_omit_cache_hints() -> Result<()> {
+    let port = find_open_port().await?;
+    let temp_dir = tempfile::tempdir()?;
+    let _server = spawn_server(port, temp_dir.path(), &[]).await?;
+    wait_until_listening(port).await?;
+
+    let client = reqwest::Client::new();
+    let initialize = client
+        .post(mcp_url(port))
+        .header("Content-Type", "application/json")
+        .header("Accept", "application/json, text/event-stream")
+        .json(&json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "initialize",
+            "params": {
+                "protocolVersion": LEGACY_VERSION,
+                "capabilities": {},
+                "clientInfo": { "name": "legacy-client", "version": "1.0.0" },
+            },
+        }))
+        .send()
+        .await?;
+    assert_eq!(initialize.status(), 200, "legacy initialize should succeed");
+    let session_id = initialize
+        .headers()
+        .get("mcp-session-id")
+        .context("legacy initialize returned no session id")?
+        .to_str()
+        .context("legacy session id was not valid text")?
+        .to_string();
+
+    let initialized = client
+        .post(mcp_url(port))
+        .header("Content-Type", "application/json")
+        .header("Accept", "application/json, text/event-stream")
+        .header("MCP-Session-Id", &session_id)
+        .header("MCP-Protocol-Version", LEGACY_VERSION)
+        .json(&json!({
+            "jsonrpc": "2.0",
+            "method": "notifications/initialized",
+        }))
+        .send()
+        .await?;
+    assert_eq!(
+        initialized.status(),
+        202,
+        "legacy initialized notification should be accepted"
+    );
+
+    for method in [
+        "tools/list",
+        "prompts/list",
+        "resources/list",
+        "resources/templates/list",
+    ] {
+        let response = client
+            .post(mcp_url(port))
+            .header("Content-Type", "application/json")
+            .header("Accept", "application/json, text/event-stream")
+            .header("MCP-Session-Id", &session_id)
+            .header("MCP-Protocol-Version", LEGACY_VERSION)
+            .json(&json!({
+                "jsonrpc": "2.0",
+                "id": 2,
+                "method": method,
+                "params": {},
+            }))
+            .send()
+            .await?;
+        assert_eq!(response.status(), 200, "legacy {method} should succeed");
+
+        let message = read_json_rpc(response).await?;
+        assert!(
+            message.get("error").is_none(),
+            "legacy {method} returned an error: {message}"
+        );
+        assert!(
+            message.pointer("/result/ttlMs").is_none(),
+            "legacy {method} must not include ttlMs: {message}"
+        );
+        assert!(
+            message.pointer("/result/cacheScope").is_none(),
+            "legacy {method} must not include cacheScope: {message}"
         );
     }
 
@@ -517,6 +612,124 @@ async fn stateless_subscription_receives_tool_list_changed() -> Result<()> {
     assert_eq!(
         notification["method"], "notifications/tools/list_changed",
         "the subscription stream must carry the tool list change: {notification}"
+    );
+
+    Ok(())
+}
+
+/// Unloading is the less common half of the tool-list mutation contract, and
+/// missing its broadcast leaves subscribers caching tools that can no longer
+/// be called.
+#[tokio::test]
+async fn stateless_subscription_receives_tool_list_changed_after_unload() -> Result<()> {
+    let port = find_open_port().await?;
+    let temp_dir = tempfile::tempdir()?;
+    let _server = spawn_server(port, temp_dir.path(), &[]).await?;
+    wait_until_listening(port).await?;
+
+    let client = reqwest::Client::new();
+    let component = format!("file://{}", test_component_path().display());
+    let load = post_stateless(
+        &client,
+        port,
+        "tools/call",
+        Some("load-component"),
+        json!({
+            "name": "load-component",
+            "arguments": { "path": component },
+            "_meta": stateless_meta(),
+        }),
+    )
+    .await?;
+    assert_eq!(
+        load.status(),
+        200,
+        "stateless load-component should succeed"
+    );
+    let loaded = read_json_rpc(load).await?;
+    assert!(
+        loaded.get("error").is_none(),
+        "loading the test component failed: {loaded}"
+    );
+
+    let subscription = open_subscription(&client, port).await?;
+    let unload = post_stateless(
+        &client,
+        port,
+        "tools/call",
+        Some("unload-component"),
+        json!({
+            "name": "unload-component",
+            "arguments": { "id": "fetch_rs" },
+            "_meta": stateless_meta(),
+        }),
+    )
+    .await?;
+    assert_eq!(
+        unload.status(),
+        200,
+        "stateless unload-component should succeed"
+    );
+    let unloaded = read_json_rpc(unload).await?;
+    assert!(
+        unloaded.get("error").is_none() && unloaded["result"]["isError"] != json!(true),
+        "unloading the test component failed: {unloaded}"
+    );
+
+    let notification = wait_for_sse_message(subscription, Duration::from_secs(30), |message| {
+        message["method"] == "notifications/tools/list_changed"
+    })
+    .await?;
+    assert_eq!(
+        notification["method"], "notifications/tools/list_changed",
+        "unloading must invalidate subscribed tool lists: {notification}"
+    );
+
+    Ok(())
+}
+
+/// Ordinary tools must stay silent or every call turns into a cache
+/// invalidation storm; this guards the regression where all successful calls
+/// were treated as tool-list mutations.
+#[tokio::test]
+async fn stateless_subscription_is_silent_for_non_mutating_tool() -> Result<()> {
+    let port = find_open_port().await?;
+    let temp_dir = tempfile::tempdir()?;
+    let _server = spawn_server(port, temp_dir.path(), &[]).await?;
+    wait_until_listening(port).await?;
+
+    let client = reqwest::Client::new();
+    let subscription = open_subscription(&client, port).await?;
+    let list = post_stateless(
+        &client,
+        port,
+        "tools/call",
+        Some("list-components"),
+        json!({
+            "name": "list-components",
+            "arguments": {},
+            "_meta": stateless_meta(),
+        }),
+    )
+    .await?;
+    assert_eq!(
+        list.status(),
+        200,
+        "stateless list-components should succeed"
+    );
+    let listed = read_json_rpc(list).await?;
+    assert!(
+        listed.get("error").is_none(),
+        "list-components failed: {listed}"
+    );
+
+    let notification = wait_for_sse_message(subscription, Duration::from_secs(5), |message| {
+        message["method"] == "notifications/tools/list_changed"
+    })
+    .await;
+    assert!(
+        notification.is_err(),
+        "a non-mutating tool must not broadcast tools/list_changed: {notification:?}"
     );
 
     Ok(())

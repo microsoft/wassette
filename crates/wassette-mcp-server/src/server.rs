@@ -347,3 +347,135 @@ Key points:
         })
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use std::time::Duration;
+
+    use rmcp::ServiceExt;
+    use serde_json::Value;
+    use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader, DuplexStream};
+
+    use super::*;
+
+    const INITIALIZE_REQUEST: &str = r#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"peer-lifecycle-test","version":"1.0.0"}}}
+                        "#;
+
+    async fn connect_peer(
+        server: McpServer,
+    ) -> (
+        rmcp::Peer<RoleServer>,
+        BufReader<DuplexStream>,
+        tokio::task::JoinHandle<()>,
+    ) {
+        let (server_transport, client_transport) = tokio::io::duplex(4096);
+        let (peer_sender, peer_receiver) = tokio::sync::oneshot::channel();
+        let service_task = tokio::spawn(async move {
+            let service = server
+                .serve(server_transport)
+                .await
+                .expect("server should accept the test peer");
+            peer_sender
+                .send(service.peer().clone())
+                .expect("test should still be waiting for the peer");
+            let _ = service.waiting().await;
+        });
+
+        let mut client = BufReader::new(client_transport);
+        client
+            .get_mut()
+            .write_all(INITIALIZE_REQUEST.as_bytes())
+            .await
+            .expect("initialize request should be written");
+        client
+            .get_mut()
+            .flush()
+            .await
+            .expect("initialize request should be flushed");
+
+        let mut response = String::new();
+        client
+            .read_line(&mut response)
+            .await
+            .expect("initialize response should be read");
+        let response: Value =
+            serde_json::from_str(&response).expect("initialize response should be JSON");
+        assert!(
+            response.get("error").is_none(),
+            "initialize failed: {response}"
+        );
+
+        let peer = peer_receiver
+            .await
+            .expect("server should expose its connected peer");
+        (peer, client, service_task)
+    }
+
+    async fn expect_tool_list_changed(client: &mut BufReader<DuplexStream>) {
+        let mut notification = String::new();
+        tokio::time::timeout(Duration::from_secs(5), client.read_line(&mut notification))
+            .await
+            .expect("timed out waiting for tools/list_changed")
+            .expect("tools/list_changed should be read");
+        let notification: Value =
+            serde_json::from_str(&notification).expect("notification should be JSON");
+        assert_eq!(
+            notification["method"], "notifications/tools/list_changed",
+            "connected peer should receive the tool-list change: {notification}"
+        );
+    }
+
+    /// Startup loading can publish before a peer exists, while a later stateless
+    /// request can leave a dead peer behind. This prevents either state from
+    /// suppressing notifications to subscriptions or the next live peer.
+    #[tokio::test]
+    async fn publish_tool_list_changed_handles_peer_lifecycle() {
+        let temp_dir = tempfile::tempdir().expect("temporary component directory should exist");
+        let lifecycle_manager = LifecycleManager::new(temp_dir.path())
+            .await
+            .expect("lifecycle manager should be created");
+        let server = McpServer::new(lifecycle_manager, false);
+        let mut subscription = server.subscribe_tool_list_changed();
+
+        assert!(server.get_peer().is_none());
+        server.publish_tool_list_changed();
+        subscription
+            .recv()
+            .await
+            .expect("peerless publication should still reach subscriptions");
+
+        let (first_peer, mut first_client, first_service) = connect_peer(server.clone()).await;
+        server.track_peer(first_peer.clone());
+        server.publish_tool_list_changed();
+        expect_tool_list_changed(&mut first_client).await;
+
+        drop(first_client);
+        tokio::time::timeout(Duration::from_secs(5), first_service)
+            .await
+            .expect("first peer should close after its transport is dropped")
+            .expect("first peer service should shut down cleanly");
+        assert!(first_peer.is_transport_closed());
+
+        let (second_peer, mut second_client, second_service) = connect_peer(server.clone()).await;
+        server.track_peer(second_peer.clone());
+        assert!(
+            server
+                .get_peer()
+                .is_some_and(|peer| !peer.is_transport_closed()),
+            "a live peer should replace the stale peer"
+        );
+        server.publish_tool_list_changed();
+        expect_tool_list_changed(&mut second_client).await;
+
+        drop(second_client);
+        tokio::time::timeout(Duration::from_secs(5), second_service)
+            .await
+            .expect("second peer should close after its transport is dropped")
+            .expect("second peer service should shut down cleanly");
+        assert!(second_peer.is_transport_closed());
+        assert!(
+            server.get_peer().is_none(),
+            "get_peer should remove a peer whose transport has closed"
+        );
+    }
+}
