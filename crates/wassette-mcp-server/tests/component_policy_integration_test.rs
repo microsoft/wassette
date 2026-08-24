@@ -1,6 +1,10 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT license.
 
+// `load_component`'s `Send` obligation chain exceeds the default recursion limit of
+// 128 under the next trait solver; see rust-lang/rust#159228.
+#![recursion_limit = "256"]
+
 use std::sync::Arc;
 use std::time::Duration;
 
