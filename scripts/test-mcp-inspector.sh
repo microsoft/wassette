@@ -452,8 +452,22 @@ LOCKED_PID=$!
 wait_for_url "$LOCKED_PID" "http://127.0.0.1:$LOCKED_PORT/ready" \
     "Wassette (--disable-builtin-tools)" "$TMP_DIR/wassette-locked.log"
 
-locked_tools="$(inspector_with_config "$LOCKED_CONFIG" wassette-modern \
-    --method tools/list)"
+# `/ready` answers as soon as the router is up, while the components provisioned
+# from disk register from a spawned background task. Poll for one of them rather
+# than trusting readiness, or the assertions below race an empty tool list.
+for attempt in $(seq 1 100); do
+    locked_tools="$(inspector_with_config "$LOCKED_CONFIG" wassette-modern \
+        --method tools/list)"
+    if jq -e '.result.tools | any(.name == "read-file")' <<<"$locked_tools" >/dev/null; then
+        break
+    fi
+    if [[ "$attempt" -eq 100 ]]; then
+        echo "error: provisioned components never registered on the locked server" >&2
+        cat "$TMP_DIR/wassette-locked.log" >&2
+        exit 1
+    fi
+    sleep 0.1
+done
 
 # Every management tool must be gone...
 for management_tool in load-component unload-component list-components \
