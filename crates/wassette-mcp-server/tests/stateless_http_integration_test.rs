@@ -522,6 +522,58 @@ async fn stateless_subscription_receives_tool_list_changed() -> Result<()> {
     Ok(())
 }
 
+/// A `load-component` that fails must not announce a tool list change.
+///
+/// `handle_tools_call` reports a failing tool as `Ok` carrying `isError: true`
+/// rather than as `Err`, so a server that only checks whether the call returned
+/// `Ok` broadcasts on failure too and makes every subscriber refetch a tool list
+/// that never changed. The success case above cannot catch that.
+#[tokio::test]
+async fn stateless_subscription_is_silent_when_load_fails() -> Result<()> {
+    let port = find_open_port().await?;
+    let temp_dir = tempfile::tempdir()?;
+    let _server = spawn_server(port, temp_dir.path(), &[]).await?;
+    wait_until_listening(port).await?;
+
+    let client = reqwest::Client::new();
+    let subscription = open_subscription(&client, port).await?;
+
+    let missing = format!(
+        "file://{}",
+        temp_dir.path().join("no-such-component.wasm").display()
+    );
+    let load = post_stateless(
+        &client,
+        port,
+        "tools/call",
+        Some("load-component"),
+        json!({
+            "name": "load-component",
+            "arguments": { "path": missing },
+            "_meta": stateless_meta(),
+        }),
+    )
+    .await?;
+    assert_eq!(load.status(), 200);
+    let body = read_json_rpc(load).await?;
+    assert_eq!(
+        body["result"]["isError"],
+        json!(true),
+        "loading a component that does not exist should report isError: true: {body}"
+    );
+
+    let notification = wait_for_sse_message(subscription, Duration::from_secs(5), |message| {
+        message["method"] == "notifications/tools/list_changed"
+    })
+    .await;
+    assert!(
+        notification.is_err(),
+        "a failed load-component must not broadcast tools/list_changed: {notification:?}"
+    );
+
+    Ok(())
+}
+
 /// `--json-response` answers a simple request with a plain JSON body.
 #[tokio::test]
 async fn json_response_returns_plain_json() -> Result<()> {

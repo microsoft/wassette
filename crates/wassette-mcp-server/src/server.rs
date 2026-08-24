@@ -173,7 +173,14 @@ Key points:
                 disable_builtin_tools,
             )
             .await;
-            if result.is_ok() && mutates_tool_list {
+            // A failing tool is reported as `Ok` carrying `isError: true`, not as
+            // `Err`, so testing `is_ok` alone would announce a load or unload that
+            // never changed the tool list.
+            let tool_list_mutated = mutates_tool_list
+                && result.as_ref().is_ok_and(|value| {
+                    value.get("isError") != Some(&serde_json::Value::Bool(true))
+                });
+            if tool_list_mutated {
                 // The tool handler already told the calling peer; subscription
                 // streams belong to other clients and still need telling.
                 self.broadcast_tool_list_changed();
