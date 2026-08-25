@@ -125,6 +125,16 @@ This provides a reproducible environment for using and developing Wassette.
 {{#endtab }}
 {{#endtabs }}
 
+## Latest Development Channel
+
+The `latest` channel resolves the install script to the newest on-demand development build instead of the latest stable release:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/microsoft/wassette/main/scripts/install.sh | WASSETTE_CHANNEL=latest bash
+```
+
+These builds are unsigned and may come from an arbitrary commit selected on `main` or another ref. Only the newest five builds are retained, and they are covered by no release promise. The channel provides stable resolution, not a stable download URL; the resolved URL changes with every build.
+
 ## Homebrew Tap (Alternative)
 
 `brew install wassette` installs from `homebrew/core` and is the recommended path on both macOS and Linux. This repository also maintains its own formula, which you can use if you need a version that is not yet in `homebrew/core`:
