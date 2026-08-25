@@ -102,7 +102,7 @@ just test-mcp-clients-negative
 ```
 
 The harness prefers `COPILOT_GITHUB_TOKEN` for Copilot CLI authentication. As
-a local convenience, you can instead set `WCH_COPILOT_TOKEN_FILE` to a readable
+a local convenience, you can instead set `WASSETTE_CLIENTS_COPILOT_TOKEN_FILE` to a readable
 token file; otherwise, Copilot CLI uses its normal configured authentication.
 The harness is deliberately not wired into CI because it requires three
 separately authenticated vendor CLIs and spends model tokens on every run.

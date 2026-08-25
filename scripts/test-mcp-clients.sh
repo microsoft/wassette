@@ -19,15 +19,15 @@ set -uo pipefail
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 TAP="$REPO_ROOT/scripts/mcp-client-tap.py"
 
-COMPONENT="${WCH_COMPONENT:-oci://ghcr.io/microsoft/time-server-js:latest}"
-TOOL="${WCH_TOOL:-microsoft_time-server-js_time_get-current-time}"
+COMPONENT="${WASSETTE_CLIENTS_COMPONENT:-oci://ghcr.io/microsoft/time-server-js:latest}"
+TOOL="${WASSETTE_CLIENTS_TOOL:-microsoft_time-server-js_time_get-current-time}"
 WASSETTE_BIN="${WASSETTE_BIN:-$REPO_ROOT/bin/wassette}"
-COPILOT_TOKEN_FILE="${WCH_COPILOT_TOKEN_FILE:-}"
-TIMEOUT="${WCH_TIMEOUT:-420}"
+COPILOT_TOKEN_FILE="${WASSETTE_CLIENTS_COPILOT_TOKEN_FILE:-}"
+TIMEOUT="${WASSETTE_CLIENTS_TIMEOUT:-420}"
 
 # Run dirs must not live under /tmp: codex refuses to create its PATH aliases
 # when CODEX_HOME is a temporary directory and warns on every invocation.
-RUN_ROOT="${WCH_RUN_DIR:-$HOME/.cache/wassette-client-harness/runs/$(date +%Y%m%d-%H%M%S)}"
+RUN_ROOT="${WASSETTE_CLIENTS_RUN_DIR:-$HOME/.cache/wassette-mcp-clients/runs/$(date +%Y%m%d-%H%M%S)}"
 
 NEGATIVE=0
 CLIENTS=()
@@ -104,7 +104,7 @@ prepare_client_dir() {
 # harness is correct on either build instead of silently testing nothing on one
 # of them, and check_premises catches it regardless by asserting the startup
 # catalogue holds built-ins only.
-exec env RUST_LOG="\${WCH_RUST_LOG:-info}" XDG_DATA_HOME="$d/xdg" "$WASSETTE_BIN" --component-dir "$d/xdg/wassette/components" "\$@" \\
+exec env RUST_LOG="\${WASSETTE_CLIENTS_RUST_LOG:-info}" XDG_DATA_HOME="$d/xdg" "$WASSETTE_BIN" --component-dir "$d/xdg/wassette/components" "\$@" \\
   < <("$TAP" "$d/logs/client-to-server.jsonl") \\
   > >("$TAP" "$d/logs/server-to-client.jsonl") \\
   2> >(tee -a "$d/logs/server.stderr.log" >&2)
