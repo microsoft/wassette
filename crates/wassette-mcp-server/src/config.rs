@@ -165,9 +165,17 @@ impl Config {
     }
 
     /// Creates a new config from a Run struct for local stdio transport
-    pub fn from_run(run_config: &Run) -> Result<Self, anyhow::Error> {
+    pub fn from_run(
+        run_config: &Run,
+        global_component_dir: Option<&Path>,
+    ) -> Result<Self, anyhow::Error> {
+        let mut run_config = run_config.clone();
+        if run_config.component_dir.is_none() {
+            run_config.component_dir = global_component_dir.map(Path::to_path_buf);
+        }
+
         // Start with the base config using existing logic
-        let mut config = Self::new(run_config)?;
+        let mut config = Self::new(&run_config)?;
 
         // Load environment variables from file if specified
         if let Some(env_file) = &run_config.env_file {
@@ -196,9 +204,17 @@ impl Config {
     }
 
     /// Creates a new config from a Serve struct that includes environment variable handling
-    pub fn from_serve(serve_config: &Serve) -> Result<Self, anyhow::Error> {
+    pub fn from_serve(
+        serve_config: &Serve,
+        global_component_dir: Option<&Path>,
+    ) -> Result<Self, anyhow::Error> {
+        let mut serve_config = serve_config.clone();
+        if serve_config.component_dir.is_none() {
+            serve_config.component_dir = global_component_dir.map(Path::to_path_buf);
+        }
+
         // Start with the base config using existing logic
-        let mut config = Self::new(serve_config)?;
+        let mut config = Self::new(&serve_config)?;
 
         // Load environment variables from file if specified
         if let Some(env_file) = &serve_config.env_file {
@@ -293,6 +309,167 @@ mod tests {
             legacy_sessions: None,
             json_response: None,
         }
+    }
+
+    fn assert_run_and_serve_component_dir(
+        run_config: &Run,
+        serve_config: &Serve,
+        global_component_dir: Option<&Path>,
+        expected: &Path,
+    ) {
+        let run_config = Config::from_run(run_config, global_component_dir)
+            .expect("Failed to create run config");
+        assert_eq!(run_config.component_dir, expected);
+
+        let serve_config = Config::from_serve(serve_config, global_component_dir)
+            .expect("Failed to create serve config");
+        assert_eq!(serve_config.component_dir, expected);
+    }
+
+    #[test]
+    fn test_global_component_dir_used_for_run_and_serve() {
+        let temp_dir = TempDir::new().unwrap();
+        let config_file = temp_dir.path().join("non_existent_config.toml");
+        let global_component_dir = temp_dir.path().join("global-components");
+
+        temp_env::with_vars(
+            vec![
+                ("WASSETTE_CONFIG_FILE", Some(config_file.to_str().unwrap())),
+                ("WASSETTE_COMPONENT_DIR", None),
+            ],
+            || {
+                assert_run_and_serve_component_dir(
+                    &empty_test_run_config(),
+                    &empty_test_cli_config(),
+                    Some(&global_component_dir),
+                    &global_component_dir,
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn test_subcommand_component_dir_overrides_global_for_run_and_serve() {
+        let temp_dir = TempDir::new().unwrap();
+        let config_file = temp_dir.path().join("non_existent_config.toml");
+        let global_component_dir = temp_dir.path().join("global-components");
+        let subcommand_component_dir = temp_dir.path().join("subcommand-components");
+        let mut run_config = empty_test_run_config();
+        run_config.component_dir = Some(subcommand_component_dir.clone());
+        let mut serve_config = empty_test_cli_config();
+        serve_config.component_dir = Some(subcommand_component_dir.clone());
+
+        temp_env::with_vars(
+            vec![
+                ("WASSETTE_CONFIG_FILE", Some(config_file.to_str().unwrap())),
+                ("WASSETTE_COMPONENT_DIR", None),
+            ],
+            || {
+                assert_run_and_serve_component_dir(
+                    &run_config,
+                    &serve_config,
+                    Some(&global_component_dir),
+                    &subcommand_component_dir,
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn test_global_component_dir_overrides_env_and_config_for_run_and_serve() {
+        let temp_dir = TempDir::new().unwrap();
+        let config_file = temp_dir.path().join("config.toml");
+        let global_component_dir = temp_dir.path().join("global-components");
+        let env_component_dir = temp_dir.path().join("env-components");
+        let file_component_dir = temp_dir.path().join("file-components");
+        fs::write(
+            &config_file,
+            format!("component_dir = {:?}\n", file_component_dir),
+        )
+        .unwrap();
+
+        temp_env::with_vars(
+            vec![
+                ("WASSETTE_CONFIG_FILE", Some(config_file.to_str().unwrap())),
+                (
+                    "WASSETTE_COMPONENT_DIR",
+                    Some(env_component_dir.to_str().unwrap()),
+                ),
+            ],
+            || {
+                assert_run_and_serve_component_dir(
+                    &empty_test_run_config(),
+                    &empty_test_cli_config(),
+                    Some(&global_component_dir),
+                    &global_component_dir,
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn test_run_and_serve_without_cli_component_dir_use_lower_precedence_sources() {
+        let temp_dir = TempDir::new().unwrap();
+        let config_file = temp_dir.path().join("config.toml");
+        let non_existent_config = temp_dir.path().join("non_existent_config.toml");
+        let env_component_dir = temp_dir.path().join("env-components");
+        let file_component_dir = temp_dir.path().join("file-components");
+        fs::write(
+            &config_file,
+            format!("component_dir = {:?}\n", file_component_dir),
+        )
+        .unwrap();
+
+        temp_env::with_vars(
+            vec![
+                ("WASSETTE_CONFIG_FILE", Some(config_file.to_str().unwrap())),
+                (
+                    "WASSETTE_COMPONENT_DIR",
+                    Some(env_component_dir.to_str().unwrap()),
+                ),
+            ],
+            || {
+                assert_run_and_serve_component_dir(
+                    &empty_test_run_config(),
+                    &empty_test_cli_config(),
+                    None,
+                    &env_component_dir,
+                );
+            },
+        );
+
+        temp_env::with_vars(
+            vec![
+                ("WASSETTE_CONFIG_FILE", Some(config_file.to_str().unwrap())),
+                ("WASSETTE_COMPONENT_DIR", None),
+            ],
+            || {
+                assert_run_and_serve_component_dir(
+                    &empty_test_run_config(),
+                    &empty_test_cli_config(),
+                    None,
+                    &file_component_dir,
+                );
+            },
+        );
+
+        temp_env::with_vars(
+            vec![
+                (
+                    "WASSETTE_CONFIG_FILE",
+                    Some(non_existent_config.to_str().unwrap()),
+                ),
+                ("WASSETTE_COMPONENT_DIR", None),
+            ],
+            || {
+                assert_run_and_serve_component_dir(
+                    &empty_test_run_config(),
+                    &empty_test_cli_config(),
+                    None,
+                    &get_component_dir().unwrap(),
+                );
+            },
+        );
     }
 
     #[test]
@@ -617,7 +794,8 @@ bind_address = "0.0.0.0:8080"
 
                 // from_serve is the path that applies the CLI value, mirroring how
                 // env_vars and env_file are handled.
-                let config = Config::from_serve(&cli_config).expect("Failed to create config");
+                let config =
+                    Config::from_serve(&cli_config, None).expect("Failed to create config");
 
                 assert_eq!(config.allowed_hosts, Some(vec!["from-cli".to_string()]));
             },
@@ -638,8 +816,8 @@ bind_address = "0.0.0.0:8080"
                 ),
             ],
             || {
-                let config =
-                    Config::from_serve(&empty_test_cli_config()).expect("Failed to create config");
+                let config = Config::from_serve(&empty_test_cli_config(), None)
+                    .expect("Failed to create config");
 
                 assert_eq!(config.allowed_hosts, Some(vec!["from-env".to_string()]));
             },
@@ -685,7 +863,8 @@ bind_address = "0.0.0.0:8080"
                     ..empty_test_cli_config()
                 };
 
-                let config = Config::from_serve(&cli_config).expect("Failed to create config");
+                let config =
+                    Config::from_serve(&cli_config, None).expect("Failed to create config");
 
                 assert_eq!(
                     config.allowed_hosts,

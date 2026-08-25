@@ -95,18 +95,21 @@ pub async fn create_lifecycle_manager(component_dir: Option<PathBuf>) -> Result<
             json_response: false,
         }
     } else {
-        config::Config::from_serve(&crate::commands::Serve {
-            component_dir: None,
-            transport: Default::default(),
-            env_vars: vec![],
-            env_file: None,
-            disable_builtin_tools: false,
-            bind_address: None,
-            manifest: None,
-            allowed_hosts: None,
-            legacy_sessions: None,
-            json_response: None,
-        })
+        config::Config::from_serve(
+            &crate::commands::Serve {
+                component_dir: None,
+                transport: Default::default(),
+                env_vars: vec![],
+                env_file: None,
+                disable_builtin_tools: false,
+                bind_address: None,
+                manifest: None,
+                allowed_hosts: None,
+                legacy_sessions: None,
+                json_response: None,
+            },
+            None,
+        )
         .context("Failed to load configuration")?
     };
 
