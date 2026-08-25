@@ -113,6 +113,8 @@ async fn main() -> Result<()> {
                     environment_vars,
                     bind_address: _,
                     allowed_hosts: _,
+                    legacy_sessions,
+                    json_response: _,
                 } = config;
 
                 let lifecycle_manager = LifecycleManager::builder(component_dir)
@@ -124,23 +126,19 @@ async fn main() -> Result<()> {
                     .build()
                     .await?;
 
-                let server = McpServer::new(lifecycle_manager.clone(), cfg.disable_builtin_tools);
+                let server = McpServer::new(
+                    lifecycle_manager.clone(),
+                    cfg.disable_builtin_tools,
+                    legacy_sessions,
+                );
 
                 // Start background component loading
                 let server_clone = server.clone();
                 let lifecycle_manager_clone = lifecycle_manager.clone();
                 tokio::spawn(async move {
-                    let notify_fn = move || {
-                        // Notify clients when a new component is loaded (if peer is available)
-                        if let Some(peer) = server_clone.get_peer() {
-                            let peer_clone = peer.clone();
-                            tokio::spawn(async move {
-                                if let Err(e) = peer_clone.notify_tool_list_changed().await {
-                                    tracing::warn!("Failed to notify tool list changed: {}", e);
-                                }
-                            });
-                        }
-                    };
+                    // Announce newly loaded components to session peers and to
+                    // stateless `subscriptions/listen` streams alike.
+                    let notify_fn = move || server_clone.publish_tool_list_changed();
 
                     if let Err(e) = lifecycle_manager_clone
                         .load_existing_components_async(None, Some(notify_fn))
@@ -204,6 +202,8 @@ async fn main() -> Result<()> {
                     environment_vars,
                     bind_address,
                     allowed_hosts,
+                    legacy_sessions,
+                    json_response,
                 } = config;
 
                 // Keep a clone of component_dir for provisioning
@@ -237,23 +237,19 @@ async fn main() -> Result<()> {
                     tracing::info!("All components provisioned successfully");
                 }
 
-                let server = McpServer::new(lifecycle_manager.clone(), cfg.disable_builtin_tools);
+                let server = McpServer::new(
+                    lifecycle_manager.clone(),
+                    cfg.disable_builtin_tools,
+                    legacy_sessions,
+                );
 
                 // Start background component loading
                 let server_clone = server.clone();
                 let lifecycle_manager_clone = lifecycle_manager.clone();
                 tokio::spawn(async move {
-                    let notify_fn = move || {
-                        // Notify clients when a new component is loaded (if peer is available)
-                        if let Some(peer) = server_clone.get_peer() {
-                            let peer_clone = peer.clone();
-                            tokio::spawn(async move {
-                                if let Err(e) = peer_clone.notify_tool_list_changed().await {
-                                    tracing::warn!("Failed to notify tool list changed: {}", e);
-                                }
-                            });
-                        }
-                    };
+                    // Announce newly loaded components to session peers and to
+                    // stateless `subscriptions/listen` streams alike.
+                    let notify_fn = move || server_clone.publish_tool_list_changed();
 
                     if let Err(e) = lifecycle_manager_clone
                         .load_existing_components_async(None, Some(notify_fn))
@@ -284,6 +280,13 @@ async fn main() -> Result<()> {
                             }
                             _ => StreamableHttpServerConfig::default(),
                         };
+
+                        // Override only what the operator chose, so the `Host`
+                        // allow list resolved above stays in place. A literal
+                        // struct here would silently drop it.
+                        let http_config = http_config
+                            .with_legacy_session_mode(legacy_sessions)
+                            .with_json_response(json_response);
 
                         let service = StreamableHttpService::new(
                             move || Ok(server.clone()),
@@ -1035,6 +1038,34 @@ mod cli_tests {
             assert_eq!(host, "example.com");
         } else {
             panic!("Expected network revoke command");
+        }
+    }
+
+    /// `--json-response` is optional-valued, so a bare flag and an explicit
+    /// value must both parse and must mean different things.
+    ///
+    /// Exercised through the parser rather than the built binary on purpose: a
+    /// `--help` invocation exits successfully before clap ever constructs a
+    /// `Serve`, so it would pass without proving either form was understood.
+    #[test]
+    fn test_serve_json_response_value_is_optional() {
+        for (args, expected) in [
+            (vec!["wassette", "serve", "--json-response"], Some(true)),
+            (
+                vec!["wassette", "serve", "--json-response=false"],
+                Some(false),
+            ),
+            (vec!["wassette", "serve"], None),
+        ] {
+            let cli = Cli::try_parse_from(&args).expect("serve args should parse");
+            if let Some(Commands::Serve(serve)) = cli.command {
+                assert_eq!(
+                    serve.json_response, expected,
+                    "unexpected json_response for {args:?}"
+                );
+            } else {
+                panic!("expected a serve command for {args:?}");
+            }
         }
     }
 

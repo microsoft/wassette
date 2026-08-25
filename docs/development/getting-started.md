@@ -117,11 +117,23 @@ just run-filesystem
 just run-fetch-rs
 just run-get-weather  # Requires OPENWEATHER_API_KEY
 
+# Serve only protocol revision 2026-07-28 and later (no session lifecycle),
+# and reply with plain JSON instead of a request-scoped event stream
+cargo run --bin wassette -- serve --streamable-http --legacy-sessions=false --json-response
+
 # Debug with MCP Inspector
 npx @modelcontextprotocol/inspector --cli http://127.0.0.1:9001/mcp --transport http
 npx @modelcontextprotocol/inspector --cli http://127.0.0.1:9001/mcp --transport http --method tools/list
 npx @modelcontextprotocol/inspector --cli http://127.0.0.1:9001/mcp --transport http --method tools/call --tool-name tool-name --tool-arg param=value
 ```
+
+Both flags are additive and default to today's behaviour: `--legacy-sessions`
+defaults to `true` and `--json-response` to `false`. They can also be set with
+`WASSETTE_LEGACY_SESSIONS` and `WASSETTE_JSON_RESPONSE`, or in `config.toml` as
+`legacy_sessions` and `json_response`. Clients that negotiate protocol revision
+`2026-07-28` or later are served statelessly regardless of these settings; see
+the [CLI reference](../reference/cli.md) and the
+[operations guide](../deployment/operations.md).
 
 Validate server-facing changes with the MCP Inspector before committing: list
 the tools and call the ones whose behavior changed. Capture the output when it

@@ -102,6 +102,9 @@ wassette serve --bind-address 0.0.0.0:8080
 wassette serve --streamable-http \
   --bind-address 0.0.0.0:9001 \
   --allowed-host wassette.internal
+
+# Serve only protocol revision 2026-07-28 and later, with plain JSON replies
+wassette serve --legacy-sessions=false --json-response
 ```
 
 **Options:**
@@ -112,6 +115,26 @@ wassette serve --streamable-http \
 - `--env <KEY=VALUE>`: Set environment variables (can be specified multiple times)
 - `--env-file <PATH>`: Load environment variables from a file
 - `--disable-builtin-tools`: Disable built-in tools (load-component, unload-component, etc.)
+- `--legacy-sessions <BOOL>`: Keep serving the pre-`2026-07-28` session lifecycle (default: `true`, env: `WASSETTE_LEGACY_SESSIONS`)
+- `--json-response [<BOOL>]`: Reply to a simple stateless request with `application/json` instead of a request-scoped `text/event-stream` (default: `false`, env: `WASSETTE_JSON_RESPONSE`)
+
+**Stateless clients:**
+
+Clients that negotiate MCP protocol revision `2026-07-28` or later are always
+served statelessly: they send a single POST carrying their client info in
+`params._meta`, with no `initialize` handshake and no `Mcp-Session-Id`. That
+happens regardless of `--legacy-sessions`, which only controls whether the
+older session lifecycle is still offered alongside it.
+
+Because a stateless client has no long-lived connection, it learns about tool
+changes by holding open a `subscriptions/listen` response stream. Wassette
+sends `notifications/tools/list_changed` on that stream whenever components are
+loaded or unloaded, including changes made by a different client.
+
+Setting `--legacy-sessions=false` removes the session lifecycle entirely:
+`initialize` no longer mints a session id, and `GET /mcp` and `DELETE /mcp`
+return `405 Method Not Allowed`. Only do this when every client speaks
+`2026-07-28` or later.
 
 **Note:** `--bind-address` and `--allowed-host` are independent. Binding to `0.0.0.0`
 makes the server reachable on every interface, but requests are still rejected with

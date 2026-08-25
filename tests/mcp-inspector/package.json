@@ -1,0 +1,11 @@
+{
+  "name": "wassette-mcp-inspector-tests",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22.19.0"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/inspector": "2.2.0"
+  }
+}

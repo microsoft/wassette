@@ -906,3 +906,65 @@ async fn test_cli_autocomplete_includes_all_commands() -> Result<()> {
 
     Ok(())
 }
+
+#[test(tokio::test)]
+async fn test_cli_serve_help_lists_transport_flags() -> Result<()> {
+    let ctx = CliTestContext::new().await?;
+
+    let (stdout, stderr, exit_code) = ctx
+        .run_command_no_component_dir(&["serve", "--help"])
+        .await?;
+
+    assert_eq!(exit_code, 0, "serve --help failed with stderr: {stderr}");
+    assert!(
+        stdout.contains("--legacy-sessions"),
+        "serve --help should document --legacy-sessions"
+    );
+    assert!(
+        stdout.contains("--json-response"),
+        "serve --help should document --json-response"
+    );
+
+    Ok(())
+}
+
+/// `--legacy-sessions` takes an explicit boolean, so a typo cannot silently
+/// turn the legacy lifecycle off and strand older clients.
+#[test(tokio::test)]
+async fn test_cli_serve_rejects_invalid_legacy_sessions() -> Result<()> {
+    let ctx = CliTestContext::new().await?;
+
+    let (_, stderr, exit_code) = ctx
+        .run_command_no_component_dir(&[
+            "serve",
+            "--streamable-http",
+            "--legacy-sessions",
+            "sometimes",
+        ])
+        .await?;
+
+    assert_ne!(exit_code, 0, "an invalid boolean should be rejected");
+    assert!(
+        stderr.contains("invalid value"),
+        "clap should report the invalid value, got: {stderr}"
+    );
+
+    Ok(())
+}
+
+#[test(tokio::test)]
+async fn test_cli_serve_legacy_sessions_requires_a_value() -> Result<()> {
+    let ctx = CliTestContext::new().await?;
+
+    let (_, stderr, exit_code) = ctx
+        .run_command_no_component_dir(&["serve", "--streamable-http", "--legacy-sessions"])
+        .await?;
+
+    assert_ne!(exit_code, 0, "a bare --legacy-sessions should be rejected");
+    assert!(
+        stderr.contains("a value is required"),
+        "clap should ask for the missing value, got: {stderr}"
+    );
+
+    Ok(())
+}

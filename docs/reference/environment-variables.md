@@ -30,6 +30,32 @@ Default: `127.0.0.1` (localhost only)
 
 **Precedence:** CLI (`--bind-address`) > Config file (`bind_address`) > PORT/BIND_HOST > Default (127.0.0.1:9001)
 
+### WASSETTE_LEGACY_SESSIONS
+Controls whether the pre-`2026-07-28` MCP session lifecycle is still served. Equivalent to `--legacy-sessions`.
+
+```bash
+WASSETTE_LEGACY_SESSIONS=false wassette serve --streamable-http
+```
+
+Default: `true`
+
+Clients negotiating protocol revision `2026-07-28` or later are served statelessly either way. Setting this to `false` only removes the session lifecycle that older clients need, so `initialize` stops minting a session id and `GET`/`DELETE` on `/mcp` return `405`.
+
+**Precedence:** CLI (`--legacy-sessions`) > `WASSETTE_LEGACY_SESSIONS` > Config file (`legacy_sessions`) > Default (`true`)
+
+### WASSETTE_JSON_RESPONSE
+Returns `application/json` instead of a request-scoped `text/event-stream` for a simple request that produces a single reply. Equivalent to `--json-response`.
+
+```bash
+WASSETTE_JSON_RESPONSE=true wassette serve --streamable-http
+```
+
+Default: `false`
+
+Wassette falls back to an event stream when a request produces more than one message, so nothing is lost.
+
+**Precedence:** CLI (`--json-response`) > `WASSETTE_JSON_RESPONSE` > Config file (`json_response`) > Default (`false`)
+
 ### WASSETTE_CONFIG_FILE
 Path to custom configuration file.
 

@@ -2,10 +2,9 @@
 // Licensed under the MIT license.
 
 use anyhow::Result;
-use rmcp::model::{ListResourcesRequest, ListResourcesResult};
+use rmcp::model::ListResourcesResult;
 
-pub async fn handle_resources_list(req: serde_json::Value) -> Result<serde_json::Value> {
-    let _parsed_req: ListResourcesRequest = serde_json::from_value(req)?;
+pub async fn handle_resources_list() -> Result<serde_json::Value> {
     let response = ListResourcesResult {
         resources: vec![],
         ..Default::default()

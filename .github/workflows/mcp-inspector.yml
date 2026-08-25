@@ -1,0 +1,69 @@
+name: MCP Inspector
+
+on:
+  push:
+    branches: [ "main" ]
+    paths:
+      - '.config/mcp-inspector.json'
+      - '.github/workflows/mcp-inspector.yml'
+      - 'Cargo.lock'
+      - 'Cargo.toml'
+      - 'Justfile'
+      - 'crates/mcp-server/**'
+      - 'crates/wassette-mcp-server/**'
+      - 'crates/wassette/**'
+      - 'examples/fetch-rs/**'
+      - 'examples/filesystem-rs/**'
+      - 'examples/time-server-js/**'
+      - 'scripts/test-mcp-inspector.sh'
+      - 'tests/mcp-inspector/**'
+  pull_request:
+    branches: [ "main" ]
+    paths:
+      - '.config/mcp-inspector.json'
+      - '.github/workflows/mcp-inspector.yml'
+      - 'Cargo.lock'
+      - 'Cargo.toml'
+      - 'Justfile'
+      - 'crates/mcp-server/**'
+      - 'crates/wassette-mcp-server/**'
+      - 'crates/wassette/**'
+      - 'examples/fetch-rs/**'
+      - 'examples/filesystem-rs/**'
+      - 'examples/time-server-js/**'
+      - 'scripts/test-mcp-inspector.sh'
+      - 'tests/mcp-inspector/**'
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '22.19.0'
+      - uses: extractions/setup-just@53165ef7e734c5c07cb06b3c8e7b647c5aa16db3 # v4.0.0
+      - uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659 # v1.17.0
+      - uses: ./.github/actions/rust-cache
+      - name: Install build dependencies
+        run: |
+          ./scripts/install-protobuf.sh
+          rustup target add wasm32-wasip2
+      - name: Install MCP Inspector test dependencies
+        run: npm ci --prefix tests/mcp-inspector
+      # Release, not debug: loading the 11.5 MB JavaScript component takes ~46s
+      # through a debug-built Cranelift, which exceeds the Inspector CLI request
+      # timeout and fails this job before any assertion runs.
+      - name: Build Wassette and representative components
+        run: |
+          just build release
+          just build-mcp-inspector-components
+      - name: Test Inspector CLI in both protocol eras
+        env:
+          INSPECTOR_BIN: ./tests/mcp-inspector/node_modules/.bin/mcp-inspector
+        run: ./scripts/test-mcp-inspector.sh
