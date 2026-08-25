@@ -224,22 +224,30 @@ if [[ "${CLEANUP_TEMP:-}" == "true" ]]; then
 fi
 
 # Return codes: 0 = line appended, 1 = file absent / nothing done,
-# 2 = file exists and PATH is already configured
+# 2 = file exists and PATH is already configured, 3 = append failed
 add_path_to_file() {
     local file="$1"
     local path_line="export PATH=\"\$HOME/.local/bin:\$PATH\""
-    
+    # Match a PATH assignment that mentions .local/bin, so that a commented-out
+    # line or an unrelated variable such as MYPATH does not count as configured.
+    # Case-insensitive so that zsh's array form, path=(~/.local/bin $path), does.
+    local path_pattern='^[[:space:]]*(export[[:space:]]+)?path=.*\.local/bin'
+
     if [[ -f "$file" ]]; then
-        if ! grep -q "\.local/bin" "$file"; then
-            print_status "Adding PATH to $file"
-            echo "" >> "$file"
-            echo "# Added by binary installer script" >> "$file"
-            echo "$path_line" >> "$file"
-            return 0
-        else
-            print_warning "PATH already configured in $file"
+        if grep -qiE "$path_pattern" "$file"; then
+            print_status "PATH already configured in $file"
             return 2
         fi
+
+        print_status "Adding PATH to $file"
+        # One simple command, so that a failed redirection is reported. Bash
+        # returns 0 when the redirection on a *group* command fails, which
+        # would hide the error.
+        if ! printf '\n%s\n%s\n' "# Added by binary installer script" "$path_line" >> "$file"; then
+            print_error "Failed to write PATH to $file"
+            return 3
+        fi
+        return 0
     fi
     return 1
 }
@@ -252,9 +260,11 @@ modified_files=()
 shell_configured=false
 path_already_configured=false
 
-# Apply add_path_to_file to one candidate file and record the outcome.
+# Apply add_path_to_file to one candidate file and record the outcome. Only
+# "appended" and "already configured" count as configured; a missing file or a
+# failed write leave shell_configured alone so the next candidate is tried.
 # Leaves that function's return code in PATH_FILE_STATUS for callers that
-# need to distinguish "already configured" from "file absent".
+# need to tell those outcomes apart.
 configure_path_in() {
     local file="$1"
 
@@ -288,15 +298,22 @@ fi
 if [[ "$shell_configured" == "false" ]]; then
     configure_path_in "$HOME/.profile"
 
-    if [[ "$PATH_FILE_STATUS" -eq 0 ]]; then
-        print_warning "Added PATH to .profile - you may need to start a new login session"
-        print_warning "or run 'source ~/.profile' to use $BINARY_NAME immediately"
-    elif [[ "$PATH_FILE_STATUS" -eq 1 ]]; then
-        print_warning "No shell configuration file was found to update (SHELL: $SHELL)"
-        print_warning "Please manually add '$INSTALL_DIR' to your PATH"
-        print_warning "For most shells, add this line to your shell's config file:"
-        print_warning "  export PATH=\"\$HOME/.local/bin:\$PATH\""
-    fi
+    case "$PATH_FILE_STATUS" in
+        0)
+            print_warning "Added PATH to .profile - you may need to start a new login session"
+            print_warning "or run 'source ~/.profile' to use $BINARY_NAME immediately"
+            ;;
+        2)
+            ;;
+        *)
+            if [[ "$PATH_FILE_STATUS" -eq 1 ]]; then
+                print_warning "No shell configuration file could be updated (SHELL: $SHELL)"
+            fi
+            print_warning "Please manually add '$INSTALL_DIR' to your PATH"
+            print_warning "For most shells, add this line to your shell's config file:"
+            print_warning "  export PATH=\"\$HOME/.local/bin:\$PATH\""
+            ;;
+    esac
 fi
 
 # Update current session's PATH
