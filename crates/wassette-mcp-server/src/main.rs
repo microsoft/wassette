@@ -113,7 +113,7 @@ async fn main() -> Result<()> {
                     environment_vars,
                     bind_address: _,
                     allowed_hosts: _,
-                    legacy_sessions: _,
+                    legacy_sessions,
                     json_response: _,
                 } = config;
 
@@ -126,7 +126,11 @@ async fn main() -> Result<()> {
                     .build()
                     .await?;
 
-                let server = McpServer::new(lifecycle_manager.clone(), cfg.disable_builtin_tools);
+                let server = McpServer::new(
+                    lifecycle_manager.clone(),
+                    cfg.disable_builtin_tools,
+                    legacy_sessions,
+                );
 
                 // Start background component loading
                 let server_clone = server.clone();
@@ -233,7 +237,11 @@ async fn main() -> Result<()> {
                     tracing::info!("All components provisioned successfully");
                 }
 
-                let server = McpServer::new(lifecycle_manager.clone(), cfg.disable_builtin_tools);
+                let server = McpServer::new(
+                    lifecycle_manager.clone(),
+                    cfg.disable_builtin_tools,
+                    legacy_sessions,
+                );
 
                 // Start background component loading
                 let server_clone = server.clone();

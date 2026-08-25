@@ -33,6 +33,8 @@ const TOOL_LIST_CHANGED_CAPACITY: usize = 16;
 /// belong to clients other than the one making the call.
 const TOOL_LIST_MUTATING_TOOLS: [&str; 2] = ["load-component", "unload-component"];
 
+const MCP_SESSION_ID_HEADER: &str = "mcp-session-id";
+
 fn supports_cache_hints(context: &RequestContext<RoleServer>) -> bool {
     context
         .protocol_version()
@@ -45,6 +47,7 @@ pub struct McpServer {
     lifecycle_manager: LifecycleManager,
     peer: Arc<Mutex<Option<rmcp::Peer<rmcp::RoleServer>>>>,
     disable_builtin_tools: bool,
+    legacy_sessions: bool,
     tool_list_changed: broadcast::Sender<()>,
 }
 
@@ -54,13 +57,46 @@ impl McpServer {
     /// # Arguments
     /// * `lifecycle_manager` - The lifecycle manager for handling component operations
     /// * `disable_builtin_tools` - Whether to disable built-in tools
-    pub fn new(lifecycle_manager: LifecycleManager, disable_builtin_tools: bool) -> Self {
+    /// * `legacy_sessions` - Whether the pre-`2026-07-28` session lifecycle is served
+    pub fn new(
+        lifecycle_manager: LifecycleManager,
+        disable_builtin_tools: bool,
+        legacy_sessions: bool,
+    ) -> Self {
         Self {
             lifecycle_manager,
             peer: Arc::new(Mutex::new(None)),
             disable_builtin_tools,
+            legacy_sessions,
             tool_list_changed: broadcast::channel(TOOL_LIST_CHANGED_CAPACITY).0,
         }
+    }
+
+    /// Whether this request's peer outlives the request that carried it.
+    ///
+    /// rmcp routes a request through its session layer only when legacy sessions
+    /// are enabled *and* the request declares a pre-`2026-07-28` revision. It
+    /// injects the client's HTTP parts into every Streamable HTTP context and
+    /// never strips `Mcp-Session-Id`, so the header on its own proves nothing: a
+    /// stateless request carrying a stale session id would look persistent and
+    /// reintroduce exactly the notification leak this guard exists to prevent.
+    /// Mirror rmcp's own condition instead of trusting the header alone.
+    ///
+    /// An unknown protocol version is treated as not persistent. Declining to
+    /// track a peer only costs a legacy client a background notification, while
+    /// wrongly tracking one injects unsolicited traffic into an ordinary
+    /// response, so the uncertain case fails toward the cheaper mistake.
+    fn has_persistent_peer(&self, context: &RequestContext<RoleServer>) -> bool {
+        let Some(parts) = context.extensions.get::<axum::http::request::Parts>() else {
+            // Not an HTTP transport: stdio peers live as long as the process.
+            return true;
+        };
+
+        self.legacy_sessions
+            && parts.headers.contains_key(MCP_SESSION_ID_HEADER)
+            && context
+                .protocol_version()
+                .is_some_and(|version| version < ProtocolVersion::V_2026_07_28)
     }
 
     /// Announce that the tool list changed to every client shape.
@@ -96,20 +132,22 @@ impl McpServer {
         let _ = self.tool_list_changed.send(());
     }
 
-    /// Track the peer used for background notifications (called on every request).
+    /// Track a persistent peer used for background notifications.
     ///
-    /// Under a stateless request (protocol revision 2026-07-28 and later) the
-    /// peer is scoped to that single request and its transport closes as soon
-    /// as the response is written. Keeping the first peer forever would let one
-    /// such request permanently silence notifications for every later client,
-    /// so a peer is only adopted when there is no live one already.
-    fn track_peer(&self, peer: rmcp::Peer<rmcp::RoleServer>) {
+    /// rmcp inserts HTTP request parts into every Streamable HTTP context. A
+    /// session-routed request has a validated session ID, while a stateless
+    /// request does not. Non-HTTP transports such as stdio are persistent.
+    fn track_peer(&self, context: &RequestContext<RoleServer>) {
+        if !self.has_persistent_peer(context) {
+            return;
+        }
+
         let mut peer_guard = self.peer.lock().unwrap();
         let stale = peer_guard
             .as_ref()
             .is_none_or(rmcp::Peer::is_transport_closed);
         if stale {
-            *peer_guard = Some(peer);
+            *peer_guard = Some(context.peer.clone());
         }
     }
 
@@ -159,8 +197,7 @@ Key points:
     ) -> Pin<Box<dyn Future<Output = Result<CallToolResponse, ErrorData>> + Send + 'a>> {
         let peer_clone = ctx.peer.clone();
 
-        // Track the peer for background notifications
-        self.track_peer(peer_clone.clone());
+        self.track_peer(&ctx);
 
         let disable_builtin_tools = self.disable_builtin_tools;
         let mutates_tool_list =
@@ -201,8 +238,7 @@ Key points:
         _params: Option<PaginatedRequestParams>,
         ctx: RequestContext<RoleServer>,
     ) -> Pin<Box<dyn Future<Output = Result<ListToolsResult, ErrorData>> + Send + 'a>> {
-        // Track the peer for background notifications
-        self.track_peer(ctx.peer.clone());
+        self.track_peer(&ctx);
         let supports_cache_hints = supports_cache_hints(&ctx);
 
         let disable_builtin_tools = self.disable_builtin_tools;
@@ -230,8 +266,7 @@ Key points:
         _params: Option<PaginatedRequestParams>,
         ctx: RequestContext<RoleServer>,
     ) -> Pin<Box<dyn Future<Output = Result<ListPromptsResult, ErrorData>> + Send + 'a>> {
-        // Track the peer for background notifications
-        self.track_peer(ctx.peer.clone());
+        self.track_peer(&ctx);
         let supports_cache_hints = supports_cache_hints(&ctx);
 
         Box::pin(async move {
@@ -258,8 +293,7 @@ Key points:
         _params: Option<PaginatedRequestParams>,
         ctx: RequestContext<RoleServer>,
     ) -> Pin<Box<dyn Future<Output = Result<ListResourcesResult, ErrorData>> + Send + 'a>> {
-        // Track the peer for background notifications
-        self.track_peer(ctx.peer.clone());
+        self.track_peer(&ctx);
         let supports_cache_hints = supports_cache_hints(&ctx);
 
         Box::pin(async move {
@@ -287,7 +321,7 @@ Key points:
         ctx: RequestContext<RoleServer>,
     ) -> Pin<Box<dyn Future<Output = Result<ListResourceTemplatesResult, ErrorData>> + Send + 'a>>
     {
-        self.track_peer(ctx.peer.clone());
+        self.track_peer(&ctx);
         let supports_cache_hints = supports_cache_hints(&ctx);
 
         Box::pin(async move {
@@ -352,17 +386,36 @@ Key points:
 mod tests {
     use std::time::Duration;
 
+    use axum::http::Request;
+    use rmcp::model::RequestId;
     use rmcp::ServiceExt;
     use serde_json::Value;
     use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader, DuplexStream};
 
     use super::*;
 
-    const INITIALIZE_REQUEST: &str = r#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"peer-lifecycle-test","version":"1.0.0"}}}
-                        "#;
+    const LEGACY_PROTOCOL_VERSION: &str = "2025-06-18";
+    const STATELESS_PROTOCOL_VERSION: &str = "2026-07-28";
+
+    fn initialize_request(protocol_version: &str) -> String {
+        format!(
+            "{{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":{{\"protocolVersion\":\"{protocol_version}\",\"capabilities\":{{}},\"clientInfo\":{{\"name\":\"peer-lifecycle-test\",\"version\":\"1.0.0\"}}}}}}\n"
+        )
+    }
 
     async fn connect_peer(
         server: McpServer,
+    ) -> (
+        rmcp::Peer<RoleServer>,
+        BufReader<DuplexStream>,
+        tokio::task::JoinHandle<()>,
+    ) {
+        connect_peer_with_version(server, LEGACY_PROTOCOL_VERSION).await
+    }
+
+    async fn connect_peer_with_version(
+        server: McpServer,
+        protocol_version: &str,
     ) -> (
         rmcp::Peer<RoleServer>,
         BufReader<DuplexStream>,
@@ -384,7 +437,7 @@ mod tests {
         let mut client = BufReader::new(client_transport);
         client
             .get_mut()
-            .write_all(INITIALIZE_REQUEST.as_bytes())
+            .write_all(initialize_request(protocol_version).as_bytes())
             .await
             .expect("initialize request should be written");
         client
@@ -425,16 +478,142 @@ mod tests {
         );
     }
 
-    /// Startup loading can publish before a peer exists, while a later stateless
-    /// request can leave a dead peer behind. This prevents either state from
-    /// suppressing notifications to subscriptions or the next live peer.
+    fn http_request_context(
+        peer: rmcp::Peer<RoleServer>,
+        request_id: i64,
+        session_id: Option<&str>,
+    ) -> RequestContext<RoleServer> {
+        let mut request = Request::new(());
+        if let Some(session_id) = session_id {
+            request.headers_mut().insert(
+                MCP_SESSION_ID_HEADER,
+                session_id
+                    .parse()
+                    .expect("session ID should be a valid header"),
+            );
+        }
+        let (parts, ()) = request.into_parts();
+        let mut context = RequestContext::new(RequestId::Number(request_id), peer);
+        context.extensions.insert(parts);
+        context
+    }
+
+    /// rmcp never strips `Mcp-Session-Id`, and it routes a `2026-07-28` client
+    /// statelessly no matter what that header says. Trusting the header alone
+    /// would therefore adopt a request-scoped peer and let background loading
+    /// inject an unsolicited notification into an ordinary response.
+    #[tokio::test]
+    async fn stateless_request_with_a_stale_session_header_is_not_tracked() {
+        let temp_dir = tempfile::tempdir().expect("temporary component directory should exist");
+        let lifecycle_manager = LifecycleManager::new(temp_dir.path())
+            .await
+            .expect("lifecycle manager should be created");
+        let server = McpServer::new(lifecycle_manager, false, true);
+
+        let (peer, client, service) =
+            connect_peer_with_version(server.clone(), STATELESS_PROTOCOL_VERSION).await;
+        let context = http_request_context(peer, 1, Some("left-over-session"));
+        server
+            .list_tools(None, context)
+            .await
+            .expect("stateless tools/list should succeed");
+
+        assert!(
+            server.get_peer().is_none(),
+            "a stateless request must not be tracked just because it carried a session header"
+        );
+
+        drop(client);
+        tokio::time::timeout(Duration::from_secs(5), service)
+            .await
+            .expect("peer should close after its transport is dropped")
+            .expect("peer service should shut down cleanly");
+    }
+
+    /// With `--legacy-sessions=false` rmcp serves every request statelessly, so
+    /// no HTTP peer outlives its request even when a client still sends the
+    /// session header it obtained before the flag was flipped.
+    #[tokio::test]
+    async fn no_http_peer_is_tracked_when_legacy_sessions_are_disabled() {
+        let temp_dir = tempfile::tempdir().expect("temporary component directory should exist");
+        let lifecycle_manager = LifecycleManager::new(temp_dir.path())
+            .await
+            .expect("lifecycle manager should be created");
+        let server = McpServer::new(lifecycle_manager, false, false);
+
+        let (peer, client, service) = connect_peer(server.clone()).await;
+        let context = http_request_context(peer, 1, Some("session-from-before"));
+        server
+            .list_tools(None, context)
+            .await
+            .expect("tools/list should succeed");
+
+        assert!(
+            server.get_peer().is_none(),
+            "no HTTP peer is persistent once the session lifecycle is disabled"
+        );
+
+        drop(client);
+        tokio::time::timeout(Duration::from_secs(5), service)
+            .await
+            .expect("peer should close after its transport is dropped")
+            .expect("peer service should shut down cleanly");
+    }
+
+    #[tokio::test]
+    async fn only_session_http_requests_track_their_peer() {
+        let temp_dir = tempfile::tempdir().expect("temporary component directory should exist");
+        let lifecycle_manager = LifecycleManager::new(temp_dir.path())
+            .await
+            .expect("lifecycle manager should be created");
+        let server = McpServer::new(lifecycle_manager, false, true);
+
+        let (stateless_peer, stateless_client, stateless_service) =
+            connect_peer(server.clone()).await;
+        let stateless_context = http_request_context(stateless_peer, 1, None);
+        server
+            .list_tools(None, stateless_context)
+            .await
+            .expect("stateless tools/list should succeed");
+        assert!(
+            server.get_peer().is_none(),
+            "a request-scoped stateless peer must not be retained"
+        );
+
+        let (session_peer, mut session_client, session_service) =
+            connect_peer(server.clone()).await;
+        let session_context = http_request_context(session_peer, 2, Some("legacy-session"));
+        server
+            .list_tools(None, session_context)
+            .await
+            .expect("session tools/list should succeed");
+        assert!(
+            server.get_peer().is_some(),
+            "a legacy session peer should be retained"
+        );
+        server.publish_tool_list_changed();
+        expect_tool_list_changed(&mut session_client).await;
+
+        drop(stateless_client);
+        drop(session_client);
+        for service in [stateless_service, session_service] {
+            tokio::time::timeout(Duration::from_secs(5), service)
+                .await
+                .expect("peer should close after its transport is dropped")
+                .expect("peer service should shut down cleanly");
+        }
+    }
+
+    /// Startup loading can publish before a peer exists, while a disconnected
+    /// persistent peer can remain cached. Neither state should suppress
+    /// notifications to subscriptions or the next live peer.
     #[tokio::test]
     async fn publish_tool_list_changed_handles_peer_lifecycle() {
         let temp_dir = tempfile::tempdir().expect("temporary component directory should exist");
         let lifecycle_manager = LifecycleManager::new(temp_dir.path())
             .await
             .expect("lifecycle manager should be created");
-        let server = McpServer::new(lifecycle_manager, false);
+        let server = McpServer::new(lifecycle_manager, false, true);
         let mut subscription = server.subscribe_tool_list_changed();
 
         assert!(server.get_peer().is_none());
@@ -445,7 +624,10 @@ mod tests {
             .expect("peerless publication should still reach subscriptions");
 
         let (first_peer, mut first_client, first_service) = connect_peer(server.clone()).await;
-        server.track_peer(first_peer.clone());
+        server.track_peer(&RequestContext::new(
+            RequestId::Number(1),
+            first_peer.clone(),
+        ));
         server.publish_tool_list_changed();
         expect_tool_list_changed(&mut first_client).await;
 
@@ -457,7 +639,10 @@ mod tests {
         assert!(first_peer.is_transport_closed());
 
         let (second_peer, mut second_client, second_service) = connect_peer(server.clone()).await;
-        server.track_peer(second_peer.clone());
+        server.track_peer(&RequestContext::new(
+            RequestId::Number(2),
+            second_peer.clone(),
+        ));
         assert!(
             server
                 .get_peer()
