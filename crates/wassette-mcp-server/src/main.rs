@@ -102,8 +102,8 @@ async fn main() -> Result<()> {
                     )
                     .init();
 
-                let config =
-                    config::Config::from_run(cfg).context("Failed to load configuration")?;
+                let config = config::Config::from_run(cfg, cli.component_dir.as_deref())
+                    .context("Failed to load configuration")?;
 
                 // Build the lifecycle manager without eagerly loading components so the
                 // background loader is the single source of tool registration.
@@ -171,8 +171,8 @@ async fn main() -> Result<()> {
                     .with(tracing_subscriber::fmt::layer())
                     .init();
 
-                let config =
-                    config::Config::from_serve(cfg).context("Failed to load configuration")?;
+                let config = config::Config::from_serve(cfg, cli.component_dir.as_deref())
+                    .context("Failed to load configuration")?;
 
                 // Parse and validate manifest if provided
                 let manifest = if let Some(manifest_path) = &cfg.manifest {
