@@ -47,6 +47,10 @@ use server::McpServer;
 use tools::ToolName;
 use utils::{format_build_info, load_component_registry, parse_env_var};
 
+// Allow active HTTP connections five seconds to finish, leaving half of
+// Docker's default ten-second stop grace period for final process teardown.
+const DRAIN_TIMEOUT: Duration = Duration::from_secs(5);
+
 #[cfg(unix)]
 struct ShutdownSignals {
     sigint: tokio::signal::unix::Signal,
@@ -192,14 +196,20 @@ async fn run() -> Result<()> {
                     json_response: _,
                 } = config;
 
-                let lifecycle_manager = LifecycleManager::builder(component_dir)
-                    .with_environment_vars(environment_vars)
-                    .with_secrets_dir(secrets_dir)
-                    .with_oci_client(oci_client::Client::default())
-                    .with_http_client(reqwest::Client::default())
-                    .with_eager_loading(false)
-                    .build()
-                    .await?;
+                let lifecycle_manager = tokio::select! {
+                    result = LifecycleManager::builder(component_dir)
+                        .with_environment_vars(environment_vars)
+                        .with_secrets_dir(secrets_dir)
+                        .with_oci_client(oci_client::Client::default())
+                        .with_http_client(reqwest::Client::default())
+                        .with_eager_loading(false)
+                        .build() => result?,
+                    result = shutdown_signals.wait() => {
+                        result?;
+                        tracing::info!("MCP server shutting down");
+                        return Ok(());
+                    }
+                };
 
                 let server = McpServer::new(
                     lifecycle_manager.clone(),
@@ -293,14 +303,20 @@ async fn run() -> Result<()> {
                 // Keep a clone of component_dir for provisioning
                 let component_dir_path = component_dir.clone();
 
-                let lifecycle_manager = LifecycleManager::builder(component_dir)
-                    .with_environment_vars(environment_vars)
-                    .with_secrets_dir(secrets_dir)
-                    .with_oci_client(oci_client::Client::default())
-                    .with_http_client(reqwest::Client::default())
-                    .with_eager_loading(false)
-                    .build()
-                    .await?;
+                let lifecycle_manager = tokio::select! {
+                    result = LifecycleManager::builder(component_dir)
+                        .with_environment_vars(environment_vars)
+                        .with_secrets_dir(secrets_dir)
+                        .with_oci_client(oci_client::Client::default())
+                        .with_http_client(reqwest::Client::default())
+                        .with_eager_loading(false)
+                        .build() => result?,
+                    result = shutdown_signals.wait() => {
+                        result?;
+                        tracing::info!("MCP server shutting down");
+                        return Ok(());
+                    }
+                };
 
                 // Provision components from manifest if provided
                 if let Some(manifest) = &manifest {
@@ -313,10 +329,16 @@ async fn run() -> Result<()> {
                         &component_dir_path,
                     );
 
-                    provisioner
-                        .provision()
-                        .await
-                        .context("Component provisioning failed")?;
+                    tokio::select! {
+                        result = provisioner.provision() => {
+                            result.context("Component provisioning failed")?;
+                        }
+                        result = shutdown_signals.wait() => {
+                            result?;
+                            tracing::info!("MCP server shutting down");
+                            return Ok(());
+                        }
+                    }
 
                     tracing::info!("All components provisioned successfully");
                 }
@@ -390,7 +412,7 @@ async fn run() -> Result<()> {
                         // Spawn the server in a background task
                         let (shutdown_result_tx, shutdown_result_rx) =
                             tokio::sync::oneshot::channel();
-                        let server_handle = tokio::spawn(async move {
+                        let mut server_handle = tokio::spawn(async move {
                             axum::serve(tcp_listener, router)
                                 .with_graceful_shutdown(async move {
                                     let result = shutdown_signals.wait().await;
@@ -411,11 +433,20 @@ async fn run() -> Result<()> {
                         );
                         tracing::info!("Build info available at http://{}/info", bind_address);
 
-                        // Wait for the server task to complete
-                        server_handle.await??;
                         shutdown_result_rx
                             .await
                             .context("MCP server stopped before receiving a shutdown signal")??;
+
+                        // Wait for active connections to finish.
+                        match tokio::time::timeout(DRAIN_TIMEOUT, &mut server_handle).await {
+                            Ok(result) => result??,
+                            Err(_) => {
+                                tracing::warn!(
+                                    "HTTP connection drain deadline passed; dropping remaining connections"
+                                );
+                                server_handle.abort();
+                            }
+                        }
                     }
                 }
 
