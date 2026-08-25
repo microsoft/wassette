@@ -48,110 +48,11 @@ jobs:
           fi
 
   build:
-    name: Build ${{ matrix.target }}
+    name: Build
     needs: validate-release
-    runs-on: ${{ matrix.runner }}
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          # Linux targets
-          - target: x86_64-unknown-linux-gnu
-            name: wassette
-            arch: linux_amd64
-            runner: ubuntu-latest
-          - target: aarch64-unknown-linux-gnu
-            name: wassette
-            arch: linux_arm64
-            runner: ubuntu-24.04-arm
-          # macOS targets
-          - target: x86_64-apple-darwin
-            name: wassette
-            arch: darwin_amd64
-            runner: macos-15-intel
-          - target: aarch64-apple-darwin
-            name: wassette
-            arch: darwin_arm64
-            runner: macos-latest
-          # Windows targets
-          - target: x86_64-pc-windows-msvc
-            name: wassette
-            arch: windows_amd64
-            runner: windows-latest
-          - target: aarch64-pc-windows-msvc
-            name: wassette
-            arch: windows_arm64
-            runner: windows-11-arm
-
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-
-      - name: Sccache Action
-        if: matrix.target != 'x86_64-apple-darwin'
-        uses: Mozilla-Actions/sccache-action@fc920bf0ec8de6ee65d409111f7ec508035751ba # v0.0.11
-
-      - name: Setup Rust toolchain
-        uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659 # v1.17.0
-        with:
-          target: ${{ matrix.target }}
-
-      - name: Add WASM target
-        run: rustup target add wasm32-wasip2
-
-      - name: Build release binary
-        run: cargo build --release
-        env:
-          SCCACHE_GHA_ENABLED: ${{ matrix.target != 'x86_64-apple-darwin' && 'true' || 'false' }}
-          RUSTC_WRAPPER: ${{ matrix.target != 'x86_64-apple-darwin' && 'sccache' || '' }}
-
-      - name: Extract version (Unix)
-        if: "!contains(matrix.target, 'windows')"
-        id: version-unix
-        run: |
-          VERSION="${RELEASE_TAG#v}"
-          echo "version=$VERSION" >> $GITHUB_OUTPUT
-
-      - name: Extract version (Windows)
-        if: contains(matrix.target, 'windows')
-        id: version-windows
-        run: |
-          $VERSION = "${{ env.RELEASE_TAG }}" -replace '^v', ''
-          echo "version=$VERSION" >> $env:GITHUB_OUTPUT
-        shell: pwsh
-
-      - name: Set version output
-        id: version
-        run: |
-          if [[ "${{ matrix.target }}" == *"windows"* ]]; then
-            echo "version=${{ steps.version-windows.outputs.version }}" >> $GITHUB_OUTPUT
-          else
-            echo "version=${{ steps.version-unix.outputs.version }}" >> $GITHUB_OUTPUT
-          fi
-        shell: bash
-
-      - name: Prepare binary (Unix)
-        if: "!contains(matrix.target, 'windows')"
-        run: |
-          cd target/release
-          tar czvf ../../${{ matrix.name }}_${{ steps.version.outputs.version }}_${{ matrix.arch }}.tar.gz wassette
-          cd -
-
-      - name: Prepare binary (Windows)
-        if: contains(matrix.target, 'windows')
-        run: |
-          cd target/release
-          7z a ../../${{ matrix.name }}_${{ steps.version.outputs.version }}_${{ matrix.arch }}.zip wassette.exe
-          cd -
-        shell: bash
-
-      - name: Upload artifact
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: ${{ matrix.name }}-${{ matrix.arch }}
-          path: |
-            ${{ matrix.name }}_*_${{ matrix.arch }}.tar.gz
-            ${{ matrix.name }}_*_${{ matrix.arch }}.zip
+    uses: ./.github/workflows/build.yml
+    with:
+      version: ${{ github.event.inputs.version }}
 
   release:
     name: Create Release
