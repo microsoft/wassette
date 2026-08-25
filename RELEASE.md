@@ -2,9 +2,31 @@
 
 This document describes the process for releasing new versions of the Wassette project.
 
+## Three kinds of build
+
+Wassette publishes three things, and two of them appear as "Pre-release" on the releases page, so
+it is worth naming them separately:
+
+| | Workflow | Tag | Purpose |
+| --- | --- | --- | --- |
+| **Release** | `release.yml` | `vX.Y.Z` | A version, published and supported |
+| **Dry run** | `release.yml` | `vX.Y.Z-suffix` | A candidate for a forthcoming version, or a test of the pipeline itself |
+| **Channel build** | `latest.yml` | `latest-<date>-<time>-<sha>` | Just this commit, built now. Not a candidate for any version |
+
+Only the first updates package manifests, publishes example components and deploys versioned
+documentation. Both of the others are marked `prerelease: true`, which means
+`/releases/latest` keeps resolving to the newest *stable* release and neither can shadow it.
+
 ## Release.yml overview
 
-The release process is automated using GitHub Actions, specifically the [`release.yml`](.github/workflows/release.yml) workflow. You run it manually from the Actions tab (or with `gh workflow run release.yml -f version=X.Y.Z`) and it creates the `vX.Y.Z` tag as it publishes the release, so there is no separate tagging workflow. The workflow uses a matrix to compile `wassette` for different platforms on native runners and uses `sccache` to speed up compilation. The compiled binaries are then uploaded as release assets.
+The release process is automated using GitHub Actions, specifically the [`release.yml`](.github/workflows/release.yml) workflow. You run it manually from the Actions tab (or with `gh workflow run release.yml -f version=X.Y.Z`) and it creates the `vX.Y.Z` tag as it publishes the release, so there is no separate tagging workflow. Compilation happens in [`build.yml`](.github/workflows/build.yml), a reusable workflow that
+`release.yml` calls over `workflow_call`. It carries the matrix that compiles `wassette` for each
+platform on native runners and uses `sccache` to speed up compilation, and it takes the version to
+stamp into archive names as an input. The compiled binaries are then uploaded as release assets.
+Because the build runs in a called workflow, its per-target checks are named
+`Build / Build <target>` rather than `Build <target>`.
+
+`latest.yml` calls the same `build.yml`, which is why the two paths cannot drift apart.
 
 ### Release Notes
 
@@ -119,6 +141,19 @@ gh workflow run release.yml -f version=0.3.4-test1
 
 When the version contains a hyphen, the release workflow builds binaries for all platforms and creates a GitHub release marked as "Pre-release". It does not update package manifests, publish example components, or deploy versioned documentation.
 
+### Pick a suffix that has not been used
+
+`validate-release` rejects a version whose tag already exists, and it does so before anything is
+built, so check first:
+
+```bash
+git ls-remote --tags origin 'refs/tags/v<version>*'
+```
+
+Deleting a dry run release with `--cleanup-tag` removes the tag. Note that if immutable releases
+is enabled on the repository, a tag name that has been used once can never be reused even after
+the tag is deleted, so each attempt needs a fresh suffix rather than a retry of the last one.
+
 ### Dry Run Version Examples
 
 Common prerelease version patterns:
@@ -135,6 +170,60 @@ After validation, you can delete the dry run release and its tag:
 # Delete the GitHub release and its tag in one step
 gh release delete v0.3.4-test1 --cleanup-tag --yes
 ```
+
+## Latest Channel Builds
+
+The `latest` channel publishes a build of an arbitrary commit for people who need to test a fix
+before it ships, reproduce a bug against `main` rather than against the last release, or run
+integration tests against current `main`. It is not a candidate for a forthcoming version and
+carries no version number.
+
+### Kicking one off
+
+Dispatch [`latest.yml`](.github/workflows/latest.yml) from the Actions tab, or:
+
+```bash
+# build the tip of main
+gh workflow run latest.yml
+
+# build a specific commit or branch
+gh workflow run latest.yml -f ref=<sha-or-branch>
+```
+
+There is no version input and no `Cargo.toml` bump. The workflow resolves the ref to a full commit
+SHA and passes that to every build job, so all six binaries come from one commit even if `main`
+moves during the run.
+
+### What it produces
+
+- A prerelease tagged `latest-<UTC date>-<UTC time>-<short sha>`, for example
+  `latest-20260825-2048-0a0c381`, titled `latest — 2026-08-25 20:48 UTC (0a0c381)`.
+- Six assets carrying the short SHA where a version number would normally sit:
+  `wassette_0a0c381_linux_amd64.tar.gz` and so on.
+- Release notes with the full SHA, the build time, and a compare link against the last stable
+  release.
+
+Every build gets its own tag, so dispatching twice against one commit is fine and produces two
+tags differing only in the time field. The time is recorded to the minute, so run dispatches
+sequentially rather than concurrently.
+
+### Retention
+
+The newest five channel releases are kept. Anything older is deleted along with its tag at the end
+of each run. The prune only ever matches prereleases whose tag starts with `latest-`, so releases
+and dry runs are never touched.
+
+### Installing one
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/microsoft/wassette/main/scripts/install.sh \
+  | WASSETTE_CHANNEL=latest bash
+```
+
+Without `WASSETTE_CHANNEL` the installer resolves to the newest stable release exactly as before.
+These builds are unsigned, come from an arbitrary commit, and are covered by no release promise.
+There is no stable download URL: the asset URL contains the tag and the tag changes every build,
+so what is stable is the resolution, not the link.
 
 ## Release Branch Strategy
 
