@@ -159,8 +159,8 @@ jobs:
             gh release list \
               --repo "$GITHUB_REPOSITORY" \
               --limit 100 \
-              --json tagName,createdAt,isPrerelease \
-              --jq '[.[] | select(.isPrerelease and (.tagName | startswith("latest-")))] | sort_by(.createdAt) | reverse | .[5:] | .[].tagName'
+              --json tagName,publishedAt,isPrerelease \
+              --jq '[.[] | select(.isPrerelease and (.tagName | startswith("latest-")))] | sort_by(.publishedAt) | reverse | .[5:] | .[].tagName'
           )
 
           for OLD_TAG in "${OLD_TAGS[@]}"; do
