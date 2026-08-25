@@ -10,6 +10,8 @@
 // for that chain; see rust-lang/rust#159228.
 #![recursion_limit = "256"]
 
+use std::time::Duration;
+
 use anyhow::{bail, Context, Result};
 use clap::{CommandFactory, Parser};
 use clap_complete::{generate, shells};
@@ -44,6 +46,42 @@ use server::McpServer;
 use tools::ToolName;
 use utils::{format_build_info, load_component_registry, parse_env_var};
 
+#[cfg(unix)]
+async fn shutdown_signal() {
+    use tokio::signal::unix::{signal, SignalKind};
+
+    let mut sigterm = match signal(SignalKind::terminate()) {
+        Ok(signal) => signal,
+        Err(error) => {
+            tracing::error!("Failed to install SIGTERM handler: {error}");
+            return;
+        }
+    };
+
+    tokio::select! {
+        result = tokio::signal::ctrl_c() => {
+            match result {
+                Ok(()) => tracing::info!("Received SIGINT, starting graceful shutdown"),
+                Err(error) => tracing::error!("Failed to listen for SIGINT: {error}"),
+            }
+        }
+        result = sigterm.recv() => {
+            match result {
+                Some(()) => tracing::info!("Received SIGTERM, starting graceful shutdown"),
+                None => tracing::error!("SIGTERM signal stream closed unexpectedly"),
+            }
+        }
+    }
+}
+
+#[cfg(not(unix))]
+async fn shutdown_signal() {
+    match tokio::signal::ctrl_c().await {
+        Ok(()) => tracing::info!("Received Ctrl-C, starting graceful shutdown"),
+        Err(error) => tracing::error!("Failed to listen for Ctrl-C: {error}"),
+    }
+}
+
 // Health and info endpoint handlers
 mod endpoints {
     use axum::http::StatusCode;
@@ -72,8 +110,22 @@ mod endpoints {
     }
 }
 
-#[tokio::main]
-async fn main() -> Result<()> {
+fn main() -> Result<()> {
+    let runtime = tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+        .context("Failed to create Tokio runtime")?;
+    let result = runtime.block_on(run());
+    // Tokio's blocking stdin reader can outlive a canceled stdio service, and it
+    // never returns once the service is gone, so this budget is always spent in
+    // full on the stdio path. Keep it just wide enough for the blocking work
+    // that can still finish, which measures at roughly 15ms, rather than
+    // charging every stdio shutdown for a whole second of waiting.
+    runtime.shutdown_timeout(Duration::from_millis(100));
+    result
+}
+
+async fn run() -> Result<()> {
     let cli = Cli::parse();
 
     // Handle version flag
@@ -150,9 +202,15 @@ async fn main() -> Result<()> {
 
                 tracing::info!("Starting MCP server with stdio transport. Components will load in the background.");
                 let transport = stdio_transport();
-                let running_service = serve_server(server, transport).await?;
+                let running_service = tokio::select! {
+                    result = serve_server(server, transport) => result?,
+                    () = shutdown_signal() => {
+                        tracing::info!("MCP server shutting down");
+                        return Ok(());
+                    }
+                };
 
-                tokio::signal::ctrl_c().await?;
+                shutdown_signal().await;
                 let _ = running_service.cancel().await;
 
                 tracing::info!("MCP server shutting down");
@@ -304,9 +362,7 @@ async fn main() -> Result<()> {
                         // Spawn the server in a background task
                         let server_handle = tokio::spawn(async move {
                             axum::serve(tcp_listener, router)
-                                .with_graceful_shutdown(async {
-                                    tokio::signal::ctrl_c().await.unwrap()
-                                })
+                                .with_graceful_shutdown(shutdown_signal())
                                 .await
                         });
 
@@ -322,7 +378,7 @@ async fn main() -> Result<()> {
                         tracing::info!("Build info available at http://{}/info", bind_address);
 
                         // Wait for the server task to complete
-                        let _ = server_handle.await;
+                        server_handle.await??;
                     }
                 }
 

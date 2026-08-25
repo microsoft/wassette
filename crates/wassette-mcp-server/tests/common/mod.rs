@@ -3,8 +3,17 @@
 
 use std::path::PathBuf;
 use std::sync::Once;
+#[cfg(unix)]
+use std::time::Duration;
 
+#[cfg(unix)]
+use anyhow::{bail, ensure};
 use anyhow::{Context, Result};
+#[cfg(unix)]
+use tokio::process::Child;
+
+#[cfg(unix)]
+const SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(10);
 
 static FETCH_COMPONENT_BUILD: Once = Once::new();
 static FILESYSTEM_COMPONENT_BUILD: Once = Once::new();
@@ -113,4 +122,57 @@ pub async fn build_filesystem_component() -> Result<PathBuf> {
     }
 
     Ok(component_path)
+}
+
+#[cfg(unix)]
+async fn force_shutdown(child: &mut Child) -> Result<()> {
+    child
+        .start_kill()
+        .context("failed to force-kill the server process")?;
+    child
+        .wait()
+        .await
+        .context("failed to wait for the force-killed server process")?;
+    Ok(())
+}
+
+#[cfg(unix)]
+#[allow(dead_code)]
+pub async fn shutdown_child(child: &mut Child) -> Result<()> {
+    let pid = child.id().context("server process has no process ID")?;
+    let signal_status = std::process::Command::new("kill")
+        .args(["-TERM", &pid.to_string()])
+        .status()
+        .context("failed to send SIGTERM to the server process")?;
+
+    if !signal_status.success() {
+        force_shutdown(child).await?;
+        bail!("failed to send SIGTERM to server process {pid}: {signal_status}");
+    }
+
+    let status = match tokio::time::timeout(SHUTDOWN_TIMEOUT, child.wait()).await {
+        Ok(result) => result.context("failed to wait for the server process")?,
+        Err(_) => {
+            force_shutdown(child).await?;
+            bail!(
+                "server process {pid} did not exit within {} seconds after SIGTERM",
+                SHUTDOWN_TIMEOUT.as_secs()
+            );
+        }
+    };
+
+    ensure!(
+        status.success(),
+        "server process {pid} exited unsuccessfully after SIGTERM: {status}"
+    );
+    Ok(())
+}
+
+#[cfg(not(unix))]
+#[allow(dead_code)]
+pub async fn shutdown_child(child: &mut tokio::process::Child) -> Result<()> {
+    child
+        .kill()
+        .await
+        .context("failed to stop the server process")
 }
