@@ -21,6 +21,7 @@ use rmcp::transport::stdio as stdio_transport;
 use rmcp::transport::streamable_http_server::session::local::LocalSessionManager;
 use rmcp::transport::streamable_http_server::{StreamableHttpServerConfig, StreamableHttpService};
 use serde_json::{json, Map};
+use tokio_util::sync::CancellationToken;
 use tracing_subscriber::layer::SubscriberExt as _;
 use tracing_subscriber::util::SubscriberInitExt as _;
 
@@ -47,38 +48,58 @@ use tools::ToolName;
 use utils::{format_build_info, load_component_registry, parse_env_var};
 
 #[cfg(unix)]
-async fn shutdown_signal() {
-    use tokio::signal::unix::{signal, SignalKind};
+struct ShutdownSignals {
+    sigint: tokio::signal::unix::Signal,
+    sigterm: tokio::signal::unix::Signal,
+}
 
-    let mut sigterm = match signal(SignalKind::terminate()) {
-        Ok(signal) => signal,
-        Err(error) => {
-            tracing::error!("Failed to install SIGTERM handler: {error}");
-            return;
-        }
-    };
+#[cfg(unix)]
+impl ShutdownSignals {
+    fn new() -> Result<Self> {
+        use tokio::signal::unix::{signal, SignalKind};
 
-    tokio::select! {
-        result = tokio::signal::ctrl_c() => {
-            match result {
-                Ok(()) => tracing::info!("Received SIGINT, starting graceful shutdown"),
-                Err(error) => tracing::error!("Failed to listen for SIGINT: {error}"),
+        Ok(Self {
+            sigint: signal(SignalKind::interrupt()).context("Failed to install SIGINT handler")?,
+            sigterm: signal(SignalKind::terminate())
+                .context("Failed to install SIGTERM handler")?,
+        })
+    }
+
+    async fn wait(&mut self) -> Result<()> {
+        tokio::select! {
+            result = self.sigint.recv() => {
+                result.context("SIGINT signal stream closed unexpectedly")?;
+                tracing::info!("Received SIGINT, starting graceful shutdown");
+            }
+            result = self.sigterm.recv() => {
+                result.context("SIGTERM signal stream closed unexpectedly")?;
+                tracing::info!("Received SIGTERM, starting graceful shutdown");
             }
         }
-        result = sigterm.recv() => {
-            match result {
-                Some(()) => tracing::info!("Received SIGTERM, starting graceful shutdown"),
-                None => tracing::error!("SIGTERM signal stream closed unexpectedly"),
-            }
-        }
+        Ok(())
     }
 }
 
 #[cfg(not(unix))]
-async fn shutdown_signal() {
-    match tokio::signal::ctrl_c().await {
-        Ok(()) => tracing::info!("Received Ctrl-C, starting graceful shutdown"),
-        Err(error) => tracing::error!("Failed to listen for Ctrl-C: {error}"),
+struct ShutdownSignals {
+    ctrl_c: tokio::signal::windows::CtrlC,
+}
+
+#[cfg(not(unix))]
+impl ShutdownSignals {
+    fn new() -> Result<Self> {
+        Ok(Self {
+            ctrl_c: tokio::signal::windows::ctrl_c().context("Failed to install Ctrl-C handler")?,
+        })
+    }
+
+    async fn wait(&mut self) -> Result<()> {
+        self.ctrl_c
+            .recv()
+            .await
+            .context("Ctrl-C signal stream closed unexpectedly")?;
+        tracing::info!("Received Ctrl-C, starting graceful shutdown");
+        Ok(())
     }
 }
 
@@ -137,6 +158,8 @@ async fn run() -> Result<()> {
     match &cli.command {
         Some(command) => match command {
             Commands::Run(cfg) => {
+                let mut shutdown_signals = ShutdownSignals::new()?;
+
                 // Configure logging - use stderr for stdio transport to avoid interfering with MCP protocol
                 let env_filter = tracing_subscriber::EnvFilter::try_from_default_env()
                 .unwrap_or_else(|_| {
@@ -204,18 +227,21 @@ async fn run() -> Result<()> {
                 let transport = stdio_transport();
                 let running_service = tokio::select! {
                     result = serve_server(server, transport) => result?,
-                    () = shutdown_signal() => {
+                    result = shutdown_signals.wait() => {
+                        result?;
                         tracing::info!("MCP server shutting down");
                         return Ok(());
                     }
                 };
 
-                shutdown_signal().await;
+                shutdown_signals.wait().await?;
                 let _ = running_service.cancel().await;
 
                 tracing::info!("MCP server shutting down");
             }
             Commands::Serve(cfg) => {
+                let mut shutdown_signals = ShutdownSignals::new()?;
+
                 // Configure logging for HTTP-based transports
                 let env_filter = tracing_subscriber::EnvFilter::try_from_default_env()
                 .unwrap_or_else(|_| {
@@ -342,9 +368,11 @@ async fn run() -> Result<()> {
                         // Override only what the operator chose, so the `Host`
                         // allow list resolved above stays in place. A literal
                         // struct here would silently drop it.
+                        let cancellation_token = CancellationToken::new();
                         let http_config = http_config
                             .with_legacy_session_mode(legacy_sessions)
-                            .with_json_response(json_response);
+                            .with_json_response(json_response)
+                            .with_cancellation_token(cancellation_token.clone());
 
                         let service = StreamableHttpService::new(
                             move || Ok(server.clone()),
@@ -360,9 +388,15 @@ async fn run() -> Result<()> {
                         let tcp_listener = tokio::net::TcpListener::bind(&bind_address).await?;
 
                         // Spawn the server in a background task
+                        let (shutdown_result_tx, shutdown_result_rx) =
+                            tokio::sync::oneshot::channel();
                         let server_handle = tokio::spawn(async move {
                             axum::serve(tcp_listener, router)
-                                .with_graceful_shutdown(shutdown_signal())
+                                .with_graceful_shutdown(async move {
+                                    let result = shutdown_signals.wait().await;
+                                    cancellation_token.cancel();
+                                    let _ = shutdown_result_tx.send(result);
+                                })
                                 .await
                         });
 
@@ -379,6 +413,9 @@ async fn run() -> Result<()> {
 
                         // Wait for the server task to complete
                         server_handle.await??;
+                        shutdown_result_rx
+                            .await
+                            .context("MCP server stopped before receiving a shutdown signal")??;
                     }
                 }
 

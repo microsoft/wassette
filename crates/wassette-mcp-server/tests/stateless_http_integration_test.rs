@@ -556,6 +556,23 @@ async fn open_subscription(client: &reqwest::Client, port: u16) -> Result<reqwes
     Ok(response)
 }
 
+/// SIGTERM completes successfully while a stateless subscription remains open.
+#[cfg(unix)]
+#[tokio::test]
+async fn sigterm_closes_open_stateless_subscription() -> Result<()> {
+    let port = find_open_port().await?;
+    let temp_dir = tempfile::tempdir()?;
+    let server = spawn_server(port, temp_dir.path(), &[]).await?;
+    wait_until_listening(port).await?;
+
+    let client = reqwest::Client::new();
+    let subscription = open_subscription(&client, port).await?;
+
+    server.shutdown().await?;
+    drop(subscription);
+    Ok(())
+}
+
 /// Read SSE `data:` payloads until one satisfies `predicate`, or time out.
 async fn wait_for_sse_message(
     response: reqwest::Response,
