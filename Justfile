@@ -31,6 +31,14 @@ test-mcp-inspector:
     npm ci --prefix tests/mcp-inspector
     ./scripts/test-mcp-inspector.sh
 
+test-mcp-clients:
+    just build release
+    ./scripts/test-mcp-clients.sh
+
+test-mcp-clients-negative:
+    just build release
+    ./scripts/test-mcp-clients.sh --negative
+
 build mode="debug":
     mkdir -p bin
     cargo build --workspace {{ if mode == "release" { "--release" } else { "" } }}
