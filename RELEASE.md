@@ -150,9 +150,9 @@ built, so check first:
 git ls-remote --tags origin 'refs/tags/v<version>*'
 ```
 
-Deleting a dry run release with `--cleanup-tag` removes the tag. Note that if immutable releases
-is enabled on the repository, a tag name that has been used once can never be reused even after
-the tag is deleted, so each attempt needs a fresh suffix rather than a retry of the last one.
+Deleting a dry run release with `--cleanup-tag` removes the tag, but **immutable releases is
+enabled on this repository, so a tag name that has been used once can never be reused**, even
+after the tag is deleted. Each attempt needs a fresh suffix rather than a retry of the last one.
 
 ### Dry Run Version Examples
 
@@ -209,9 +209,10 @@ sequentially rather than concurrently.
 
 ### Retention
 
-The newest five channel releases are kept. Anything older is deleted along with its tag at the end
-of each run. The prune only ever matches prereleases whose tag starts with `latest-`, so releases
-and dry runs are never touched.
+The five most recently published channel releases are kept. Anything older is deleted along with
+its tag at the end of each run. Ordering is by publish time rather than by the date of the commit
+being built, so a build of an older commit is not treated as an old build. The prune only ever
+matches prereleases whose tag starts with `latest-`, so releases and dry runs are never touched.
 
 ### Installing one
 
