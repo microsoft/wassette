@@ -34,7 +34,7 @@ name = "wassette"
 path = "src/main.rs"
 
 [build-dependencies]
-built = { version = "0.8", features = ["git2"] }
+built = { version = "0.8", features = ["git2", "chrono"] }
 
 [dev-dependencies]
 proptest = "1.4"

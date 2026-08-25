@@ -112,14 +112,15 @@ pub fn format_build_info() -> String {
     };
 
     format!(
-        "{} version.BuildInfo{{RustVersion:\"{}\", BuildProfile:\"{}\", BuildStatus:\"{}\", GitTag:\"{}\", Version:\"{}\", GitRevision:\"{}\"}}",
+        "{} version.BuildInfo{{RustVersion:\"{}\", BuildProfile:\"{}\", BuildStatus:\"{}\", GitTag:\"{}\", Version:\"{}\", GitRevision:\"{}\", BuildTime:\"{}\"}}",
         built_info::PKG_VERSION,
         rust_version,
         build_profile,
         build_status,
         git_tag,
         version,
-        git_revision
+        git_revision,
+        built_info::BUILT_TIME_UTC
     )
 }
 
@@ -139,6 +140,7 @@ mod tests {
         assert!(version_info.contains("GitTag"));
         assert!(version_info.contains("Version"));
         assert!(version_info.contains("GitRevision"));
+        assert!(version_info.contains("BuildTime"));
     }
 
     #[test]

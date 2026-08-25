@@ -1,0 +1,171 @@
+name: Latest channel
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: 'Commit or branch to build'
+        required: false
+        type: string
+        default: ''
+
+permissions:
+  actions: write
+  contents: write
+
+jobs:
+  prepare:
+    name: Prepare latest build
+    runs-on: ubuntu-latest
+    outputs:
+      sha: ${{ steps.metadata.outputs.sha }}
+      short_sha: ${{ steps.metadata.outputs.short_sha }}
+      tag: ${{ steps.metadata.outputs.tag }}
+      title: ${{ steps.metadata.outputs.title }}
+      built_at: ${{ steps.metadata.outputs.built_at }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.ref }}
+
+      - name: Resolve build metadata
+        id: metadata
+        run: |
+          SHA=$(git rev-parse HEAD)
+          SHORT_SHA=${SHA:0:7}
+          BUILT_AT=$(date -u +'%Y-%m-%dT%H:%M:%SZ')
+          TAG_DATE=$(date -u --date="$BUILT_AT" +'%Y%m%d')
+          TAG_TIME=$(date -u --date="$BUILT_AT" +'%H%M')
+          TITLE_DATE=$(date -u --date="$BUILT_AT" +'%Y-%m-%d %H:%M')
+
+          echo "sha=$SHA" >> "$GITHUB_OUTPUT"
+          echo "short_sha=$SHORT_SHA" >> "$GITHUB_OUTPUT"
+          echo "tag=latest-$TAG_DATE-$TAG_TIME-$SHORT_SHA" >> "$GITHUB_OUTPUT"
+          echo "title=latest — $TITLE_DATE UTC ($SHORT_SHA)" >> "$GITHUB_OUTPUT"
+          echo "built_at=$BUILT_AT" >> "$GITHUB_OUTPUT"
+
+  build:
+    name: Build
+    needs: prepare
+    uses: ./.github/workflows/build.yml
+    with:
+      version: ${{ needs.prepare.outputs.short_sha }}
+      ref: ${{ needs.prepare.outputs.sha }}
+
+  publish:
+    name: Publish latest build
+    runs-on: ubuntu-latest
+    needs: [prepare, build]
+    env:
+      SHA: ${{ needs.prepare.outputs.sha }}
+      SHORT_SHA: ${{ needs.prepare.outputs.short_sha }}
+      TAG: ${{ needs.prepare.outputs.tag }}
+      TITLE: ${{ needs.prepare.outputs.title }}
+      BUILT_AT: ${{ needs.prepare.outputs.built_at }}
+
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          path: artifacts
+
+      - name: Prepare release assets
+        run: |
+          mkdir -p release-assets
+          find artifacts -name "*.tar.gz" -exec cp {} release-assets/ \;
+          find artifacts -name "*.zip" -exec cp {} release-assets/ \;
+          ls -la release-assets/
+
+      - name: Prepare release notes
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          STABLE_TAG=$(gh api "/repos/$GITHUB_REPOSITORY/releases/latest" --jq '.tag_name')
+          COMPARE_URL="https://github.com/$GITHUB_REPOSITORY/compare/$STABLE_TAG...$SHA"
+
+          cat > release-notes.md <<EOF
+          Built from commit [\`$SHA\`](https://github.com/$GITHUB_REPOSITORY/commit/$SHA).
+
+          Built at \`$BUILT_AT\`.
+
+          [Compare with the most recent stable release ($STABLE_TAG)]($COMPARE_URL).
+
+          These builds are unsigned, built from an arbitrary commit, and covered by no release promise.
+          EOF
+
+      - name: Create draft, upload assets, and publish prerelease
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          EXPECTED_ASSETS=(
+            "wassette_${SHORT_SHA}_linux_amd64.tar.gz"
+            "wassette_${SHORT_SHA}_linux_arm64.tar.gz"
+            "wassette_${SHORT_SHA}_darwin_amd64.tar.gz"
+            "wassette_${SHORT_SHA}_darwin_arm64.tar.gz"
+            "wassette_${SHORT_SHA}_windows_amd64.zip"
+            "wassette_${SHORT_SHA}_windows_arm64.zip"
+          )
+          mapfile -t FOUND_ASSETS < <(find release-assets -maxdepth 1 -type f | sort)
+          if [ "${#FOUND_ASSETS[@]}" -ne "${#EXPECTED_ASSETS[@]}" ]; then
+            echo "::error::Expected ${#EXPECTED_ASSETS[@]} release assets, found ${#FOUND_ASSETS[@]}"
+            exit 1
+          fi
+
+          ASSETS=()
+          for NAME in "${EXPECTED_ASSETS[@]}"; do
+            ASSET="release-assets/$NAME"
+            if [ ! -f "$ASSET" ]; then
+              echo "::error::Missing expected release asset $NAME"
+              exit 1
+            fi
+            ASSETS+=("$ASSET")
+          done
+
+          gh release create "$TAG" \
+            --repo "$GITHUB_REPOSITORY" \
+            --draft \
+            --prerelease \
+            --target "$SHA" \
+            --title "$TITLE" \
+            --notes-file release-notes.md
+
+          gh release upload "$TAG" "${ASSETS[@]}" \
+            --repo "$GITHUB_REPOSITORY"
+
+          UPLOADED_ASSETS=$(gh release view "$TAG" \
+            --repo "$GITHUB_REPOSITORY" \
+            --json assets \
+            --jq '.assets[].name')
+          for ASSET in "${ASSETS[@]}"; do
+            NAME=$(basename "$ASSET")
+            if ! grep -Fxq "$NAME" <<< "$UPLOADED_ASSETS"; then
+              echo "::error::Draft release is missing asset $NAME"
+              exit 1
+            fi
+          done
+
+          gh release edit "$TAG" \
+            --repo "$GITHUB_REPOSITORY" \
+            --draft=false \
+            --prerelease
+
+      - name: Prune old latest prereleases
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mapfile -t OLD_TAGS < <(
+            gh release list \
+              --repo "$GITHUB_REPOSITORY" \
+              --limit 100 \
+              --json tagName,createdAt,isPrerelease \
+              --jq '[.[] | select(.isPrerelease and (.tagName | startswith("latest-")))] | sort_by(.createdAt) | reverse | .[5:] | .[].tagName'
+          )
+
+          for OLD_TAG in "${OLD_TAGS[@]}"; do
+            gh release delete "$OLD_TAG" \
+              --repo "$GITHUB_REPOSITORY" \
+              --cleanup-tag \
+              --yes
+          done

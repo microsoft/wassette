@@ -102,6 +102,36 @@ get_latest_release_info() {
         print_error "curl is required but not installed. Please install curl."
         exit 1
     fi
+
+    if [[ "${WASSETTE_CHANNEL:-}" == "latest" ]]; then
+        local api_response
+        api_response=$(curl -s "https://api.github.com/repos/${GITHUB_REPO}/releases?per_page=100")
+
+        if [[ -z "$api_response" ]]; then
+            print_error "Failed to fetch latest channel information from GitHub API"
+            exit 1
+        fi
+
+        local tag_name
+        tag_name=$(echo "$api_response" \
+            | sed -n 's/.*"tag_name": *"\(latest-[^"]*\)".*/\1/p' | sort | tail -1)
+
+        if [[ -z "$tag_name" ]]; then
+            print_error "No latest channel release was found"
+            exit 1
+        fi
+
+        local version="${tag_name##*-}"
+
+        print_status "Latest version: $tag_name"
+        print_warning "The latest channel is an unsigned development build."
+
+        BINARY_ARCHIVE="${BINARY_NAME}_${version}_${PLATFORM}.tar.gz"
+        DOWNLOAD_URL="https://github.com/${GITHUB_REPO}/releases/download/${tag_name}/${BINARY_ARCHIVE}"
+
+        print_status "Download URL: $DOWNLOAD_URL"
+        return
+    fi
     
     local api_response
     api_response=$(curl -s "$BASE_URL")
