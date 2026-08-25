@@ -223,7 +223,8 @@ if [[ "${CLEANUP_TEMP:-}" == "true" ]]; then
     rm -rf "$TEMP_DIR"
 fi
 
-# Function to add PATH to a file if not already present
+# Return codes: 0 = line appended, 1 = file absent / nothing done,
+# 2 = file exists and PATH is already configured
 add_path_to_file() {
     local file="$1"
     local path_line="export PATH=\"\$HOME/.local/bin:\$PATH\""
@@ -237,7 +238,7 @@ add_path_to_file() {
             return 0
         else
             print_warning "PATH already configured in $file"
-            return 1
+            return 2
         fi
     fi
     return 1
@@ -246,38 +247,52 @@ add_path_to_file() {
 # Track if we modified any files
 modified_files=()
 
-# Add to shell configuration files
+# Add to shell configuration files. shell_configured records whether PATH ends
+# up configured at all, whether we added the line or found it already there.
 shell_configured=false
+path_already_configured=false
+
+# Apply add_path_to_file to one candidate file and record the outcome.
+# Leaves that function's return code in PATH_FILE_STATUS for callers that
+# need to distinguish "already configured" from "file absent".
+configure_path_in() {
+    local file="$1"
+
+    PATH_FILE_STATUS=0
+    add_path_to_file "$file" || PATH_FILE_STATUS=$?
+
+    case "$PATH_FILE_STATUS" in
+        0)
+            modified_files+=("$file")
+            shell_configured=true
+            ;;
+        2)
+            path_already_configured=true
+            shell_configured=true
+            ;;
+    esac
+}
 
 # Check for bash
 if [[ -n "$BASH_VERSION" ]] || [[ "$SHELL" == */bash ]]; then
-    if add_path_to_file "$HOME/.bashrc"; then
-        modified_files+=("$HOME/.bashrc")
-        shell_configured=true
-    fi
-    
-    if add_path_to_file "$HOME/.bash_profile"; then
-        modified_files+=("$HOME/.bash_profile")
-        shell_configured=true
-    fi
+    configure_path_in "$HOME/.bashrc"
+    configure_path_in "$HOME/.bash_profile"
 fi
 
 # Check for zsh
 if [[ -n "$ZSH_VERSION" ]] || [[ "$SHELL" == */zsh ]]; then
-    if add_path_to_file "$HOME/.zshrc"; then
-        modified_files+=("$HOME/.zshrc")
-        shell_configured=true
-    fi
+    configure_path_in "$HOME/.zshrc"
 fi
 
-# Only add to .profile if no shell-specific config was added
+# Only fall back to .profile if no shell-specific config file was found
 if [[ "$shell_configured" == "false" ]]; then
-    if add_path_to_file "$HOME/.profile"; then
-        modified_files+=("$HOME/.profile")
+    configure_path_in "$HOME/.profile"
+
+    if [[ "$PATH_FILE_STATUS" -eq 0 ]]; then
         print_warning "Added PATH to .profile - you may need to start a new login session"
         print_warning "or run 'source ~/.profile' to use $BINARY_NAME immediately"
-    else
-        print_warning "Unsupported shell detected: $SHELL"
+    elif [[ "$PATH_FILE_STATUS" -eq 1 ]]; then
+        print_warning "No shell configuration file was found to update (SHELL: $SHELL)"
         print_warning "Please manually add '$INSTALL_DIR' to your PATH"
         print_warning "For most shells, add this line to your shell's config file:"
         print_warning "  export PATH=\"\$HOME/.local/bin:\$PATH\""
@@ -315,6 +330,8 @@ if [[ ${#modified_files[@]} -gt 0 ]]; then
     for file in "${modified_files[@]}"; do
         echo "    - $file"
     done
+elif [[ "$path_already_configured" == "true" ]]; then
+    print_status "PATH is already configured; no shell configuration files needed modification."
 else
     echo ""
     print_warning "No shell configuration files were modified."
