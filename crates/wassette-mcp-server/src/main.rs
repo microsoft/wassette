@@ -1041,6 +1041,34 @@ mod cli_tests {
         }
     }
 
+    /// `--json-response` is optional-valued, so a bare flag and an explicit
+    /// value must both parse and must mean different things.
+    ///
+    /// Exercised through the parser rather than the built binary on purpose: a
+    /// `--help` invocation exits successfully before clap ever constructs a
+    /// `Serve`, so it would pass without proving either form was understood.
+    #[test]
+    fn test_serve_json_response_value_is_optional() {
+        for (args, expected) in [
+            (vec!["wassette", "serve", "--json-response"], Some(true)),
+            (
+                vec!["wassette", "serve", "--json-response=false"],
+                Some(false),
+            ),
+            (vec!["wassette", "serve"], None),
+        ] {
+            let cli = Cli::try_parse_from(&args).expect("serve args should parse");
+            if let Some(Commands::Serve(serve)) = cli.command {
+                assert_eq!(
+                    serve.json_response, expected,
+                    "unexpected json_response for {args:?}"
+                );
+            } else {
+                panic!("expected a serve command for {args:?}");
+            }
+        }
+    }
+
     #[test]
     fn test_autocomplete_parsing() {
         // Test autocomplete bash

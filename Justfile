@@ -22,8 +22,11 @@ build-mcp-inspector-components:
     just build-test-components
     (cd examples/time-server-js && npm ci && npm run build)
 
+# Release, not debug: loading the JavaScript fixture through a debug-built
+# Cranelift takes about 46s and exceeds the Inspector CLI request timeout, so a
+# debug binary fails this before it reaches an assertion. Matches CI.
 test-mcp-inspector:
-    just build
+    just build release
     just build-mcp-inspector-components
     npm ci --prefix tests/mcp-inspector
     ./scripts/test-mcp-inspector.sh

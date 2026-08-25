@@ -968,22 +968,3 @@ async fn test_cli_serve_legacy_sessions_requires_a_value() -> Result<()> {
 
     Ok(())
 }
-
-/// `--json-response` works both bare and with an explicit value.
-#[test(tokio::test)]
-async fn test_cli_serve_json_response_value_is_optional() -> Result<()> {
-    let ctx = CliTestContext::new().await?;
-
-    for args in [
-        vec!["serve", "--help", "--json-response"],
-        vec!["serve", "--help", "--json-response=false"],
-    ] {
-        let (_, stderr, exit_code) = ctx.run_command_no_component_dir(&args).await?;
-        assert_eq!(
-            exit_code, 0,
-            "clap should accept {args:?}, stderr: {stderr}"
-        );
-    }
-
-    Ok(())
-}
