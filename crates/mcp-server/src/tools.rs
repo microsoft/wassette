@@ -1310,8 +1310,8 @@ mod tests {
             .as_array()
             .ok_or_else(|| anyhow::anyhow!("Components is not an array"))?;
 
-        // Should return all 12 components from component-registry.json
-        assert_eq!(components.len(), 12);
+        // Should return all 11 components from component-registry.json
+        assert_eq!(components.len(), 11);
 
         Ok(())
     }
@@ -1445,8 +1445,8 @@ mod tests {
 
         // Should match components with either "weather" or "rust"
         // Weather Server, Open-Meteo Weather, arXiv Research (Rust), Fetch (Rust),
-        // Filesystem (Rust), Brave Search (Rust), Context7 (Rust)
-        assert_eq!(components.len(), 7);
+        // Filesystem (Rust), Brave Search (Rust)
+        assert_eq!(components.len(), 6);
 
         Ok(())
     }
@@ -1508,7 +1508,7 @@ mod tests {
         let content1_json = serde_json::to_value(&result1.content)?;
         let text1 = content1_json[0]["text"].as_str().unwrap();
         let response1: Value = serde_json::from_str(text1)?;
-        assert_eq!(response1["components"].as_array().unwrap().len(), 12);
+        assert_eq!(response1["components"].as_array().unwrap().len(), 11);
 
         // Test 2: Query with single term
         let mut args2 = serde_json::Map::new();

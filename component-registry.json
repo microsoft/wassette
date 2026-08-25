@@ -50,11 +50,6 @@
         "uri": "oci://ghcr.io/microsoft/brave-search-rs:latest"
     },
     {
-        "name": "Context7",
-        "description": "A library documentation search component using Context7 API written in Rust",
-        "uri": "oci://ghcr.io/microsoft/context7-rs:latest"
-    },
-    {
         "name": "Go Module Information",
         "description": "A Go module component",
         "uri": "oci://ghcr.io/microsoft/gomodule-go:latest"
