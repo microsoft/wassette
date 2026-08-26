@@ -2,13 +2,14 @@
 // Licensed under the MIT license.
 use std::env;
 use std::path::PathBuf;
-use std::process::Command;
+use std::process::{Command, Stdio};
 use std::time::Duration;
 
 use anyhow::{Context, Result};
 use serde_json::Value;
 use tempfile::TempDir;
 use test_log::test;
+use tokio::net::{TcpListener, TcpStream};
 use tokio::process::Command as AsyncCommand;
 
 mod common;
@@ -126,6 +127,174 @@ impl CliTestContext {
     fn parse_json_output(&self, stdout: &str) -> Result<Value> {
         serde_json::from_str(stdout.trim()).context("Failed to parse JSON output")
     }
+}
+
+#[test(tokio::test)]
+async fn test_serve_manifest_attaches_declared_policy() -> Result<()> {
+    let ctx = CliTestContext::new().await?;
+    let component_path = build_fetch_component().await?;
+    let manifest_path = ctx.temp_dir.path().join("manifest.yaml");
+    tokio::fs::write(
+        &manifest_path,
+        format!(
+            "version: 1\ncomponents:\n  - uri: file://{}\n    permissions:\n      network:\n        allow:\n          - host: api.example.com\n",
+            component_path.display()
+        ),
+    )
+    .await?;
+
+    let mut command = AsyncCommand::new(&ctx.wassette_bin);
+    command
+        .args(["serve", "--manifest"])
+        .arg(&manifest_path)
+        .args([
+            "--disable-builtin-tools",
+            "--bind-address",
+            "127.0.0.1:0",
+            "--component-dir",
+        ])
+        .arg(&ctx.component_dir)
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .kill_on_drop(true);
+    let mut child = command.spawn().context("Failed to start wassette serve")?;
+
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(30);
+    let policy_path = loop {
+        if let Some(status) = child.try_wait()? {
+            anyhow::bail!("wassette serve exited before provisioning completed: {status}");
+        }
+
+        let mut entries = tokio::fs::read_dir(&ctx.component_dir).await?;
+        let mut found = None;
+        while let Some(entry) = entries.next_entry().await? {
+            let file_name = entry.file_name();
+            let file_name = file_name.to_string_lossy();
+            if let Some(component_id) = file_name.strip_suffix(".wasm") {
+                let candidate = ctx
+                    .component_dir
+                    .join(format!("{component_id}.policy.yaml"));
+                let policy_source = ctx
+                    .component_dir
+                    .join(format!("{component_id}.manifest-policy.yaml"));
+                if tokio::fs::try_exists(&candidate).await?
+                    && !tokio::fs::try_exists(&policy_source).await?
+                {
+                    found = Some(candidate);
+                    break;
+                }
+            }
+        }
+
+        if let Some(path) = found {
+            break path;
+        }
+        if tokio::time::Instant::now() >= deadline {
+            anyhow::bail!(
+                "Timed out waiting for the manifest policy to be attached and its staging file to be removed"
+            );
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    };
+
+    child.kill().await?;
+    child.wait().await?;
+
+    let policy_content = tokio::fs::read_to_string(&policy_path).await?;
+    assert!(policy_content.contains("api.example.com"));
+
+    let mut entries = tokio::fs::read_dir(&ctx.component_dir).await?;
+    while let Some(entry) = entries.next_entry().await? {
+        let file_name = entry.file_name();
+        let file_name = file_name.to_string_lossy();
+        assert!(!file_name.starts_with("temp_"));
+        assert!(!file_name.ends_with(".manifest-policy.yaml"));
+    }
+
+    Ok(())
+}
+
+#[test(tokio::test)]
+async fn test_serve_manifest_resources_only_preserves_existing_policy() -> Result<()> {
+    let ctx = CliTestContext::new().await?;
+    let component_path = build_fetch_component().await?;
+    let (stdout, stderr, exit_code) = ctx
+        .run_command(&[
+            "component",
+            "load",
+            &format!("file://{}", component_path.display()),
+        ])
+        .await?;
+    assert_eq!(exit_code, 0, "Load command failed with stderr: {stderr}");
+
+    let load_output: Value = ctx.parse_json_output(&stdout)?;
+    let component_id = load_output["id"].as_str().context("Missing component ID")?;
+    let granted_host = "preserved.example.com";
+    let (_, stderr, exit_code) = ctx
+        .run_command(&["permission", "grant", "network", component_id, granted_host])
+        .await?;
+    assert_eq!(
+        exit_code, 0,
+        "Grant network permission failed with stderr: {stderr}"
+    );
+
+    let policy_path = ctx
+        .component_dir
+        .join(format!("{component_id}.policy.yaml"));
+    let policy_content = tokio::fs::read_to_string(&policy_path).await?;
+    assert!(policy_content.contains(granted_host));
+
+    let manifest_path = ctx.temp_dir.path().join("manifest.yaml");
+    tokio::fs::write(
+        &manifest_path,
+        format!(
+            "version: 1\ncomponents:\n  - uri: file://{}\n    permissions:\n      resources:\n        memory_bytes: 67108864\n",
+            component_path.display()
+        ),
+    )
+    .await?;
+
+    let listener = TcpListener::bind("127.0.0.1:0").await?;
+    let bind_address = listener.local_addr()?;
+    drop(listener);
+
+    let mut command = AsyncCommand::new(&ctx.wassette_bin);
+    command
+        .args(["serve", "--manifest"])
+        .arg(&manifest_path)
+        .arg("--bind-address")
+        .arg(bind_address.to_string())
+        .arg("--component-dir")
+        .arg(&ctx.component_dir)
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .kill_on_drop(true);
+    let mut child = command.spawn().context("Failed to start wassette serve")?;
+
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(30);
+    loop {
+        if let Some(status) = child.try_wait()? {
+            anyhow::bail!("wassette serve exited before becoming ready: {status}");
+        }
+        if TcpStream::connect(bind_address).await.is_ok() {
+            break;
+        }
+        if tokio::time::Instant::now() >= deadline {
+            anyhow::bail!("Timed out waiting for wassette serve to become ready");
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+
+    child.kill().await?;
+    child.wait().await?;
+
+    let policy_content = tokio::fs::read_to_string(&policy_path).await?;
+    assert!(
+        policy_content.contains(granted_host),
+        "Manifest provisioning replaced the existing policy: {policy_content}"
+    );
+
+    Ok(())
 }
 
 #[test(tokio::test)]
