@@ -3,18 +3,6 @@ name: Setup rust cache
 runs:
   using: composite
   steps:
-    - name: Get rust version
-      run: echo "RUST_VERSION=$(rustc --version | awk '{print $2}')" >> $GITHUB_ENV
-      shell: bash
-    - name: Get Cargo.lock SHA 
-      shell: bash
-      run: |
-        if command -v sha256sum >/dev/null 2>&1; then
-          echo "CARGO_LOCK_SHA=$(sha256sum Cargo.lock | awk '{print $1}')" >> $GITHUB_ENV
-        else
-          echo "CARGO_LOCK_SHA=$(shasum -a 256 Cargo.lock | awk '{print $1}')" >> $GITHUB_ENV
-        fi
     - uses: Swatinem/rust-cache@98c8021b550208e191a6a3145459bfc9fb29c4c0 # v2.8.0
       with:
-        shared-key: "wassette-${{ env.RUST_VERSION }}-${{ env.CARGO_LOCK_SHA }}"
-        
+        shared-key: "wassette"
