@@ -18,6 +18,10 @@ on:
       - 'MAINTAINERS'
       - 'NOTICE'
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 env:
   CARGO_TERM_COLOR: always
 
@@ -129,8 +133,11 @@ jobs:
       run: cargo install cargo-llvm-cov
     - name: Generate coverage report
       run: |
-        cargo llvm-cov --all-features --workspace --ignore-run-fail --lcov --output-path lcov.info
-        cargo llvm-cov --all-features --workspace --ignore-run-fail --json --output-path coverage.json
+        # --no-report keeps the artifacts a plain run would have cleaned, so clean explicitly
+        cargo llvm-cov clean --workspace
+        cargo llvm-cov --all-features --workspace --ignore-run-fail --no-report
+        cargo llvm-cov report --lcov --output-path lcov.info
+        cargo llvm-cov report --json --output-path coverage.json
     - name: Upload coverage to Codecov
       uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v6.1.0
       with:
