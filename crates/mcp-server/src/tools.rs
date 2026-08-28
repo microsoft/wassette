@@ -6,12 +6,12 @@ use std::cmp::Reverse;
 use std::sync::Arc;
 use std::time::Instant;
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use rmcp::model::{CallToolRequestParams, CallToolResult, ContentBlock, Tool};
 use rmcp::{Peer, RoleServer};
 use serde_json::{json, Value};
 use tracing::{debug, error, info, instrument, warn};
-use wassette::LifecycleManager;
+use wassette::{format_error_chain, LifecycleManager};
 
 use crate::components::{
     extract_args_from_request, get_component_tools, handle_component_call, handle_list_components,
@@ -192,7 +192,7 @@ pub async fn handle_tools_call(
                 tool_name = %tool_name,
                 duration_ms = %duration.as_millis(),
                 outcome = "error",
-                error = %e,
+                error = %format_error_chain(e),
                 "Tool invocation failed"
             );
         }
@@ -201,7 +201,7 @@ pub async fn handle_tools_call(
     match result {
         Ok(result) => Ok(serde_json::to_value(result)?),
         Err(e) => {
-            let error_text = format!("Error: {e}");
+            let error_text = format!("Error: {}", format_error_chain(&e));
             let contents = vec![ContentBlock::text(error_text)];
 
             let error_result = CallToolResult::error(contents);
@@ -623,7 +623,7 @@ pub async fn handle_get_policy(
     lifecycle_manager
         .ensure_component_loaded(component_id)
         .await
-        .map_err(|e| anyhow::anyhow!("Component not found: {} ({})", component_id, e))?;
+        .with_context(|| format!("Component not found: {component_id}"))?;
 
     let policy_info = lifecycle_manager.get_policy_info(component_id).await;
 
@@ -678,7 +678,7 @@ async fn handle_grant_permission_generic(
     lifecycle_manager
         .ensure_component_loaded(component_id)
         .await
-        .map_err(|e| anyhow::anyhow!("Component not found: {} ({})", component_id, e))?;
+        .with_context(|| format!("Component not found: {component_id}"))?;
 
     let result = lifecycle_manager
         .grant_permission(component_id, permission_type, details)
@@ -776,7 +776,7 @@ async fn handle_revoke_permission_generic(
     lifecycle_manager
         .ensure_component_loaded(component_id)
         .await
-        .map_err(|e| anyhow::anyhow!("Component not found: {} ({})", component_id, e))?;
+        .with_context(|| format!("Component not found: {component_id}"))?;
 
     let result = lifecycle_manager
         .revoke_permission(component_id, permission_type, details)
@@ -839,7 +839,7 @@ pub async fn handle_revoke_storage_permission(
     lifecycle_manager
         .ensure_component_loaded(component_id)
         .await
-        .map_err(|e| anyhow::anyhow!("Component not found: {} ({})", component_id, e))?;
+        .with_context(|| format!("Component not found: {component_id}"))?;
 
     let result = lifecycle_manager
         .revoke_storage_permission_by_uri(component_id, uri)
@@ -908,7 +908,7 @@ pub async fn handle_reset_permission(
     lifecycle_manager
         .ensure_component_loaded(component_id)
         .await
-        .map_err(|e| anyhow::anyhow!("Component not found: {} ({})", component_id, e))?;
+        .with_context(|| format!("Component not found: {component_id}"))?;
 
     let result = lifecycle_manager.reset_permission(component_id).await;
 

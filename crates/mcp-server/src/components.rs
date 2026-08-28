@@ -3,14 +3,14 @@
 
 use std::sync::Arc;
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use futures::stream::{self, StreamExt};
 use rmcp::model::{CallToolRequestParams, CallToolResult, ContentBlock, Tool};
 use rmcp::{Peer, RoleServer};
 use serde_json::{json, Value};
 use tracing::{debug, error, info, instrument};
 use wassette::schema::{canonicalize_output_schema, ensure_structured_result};
-use wassette::{ComponentLoadOutcome, LifecycleManager, LoadResult};
+use wassette::{format_error_chain, ComponentLoadOutcome, LifecycleManager, LoadResult};
 
 #[instrument(skip(lifecycle_manager))]
 pub(crate) async fn get_component_tools(lifecycle_manager: &LifecycleManager) -> Result<Vec<Tool>> {
@@ -69,17 +69,14 @@ pub(crate) async fn handle_load_component(
             create_load_component_success_result(&outcome)
         }
         Err(e) => {
+            let e = e.context(format!("Failed to load component: {path}"));
             error!(
                 path = %path,
                 operation = "load-component",
-                error = %e,
+                error = %format_error_chain(&e),
                 "Component load operation failed"
             );
-            Err(anyhow::anyhow!(
-                "Failed to load component: {}. Error: {}",
-                path,
-                e
-            ))
+            Err(e)
         }
     }
 }
@@ -116,7 +113,7 @@ pub(crate) async fn handle_unload_component(
             error!(
                 component_id = %id,
                 operation = "unload-component",
-                error = %e,
+                error = %format_error_chain(&e),
                 "Component unload operation failed"
             );
             Ok(create_component_error_result("unload", id, &e))
@@ -134,7 +131,7 @@ pub async fn handle_component_call(
     let component_id = lifecycle_manager
         .get_component_id_for_tool(&req.name)
         .await
-        .map_err(|e| anyhow::anyhow!("Failed to find component for tool '{}': {}", req.name, e))?;
+        .with_context(|| format!("Failed to find component for tool '{}'", req.name))?;
 
     debug!(
         function_name = %req.name,
@@ -181,10 +178,10 @@ pub async fn handle_component_call(
             error!(
                 function_name = %req.name,
                 component_id = %component_id,
-                error = %e,
+                error = %format_error_chain(&e),
                 "Component function invocation failed"
             );
-            Err(anyhow::anyhow!(e.to_string()))
+            Err(e)
         }
     }
 }
@@ -332,7 +329,7 @@ fn create_component_error_result(
 ) -> CallToolResult {
     let error_text = serde_json::to_string(&json!({
         "status": "error",
-        "message": format!("Failed to {} component: {}", operation_name, error),
+        "message": format!("Failed to {} component: {}", operation_name, format_error_chain(error)),
         "id": operation_arg
     }))
     .unwrap_or_else(|_| {
@@ -384,12 +381,9 @@ pub async fn handle_load_component_cli(
             create_load_component_success_result(&outcome)
         }
         Err(e) => {
-            error!(error = %e, path, "Failed to load component");
-            Err(anyhow::anyhow!(
-                "Failed to load component: {}. Error: {}",
-                path,
-                e
-            ))
+            let e = e.context(format!("Failed to load component: {path}"));
+            error!(error = %format_error_chain(&e), path, "Failed to load component");
+            Err(e)
         }
     }
 }
@@ -414,7 +408,7 @@ pub async fn handle_unload_component_cli(
             create_component_success_result("unload", id)
         }
         Err(e) => {
-            error!(error = %e, "Failed to unload component");
+            error!(error = %format_error_chain(&e), "Failed to unload component");
             Ok(create_component_error_result("unload", id, &e))
         }
     }
