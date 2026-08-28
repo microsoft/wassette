@@ -229,12 +229,26 @@ async fn main() -> Result<()> {
                         &component_dir_path,
                     );
 
-                    provisioner
-                        .provision()
-                        .await
-                        .context("Component provisioning failed")?;
+                    let report = provisioner.provision().await;
 
-                    tracing::info!("All components provisioned successfully");
+                    match report.failure_summary() {
+                        None => tracing::info!("All components provisioned successfully"),
+                        Some(summary) if cfg.continue_on_provisioning_failure => {
+                            tracing::error!("{}", summary);
+                            tracing::warn!(
+                                "Starting server in degraded mode: {} of {} component(s) provisioned. Unavailable component(s): {}",
+                                report.provisioned.len(),
+                                report.total(),
+                                report.failed_names().join(", ")
+                            );
+                        }
+                        Some(summary) => {
+                            return Err(anyhow::anyhow!(
+                                "{summary}\nPass --continue-on-provisioning-failure to start the server with the components that did provision."
+                            ))
+                            .context("Component provisioning failed");
+                        }
+                    }
                 }
 
                 let server = McpServer::new(

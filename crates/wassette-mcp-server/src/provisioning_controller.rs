@@ -4,11 +4,65 @@
 use std::collections::HashMap;
 use std::path::Path;
 
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result};
 use wassette::{format_error_chain, LifecycleManager, SecretsManager};
 
 use crate::manifest::{ComponentDeclaration, InlinePermissions, ProvisioningManifest};
 use crate::permission_synthesis;
+
+/// Outcome of a provisioning pass over a manifest.
+///
+/// The controller reports what happened and leaves the decision about whether a
+/// partial provisioning run is fatal to the caller.
+#[derive(Debug, Default)]
+pub struct ProvisioningReport {
+    /// Names (or URIs) of the components that provisioned successfully.
+    pub provisioned: Vec<String>,
+    /// Name (or URI) and error for each component that failed to provision.
+    pub failures: Vec<(String, anyhow::Error)>,
+}
+
+impl ProvisioningReport {
+    /// Number of components that were declared in the manifest.
+    pub fn total(&self) -> usize {
+        self.provisioned.len() + self.failures.len()
+    }
+
+    /// Whether any component failed to provision.
+    pub fn has_failures(&self) -> bool {
+        !self.failures.is_empty()
+    }
+
+    /// Names of the components that failed to provision.
+    pub fn failed_names(&self) -> Vec<&str> {
+        self.failures
+            .iter()
+            .map(|(name, _)| name.as_str())
+            .collect()
+    }
+
+    /// Render the multi-line summary of every provisioning failure.
+    ///
+    /// Returns `None` when nothing failed.
+    pub fn failure_summary(&self) -> Option<String> {
+        if self.failures.is_empty() {
+            return None;
+        }
+
+        let error_summary = self
+            .failures
+            .iter()
+            .map(|(name, e)| format!("  - {}: {}", name, format_error_chain(e)))
+            .collect::<Vec<_>>()
+            .join("\n");
+
+        Some(format!(
+            "Failed to provision {} component(s):\n{}",
+            self.failures.len(),
+            error_summary
+        ))
+    }
+}
 
 /// Controller for provisioning components from a manifest
 pub struct ProvisioningController<'a> {
@@ -35,14 +89,17 @@ impl<'a> ProvisioningController<'a> {
         }
     }
 
-    /// Provision all components from the manifest
-    pub async fn provision(&self) -> Result<()> {
+    /// Provision all components from the manifest.
+    ///
+    /// Every declared component is attempted; the returned [`ProvisioningReport`]
+    /// tells the caller which ones succeeded and which ones failed.
+    pub async fn provision(&self) -> ProvisioningReport {
         tracing::info!(
             "Starting provisioning of {} component(s)",
             self.manifest.components.len()
         );
 
-        let mut errors = Vec::new();
+        let mut report = ProvisioningReport::default();
 
         for (idx, component) in self.manifest.components.iter().enumerate() {
             let component_name = component.name.as_deref().unwrap_or(&component.uri);
@@ -54,32 +111,24 @@ impl<'a> ProvisioningController<'a> {
                 component_name
             );
 
-            if let Err(e) = self.provision_component(component).await {
-                tracing::error!(
-                    "Failed to provision component {}: {}",
-                    component_name,
-                    format_error_chain(&e)
-                );
-                errors.push((component_name.to_string(), e));
+            match self.provision_component(component).await {
+                Ok(()) => report.provisioned.push(component_name.to_string()),
+                Err(e) => {
+                    tracing::error!(
+                        "Failed to provision component {}: {}",
+                        component_name,
+                        format_error_chain(&e)
+                    );
+                    report.failures.push((component_name.to_string(), e));
+                }
             }
         }
 
-        if !errors.is_empty() {
-            let error_summary = errors
-                .iter()
-                .map(|(name, e)| format!("  - {}: {}", name, format_error_chain(e)))
-                .collect::<Vec<_>>()
-                .join("\n");
-
-            bail!(
-                "Failed to provision {} component(s):\n{}",
-                errors.len(),
-                error_summary
-            );
+        if !report.has_failures() {
+            tracing::info!("Successfully provisioned all components");
         }
 
-        tracing::info!("Successfully provisioned all components");
-        Ok(())
+        report
     }
 
     /// Provision a single component
@@ -299,5 +348,53 @@ mod tests {
 
         // Cleanup
         std::env::remove_var("TEST_API_KEY");
+    }
+
+    #[test]
+    fn report_without_failures_has_no_summary() {
+        let report = ProvisioningReport {
+            provisioned: vec!["fetch".to_string(), "time".to_string()],
+            failures: Vec::new(),
+        };
+
+        assert_eq!(report.total(), 2);
+        assert!(!report.has_failures());
+        assert!(report.failed_names().is_empty());
+        assert!(report.failure_summary().is_none());
+    }
+
+    #[test]
+    fn report_with_all_components_failed_lists_every_failure() {
+        let report = ProvisioningReport {
+            provisioned: Vec::new(),
+            failures: vec![
+                ("fetch".to_string(), anyhow::anyhow!("image not found")),
+                ("time".to_string(), anyhow::anyhow!("registry timeout")),
+            ],
+        };
+
+        assert_eq!(report.total(), 2);
+        assert!(report.has_failures());
+        assert_eq!(report.failed_names(), vec!["fetch", "time"]);
+        assert_eq!(
+            report.failure_summary().unwrap(),
+            "Failed to provision 2 component(s):\n  - fetch: image not found\n  - time: registry timeout"
+        );
+    }
+
+    #[test]
+    fn report_with_mixed_outcomes_summarizes_only_failures() {
+        let report = ProvisioningReport {
+            provisioned: vec!["fetch".to_string()],
+            failures: vec![("time".to_string(), anyhow::anyhow!("registry timeout"))],
+        };
+
+        assert_eq!(report.total(), 2);
+        assert!(report.has_failures());
+        assert_eq!(report.failed_names(), vec!["time"]);
+        assert_eq!(
+            report.failure_summary().unwrap(),
+            "Failed to provision 1 component(s):\n  - time: registry timeout"
+        );
     }
 }

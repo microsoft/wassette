@@ -104,6 +104,7 @@ pub async fn create_lifecycle_manager(component_dir: Option<PathBuf>) -> Result<
                 disable_builtin_tools: false,
                 bind_address: None,
                 manifest: None,
+                continue_on_provisioning_failure: false,
                 allowed_hosts: None,
                 legacy_sessions: None,
                 json_response: None,

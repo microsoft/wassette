@@ -157,6 +157,13 @@ pub struct Serve {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub manifest: Option<PathBuf>,
 
+    /// Start the server even when some manifest components fail to provision, serving
+    /// only the components that did load. Failures are still logged at error level.
+    /// Without this flag a single provisioning failure aborts startup.
+    #[arg(long)]
+    #[serde(default)]
+    pub continue_on_provisioning_failure: bool,
+
     /// Hostname or host:port authority to accept in the inbound `Host` header for
     /// Streamable HTTP. Repeat the flag to allow several. Replaces the default allowlist
     /// rather than adding to it, so include `localhost` and `127.0.0.1` explicitly if
