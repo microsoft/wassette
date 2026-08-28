@@ -115,6 +115,8 @@ wassette serve --legacy-sessions=false --json-response
 - `--env <KEY=VALUE>`: Set environment variables (can be specified multiple times)
 - `--env-file <PATH>`: Load environment variables from a file
 - `--disable-builtin-tools`: Disable built-in tools (load-component, unload-component, etc.)
+- `--manifest <PATH>`: Provision components declaratively from a manifest at startup
+- `--continue-on-provisioning-failure`: Start even when some manifest components fail to provision, serving only those that loaded (default: abort when any declared component fails)
 - `--legacy-sessions <BOOL>`: Keep serving the pre-`2026-07-28` session lifecycle (default: `true`, env: `WASSETTE_LEGACY_SESSIONS`)
 - `--json-response [<BOOL>]`: Reply to a simple stateless request with `application/json` instead of a request-scoped `text/event-stream` (default: `false`, env: `WASSETTE_JSON_RESPONSE`)
 

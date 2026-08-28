@@ -287,6 +287,38 @@ With `--disable-builtin-tools` the management plane (loading, unloading and
 permission grants) is rejected, so every instance keeps serving exactly the
 tools it was provisioned with and the instances stay equivalent.
 
+### Provisioning Failure Behaviour
+
+By default `--manifest` provisioning is fail-fast at the level of the whole
+manifest: every declared component is attempted, and if any of them fails the
+server logs a summary of the failures and exits non-zero without listening.
+This is the right behaviour when the manifest is a contract: an instance that
+cannot serve its full tool set never takes traffic, and an orchestrator's
+restart backoff surfaces the problem instead of hiding it.
+
+`--continue-on-provisioning-failure` changes only what happens after the
+failures are logged. The failure summary is still emitted at error level, a
+warning records how many of the declared components provisioned and names each
+one that did not, and the server starts with the components that did load:
+
+```bash
+wassette serve --streamable-http --manifest /etc/wassette/manifest.yaml \
+  --disable-builtin-tools --continue-on-provisioning-failure
+```
+
+Use it when partial service is better than no service, for example under
+Kubernetes with `--disable-builtin-tools`, where the manifest is the only way a
+component can enter the server and one unreachable registry would otherwise turn
+into a crash loop that also takes down the tools that were fine. Keep the
+default when a partial tool set would be worse than an outage, such as when a
+client cannot tell a missing tool from a tool that legitimately declined, or
+when the deployment is expected to fail its rollout on a bad manifest.
+
+Note that a degraded instance serves fewer tools than its peers, which
+reintroduces exactly the divergence described above; combine it with a
+single-instance deployment, or accept that the tool list varies between
+instances until the failing component is reachable again.
+
 ## Performance Tuning
 
 ### Resource Limits
