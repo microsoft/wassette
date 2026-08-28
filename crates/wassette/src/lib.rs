@@ -268,8 +268,45 @@ impl ComponentRegistryState {
         }
     }
 
+    /// Tool names in `tool_names` that an already-registered component exports, each
+    /// paired with the ids of the components that already export it.
+    fn find_tool_name_collisions(&self, tool_names: &[String]) -> Vec<(String, Vec<String>)> {
+        tool_names
+            .iter()
+            .filter_map(|tool_name| {
+                let existing = self.tool_map.get(tool_name)?;
+                let mut component_ids: Vec<String> = existing
+                    .iter()
+                    .map(|info| info.component_id.clone())
+                    .collect();
+                component_ids.dedup();
+                if component_ids.is_empty() {
+                    None
+                } else {
+                    Some((tool_name.clone(), component_ids))
+                }
+            })
+            .collect()
+    }
+
     fn register_tools_only(&mut self, component_id: &str, tools: Vec<ToolMetadata>) {
-        let mut tool_names = Vec::new();
+        let incoming_names: Vec<String> = tools
+            .iter()
+            .map(|tool| tool.normalized_name.clone())
+            .collect();
+
+        for (tool_name, existing_component_ids) in self.find_tool_name_collisions(&incoming_names) {
+            warn!(
+                %component_id,
+                %tool_name,
+                existing_components = %existing_component_ids.join(", "),
+                "Tool name collision: this tool name is already exported by another loaded \
+                 component. The tool cannot be called while both components are loaded; unload \
+                 one of them to make it callable again"
+            );
+        }
+
+        let mut tool_names = Vec::with_capacity(incoming_names.len());
 
         for tool_metadata in tools {
             let ToolMetadata {
@@ -1975,5 +2012,140 @@ permissions:
             .contains("Component not found"));
 
         Ok(())
+    }
+
+    fn tool_metadata(name: &str) -> ToolMetadata {
+        ToolMetadata {
+            identifier: FunctionIdentifier {
+                package_name: None,
+                interface_name: None,
+                function_name: name.to_string(),
+            },
+            normalized_name: name.to_string(),
+            schema: serde_json::json!({ "name": name }),
+        }
+    }
+
+    fn tool_metadatas(names: &[&str]) -> Vec<ToolMetadata> {
+        names.iter().copied().map(tool_metadata).collect()
+    }
+
+    #[test]
+    fn test_find_tool_name_collisions_reports_nothing_for_distinct_names() {
+        let mut state = ComponentRegistryState::default();
+        state.register_tools_only("weather", tool_metadatas(&["get-weather"]));
+
+        assert!(state
+            .find_tool_name_collisions(&["delete-file".to_string()])
+            .is_empty());
+    }
+
+    #[test]
+    fn test_find_tool_name_collisions_reports_incumbent_component() {
+        let mut state = ComponentRegistryState::default();
+        state.register_tools_only("get-weather-js", tool_metadatas(&["get-weather"]));
+
+        let collisions = state
+            .find_tool_name_collisions(&["get-weather".to_string(), "unique-tool".to_string()]);
+
+        assert_eq!(
+            collisions,
+            vec![(
+                "get-weather".to_string(),
+                vec!["get-weather-js".to_string()]
+            )]
+        );
+    }
+
+    #[test]
+    fn test_find_tool_name_collisions_ignores_component_reloading_itself() {
+        let mut state = ComponentRegistryState::default();
+        let names = ["get-weather", "get-forecast"];
+        state.register_tools_only("get-weather-js", tool_metadatas(&names));
+
+        // A reload evicts the previous registration before re-registering.
+        state.unregister_tools("get-weather-js");
+
+        let incoming: Vec<String> = names.iter().map(|name| name.to_string()).collect();
+        assert!(state.find_tool_name_collisions(&incoming).is_empty());
+    }
+
+    #[test]
+    fn test_find_tool_name_collisions_reports_every_incumbent() {
+        let mut state = ComponentRegistryState::default();
+        state.register_tools_only("filesystem-rs", tool_metadatas(&["delete-file"]));
+        state.register_tools_only("github-js", tool_metadatas(&["delete-file"]));
+
+        let collisions = state.find_tool_name_collisions(&["delete-file".to_string()]);
+
+        assert_eq!(
+            collisions,
+            vec![(
+                "delete-file".to_string(),
+                vec!["filesystem-rs".to_string(), "github-js".to_string()]
+            )]
+        );
+    }
+
+    /// Collects formatted tracing output so a test can assert on emitted events.
+    #[derive(Clone, Default)]
+    struct CapturedLogs(Arc<std::sync::Mutex<Vec<u8>>>);
+
+    impl CapturedLogs {
+        fn contents(&self) -> String {
+            String::from_utf8(self.0.lock().unwrap().clone()).unwrap()
+        }
+    }
+
+    impl std::io::Write for CapturedLogs {
+        fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+            self.0.lock().unwrap().extend_from_slice(buf);
+            Ok(buf.len())
+        }
+
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+
+    impl<'a> tracing_subscriber::fmt::MakeWriter<'a> for CapturedLogs {
+        type Writer = Self;
+
+        fn make_writer(&'a self) -> Self::Writer {
+            self.clone()
+        }
+    }
+
+    #[test]
+    fn test_register_tools_only_warns_on_collision() {
+        let logs = CapturedLogs::default();
+        let subscriber = tracing_subscriber::fmt()
+            .with_ansi(false)
+            .with_max_level(tracing::Level::WARN)
+            .with_writer(logs.clone())
+            .finish();
+
+        tracing::subscriber::with_default(subscriber, || {
+            let mut state = ComponentRegistryState::default();
+            state.register_tools_only("get-weather-js", tool_metadatas(&["get-weather"]));
+            assert!(!logs.contents().contains("Tool name collision"));
+
+            state.register_tools_only(
+                "get-open-meteo-weather-js",
+                tool_metadatas(&["get-weather"]),
+            );
+        });
+
+        let captured = logs.contents();
+        assert!(captured.contains("Tool name collision"), "{captured}");
+        assert!(
+            captured.contains("component_id=get-open-meteo-weather-js"),
+            "{captured}"
+        );
+        assert!(captured.contains("tool_name=get-weather"), "{captured}");
+        assert!(
+            captured.contains("existing_components=get-weather-js"),
+            "{captured}"
+        );
     }
 }
