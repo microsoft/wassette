@@ -40,7 +40,11 @@ pub struct ComponentDeclaration {
 }
 
 /// Inline permission declarations (only mode supported in MVP)
+///
+/// Unknown keys are rejected so that a mistyped or misindented permission key
+/// fails loudly instead of being discarded into an empty declaration.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(deny_unknown_fields)]
 pub struct InlinePermissions {
     /// Network permissions
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -260,14 +264,14 @@ impl ComponentDeclaration {
 impl InlinePermissions {
     /// Validate inline permissions
     pub fn validate(&self) -> Result<()> {
-        // At least one permission type should be specified
-        if self.network.is_none()
-            && self.storage.is_none()
-            && self.environment.is_none()
-            && self.resources.is_none()
-        {
-            bail!("Inline permissions must specify at least one permission type (network, storage, environment, or resources)");
-        }
+        // An empty declaration (`permissions: {}`, or a bare `permissions:`, which YAML
+        // reads as null) is legal. It does not clear the component's capabilities:
+        // provisioning skips policy synthesis for it, so the component keeps whatever
+        // policy is already on disk,
+        // including one written by an earlier interactive grant or shipped by the artifact.
+        // `deny_unknown_fields` on the struct is what keeps a mistyped key from silently
+        // becoming an empty declaration, and the field stays required so that omitting
+        // `permissions:` entirely is still an error.
 
         // Validate network permissions
         if let Some(network) = &self.network {
@@ -456,7 +460,7 @@ components:
     }
 
     #[test]
-    fn test_empty_inline_permissions() {
+    fn test_empty_inline_permissions_is_valid() {
         let yaml = r#"
 version: 1
 components:
@@ -465,7 +469,105 @@ components:
 "#;
 
         let manifest = ProvisioningManifest::from_yaml(yaml).unwrap();
-        assert!(manifest.validate().is_err());
+        manifest.validate().unwrap();
+
+        let permissions = &manifest.components[0].permissions;
+        assert!(permissions.network.is_none());
+        assert!(permissions.storage.is_none());
+        assert!(permissions.environment.is_none());
+        assert!(permissions.resources.is_none());
+    }
+
+    #[test]
+    fn test_empty_inline_permissions_validate_directly() {
+        let permissions = InlinePermissions {
+            network: None,
+            storage: None,
+            environment: None,
+            resources: None,
+        };
+
+        permissions.validate().unwrap();
+    }
+
+    #[test]
+    fn test_bare_permissions_key_matches_empty_map() {
+        let yaml = r#"
+version: 1
+components:
+  - uri: oci://example.com/component:latest
+    permissions:
+"#;
+
+        let manifest = ProvisioningManifest::from_yaml(yaml)
+            .expect("a bare `permissions:` key is YAML null and parses as an empty declaration");
+        manifest.validate().unwrap();
+
+        let permissions = &manifest.components[0].permissions;
+        assert!(permissions.network.is_none());
+        assert!(permissions.storage.is_none());
+        assert!(permissions.environment.is_none());
+        assert!(permissions.resources.is_none());
+    }
+
+    #[test]
+    fn test_misspelled_permission_key_is_rejected() {
+        let yaml = r#"
+version: 1
+components:
+  - uri: oci://example.com/component:latest
+    permissions:
+      netwrok:
+        allow:
+          - host: api.example.com
+"#;
+
+        let error = ProvisioningManifest::from_yaml(yaml)
+            .expect_err("a misspelled permission key must fail to parse");
+        // Assert on the concepts rather than serde's exact phrasing, so that a
+        // reworded upstream message does not fail a test whose behaviour still holds.
+        let message = format!("{error:#}").to_lowercase();
+        assert!(
+            message.contains("unknown") && message.contains("netwrok"),
+            "expected an unknown-field error naming `netwrok`, got: {message}"
+        );
+    }
+
+    #[test]
+    fn test_misindented_allow_is_rejected() {
+        let yaml = r#"
+version: 1
+components:
+  - uri: oci://example.com/component:latest
+    permissions:
+      allow:
+        - host: api.example.com
+"#;
+
+        let error = ProvisioningManifest::from_yaml(yaml)
+            .expect_err("an `allow` key directly under `permissions` must fail to parse");
+        let message = format!("{error:#}").to_lowercase();
+        assert!(
+            message.contains("unknown") && message.contains("allow"),
+            "expected an unknown-field error naming `allow`, got: {message}"
+        );
+    }
+
+    #[test]
+    fn test_missing_permissions_field_is_parse_error() {
+        let yaml = r#"
+version: 1
+components:
+  - uri: oci://example.com/component:latest
+"#;
+
+        let error = ProvisioningManifest::from_yaml(yaml)
+            .expect_err("a component without a permissions field must fail to parse");
+        let message = format!("{error:#}").to_lowercase();
+        assert!(
+            message.contains("missing") && message.contains("permissions"),
+            "expected a missing-field error naming `permissions`, got: {message}"
+        );
     }
 
     #[test]
