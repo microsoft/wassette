@@ -132,8 +132,12 @@ jobs:
               echo "release_tag=$INPUT_TAG" >> $GITHUB_OUTPUT
             fi
           else
+            # A push to main. Publish the SHA tag and move :latest onto it, so a
+            # merged fix to examples/ reaches anyone loading them by the URIs in
+            # component-registry.json, which are all :latest and carry no version.
             echo "tag=$GITHUB_SHA" >> $GITHUB_OUTPUT
-            echo "latest=false" >> $GITHUB_OUTPUT
+            echo "latest=true" >> $GITHUB_OUTPUT
+            echo "release_tag=latest" >> $GITHUB_OUTPUT
           fi
       - name: Publish ${{ matrix.component.name }}
         id: publish_versioned
