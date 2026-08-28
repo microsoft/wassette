@@ -5,17 +5,14 @@ components:
     permissions:
       network:
         allow:
-          - host: api.openweathermap.com
+          - host: api.openweathermap.org
       environment:
         allow:
           - key: OPENWEATHER_API_KEY
 
-  - uri: oci://ghcr.io/microsoft/time-server:latest
+  - uri: oci://ghcr.io/microsoft/time-server-js:latest
     name: time-service
-    permissions:
-      network:
-        allow:
-          - host: worldtimeapi.org
+    permissions: {}
 
   - uri: oci://ghcr.io/microsoft/filesystem-rs:latest
     name: filesystem-service

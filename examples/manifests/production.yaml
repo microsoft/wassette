@@ -1,4 +1,5 @@
 version: 1
+# Replace the example version tags and digests with published values before use.
 components:
   - uri: oci://ghcr.io/microsoft/get-weather-js:1.2.3
     name: weather-service
@@ -6,16 +7,13 @@ components:
     permissions:
       network:
         allow:
-          - host: api.openweathermap.com
+          - host: api.openweathermap.org
       environment:
         allow:
           - key: OPENWEATHER_API_KEY
             value_from: OPENWEATHER_API_KEY
 
-  - uri: oci://ghcr.io/microsoft/time-server:2.0.1
+  - uri: oci://ghcr.io/microsoft/time-server-js:2.0.1
     name: time-service
     digest: sha256:fedcba0987654321fedcba0987654321fedcba0987654321fedcba0987654321
-    permissions:
-      network:
-        allow:
-          - host: worldtimeapi.org
+    permissions: {}

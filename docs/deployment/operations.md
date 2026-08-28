@@ -280,6 +280,9 @@ read-only tool set from every instance:
 wassette serve --streamable-http --manifest /etc/wassette/manifest.yaml --disable-builtin-tools
 ```
 
+See the [provisioning manifest reference](https://github.com/microsoft/wassette/blob/main/examples/manifests/README.md)
+for the format and complete examples.
+
 With `--disable-builtin-tools` the management plane (loading, unloading and
 permission grants) is rejected, so every instance keeps serving exactly the
 tools it was provisioned with and the instances stay equivalent.
