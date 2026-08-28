@@ -102,7 +102,7 @@ impl<'a> ProvisioningController<'a> {
         let mut report = ProvisioningReport::default();
 
         for (idx, component) in self.manifest.components.iter().enumerate() {
-            let component_name = component.name.as_deref().unwrap_or(&component.uri);
+            let component_name = component_label(component);
 
             tracing::info!(
                 "[{}/{}] Provisioning component: {}",
@@ -292,6 +292,18 @@ impl<'a> ProvisioningController<'a> {
     }
 }
 
+/// Label a component for logs and for the provisioning report.
+///
+/// `name` is optional and nothing rejects an empty one, so an empty name is treated as
+/// unset rather than rendered as a blank entry in a list of component names.
+fn component_label(component: &ComponentDeclaration) -> &str {
+    component
+        .name
+        .as_deref()
+        .filter(|name| !name.is_empty())
+        .unwrap_or(&component.uri)
+}
+
 /// Report whether the declaration carries permissions that synthesis can express.
 ///
 /// `resources` is deliberately excluded. It is deferred to post-MVP and
@@ -348,6 +360,29 @@ mod tests {
 
         // Cleanup
         std::env::remove_var("TEST_API_KEY");
+    }
+
+    fn declaration(name: Option<&str>) -> ComponentDeclaration {
+        ComponentDeclaration {
+            uri: "oci://example.com/test:latest".to_string(),
+            name: name.map(str::to_string),
+            digest: None,
+            permissions: InlinePermissions::default(),
+            retry_policy: None,
+        }
+    }
+
+    #[test]
+    fn component_label_falls_back_to_the_uri_when_the_name_is_absent_or_empty() {
+        assert_eq!(component_label(&declaration(Some("fetch"))), "fetch");
+        assert_eq!(
+            component_label(&declaration(None)),
+            "oci://example.com/test:latest"
+        );
+        assert_eq!(
+            component_label(&declaration(Some(""))),
+            "oci://example.com/test:latest"
+        );
     }
 
     #[test]
