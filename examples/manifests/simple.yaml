@@ -5,7 +5,7 @@ components:
     permissions:
       network:
         allow:
-          - host: api.openweathermap.com
+          - host: api.openweathermap.org
       environment:
         allow:
           - key: OPENWEATHER_API_KEY
