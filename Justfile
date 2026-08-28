@@ -21,6 +21,7 @@ test:
 build-mcp-inspector-components:
     just build-test-components
     (cd examples/time-server-js && npm ci && npm run build)
+    (cd examples/get-weather-js && npm ci && npm run build:component)
 
 # Release, not debug: loading the JavaScript fixture through a debug-built
 # Cranelift takes about 46s and exceeds the Inspector CLI request timeout, so a
