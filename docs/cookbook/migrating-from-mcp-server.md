@@ -88,7 +88,7 @@ await server.connect(transport);
 package local:weather;
 
 world weather-component {
-    import wasi:config/store@0.2.0-draft;
+    import wasi:config/store@0.2.0-rc.1;
     
     /// Get current weather for a city
     export get-weather: func(city: string) -> result<string, string>;
@@ -99,7 +99,7 @@ world weather-component {
 
 **weather.js:**
 ```javascript
-import { get } from "wasi:config/store@0.2.0-draft";
+import { get } from "wasi:config/store@0.2.0-rc.1";
 
 export async function getWeather(city) {
   const apiKey = await get("WEATHER_API_KEY");

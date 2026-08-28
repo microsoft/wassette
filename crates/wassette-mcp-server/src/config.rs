@@ -261,6 +261,30 @@ mod tests {
 
     use super::*;
 
+    /// Every environment variable `Config::new_from_path` reads.
+    ///
+    /// `WASSETTE_*` reaches it through `Env::prefixed`, and `PORT` and
+    /// `BIND_HOST` through `default_bind_address`.
+    const CONFIG_ENV_VARS: [&str; 7] = [
+        "WASSETTE_CONFIG_FILE",
+        "WASSETTE_COMPONENT_DIR",
+        "WASSETTE_ALLOWED_HOSTS",
+        "WASSETTE_LEGACY_SESSIONS",
+        "WASSETTE_JSON_RESPONSE",
+        "PORT",
+        "BIND_HOST",
+    ];
+
+    /// Runs `f` with those variables unset.
+    ///
+    /// `temp_env` serialises only against other `temp_env` callers, so a test
+    /// that reads the environment directly can run concurrently with one that
+    /// has set a variable, and observe it. Reading through this helper puts
+    /// every such test behind the same lock.
+    fn with_isolated_env<R>(f: impl FnOnce() -> R) -> R {
+        temp_env::with_vars_unset(CONFIG_ENV_VARS, f)
+    }
+
     #[allow(dead_code)]
     fn create_test_run_config() -> Run {
         Run {
@@ -478,8 +502,9 @@ mod tests {
         let non_existent_config = temp_dir.path().join("non_existent_config.toml");
 
         let serve_config = create_test_cli_config();
-        let config = Config::new_from_path(&serve_config, &non_existent_config)
-            .expect("Failed to create config");
+        let config =
+            with_isolated_env(|| Config::new_from_path(&serve_config, &non_existent_config))
+                .expect("Failed to create config");
 
         // Should use CLI config values since no config file exists
         assert_eq!(config.component_dir, PathBuf::from("/test/component/dir"));
@@ -496,8 +521,8 @@ component_dir = "/config/component/dir"
         fs::write(&config_file, toml_content).unwrap();
 
         let serve_config = create_test_cli_config();
-        let config =
-            Config::new_from_path(&serve_config, &config_file).expect("Failed to create config");
+        let config = with_isolated_env(|| Config::new_from_path(&serve_config, &config_file))
+            .expect("Failed to create config");
 
         assert_eq!(config.component_dir, PathBuf::from("/test/component/dir"));
     }
@@ -512,8 +537,9 @@ component_dir = "/config/component/dir"
 "#;
         fs::write(&config_file, toml_content).unwrap();
 
-        let config = Config::new_from_path(&empty_test_cli_config(), &config_file)
-            .expect("Failed to create config");
+        let config =
+            with_isolated_env(|| Config::new_from_path(&empty_test_cli_config(), &config_file))
+                .expect("Failed to create config");
 
         assert_eq!(config.component_dir, PathBuf::from("/config/component/dir"));
     }
@@ -524,8 +550,9 @@ component_dir = "/config/component/dir"
         let non_existent_config = temp_dir.path().join("non_existent_config.toml");
 
         let serve_config = create_test_cli_config();
-        let config = Config::new_from_path(&serve_config, &non_existent_config)
-            .expect("Failed to create config");
+        let config =
+            with_isolated_env(|| Config::new_from_path(&serve_config, &non_existent_config))
+                .expect("Failed to create config");
 
         // Should use CLI config values as defaults
         assert_eq!(config.component_dir, PathBuf::from("/test/component/dir"));
@@ -542,8 +569,9 @@ component_dir = "/config/component/dir"
 "#;
         fs::write(&config_file, toml_content).unwrap();
 
-        let config = Config::new_from_path(&empty_test_cli_config(), &config_file)
-            .expect("Failed to create config");
+        let config =
+            with_isolated_env(|| Config::new_from_path(&empty_test_cli_config(), &config_file))
+                .expect("Failed to create config");
 
         // component_dir should come from config file
         assert_eq!(config.component_dir, PathBuf::from("/config/component/dir"));
@@ -579,7 +607,7 @@ policy_file = unclosed_string"
         fs::write(&config_file, invalid_toml).unwrap();
 
         let serve_config = create_test_cli_config();
-        let result = Config::new_from_path(&serve_config, &config_file);
+        let result = with_isolated_env(|| Config::new_from_path(&serve_config, &config_file));
 
         // Should return an error due to invalid TOML
         assert!(result.is_err());
@@ -596,11 +624,14 @@ policy_file = "custom_policy.yaml"
 "#;
         fs::write(&config_file, toml_content).unwrap();
 
-        // Use temp_env to serialize access to the shared WASSETTE_CONFIG_FILE
-        // environment variable, preventing races with other tests.
-        temp_env::with_var(
-            "WASSETTE_CONFIG_FILE",
-            Some(config_file.to_str().unwrap()),
+        // Serialize access to the shared environment. WASSETTE_COMPONENT_DIR has
+        // higher precedence than the config file, so it has to be unset here or an
+        // ambient value decides the assertion below.
+        temp_env::with_vars(
+            [
+                ("WASSETTE_CONFIG_FILE", Some(config_file.to_str().unwrap())),
+                ("WASSETTE_COMPONENT_DIR", None),
+            ],
             || {
                 let config =
                     Config::new(&empty_test_cli_config()).expect("Failed to create config");
@@ -667,8 +698,8 @@ bind_address = "0.0.0.0:8080"
             json_response: None,
         };
 
-        let config =
-            Config::new_from_path(&serve_config, &config_file).expect("Failed to create config");
+        let config = with_isolated_env(|| Config::new_from_path(&serve_config, &config_file))
+            .expect("Failed to create config");
 
         // CLI value should take precedence
         assert_eq!(config.bind_address, "192.168.1.100:9090");
@@ -911,8 +942,10 @@ bind_address = "0.0.0.0:8080"
         let temp_dir = TempDir::new().unwrap();
         let non_existent_config = temp_dir.path().join("non_existent_config.toml");
 
-        let config = Config::new_from_path(&empty_test_cli_config(), &non_existent_config)
-            .expect("Failed to create config");
+        let config = with_isolated_env(|| {
+            Config::new_from_path(&empty_test_cli_config(), &non_existent_config)
+        })
+        .expect("Failed to create config");
 
         // Legacy clients keep their session lifecycle unless an operator opts out.
         assert!(config.legacy_sessions);
@@ -930,8 +963,9 @@ json_response = true
 "#;
         fs::write(&config_file, toml_content).unwrap();
 
-        let config = Config::new_from_path(&empty_test_cli_config(), &config_file)
-            .expect("Failed to create config");
+        let config =
+            with_isolated_env(|| Config::new_from_path(&empty_test_cli_config(), &config_file))
+                .expect("Failed to create config");
 
         assert!(!config.legacy_sessions);
         assert!(config.json_response);
@@ -981,8 +1015,8 @@ json_response = true
             json_response: Some(false),
         };
 
-        let config =
-            Config::new_from_path(&serve_config, &config_file).expect("Failed to create config");
+        let config = with_isolated_env(|| Config::new_from_path(&serve_config, &config_file))
+            .expect("Failed to create config");
 
         // CLI values should take precedence over the config file
         assert!(config.legacy_sessions);

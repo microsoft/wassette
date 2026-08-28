@@ -15,6 +15,11 @@ FIXTURE_PORT="${FIXTURE_PORT:-}"
 FETCH_COMPONENT="${FETCH_COMPONENT:-$REPO_ROOT/examples/fetch-rs/target/wasm32-wasip2/release/fetch_rs.wasm}"
 FILESYSTEM_COMPONENT="${FILESYSTEM_COMPONENT:-$REPO_ROOT/examples/filesystem-rs/target/wasm32-wasip2/release/filesystem.wasm}"
 TIME_COMPONENT="${TIME_COMPONENT:-$REPO_ROOT/examples/time-server-js/time.wasm}"
+# time-server-js declares no imports, so it proves the jco path works but never
+# touches a host interface. get-weather-js imports wasi:config/store, which is
+# only satisfied at `Linker::instantiate_pre`, so loading it is what catches a
+# component and runtime drifting onto different wasi:config versions.
+WEATHER_COMPONENT="${WEATHER_COMPONENT:-$REPO_ROOT/examples/get-weather-js/weather.wasm}"
 
 TMP_DIR="$(mktemp -d "${TMPDIR:-/tmp}/wassette-inspector.XXXXXX")"
 INSPECTOR_CONFIG="$TMP_DIR/mcp-inspector.json"
@@ -77,7 +82,8 @@ if (major < 22 || (major === 22 && minor < 19)) {
 }
 '
 
-for path in "$INSPECTOR_CONFIG_SOURCE" "$WASSETTE_BIN" "$FETCH_COMPONENT" "$FILESYSTEM_COMPONENT" "$TIME_COMPONENT"; do
+for path in "$INSPECTOR_CONFIG_SOURCE" "$WASSETTE_BIN" "$FETCH_COMPONENT" "$FILESYSTEM_COMPONENT" \
+    "$TIME_COMPONENT" "$WEATHER_COMPONENT"; do
     if [[ ! -e "$path" ]]; then
         echo "error: required test artifact does not exist: $path" >&2
         exit 1
@@ -96,6 +102,7 @@ PY
 FETCH_COMPONENT_URI="$(path_to_file_uri "$FETCH_COMPONENT")"
 FILESYSTEM_COMPONENT_URI="$(path_to_file_uri "$FILESYSTEM_COMPONENT")"
 TIME_COMPONENT_URI="$(path_to_file_uri "$TIME_COMPONENT")"
+WEATHER_COMPONENT_URI="$(path_to_file_uri "$WEATHER_COMPONENT")"
 
 read -r WASSETTE_PORT FIXTURE_PORT < <(
     python3 - "$WASSETTE_PORT" "$FIXTURE_PORT" <<'PY'
@@ -288,6 +295,23 @@ time_tool="$(jq -r '.result.content[0].text | fromjson | .tools[0]' <<<"$time_lo
 [[ "$filesystem_id" == "filesystem" ]]
 [[ -n "$time_id" && "$time_id" != "null" ]]
 [[ -n "$time_tool" && "$time_tool" != "null" ]]
+
+echo "Loading a component that imports wasi:config to catch host interface drift"
+# Loading is the whole assertion here. `wasi:config/store` is resolved when the
+# component is linked, so a component built against a different version of the
+# interface than the one the runtime adds to the linker fails to load with
+# "a matching implementation was not found in the linker". Calling get-weather
+# would need a real API key and is deliberately not attempted.
+weather_load="$(call_tool wassette-modern load-component "$(jq -cn --arg path "$WEATHER_COMPONENT_URI" '{path: $path}')")"
+assert_tool_call_succeeded <<<"$weather_load"
+weather_id="$(jq -r '.result.content[0].text | fromjson | .id' <<<"$weather_load")"
+[[ -n "$weather_id" && "$weather_id" != "null" ]]
+
+# Unload it again so the component-count assertions further down keep describing
+# the three long-lived components, and so the `--disable-builtin-tools` server
+# later inherits the same component directory it always did.
+call_tool wassette-modern unload-component "$(jq -cn --arg id "$weather_id" '{id: $id}')" \
+    | assert_tool_call_succeeded
 
 for server in wassette-modern wassette-legacy; do
     tools="$(inspector "$server" --method tools/list)"
