@@ -104,9 +104,25 @@ sequenceDiagram
 
 ### Function Naming
 
-Wassette converts WIT interface names into tool names by replacing colons and slashes with underscores. For example:
+How a function is exported determines its tool name.
+
+A function exported directly from a world has no enclosing interface, so it
+becomes a tool under its own unqualified name. For example, a world that
+declares `export get-weather: func(city: string) -> result<string, string>;`
+registers the tool `get-weather`.
+
+A function exported through an interface is qualified by that interface's full
+name. Wassette normalizes the name by lowercasing it and replacing colons,
+slashes, and dots with underscores; hyphens are preserved. For example:
 - WIT: `example:weather/weather-api#get-weather`
-- Tool name: `example_weather_weather_api_get_weather`
+- Tool name: `example_weather_weather-api_get-weather`
+
+The tool namespace is flat and global across every loaded component; it is not
+scoped per component. If two loaded components export the same tool name — as
+two world-level `get-weather` exports would — both are registered under that
+name, and Wassette logs a warning when the second one is registered. Calling
+the tool then fails with an error naming both components. Unload one of them to
+make the tool callable again.
 
 ## Policy and Capability Model
 
