@@ -214,8 +214,17 @@ async fn test_serve_manifest_attaches_declared_policy() -> Result<()> {
     Ok(())
 }
 
-#[test(tokio::test)]
-async fn test_serve_manifest_resources_only_preserves_existing_policy() -> Result<()> {
+/// Shared body for the manifest provisioning regression tests.
+///
+/// Loads the fetch component, grants it a network permission interactively, then
+/// starts `serve --manifest` with a manifest whose permissions block synthesises
+/// no policy, and asserts that the interactive grant survived provisioning.
+/// `permissions_block` is the indented `permissions:` mapping for the single
+/// component entry, including its trailing newline.
+async fn assert_manifest_preserves_existing_policy(
+    permissions_block: &str,
+    granted_host: &str,
+) -> Result<()> {
     let ctx = CliTestContext::new().await?;
     let component_path = build_fetch_component().await?;
     let (stdout, stderr, exit_code) = ctx
@@ -229,7 +238,6 @@ async fn test_serve_manifest_resources_only_preserves_existing_policy() -> Resul
 
     let load_output: Value = ctx.parse_json_output(&stdout)?;
     let component_id = load_output["id"].as_str().context("Missing component ID")?;
-    let granted_host = "preserved.example.com";
     let (_, stderr, exit_code) = ctx
         .run_command(&["permission", "grant", "network", component_id, granted_host])
         .await?;
@@ -248,7 +256,7 @@ async fn test_serve_manifest_resources_only_preserves_existing_policy() -> Resul
     tokio::fs::write(
         &manifest_path,
         format!(
-            "version: 1\ncomponents:\n  - uri: file://{}\n    permissions:\n      resources:\n        memory_bytes: 67108864\n",
+            "version: 1\ncomponents:\n  - uri: file://{}\n{permissions_block}",
             component_path.display()
         ),
     )
@@ -274,7 +282,9 @@ async fn test_serve_manifest_resources_only_preserves_existing_policy() -> Resul
     let deadline = tokio::time::Instant::now() + Duration::from_secs(30);
     loop {
         if let Some(status) = child.try_wait()? {
-            anyhow::bail!("wassette serve exited before becoming ready: {status}");
+            anyhow::bail!(
+                "wassette serve exited before becoming ready with permissions block {permissions_block:?}: {status}"
+            );
         }
         if TcpStream::connect(bind_address).await.is_ok() {
             break;
@@ -295,6 +305,24 @@ async fn test_serve_manifest_resources_only_preserves_existing_policy() -> Resul
     );
 
     Ok(())
+}
+
+#[test(tokio::test)]
+async fn test_serve_manifest_resources_only_preserves_existing_policy() -> Result<()> {
+    assert_manifest_preserves_existing_policy(
+        "    permissions:\n      resources:\n        memory_bytes: 67108864\n",
+        "preserved.example.com",
+    )
+    .await
+}
+
+#[test(tokio::test)]
+async fn test_serve_manifest_empty_permissions_preserves_existing_policy() -> Result<()> {
+    assert_manifest_preserves_existing_policy(
+        "    permissions: {}\n",
+        "preserved-empty.example.com",
+    )
+    .await
 }
 
 #[test(tokio::test)]

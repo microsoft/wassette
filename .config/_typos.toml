@@ -12,3 +12,6 @@ extend-exclude = [
 Wass = "Wass"
 # CSS variable name in docs/theme/toc.css
 existant = "existant"
+# Deliberate misspelling of `network`, used by a manifest validation test to prove
+# that an unknown permission key is rejected rather than silently discarded.
+netwrok = "netwrok"
