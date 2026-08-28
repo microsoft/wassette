@@ -21,14 +21,24 @@ async fn find_open_port() -> Result<u16> {
     Ok(listener.local_addr()?.port())
 }
 
-async fn wait_until_listening(port: u16) -> Result<()> {
-    for _ in 0..100 {
+/// Wait for the transport to bind, or for the server to give up first.
+///
+/// Provisioning compiles every component it loads before the transport binds, so
+/// the budget has to cover a cold compile on a busy machine rather than a warm one.
+async fn wait_until_listening(port: u16, child: &mut Child) -> Result<()> {
+    for _ in 0..300 {
         if TcpStream::connect(("127.0.0.1", port)).await.is_ok() {
             return Ok(());
         }
-        tokio::time::sleep(Duration::from_millis(100)).await;
+        if let Some(status) = child
+            .try_wait()
+            .context("failed to poll the wassette process")?
+        {
+            bail!("wassette exited with {status} before listening on 127.0.0.1:{port}");
+        }
+        tokio::time::sleep(Duration::from_millis(200)).await;
     }
-    bail!("wassette did not start listening on 127.0.0.1:{port}")
+    bail!("wassette did not start listening on 127.0.0.1:{port} within 60s")
 }
 
 struct ServerGuard(Child);
@@ -116,7 +126,7 @@ async fn continue_on_provisioning_failure_serves_the_components_that_loaded() ->
     let manifest = write_mixed_manifest(temp_dir.path(), &component_path).await?;
 
     let port = find_open_port().await?;
-    let _server = ServerGuard(spawn_server(
+    let mut server = ServerGuard(spawn_server(
         port,
         temp_dir.path(),
         &[
@@ -125,7 +135,7 @@ async fn continue_on_provisioning_failure_serves_the_components_that_loaded() ->
             "--continue-on-provisioning-failure",
         ],
     )?);
-    wait_until_listening(port).await?;
+    wait_until_listening(port, &mut server.0).await?;
 
     let client = reqwest::Client::new();
     let response = client
