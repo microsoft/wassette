@@ -6,7 +6,7 @@ package microsoft:github-js@0.1.0;
 /// including repository management, issues, pull requests, workflows, and more.
 /// All functions return JSON-encoded results or error messages.
 world github-js {
-    import wasi:config/store@0.2.0-draft;
+    import wasi:config/store@0.2.0-rc.1;
 
     // Repository operations
 

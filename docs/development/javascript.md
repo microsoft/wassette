@@ -406,14 +406,14 @@ Access environment variables and configuration:
 **WIT:**
 ```wit
 world my-component {
-    import wasi:config/store@0.2.0-draft;
+    import wasi:config/store@0.2.0-rc.1;
     export process-config: func() -> result<string, string>;
 }
 ```
 
 **JavaScript:**
 ```javascript
-import { get } from "wasi:config/store@0.2.0-draft";
+import { get } from "wasi:config/store@0.2.0-rc.1";
 
 export async function processConfig() {
     try {
@@ -468,33 +468,50 @@ export async function processFile(filename) {
 
 Create a `wit/deps` directory for external interface definitions. For example, to use WASI configuration:
 
-1. Create `wit/deps/wasi-config-0.2.0-draft/package.wit`:
+1. Create `wit/deps/wasi-config-0.2.0-rc.1/store.wit`:
 
 ```wit
-package wasi:config@0.2.0-draft;
-
 interface store {
-  variant config-error {
-    upstream(string),
-    io(string),
-  }
+    /// An error type that encapsulates the different errors that can occur fetching configuration values.
+    variant error {
+        /// This indicates an error from an "upstream" config source.
+        upstream(string),
+        /// This indicates an error from an I/O operation.
+        io(string),
+    }
 
-  get: func(key: string) -> result<option<string>, config-error>;
-  get-all: func() -> result<list<tuple<string, string>>, config-error>;
-}
+    /// Gets a configuration value of type `string` associated with the `key`.
+    get: func(key: string) -> result<option<string>, error>;
 
-world imports {
-  import store;
+    /// Gets a list of configuration key-value pairs of type `string`.
+    get-all: func() -> result<list<tuple<string, string>>, error>;
 }
 ```
 
-2. Import in your main WIT file:
+2. Create `wit/deps/wasi-config-0.2.0-rc.1/world.wit`:
+
+```wit
+package wasi:config@0.2.0-rc.1;
+
+world imports {
+    /// The interface for wasi:config/store
+    import store;
+}
+```
+
+> **Note**: The interface must match the version of `wasi:config` that the
+> Wassette runtime links. Wassette links `0.2.0-rc.1`; the older `0.2.0-draft`
+> package is not interchangeable with it: it names the error variant
+> `config-error` instead of `error`, so a component built against the draft
+> fails to instantiate with `instance export "get" has the wrong type`.
+
+3. Import in your main WIT file:
 
 ```wit
 package local:my-component;
 
 world my-component {
-    import wasi:config/store@0.2.0-draft;
+    import wasi:config/store@0.2.0-rc.1;
     export process: func() -> result<string, string>;
 }
 ```
@@ -747,14 +764,14 @@ export const time = {
 package local:weather;
 
 world weather-service {
-    import wasi:config/store@0.2.0-draft;
+    import wasi:config/store@0.2.0-rc.1;
     export get-weather: func(city: string) -> result<string, string>;
 }
 ```
 
 **main.js:**
 ```javascript
-import { get } from "wasi:config/store@0.2.0-draft";
+import { get } from "wasi:config/store@0.2.0-rc.1";
 
 export async function getWeather(city) {
     try {

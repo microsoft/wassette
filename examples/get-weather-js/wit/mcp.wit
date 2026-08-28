@@ -2,7 +2,7 @@ package microsoft:get-weather-js@0.1.0;
 
 /// Weather information services
 world get-weather-js {
-    import wasi:config/store@0.2.0-draft;
+    import wasi:config/store@0.2.0-rc.1;
     
     /// Get current weather information for a specified city
     export get-weather: func(city: string) -> result<string, string>;

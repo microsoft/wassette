@@ -1,7 +1,7 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT license.
 
-import { get } from "wasi:config/store@0.2.0-draft";
+import { get } from "wasi:config/store@0.2.0-rc.1";
 
 // Helper function to get GitHub token
 async function getGitHubToken() {
