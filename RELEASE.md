@@ -293,19 +293,21 @@ The [`examples.yml`](.github/workflows/examples.yml) workflow automatically publ
 - A pull request targeting the `main` branch modifies files in the `examples/**` directory (build only, no publish)
 - The release workflow dispatches it with a version tag after publishing the binaries
 
-**Published examples include:**
+**Published examples** (the `publish` matrix in `examples.yml`):
+- `arxiv-rs` - arXiv paper search in Rust
+- `brave-search-rs` - Web search using Brave Search API
 - `eval-py` - Python expression evaluator
 - `fetch-rs` - HTTP fetch example in Rust
 - `filesystem-rs` - Filesystem operations in Rust
+- `get-open-meteo-weather-js` - Weather data via Open-Meteo API (no API key required)
 - `get-weather-js` - Weather API example in JavaScript using OpenWeather API
+- `github-js` - GitHub API client in JavaScript
 - `gomodule-go` - Go module information tool
 - `memory-js` - Knowledge graph memory server in JavaScript
 - `time-server-js` - Time server example in JavaScript
 
-**Additional examples in repository (not yet published to OCI registry):**
-- `brave-search-rs` - Web search using Brave Search API
+**Additional examples in repository (not published to OCI registry):**
 - `context7-rs` - Search libraries and fetch documentation via Context7 API
-- `get-open-meteo-weather-js` - Weather data via Open-Meteo API (no API key required)
 
 **What the workflow does:**
 1. Builds all example components using `just build-examples`
@@ -314,6 +316,16 @@ The [`examples.yml`](.github/workflows/examples.yml) workflow automatically publ
    - The commit SHA (e.g., `abc1234`)
    - The `latest` tag for main branch pushes
 4. Signs all published images using Cosign
+
+Because `component-registry.json` and the documentation reference examples by
+`:latest` with no version, moving that tag on a push to `main` is what makes a
+merged change to `examples/**` reach anyone loading them. Publishing only the
+commit SHA would leave the registry pointing at the previous build.
+
+Pre-releases are excluded. The `publish-examples` job in `release.yml` skips a
+version containing `-`, and the `publish` job here skips a dispatch whose `tag`
+input contains `-`, so a run dispatched with something like `v0.4.0-rc1` builds
+the examples and publishes nothing.
 
 ### Manual Release of Example Components
 
