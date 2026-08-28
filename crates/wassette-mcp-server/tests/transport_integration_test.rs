@@ -25,7 +25,7 @@ use tokio::time::sleep;
 use wassette::LifecycleManager;
 
 mod common;
-use common::build_fetch_component;
+use common::{build_fetch_component, shutdown_child};
 
 const DOCKER_REGISTRY_PORT: u16 = 5000;
 
@@ -627,8 +627,7 @@ async fn test_stdio_transport() -> Result<()> {
     assert!(tool_names.contains(&"load-component".to_string()));
     assert!(tool_names.contains(&"unload-component".to_string()));
 
-    // Clean up
-    child.kill().await.ok();
+    shutdown_child(&mut child).await?;
 
     Ok(())
 }
@@ -860,8 +859,7 @@ async fn test_tool_list_notification() -> Result<()> {
     );
     println!("✓ New tools from loaded component are present in the list");
 
-    // Clean up
-    child.kill().await.ok();
+    shutdown_child(&mut child).await?;
 
     Ok(())
 }
@@ -911,8 +909,7 @@ async fn test_http_transport() -> Result<()> {
 
     assert_eq!(response.status(), reqwest::StatusCode::OK);
 
-    // Clean up
-    child.kill().await.ok();
+    shutdown_child(&mut child).await?;
 
     Ok(())
 }
@@ -978,8 +975,7 @@ async fn test_default_stdio_transport() -> Result<()> {
     assert_eq!(response["id"], 1);
     assert!(response["result"].is_object());
 
-    // Clean up
-    child.kill().await.ok();
+    shutdown_child(&mut child).await?;
 
     Ok(())
 }
@@ -1171,8 +1167,7 @@ async fn test_disable_builtin_tools() -> Result<()> {
         "Tool call should have failed"
     );
 
-    // Clean up
-    child.kill().await.ok();
+    shutdown_child(&mut child).await?;
 
     Ok(())
 }

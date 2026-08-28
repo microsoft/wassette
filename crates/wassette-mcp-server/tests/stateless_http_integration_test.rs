@@ -21,6 +21,9 @@ use serde_json::{json, Value};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::process::{Child, Command};
 
+mod common;
+use common::shutdown_child;
+
 /// The protocol revision that removed sessions and added the mirrored headers.
 const STATELESS_VERSION: &str = "2026-07-28";
 
@@ -44,11 +47,24 @@ async fn wait_until_listening(port: u16) -> Result<()> {
     bail!("wassette did not start listening on 127.0.0.1:{port}")
 }
 
-struct ServerGuard(Child);
+struct ServerGuard {
+    child: Child,
+    shutdown_complete: bool,
+}
+
+impl ServerGuard {
+    async fn shutdown(mut self) -> Result<()> {
+        shutdown_child(&mut self.child).await?;
+        self.shutdown_complete = true;
+        Ok(())
+    }
+}
 
 impl Drop for ServerGuard {
     fn drop(&mut self) {
-        let _ = self.0.start_kill();
+        if !self.shutdown_complete {
+            let _ = self.child.start_kill();
+        }
     }
 }
 
@@ -72,7 +88,10 @@ async fn spawn_server(port: u16, component_dir: &Path, extra_args: &[&str]) -> R
         .stderr(Stdio::null())
         .spawn()
         .context("failed to spawn `wassette serve --streamable-http`")?;
-    Ok(ServerGuard(child))
+    Ok(ServerGuard {
+        child,
+        shutdown_complete: false,
+    })
 }
 
 fn mcp_url(port: u16) -> String {
@@ -159,7 +178,7 @@ async fn read_json_rpc(response: reqwest::Response) -> Result<Value> {
 async fn stateless_tools_list_needs_no_initialize() -> Result<()> {
     let port = find_open_port().await?;
     let temp_dir = tempfile::tempdir()?;
-    let _server = spawn_server(port, temp_dir.path(), &[]).await?;
+    let server = spawn_server(port, temp_dir.path(), &[]).await?;
     wait_until_listening(port).await?;
 
     let client = reqwest::Client::new();
@@ -196,6 +215,7 @@ async fn stateless_tools_list_needs_no_initialize() -> Result<()> {
         "builtin tools should be listed, got: {tools:?}"
     );
 
+    server.shutdown().await?;
     Ok(())
 }
 
@@ -204,7 +224,7 @@ async fn stateless_tools_list_needs_no_initialize() -> Result<()> {
 async fn stateless_cacheable_lists_include_cache_hints() -> Result<()> {
     let port = find_open_port().await?;
     let temp_dir = tempfile::tempdir()?;
-    let _server = spawn_server(port, temp_dir.path(), &[]).await?;
+    let server = spawn_server(port, temp_dir.path(), &[]).await?;
     wait_until_listening(port).await?;
 
     let client = reqwest::Client::new();
@@ -246,6 +266,7 @@ async fn stateless_cacheable_lists_include_cache_hints() -> Result<()> {
         );
     }
 
+    server.shutdown().await?;
     Ok(())
 }
 
@@ -256,7 +277,7 @@ async fn stateless_cacheable_lists_include_cache_hints() -> Result<()> {
 async fn legacy_cacheable_lists_omit_cache_hints() -> Result<()> {
     let port = find_open_port().await?;
     let temp_dir = tempfile::tempdir()?;
-    let _server = spawn_server(port, temp_dir.path(), &[]).await?;
+    let server = spawn_server(port, temp_dir.path(), &[]).await?;
     wait_until_listening(port).await?;
 
     let client = reqwest::Client::new();
@@ -340,6 +361,7 @@ async fn legacy_cacheable_lists_omit_cache_hints() -> Result<()> {
         );
     }
 
+    server.shutdown().await?;
     Ok(())
 }
 
@@ -351,7 +373,7 @@ async fn legacy_cacheable_lists_omit_cache_hints() -> Result<()> {
 async fn stateless_header_body_mismatch_is_rejected() -> Result<()> {
     let port = find_open_port().await?;
     let temp_dir = tempfile::tempdir()?;
-    let _server = spawn_server(port, temp_dir.path(), &[]).await?;
+    let server = spawn_server(port, temp_dir.path(), &[]).await?;
     wait_until_listening(port).await?;
 
     let client = reqwest::Client::new();
@@ -379,6 +401,7 @@ async fn stateless_header_body_mismatch_is_rejected() -> Result<()> {
         "a header mismatch must report HeaderMismatch (-32020), got: {message}"
     );
 
+    server.shutdown().await?;
     Ok(())
 }
 
@@ -387,7 +410,7 @@ async fn stateless_header_body_mismatch_is_rejected() -> Result<()> {
 async fn stateless_missing_method_header_is_rejected() -> Result<()> {
     let port = find_open_port().await?;
     let temp_dir = tempfile::tempdir()?;
-    let _server = spawn_server(port, temp_dir.path(), &[]).await?;
+    let server = spawn_server(port, temp_dir.path(), &[]).await?;
     wait_until_listening(port).await?;
 
     let client = reqwest::Client::new();
@@ -417,6 +440,7 @@ async fn stateless_missing_method_header_is_rejected() -> Result<()> {
         "a missing standard header must report HeaderMismatch (-32020), got: {message}"
     );
 
+    server.shutdown().await?;
     Ok(())
 }
 
@@ -425,7 +449,7 @@ async fn stateless_missing_method_header_is_rejected() -> Result<()> {
 async fn stateless_tools_call_round_trips() -> Result<()> {
     let port = find_open_port().await?;
     let temp_dir = tempfile::tempdir()?;
-    let _server = spawn_server(port, temp_dir.path(), &[]).await?;
+    let server = spawn_server(port, temp_dir.path(), &[]).await?;
     wait_until_listening(port).await?;
 
     let client = reqwest::Client::new();
@@ -453,6 +477,7 @@ async fn stateless_tools_call_round_trips() -> Result<()> {
         "stateless tools/call returned an error: {message}"
     );
 
+    server.shutdown().await?;
     Ok(())
 }
 
@@ -464,7 +489,7 @@ async fn stateless_tools_call_round_trips() -> Result<()> {
 async fn legacy_initialize_still_issues_a_session() -> Result<()> {
     let port = find_open_port().await?;
     let temp_dir = tempfile::tempdir()?;
-    let _server = spawn_server(port, temp_dir.path(), &[]).await?;
+    let server = spawn_server(port, temp_dir.path(), &[]).await?;
     wait_until_listening(port).await?;
 
     let client = reqwest::Client::new();
@@ -491,6 +516,7 @@ async fn legacy_initialize_still_issues_a_session() -> Result<()> {
         "a legacy initialize must still mint a session id"
     );
 
+    server.shutdown().await?;
     Ok(())
 }
 
@@ -528,6 +554,23 @@ async fn open_subscription(client: &reqwest::Client, port: u16) -> Result<reqwes
         );
     }
     Ok(response)
+}
+
+/// SIGTERM completes successfully while a stateless subscription remains open.
+#[cfg(unix)]
+#[tokio::test]
+async fn sigterm_closes_open_stateless_subscription() -> Result<()> {
+    let port = find_open_port().await?;
+    let temp_dir = tempfile::tempdir()?;
+    let server = spawn_server(port, temp_dir.path(), &[]).await?;
+    wait_until_listening(port).await?;
+
+    let client = reqwest::Client::new();
+    let subscription = open_subscription(&client, port).await?;
+
+    server.shutdown().await?;
+    drop(subscription);
+    Ok(())
 }
 
 /// Read SSE `data:` payloads until one satisfies `predicate`, or time out.
@@ -574,7 +617,7 @@ async fn wait_for_sse_message(
 async fn stateless_subscription_receives_tool_list_changed() -> Result<()> {
     let port = find_open_port().await?;
     let temp_dir = tempfile::tempdir()?;
-    let _server = spawn_server(port, temp_dir.path(), &[]).await?;
+    let server = spawn_server(port, temp_dir.path(), &[]).await?;
     wait_until_listening(port).await?;
 
     let client = reqwest::Client::new();
@@ -614,6 +657,7 @@ async fn stateless_subscription_receives_tool_list_changed() -> Result<()> {
         "the subscription stream must carry the tool list change: {notification}"
     );
 
+    server.shutdown().await?;
     Ok(())
 }
 
@@ -624,7 +668,7 @@ async fn stateless_subscription_receives_tool_list_changed() -> Result<()> {
 async fn stateless_subscription_receives_tool_list_changed_after_unload() -> Result<()> {
     let port = find_open_port().await?;
     let temp_dir = tempfile::tempdir()?;
-    let _server = spawn_server(port, temp_dir.path(), &[]).await?;
+    let server = spawn_server(port, temp_dir.path(), &[]).await?;
     wait_until_listening(port).await?;
 
     let client = reqwest::Client::new();
@@ -685,6 +729,7 @@ async fn stateless_subscription_receives_tool_list_changed_after_unload() -> Res
         "unloading must invalidate subscribed tool lists: {notification}"
     );
 
+    server.shutdown().await?;
     Ok(())
 }
 
@@ -695,7 +740,7 @@ async fn stateless_subscription_receives_tool_list_changed_after_unload() -> Res
 async fn stateless_subscription_is_silent_for_non_mutating_tool() -> Result<()> {
     let port = find_open_port().await?;
     let temp_dir = tempfile::tempdir()?;
-    let _server = spawn_server(port, temp_dir.path(), &[]).await?;
+    let server = spawn_server(port, temp_dir.path(), &[]).await?;
     wait_until_listening(port).await?;
 
     let client = reqwest::Client::new();
@@ -732,6 +777,7 @@ async fn stateless_subscription_is_silent_for_non_mutating_tool() -> Result<()> 
         "a non-mutating tool must not broadcast tools/list_changed: {notification:?}"
     );
 
+    server.shutdown().await?;
     Ok(())
 }
 
@@ -745,7 +791,7 @@ async fn stateless_subscription_is_silent_for_non_mutating_tool() -> Result<()> 
 async fn stateless_subscription_is_silent_when_load_fails() -> Result<()> {
     let port = find_open_port().await?;
     let temp_dir = tempfile::tempdir()?;
-    let _server = spawn_server(port, temp_dir.path(), &[]).await?;
+    let server = spawn_server(port, temp_dir.path(), &[]).await?;
     wait_until_listening(port).await?;
 
     let client = reqwest::Client::new();
@@ -784,6 +830,7 @@ async fn stateless_subscription_is_silent_when_load_fails() -> Result<()> {
         "a failed load-component must not broadcast tools/list_changed: {notification:?}"
     );
 
+    server.shutdown().await?;
     Ok(())
 }
 
@@ -792,7 +839,7 @@ async fn stateless_subscription_is_silent_when_load_fails() -> Result<()> {
 async fn json_response_returns_plain_json() -> Result<()> {
     let port = find_open_port().await?;
     let temp_dir = tempfile::tempdir()?;
-    let _server = spawn_server(port, temp_dir.path(), &["--json-response"]).await?;
+    let server = spawn_server(port, temp_dir.path(), &["--json-response"]).await?;
     wait_until_listening(port).await?;
 
     let client = reqwest::Client::new();
@@ -827,6 +874,7 @@ async fn json_response_returns_plain_json() -> Result<()> {
         "the JSON body should still carry the tool list: {message}"
     );
 
+    server.shutdown().await?;
     Ok(())
 }
 
@@ -838,7 +886,7 @@ async fn json_response_returns_plain_json() -> Result<()> {
 async fn legacy_sessions_disabled_removes_the_session_lifecycle() -> Result<()> {
     let port = find_open_port().await?;
     let temp_dir = tempfile::tempdir()?;
-    let _server = spawn_server(port, temp_dir.path(), &["--legacy-sessions=false"]).await?;
+    let server = spawn_server(port, temp_dir.path(), &["--legacy-sessions=false"]).await?;
     wait_until_listening(port).await?;
 
     let client = reqwest::Client::new();
@@ -885,5 +933,6 @@ async fn legacy_sessions_disabled_removes_the_session_lifecycle() -> Result<()> 
         "DELETE /mcp must not terminate a session once legacy sessions are off"
     );
 
+    server.shutdown().await?;
     Ok(())
 }

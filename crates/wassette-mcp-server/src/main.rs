@@ -10,6 +10,8 @@
 // for that chain; see rust-lang/rust#159228.
 #![recursion_limit = "256"]
 
+use std::time::Duration;
+
 use anyhow::{bail, Context, Result};
 use clap::{CommandFactory, Parser};
 use clap_complete::{generate, shells};
@@ -19,6 +21,7 @@ use rmcp::transport::stdio as stdio_transport;
 use rmcp::transport::streamable_http_server::session::local::LocalSessionManager;
 use rmcp::transport::streamable_http_server::{StreamableHttpServerConfig, StreamableHttpService};
 use serde_json::{json, Map};
+use tokio_util::sync::CancellationToken;
 use tracing_subscriber::layer::SubscriberExt as _;
 use tracing_subscriber::util::SubscriberInitExt as _;
 
@@ -43,6 +46,66 @@ use format::{print_result, OutputFormat};
 use server::McpServer;
 use tools::ToolName;
 use utils::{format_build_info, load_component_registry, parse_env_var};
+
+// Allow active HTTP connections five seconds to finish, leaving half of
+// Docker's default ten-second stop grace period for final process teardown.
+const DRAIN_TIMEOUT: Duration = Duration::from_secs(5);
+
+#[cfg(unix)]
+struct ShutdownSignals {
+    sigint: tokio::signal::unix::Signal,
+    sigterm: tokio::signal::unix::Signal,
+}
+
+#[cfg(unix)]
+impl ShutdownSignals {
+    fn new() -> Result<Self> {
+        use tokio::signal::unix::{signal, SignalKind};
+
+        Ok(Self {
+            sigint: signal(SignalKind::interrupt()).context("Failed to install SIGINT handler")?,
+            sigterm: signal(SignalKind::terminate())
+                .context("Failed to install SIGTERM handler")?,
+        })
+    }
+
+    async fn wait(&mut self) -> Result<()> {
+        tokio::select! {
+            result = self.sigint.recv() => {
+                result.context("SIGINT signal stream closed unexpectedly")?;
+                tracing::info!("Received SIGINT, starting graceful shutdown");
+            }
+            result = self.sigterm.recv() => {
+                result.context("SIGTERM signal stream closed unexpectedly")?;
+                tracing::info!("Received SIGTERM, starting graceful shutdown");
+            }
+        }
+        Ok(())
+    }
+}
+
+#[cfg(not(unix))]
+struct ShutdownSignals {
+    ctrl_c: tokio::signal::windows::CtrlC,
+}
+
+#[cfg(not(unix))]
+impl ShutdownSignals {
+    fn new() -> Result<Self> {
+        Ok(Self {
+            ctrl_c: tokio::signal::windows::ctrl_c().context("Failed to install Ctrl-C handler")?,
+        })
+    }
+
+    async fn wait(&mut self) -> Result<()> {
+        self.ctrl_c
+            .recv()
+            .await
+            .context("Ctrl-C signal stream closed unexpectedly")?;
+        tracing::info!("Received Ctrl-C, starting graceful shutdown");
+        Ok(())
+    }
+}
 
 // Health and info endpoint handlers
 mod endpoints {
@@ -72,8 +135,22 @@ mod endpoints {
     }
 }
 
-#[tokio::main]
-async fn main() -> Result<()> {
+fn main() -> Result<()> {
+    let runtime = tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+        .context("Failed to create Tokio runtime")?;
+    let result = runtime.block_on(run());
+    // Tokio's blocking stdin reader can outlive a canceled stdio service, and it
+    // never returns once the service is gone, so this budget is always spent in
+    // full on the stdio path. Keep it just wide enough for the blocking work
+    // that can still finish, which measures at roughly 15ms, rather than
+    // charging every stdio shutdown for a whole second of waiting.
+    runtime.shutdown_timeout(Duration::from_millis(100));
+    result
+}
+
+async fn run() -> Result<()> {
     let cli = Cli::parse();
 
     // Handle version flag
@@ -85,6 +162,8 @@ async fn main() -> Result<()> {
     match &cli.command {
         Some(command) => match command {
             Commands::Run(cfg) => {
+                let mut shutdown_signals = ShutdownSignals::new()?;
+
                 // Configure logging - use stderr for stdio transport to avoid interfering with MCP protocol
                 let env_filter = tracing_subscriber::EnvFilter::try_from_default_env()
                 .unwrap_or_else(|_| {
@@ -117,14 +196,20 @@ async fn main() -> Result<()> {
                     json_response: _,
                 } = config;
 
-                let lifecycle_manager = LifecycleManager::builder(component_dir)
-                    .with_environment_vars(environment_vars)
-                    .with_secrets_dir(secrets_dir)
-                    .with_oci_client(oci_client::Client::default())
-                    .with_http_client(reqwest::Client::default())
-                    .with_eager_loading(false)
-                    .build()
-                    .await?;
+                let lifecycle_manager = tokio::select! {
+                    result = LifecycleManager::builder(component_dir)
+                        .with_environment_vars(environment_vars)
+                        .with_secrets_dir(secrets_dir)
+                        .with_oci_client(oci_client::Client::default())
+                        .with_http_client(reqwest::Client::default())
+                        .with_eager_loading(false)
+                        .build() => result?,
+                    result = shutdown_signals.wait() => {
+                        result?;
+                        tracing::info!("MCP server shutting down");
+                        return Ok(());
+                    }
+                };
 
                 let server = McpServer::new(
                     lifecycle_manager.clone(),
@@ -150,14 +235,23 @@ async fn main() -> Result<()> {
 
                 tracing::info!("Starting MCP server with stdio transport. Components will load in the background.");
                 let transport = stdio_transport();
-                let running_service = serve_server(server, transport).await?;
+                let running_service = tokio::select! {
+                    result = serve_server(server, transport) => result?,
+                    result = shutdown_signals.wait() => {
+                        result?;
+                        tracing::info!("MCP server shutting down");
+                        return Ok(());
+                    }
+                };
 
-                tokio::signal::ctrl_c().await?;
+                shutdown_signals.wait().await?;
                 let _ = running_service.cancel().await;
 
                 tracing::info!("MCP server shutting down");
             }
             Commands::Serve(cfg) => {
+                let mut shutdown_signals = ShutdownSignals::new()?;
+
                 // Configure logging for HTTP-based transports
                 let env_filter = tracing_subscriber::EnvFilter::try_from_default_env()
                 .unwrap_or_else(|_| {
@@ -209,14 +303,20 @@ async fn main() -> Result<()> {
                 // Keep a clone of component_dir for provisioning
                 let component_dir_path = component_dir.clone();
 
-                let lifecycle_manager = LifecycleManager::builder(component_dir)
-                    .with_environment_vars(environment_vars)
-                    .with_secrets_dir(secrets_dir)
-                    .with_oci_client(oci_client::Client::default())
-                    .with_http_client(reqwest::Client::default())
-                    .with_eager_loading(false)
-                    .build()
-                    .await?;
+                let lifecycle_manager = tokio::select! {
+                    result = LifecycleManager::builder(component_dir)
+                        .with_environment_vars(environment_vars)
+                        .with_secrets_dir(secrets_dir)
+                        .with_oci_client(oci_client::Client::default())
+                        .with_http_client(reqwest::Client::default())
+                        .with_eager_loading(false)
+                        .build() => result?,
+                    result = shutdown_signals.wait() => {
+                        result?;
+                        tracing::info!("MCP server shutting down");
+                        return Ok(());
+                    }
+                };
 
                 // Provision components from manifest if provided
                 if let Some(manifest) = &manifest {
@@ -229,10 +329,16 @@ async fn main() -> Result<()> {
                         &component_dir_path,
                     );
 
-                    provisioner
-                        .provision()
-                        .await
-                        .context("Component provisioning failed")?;
+                    tokio::select! {
+                        result = provisioner.provision() => {
+                            result.context("Component provisioning failed")?;
+                        }
+                        result = shutdown_signals.wait() => {
+                            result?;
+                            tracing::info!("MCP server shutting down");
+                            return Ok(());
+                        }
+                    }
 
                     tracing::info!("All components provisioned successfully");
                 }
@@ -284,9 +390,11 @@ async fn main() -> Result<()> {
                         // Override only what the operator chose, so the `Host`
                         // allow list resolved above stays in place. A literal
                         // struct here would silently drop it.
+                        let cancellation_token = CancellationToken::new();
                         let http_config = http_config
                             .with_legacy_session_mode(legacy_sessions)
-                            .with_json_response(json_response);
+                            .with_json_response(json_response)
+                            .with_cancellation_token(cancellation_token.clone());
 
                         let service = StreamableHttpService::new(
                             move || Ok(server.clone()),
@@ -302,10 +410,14 @@ async fn main() -> Result<()> {
                         let tcp_listener = tokio::net::TcpListener::bind(&bind_address).await?;
 
                         // Spawn the server in a background task
-                        let server_handle = tokio::spawn(async move {
+                        let (shutdown_result_tx, shutdown_result_rx) =
+                            tokio::sync::oneshot::channel();
+                        let mut server_handle = tokio::spawn(async move {
                             axum::serve(tcp_listener, router)
-                                .with_graceful_shutdown(async {
-                                    tokio::signal::ctrl_c().await.unwrap()
+                                .with_graceful_shutdown(async move {
+                                    let result = shutdown_signals.wait().await;
+                                    cancellation_token.cancel();
+                                    let _ = shutdown_result_tx.send(result);
                                 })
                                 .await
                         });
@@ -321,8 +433,20 @@ async fn main() -> Result<()> {
                         );
                         tracing::info!("Build info available at http://{}/info", bind_address);
 
-                        // Wait for the server task to complete
-                        let _ = server_handle.await;
+                        shutdown_result_rx
+                            .await
+                            .context("MCP server stopped before receiving a shutdown signal")??;
+
+                        // Wait for active connections to finish.
+                        match tokio::time::timeout(DRAIN_TIMEOUT, &mut server_handle).await {
+                            Ok(result) => result??,
+                            Err(_) => {
+                                tracing::warn!(
+                                    "HTTP connection drain deadline passed; dropping remaining connections"
+                                );
+                                server_handle.abort();
+                            }
+                        }
                     }
                 }
 
