@@ -5,7 +5,7 @@ use std::collections::HashMap;
 use std::path::Path;
 
 use anyhow::{bail, Context, Result};
-use wassette::{LifecycleManager, SecretsManager};
+use wassette::{format_error_chain, LifecycleManager, SecretsManager};
 
 use crate::manifest::{ComponentDeclaration, InlinePermissions, ProvisioningManifest};
 use crate::permission_synthesis;
@@ -55,7 +55,11 @@ impl<'a> ProvisioningController<'a> {
             );
 
             if let Err(e) = self.provision_component(component).await {
-                tracing::error!("Failed to provision component {}: {}", component_name, e);
+                tracing::error!(
+                    "Failed to provision component {}: {}",
+                    component_name,
+                    format_error_chain(&e)
+                );
                 errors.push((component_name.to_string(), e));
             }
         }
@@ -63,7 +67,7 @@ impl<'a> ProvisioningController<'a> {
         if !errors.is_empty() {
             let error_summary = errors
                 .iter()
-                .map(|(name, e)| format!("  - {}: {}", name, e))
+                .map(|(name, e)| format!("  - {}: {}", name, format_error_chain(e)))
                 .collect::<Vec<_>>()
                 .join("\n");
 

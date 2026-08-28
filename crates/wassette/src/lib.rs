@@ -28,6 +28,7 @@ use wasmtime::Store;
 
 mod component_storage;
 mod config;
+mod error_display;
 mod http;
 mod loader;
 pub mod oci_multi_layer;
@@ -39,6 +40,7 @@ mod wasistate;
 
 use component_storage::ComponentStorage;
 pub use config::{LifecycleBuilder, LifecycleConfig};
+pub use error_display::format_error_chain;
 pub use http::WassetteWasiState;
 use loader::{ComponentResource, DownloadedResource};
 use policy_internal::PolicyManager;
@@ -500,7 +502,7 @@ impl LifecycleManager {
                 .save_component_metadata(component_id, &tool_metadata, validation_stamp)
                 .await
             {
-                warn!(%component_id, error = %e, "Failed to save component metadata");
+                warn!(%component_id, error = %format_error_chain(&e), "Failed to save component metadata");
             }
         }
 
@@ -510,7 +512,7 @@ impl LifecycleManager {
             .await?;
 
         if let Err(error) = self.policy_manager.restore_from_disk(component_id).await {
-            warn!(%component_id, %error, "Failed to restore policy attachment");
+            warn!(%component_id, error = %format_error_chain(&error), "Failed to restore policy attachment");
         }
 
         Ok(ComponentLoadOutcome {
@@ -918,7 +920,7 @@ impl LifecycleManager {
                     return Ok((component, wasm_bytes));
                 }
                 Err(e) => {
-                    warn!(%component_id, error = %e, "Failed to load precompiled component, falling back to compilation");
+                    warn!(%component_id, error = %format_error_chain(&e), "Failed to load precompiled component, falling back to compilation");
                 }
             }
         }
@@ -937,7 +939,7 @@ impl LifecycleManager {
             .save_precompiled_component(component_id, &wasm_bytes)
             .await
         {
-            warn!(%component_id, error = %e, "Failed to save precompiled component");
+            warn!(%component_id, error = %format_error_chain(&e), "Failed to save precompiled component");
         }
 
         debug!(component_id = %component_id, "Compiled component and saved to cache");
@@ -1146,7 +1148,7 @@ impl LifecycleManager {
                         }
                     }
                     Ok(false) => {} // No component to load (not a .wasm file)
-                    Err(e) => warn!("Failed to load component: {}", e),
+                    Err(e) => warn!("Failed to load component: {:#}", e),
                 }
             };
             load_futures.push(future);
@@ -1212,7 +1214,7 @@ impl LifecycleManager {
                             continue;
                         }
                         Err(e) => {
-                            warn!(%component_id, error = %e, "Failed to register tools from metadata");
+                            warn!(%component_id, error = %format_error_chain(&e), "Failed to register tools from metadata");
                             continue;
                         }
                     }
@@ -1301,7 +1303,7 @@ async fn load_components_parallel(
     for result in results.into_iter().flatten() {
         match result {
             Ok(component) => components.push(component),
-            Err(e) => warn!("Failed to load component: {}", e),
+            Err(e) => warn!("Failed to load component: {:#}", e),
         }
     }
 

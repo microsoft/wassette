@@ -144,7 +144,7 @@ async fn main() -> Result<()> {
                         .load_existing_components_async(None, Some(notify_fn))
                         .await
                     {
-                        tracing::error!("Background component loading failed: {}", e);
+                        tracing::error!("Background component loading failed: {:#}", e);
                     }
                 });
 
@@ -255,7 +255,7 @@ async fn main() -> Result<()> {
                         .load_existing_components_async(None, Some(notify_fn))
                         .await
                     {
-                        tracing::error!("Background component loading failed: {}", e);
+                        tracing::error!("Background component loading failed: {:#}", e);
                     }
                 });
 
@@ -795,7 +795,7 @@ async fn main() -> Result<()> {
                                 }
                             }
                             Err(e) => {
-                                eprintln!("Error invoking tool '{}': {}", name, e);
+                                eprintln!("Error invoking tool '{}': {:#}", name, e);
                                 std::process::exit(1);
                             }
                         }
