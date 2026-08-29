@@ -5,6 +5,23 @@
 
 use serde_json::{Map, Value};
 
+/// Canonicalize the output schema in a complete tool schema while preserving
+/// the tool's name, description, and input schema.
+pub fn canonicalize_tool_schema(tool_schema: &Value) -> Value {
+    let Value::Object(mut tool) = tool_schema.clone() else {
+        return tool_schema.clone();
+    };
+
+    if let Some(output_schema) = tool.get("outputSchema") {
+        tool.insert(
+            "outputSchema".to_string(),
+            canonicalize_output_schema(output_schema),
+        );
+    }
+
+    Value::Object(tool)
+}
+
 /// Canonicalize a tool output schema so that it always represents structured
 /// data as an object with a required `result` property.
 pub fn canonicalize_output_schema(schema: &Value) -> Value {
