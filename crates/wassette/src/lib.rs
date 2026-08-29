@@ -116,11 +116,13 @@ struct ComponentRegistry {
 
 /// Per-component guards that serialize concurrent load attempts.
 ///
-/// [`LifecycleManager::ensure_component_loaded`] is check-then-act: it tests the registry
-/// and then compiles. Without a guard, two callers can both observe the component as
-/// absent and both compile it, duplicating wasmtime compilation and racing on the same
-/// metadata and precompiled cache files. The guard is keyed by component id so unrelated
-/// components still load concurrently.
+/// Every path that compiles a component is check-then-act: it tests the registry (or the
+/// artifact's validation stamp) and then compiles. Without a guard, two callers can both
+/// observe the component as absent and both compile it, duplicating wasmtime compilation
+/// and racing on the same metadata and precompiled cache files. The on-demand load done by
+/// [`LifecycleManager::ensure_component_loaded`] races the background restore in exactly
+/// this way. The guard is keyed by component id so unrelated components still load
+/// concurrently.
 #[derive(Clone, Default)]
 struct ComponentLoadGuards {
     guards: Arc<Mutex<HashMap<String, Arc<Mutex<()>>>>>,
@@ -514,7 +516,39 @@ impl LifecycleManager {
         }
     }
 
+    /// Compiles a component and registers it, replacing any previously registered instance.
+    ///
+    /// Serializes against every other load of the same component id, so concurrent callers
+    /// compile one after another instead of racing on the same metadata and precompiled
+    /// cache files. It does not skip the work when the component is already registered,
+    /// because an explicit reload has to recompile a changed artifact. Callers that want to
+    /// skip redundant work take the guard themselves via [`Self::load_guard`], recheck the
+    /// registry, and then call [`Self::compile_and_register_component_locked`].
     async fn compile_and_register_component(
+        &self,
+        component_id: &str,
+        wasm_path: &Path,
+    ) -> Result<ComponentLoadOutcome> {
+        let guard = self.load_guard(component_id).await;
+        let _guard = guard.lock().await;
+
+        self.compile_and_register_component_locked(component_id, wasm_path)
+            .await
+    }
+
+    /// Returns the per-component load guard, which serializes compilation of `component_id`.
+    async fn load_guard(&self, component_id: &str) -> Arc<Mutex<()>> {
+        self.load_guards.guard_for(component_id).await
+    }
+
+    /// Compiles and registers a component; the caller must hold the guard returned by
+    /// [`Self::load_guard`] for `component_id`.
+    ///
+    /// This is the only place that compiles a component, so holding the guard here is what
+    /// makes "compiled once" hold across the on-demand load path and the background restore.
+    /// Call [`Self::compile_and_register_component`] instead unless you already hold the
+    /// guard, which would deadlock.
+    async fn compile_and_register_component_locked(
         &self,
         component_id: &str,
         wasm_path: &Path,
@@ -966,9 +1000,10 @@ impl LifecycleManager {
     /// If it's already loaded, this is a no-op. If the wasm file is not present in
     /// the component directory, an error is returned.
     ///
-    /// Concurrent calls for the same component are serialized, so the component is
-    /// compiled and registered once no matter how many callers race. Calls for
-    /// different components still proceed in parallel.
+    /// Concurrent calls for the same component are serialized against each other and
+    /// against the background restore, so the component is compiled and registered once
+    /// no matter how many callers race. Calls for different components still proceed in
+    /// parallel.
     #[instrument(skip(self))]
     pub async fn ensure_component_loaded(&self, component_id: &str) -> Result<()> {
         if self.registry.contains_component(component_id).await {
@@ -982,15 +1017,16 @@ impl LifecycleManager {
 
         // Take the per-component guard only after the file exists, so unknown component ids
         // cannot grow the guard map.
-        let guard = self.load_guards.guard_for(component_id).await;
+        let guard = self.load_guard(component_id).await;
         let _guard = guard.lock().await;
 
-        // Another caller may have finished the load while we waited for the guard.
+        // Another caller, including the background restore, may have finished the load
+        // while we waited for the guard.
         if self.registry.contains_component(component_id).await {
             return Ok(());
         }
 
-        self.compile_and_register_component(component_id, &entry_path)
+        self.compile_and_register_component_locked(component_id, &entry_path)
             .await
             .with_context(|| {
                 format!(
@@ -1419,8 +1455,19 @@ impl LifecycleManager {
             return Ok(false);
         }
 
+        // Serialize against the on-demand load path: a `tools/call` that arrives before the
+        // restore reaches this component compiles it itself, and without the shared guard
+        // both passes would compile it and write the same metadata and cache files.
+        let guard = self.load_guard(&component_id).await;
+        let _guard = guard.lock().await;
+
+        if self.registry.contains_component(&component_id).await {
+            debug!(component_id = %component_id, "Component loaded while waiting for the load guard");
+            return Ok(false);
+        }
+
         let start_time = Instant::now();
-        self.compile_and_register_component(&component_id, &entry_path)
+        self.compile_and_register_component_locked(&component_id, &entry_path)
             .await
             .with_context(|| {
                 format!(
@@ -2088,6 +2135,50 @@ mod tests {
             counter.count(),
             1,
             "the component should be compiled and registered exactly once"
+        );
+
+        Ok(())
+    }
+
+    /// The interesting race is not between two `ensure_component_loaded` callers, it is
+    /// between an on-demand load and the background restore: a `tools/call` that arrives
+    /// before the restore reaches a component compiles it on demand while the restore is
+    /// compiling the very same component, and both passes write the same metadata and
+    /// precompiled cache files. The guard therefore has to sit on every path that compiles a
+    /// component, not just on `ensure_component_loaded`.
+    ///
+    /// As above, compilation is observed through the "Saved component metadata" event that
+    /// `compile_and_register_component_locked` emits exactly once per pass.
+    #[tokio::test]
+    async fn test_ensure_component_loaded_compiles_once_against_background_restore() -> Result<()> {
+        let manager = create_test_manager().await?;
+        let source = build_example_component().await?;
+        tokio::fs::copy(&source, manager.component_path(TEST_COMPONENT_ID)).await?;
+        assert!(manager.list_components().await.is_empty());
+
+        let counter = MessageCounter::new("Saved component metadata");
+        let subscriber = tracing_subscriber::layer::SubscriberExt::with(
+            tracing_subscriber::registry(),
+            counter.clone(),
+        );
+        let _subscriber_guard = tracing::subscriber::set_default(subscriber);
+
+        let (restore, on_demand) = tokio::join!(
+            manager.load_existing_components_async(None, None::<fn()>),
+            manager.ensure_component_loaded(TEST_COMPONENT_ID),
+        );
+        restore?;
+        on_demand?;
+
+        assert_eq!(
+            manager.list_components().await,
+            vec![TEST_COMPONENT_ID.to_string()]
+        );
+        assert_eq!(
+            counter.count(),
+            1,
+            "the on-demand load and the background restore should compile the component once \
+             between them"
         );
 
         Ok(())
