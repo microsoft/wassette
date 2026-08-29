@@ -21,7 +21,7 @@ use etcetera::BaseStrategy;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tokio::fs::DirEntry;
-use tokio::sync::{RwLock, Semaphore};
+use tokio::sync::{Mutex, RwLock, Semaphore};
 use tracing::{debug, info, instrument, warn};
 use wasmtime::component::{Component, InstancePre};
 use wasmtime::Store;
@@ -112,6 +112,25 @@ pub struct ValidationStamp {
 #[derive(Clone, Default)]
 struct ComponentRegistry {
     state: Arc<RwLock<ComponentRegistryState>>,
+}
+
+/// Per-component guards that serialize concurrent load attempts.
+///
+/// [`LifecycleManager::ensure_component_loaded`] is check-then-act: it tests the registry
+/// and then compiles. Without a guard, two callers can both observe the component as
+/// absent and both compile it, duplicating wasmtime compilation and racing on the same
+/// metadata and precompiled cache files. The guard is keyed by component id so unrelated
+/// components still load concurrently.
+#[derive(Clone, Default)]
+struct ComponentLoadGuards {
+    guards: Arc<Mutex<HashMap<String, Arc<Mutex<()>>>>>,
+}
+
+impl ComponentLoadGuards {
+    async fn guard_for(&self, component_id: &str) -> Arc<Mutex<()>> {
+        let mut guards = self.guards.lock().await;
+        Arc::clone(guards.entry(component_id.to_string()).or_default())
+    }
 }
 
 #[derive(Default)]
@@ -338,6 +357,7 @@ impl ComponentRegistryState {
 pub struct LifecycleManager {
     runtime: Arc<RuntimeContext>,
     registry: ComponentRegistry,
+    load_guards: ComponentLoadGuards,
     storage: ComponentStorage,
     policy_manager: PolicyManager,
     oci_client: Arc<oci_wasm::WasmClient>,
@@ -404,6 +424,7 @@ impl LifecycleManager {
         Ok(Self {
             runtime,
             registry: ComponentRegistry::new(),
+            load_guards: ComponentLoadGuards::default(),
             storage,
             policy_manager,
             oci_client,
@@ -944,6 +965,10 @@ impl LifecycleManager {
     /// Ensure a specific component is loaded (compiled and instantiated) by its ID.
     /// If it's already loaded, this is a no-op. If the wasm file is not present in
     /// the component directory, an error is returned.
+    ///
+    /// Concurrent calls for the same component are serialized, so the component is
+    /// compiled and registered once no matter how many callers race. Calls for
+    /// different components still proceed in parallel.
     #[instrument(skip(self))]
     pub async fn ensure_component_loaded(&self, component_id: &str) -> Result<()> {
         if self.registry.contains_component(component_id).await {
@@ -953,6 +978,16 @@ impl LifecycleManager {
         let entry_path = self.component_path(component_id);
         if !entry_path.exists() {
             bail!("Component not found: {}", component_id);
+        }
+
+        // Take the per-component guard only after the file exists, so unknown component ids
+        // cannot grow the guard map.
+        let guard = self.load_guards.guard_for(component_id).await;
+        let _guard = guard.lock().await;
+
+        // Another caller may have finished the load while we waited for the guard.
+        if self.registry.contains_component(component_id).await {
+            return Ok(());
         }
 
         self.compile_and_register_component(component_id, &entry_path)
@@ -1956,6 +1991,103 @@ mod tests {
         assert_eq!(
             manager.get_component_id_for_tool("only-tool").await?,
             "component-a"
+        );
+
+        Ok(())
+    }
+
+    /// Counts `tracing` events whose message contains `needle`, which lets a test observe
+    /// how many times a code path ran without changing the code under test.
+    #[derive(Clone)]
+    struct MessageCounter {
+        needle: &'static str,
+        count: Arc<std::sync::atomic::AtomicUsize>,
+    }
+
+    impl MessageCounter {
+        fn new(needle: &'static str) -> Self {
+            Self {
+                needle,
+                count: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
+            }
+        }
+
+        fn count(&self) -> usize {
+            self.count.load(std::sync::atomic::Ordering::SeqCst)
+        }
+    }
+
+    impl<S: tracing::Subscriber> tracing_subscriber::Layer<S> for MessageCounter {
+        fn on_event(
+            &self,
+            event: &tracing::Event<'_>,
+            _ctx: tracing_subscriber::layer::Context<'_, S>,
+        ) {
+            struct MessageVisitor<'a> {
+                needle: &'a str,
+                matched: bool,
+            }
+
+            impl tracing::field::Visit for MessageVisitor<'_> {
+                fn record_debug(
+                    &mut self,
+                    field: &tracing::field::Field,
+                    value: &dyn std::fmt::Debug,
+                ) {
+                    if field.name() == "message" && format!("{value:?}").contains(self.needle) {
+                        self.matched = true;
+                    }
+                }
+            }
+
+            let mut visitor = MessageVisitor {
+                needle: self.needle,
+                matched: false,
+            };
+            event.record(&mut visitor);
+            if visitor.matched {
+                self.count.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            }
+        }
+    }
+
+    /// `ensure_component_loaded` is on the tool-call path, so several requests can race to
+    /// load the same not-yet-restored component. Without a per-component guard each racer
+    /// compiles the component and they all write the same metadata and cache files.
+    ///
+    /// Compilation is not directly observable from the crate's API, so this counts the
+    /// "Saved component metadata" event, which `compile_and_register_component` emits
+    /// exactly once per pass.
+    #[tokio::test]
+    async fn test_ensure_component_loaded_compiles_once_under_concurrency() -> Result<()> {
+        let manager = create_test_manager().await?;
+        let source = build_example_component().await?;
+        tokio::fs::copy(&source, manager.component_path(TEST_COMPONENT_ID)).await?;
+        assert!(manager.list_components().await.is_empty());
+
+        let counter = MessageCounter::new("Saved component metadata");
+        let subscriber = tracing_subscriber::layer::SubscriberExt::with(
+            tracing_subscriber::registry(),
+            counter.clone(),
+        );
+        let _subscriber_guard = tracing::subscriber::set_default(subscriber);
+
+        let results = futures::future::join_all(
+            (0..4).map(|_| manager.ensure_component_loaded(TEST_COMPONENT_ID)),
+        )
+        .await;
+        for result in results {
+            result?;
+        }
+
+        assert_eq!(
+            manager.list_components().await,
+            vec![TEST_COMPONENT_ID.to_string()]
+        );
+        assert_eq!(
+            counter.count(),
+            1,
+            "the component should be compiled and registered exactly once"
         );
 
         Ok(())
