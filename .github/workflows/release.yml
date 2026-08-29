@@ -95,13 +95,27 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           VERSION="${RELEASE_TAG#v}"
+          GENERATED_NOTES=$(mktemp)
           gh api \
             --method POST \
             -H "Accept: application/vnd.github+json" \
             "/repos/$GITHUB_REPOSITORY/releases/generate-notes" \
             -f tag_name="$RELEASE_TAG" \
             -f target_commitish="$GITHUB_SHA" \
-            --jq '.body' > release-notes.md
+            --jq '.body' > "$GENERATED_NOTES"
+
+          HIGHLIGHTS_FILE=".github/release-highlights/${RELEASE_TAG}.md"
+          if [ -f "$HIGHLIGHTS_FILE" ]; then
+            {
+              cat "$HIGHLIGHTS_FILE"
+              printf '\n\n'
+              cat "$GENERATED_NOTES"
+            } > release-notes.md
+          else
+            mv "$GENERATED_NOTES" release-notes.md
+          fi
+          rm -f "$GENERATED_NOTES"
+
           cat >> release-notes.md <<EOF
 
           ## Downloads
