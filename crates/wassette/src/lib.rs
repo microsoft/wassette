@@ -8,6 +8,7 @@
 use std::collections::HashMap;
 use std::io::IsTerminal;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Instant;
 
@@ -132,6 +133,38 @@ impl ComponentLoadGuards {
     async fn guard_for(&self, component_id: &str) -> Arc<Mutex<()>> {
         let mut guards = self.guards.lock().await;
         Arc::clone(guards.entry(component_id.to_string()).or_default())
+    }
+}
+
+/// Tracks whether the in-memory registry is known to describe every component on disk.
+///
+/// Tool lookup falls back to scanning the persisted metadata, which is what makes a tool
+/// resolvable before the background restore has registered its component (and in a one-shot
+/// CLI process, where no restore ever runs). That scan costs a directory walk plus a file
+/// read per component on every lookup, so it is only worth paying while the registry may
+/// still be missing something.
+///
+/// The flag starts out *incomplete* and is only marked complete once a restore pass has
+/// registered every component in the directory. Defaulting the other way would skip the
+/// fallback in exactly the processes that depend on it, so a short-lived CLI invocation
+/// would go back to reporting "Tool not found".
+#[derive(Clone, Default)]
+struct RegistryCompleteness {
+    complete: Arc<AtomicBool>,
+}
+
+impl RegistryCompleteness {
+    fn is_complete(&self) -> bool {
+        self.complete.load(Ordering::Acquire)
+    }
+
+    /// Records that a restore pass registered every component in the directory.
+    ///
+    /// A pass that failed for any component leaves the flag alone: that component is absent
+    /// from the registry but its metadata is still on disk, so the fallback is what keeps it
+    /// visible to tool lookup and to collision detection.
+    fn mark_complete(&self) {
+        self.complete.store(true, Ordering::Release);
     }
 }
 
@@ -360,6 +393,7 @@ pub struct LifecycleManager {
     runtime: Arc<RuntimeContext>,
     registry: ComponentRegistry,
     load_guards: ComponentLoadGuards,
+    registry_completeness: RegistryCompleteness,
     storage: ComponentStorage,
     policy_manager: PolicyManager,
     oci_client: Arc<oci_wasm::WasmClient>,
@@ -427,6 +461,7 @@ impl LifecycleManager {
             runtime,
             registry: ComponentRegistry::new(),
             load_guards: ComponentLoadGuards::default(),
+            registry_completeness: RegistryCompleteness::default(),
             storage,
             policy_manager,
             oci_client,
@@ -675,9 +710,11 @@ impl LifecycleManager {
 
     /// Returns the component ID for a given tool name.
     ///
-    /// The lookup considers both the in-memory registry and the persisted component
-    /// metadata, so the answer does not depend on how much of the background restore has
-    /// completed. If more than one component exports the tool name, returns an error.
+    /// While the in-memory registry may still be missing components (before or during the
+    /// background restore, and in one-shot CLI processes that never run it), the lookup also
+    /// consults the persisted component metadata, so the answer does not depend on how much of
+    /// the restore has completed. If more than one component exports the tool name, returns an
+    /// error.
     #[instrument(skip(self))]
     pub async fn get_component_id_for_tool(&self, tool_name: &str) -> Result<String> {
         let mut component_ids: Vec<String> = self
@@ -697,16 +734,23 @@ impl LifecycleManager {
             return Self::single_component_id_for_tool(tool_name, component_ids);
         }
 
-        // Merge in the persisted component metadata without compiling anything. Short-lived
-        // processes (such as one-shot CLI invocations) never populate the registry, and the
-        // background restore populates it one component at a time, so a component known only
-        // on disk is still a real match. Taking the union of both sources keeps ambiguity
-        // detection independent of how far the restore has progressed: a name exported by two
-        // components is reported as ambiguous before, during, and after the restore instead of
-        // silently resolving to whichever component happened to be registered first.
-        component_ids.extend(self.find_component_ids_for_tool_on_disk(tool_name).await);
-        component_ids.sort();
-        component_ids.dedup();
+        // Merge in the persisted component metadata without compiling anything, but only
+        // while the registry may still be incomplete. Short-lived processes (such as one-shot
+        // CLI invocations) never run the restore at all, and the restore populates the
+        // registry one component at a time, so a component known only on disk is still a real
+        // match. Taking the union of both sources keeps ambiguity detection independent of how
+        // far the restore has progressed: a name exported by two components is reported as
+        // ambiguous before, during, and after the restore instead of silently resolving to
+        // whichever component happened to be registered first.
+        //
+        // Once a restore pass has registered every component, the registry is a superset of
+        // the metadata and the scan can only reproduce what the registry already said, so it
+        // is skipped rather than paid for on every tool call.
+        if !self.registry_completeness.is_complete() {
+            component_ids.extend(self.find_component_ids_for_tool_on_disk(tool_name).await);
+            component_ids.sort();
+            component_ids.dedup();
+        }
 
         if component_ids.is_empty() {
             bail!("Tool not found");
@@ -1340,16 +1384,37 @@ impl LifecycleManager {
                         if let Some(notify) = notify_fn {
                             notify();
                         }
+                        true
                     }
-                    Ok(false) => {} // No component to load (not a .wasm file)
-                    Err(e) => warn!("Failed to load component: {:#}", e),
+                    Ok(false) => true, // No component to load (not a .wasm file, or already loaded)
+                    Err(e) => {
+                        warn!("Failed to load component: {:#}", e);
+                        false
+                    }
                 }
             };
             load_futures.push(future);
         }
 
         // Wait for all components to load
-        futures::future::join_all(load_futures).await;
+        let all_loaded = futures::future::join_all(load_futures)
+            .await
+            .into_iter()
+            .all(|loaded| loaded);
+
+        if all_loaded {
+            // Every component in the directory is now in the registry, so tool lookup no
+            // longer has to scan the persisted metadata to see the full picture. A pass that
+            // failed for even one component leaves the registry short of what is on disk, so
+            // the flag stays clear and the fallback keeps that component visible.
+            self.registry_completeness.mark_complete();
+        } else {
+            warn!(
+                "Background component loading finished with failures; tool lookup will keep \
+                 consulting on-disk component metadata"
+            );
+        }
+
         info!("Background component loading completed");
         Ok(())
     }
@@ -2179,6 +2244,85 @@ mod tests {
             1,
             "the on-demand load and the background restore should compile the component once \
              between them"
+        );
+
+        Ok(())
+    }
+
+    /// The persisted-metadata scan only earns its cost while the registry might be missing a
+    /// component. Once a restore pass has registered everything on disk, the registry answers
+    /// on its own and the scan is skipped, so a stray on-disk component is no longer consulted.
+    #[test(tokio::test)]
+    async fn test_get_component_id_for_tool_skips_disk_scan_once_registry_is_complete() -> Result<()>
+    {
+        let manager = create_test_manager().await?;
+        write_cached_component(&manager, "component-a", &["shared-tool"]).await?;
+        write_cached_component(&manager, "component-b", &["shared-tool"]).await?;
+        register_cached_component_in_registry(&manager, "component-a", &["shared-tool"]).await?;
+
+        // While the registry may be incomplete the on-disk twin is still a real match, so the
+        // name is ambiguous.
+        assert!(manager
+            .get_component_id_for_tool("shared-tool")
+            .await
+            .is_err());
+
+        manager.registry_completeness.mark_complete();
+
+        assert_eq!(
+            manager.get_component_id_for_tool("shared-tool").await?,
+            "component-a",
+            "a complete registry is authoritative, so the metadata scan must not run"
+        );
+
+        Ok(())
+    }
+
+    /// A restore pass that registered every component makes the registry authoritative.
+    #[test(tokio::test)]
+    async fn test_successful_restore_marks_registry_complete() -> Result<()> {
+        let manager = create_test_manager().await?;
+        let source = build_example_component().await?;
+        tokio::fs::copy(&source, manager.component_path(TEST_COMPONENT_ID)).await?;
+
+        assert!(
+            !manager.registry_completeness.is_complete(),
+            "the registry must start out incomplete, otherwise a process that never runs the \
+             restore (such as a one-shot CLI invocation) would skip the metadata fallback"
+        );
+
+        manager
+            .load_existing_components_async(None, None::<fn()>)
+            .await?;
+
+        assert!(manager.registry_completeness.is_complete());
+
+        Ok(())
+    }
+
+    /// "Complete" has to mean "succeeded for every component", not "attempted". A component
+    /// the restore could not compile is absent from the registry while its metadata is still
+    /// on disk, so the fallback is the only thing keeping it visible to tool lookup and to
+    /// collision detection.
+    #[test(tokio::test)]
+    async fn test_partially_failed_restore_leaves_registry_incomplete() -> Result<()> {
+        let manager = create_test_manager().await?;
+        let source = build_example_component().await?;
+        tokio::fs::copy(&source, manager.component_path(TEST_COMPONENT_ID)).await?;
+        // Not a valid WebAssembly component, so the restore fails for this one.
+        write_cached_component(&manager, "broken-component", &["broken-tool"]).await?;
+
+        manager
+            .load_existing_components_async(None, None::<fn()>)
+            .await?;
+
+        assert!(
+            !manager.registry_completeness.is_complete(),
+            "a restore that failed for a component must not claim the registry is complete"
+        );
+        assert_eq!(
+            manager.get_component_id_for_tool("broken-tool").await?,
+            "broken-component"
         );
 
         Ok(())
