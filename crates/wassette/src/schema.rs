@@ -5,6 +5,26 @@
 
 use serde_json::{Map, Value};
 
+/// Canonicalize the output schema in a complete tool schema while preserving
+/// the tool's name, description, and input schema.
+pub fn canonicalize_tool_schema(tool_schema: &Value) -> Value {
+    let Value::Object(mut tool) = tool_schema.clone() else {
+        return tool_schema.clone();
+    };
+
+    if let Some(output_schema) = tool
+        .get("outputSchema")
+        .filter(|output_schema| !output_schema.is_null())
+    {
+        tool.insert(
+            "outputSchema".to_string(),
+            canonicalize_output_schema(output_schema),
+        );
+    }
+
+    Value::Object(tool)
+}
+
 /// Canonicalize a tool output schema so that it always represents structured
 /// data as an object with a required `result` property.
 pub fn canonicalize_output_schema(schema: &Value) -> Value {
@@ -222,4 +242,22 @@ fn looks_like_tuple_keys(map: &Map<String, Value>) -> bool {
         idx += 1;
     }
     idx > 0 && map.len() == idx
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use super::*;
+
+    #[test]
+    fn canonicalize_tool_schema_preserves_null_output_schema() {
+        let tool_schema = json!({
+            "name": "no-output",
+            "inputSchema": {"type": "object"},
+            "outputSchema": null
+        });
+
+        assert_eq!(canonicalize_tool_schema(&tool_schema), tool_schema);
+    }
 }

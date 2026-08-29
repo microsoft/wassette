@@ -744,10 +744,17 @@ impl LifecycleManager {
         // Fallback to metadata-based schema without compiling the component
         match self.load_component_metadata(component_id).await {
             Ok(Some(metadata)) => {
+                let component_path = self.component_path(component_id);
+                if !ComponentStorage::validate_stamp(&component_path, &metadata.validation_stamp)
+                    .await
+                {
+                    return None;
+                }
+
                 let tools: Vec<Value> = metadata
                     .tool_schemas
                     .into_iter()
-                    .map(|schema| schema::canonicalize_output_schema(&schema))
+                    .map(|schema| schema::canonicalize_tool_schema(&schema))
                     .collect();
                 Some(serde_json::json!({
                     "tools": tools
@@ -1227,7 +1234,7 @@ impl LifecycleManager {
                         .zip(metadata.tool_schemas)
                         .zip(metadata.tool_names)
                         .map(|((identifier, schema), normalized_name)| {
-                            let canonical = schema::canonicalize_output_schema(&schema);
+                            let canonical = schema::canonicalize_tool_schema(&schema);
                             ToolMetadata {
                                 identifier,
                                 schema: canonical,
@@ -1641,6 +1648,80 @@ mod tests {
         let actual_path = manager.component_path(component_id);
 
         assert_eq!(actual_path, expected_path);
+        Ok(())
+    }
+
+    #[test(tokio::test)]
+    async fn test_cached_tool_schema_preserves_tool_fields() -> Result<()> {
+        let manager = create_test_manager().await?;
+        let component_id = "cached-component";
+        let component_path = manager.component_path(component_id);
+        tokio::fs::write(&component_path, b"cached component").await?;
+
+        let tool_schema = serde_json::json!({
+            "name": "cached-tool",
+            "description": "A cached tool",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "value": {"type": "string"}
+                },
+                "required": ["value"]
+            },
+            "outputSchema": {
+                "type": "object",
+                "properties": {
+                    "result": {"type": "string"}
+                },
+                "required": ["result"]
+            }
+        });
+        let metadata = ComponentMetadata {
+            component_id: component_id.to_string(),
+            tool_schemas: vec![tool_schema],
+            function_identifiers: vec![FunctionIdentifier {
+                package_name: None,
+                interface_name: None,
+                function_name: "cached-tool".to_string(),
+            }],
+            tool_names: vec!["cached-tool".to_string()],
+            validation_stamp: manager
+                .storage
+                .create_validation_stamp(&component_path, false)
+                .await?,
+            created_at: 0,
+        };
+        manager.storage.write_metadata(&metadata).await?;
+
+        let component_schema = manager
+            .get_component_schema(component_id)
+            .await
+            .context("cached component schema should be available")?;
+        let cached_tool = &component_schema["tools"][0];
+        assert_eq!(cached_tool["name"], "cached-tool");
+        assert_eq!(cached_tool["description"], "A cached tool");
+        assert_eq!(
+            cached_tool["inputSchema"],
+            metadata.tool_schemas[0]["inputSchema"]
+        );
+        assert_eq!(
+            cached_tool["outputSchema"],
+            serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "result": {"type": "string"}
+                },
+                "required": ["result"]
+            })
+        );
+
+        manager.populate_registry_from_metadata().await?;
+        let registered_tools = manager.list_tools().await;
+        assert_eq!(registered_tools, vec![cached_tool.clone()]);
+
+        tokio::fs::write(&component_path, b"changed component").await?;
+        assert!(manager.get_component_schema(component_id).await.is_none());
+
         Ok(())
     }
 

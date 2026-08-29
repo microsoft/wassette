@@ -834,9 +834,7 @@ async fn main() -> Result<()> {
 
                 // Display tools information
                 if let Some(arr) = schema["tools"].as_array() {
-                    for t in arr {
-                        // The tool info is nested in properties.result
-                        let tool_info = &t["properties"]["result"];
+                    for tool_info in arr {
                         let name = tool_info["name"]
                             .as_str()
                             .unwrap_or("<unnamed>")
