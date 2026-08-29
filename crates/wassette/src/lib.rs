@@ -619,24 +619,40 @@ impl LifecycleManager {
     }
 
     /// Returns the component ID for a given tool name.
-    /// If there are multiple components with the same tool name, returns an error.
+    ///
+    /// The lookup considers both the in-memory registry and the persisted component
+    /// metadata, so the answer does not depend on how much of the background restore has
+    /// completed. If more than one component exports the tool name, returns an error.
     #[instrument(skip(self))]
     pub async fn get_component_id_for_tool(&self, tool_name: &str) -> Result<String> {
-        // Prefer the in-memory registry when it knows about the tool.
-        if let Some(tool_infos) = self.registry.tool_infos(tool_name).await {
-            let component_ids: Vec<String> = tool_infos
-                .into_iter()
-                .map(|info| info.component_id)
-                .collect();
-            if !component_ids.is_empty() {
-                return Self::single_component_id_for_tool(tool_name, component_ids);
-            }
+        let mut component_ids: Vec<String> = self
+            .registry
+            .tool_infos(tool_name)
+            .await
+            .unwrap_or_default()
+            .into_iter()
+            .map(|info| info.component_id)
+            .collect();
+        component_ids.sort();
+        component_ids.dedup();
+
+        // The registry alone already proves the name is ambiguous, so the directory
+        // scan cannot change the outcome and is not worth paying for.
+        if component_ids.len() > 1 {
+            return Self::single_component_id_for_tool(tool_name, component_ids);
         }
 
-        // Fallback to the persisted component metadata without compiling anything.
-        // Short-lived processes (such as one-shot CLI invocations) never populate the
-        // registry, so the on-disk mapping is the only source of truth available.
-        let component_ids = self.find_component_ids_for_tool_on_disk(tool_name).await;
+        // Merge in the persisted component metadata without compiling anything. Short-lived
+        // processes (such as one-shot CLI invocations) never populate the registry, and the
+        // background restore populates it one component at a time, so a component known only
+        // on disk is still a real match. Taking the union of both sources keeps ambiguity
+        // detection independent of how far the restore has progressed: a name exported by two
+        // components is reported as ambiguous before, during, and after the restore instead of
+        // silently resolving to whichever component happened to be registered first.
+        component_ids.extend(self.find_component_ids_for_tool_on_disk(tool_name).await);
+        component_ids.sort();
+        component_ids.dedup();
+
         if component_ids.is_empty() {
             bail!("Tool not found");
         }
@@ -1872,6 +1888,75 @@ mod tests {
         assert!(message.contains("Multiple components found"), "{message}");
         assert!(message.contains("component-a"), "{message}");
         assert!(message.contains("component-b"), "{message}");
+
+        Ok(())
+    }
+
+    /// Registers a component's tools without an instance, which is the state the
+    /// background restore leaves a component in once it has read its metadata.
+    async fn register_cached_component_in_registry(
+        manager: &LifecycleManager,
+        component_id: &str,
+        tool_names: &[&str],
+    ) -> Result<()> {
+        let tools = tool_names
+            .iter()
+            .map(|name| ToolMetadata {
+                identifier: FunctionIdentifier {
+                    package_name: None,
+                    interface_name: None,
+                    function_name: (*name).to_string(),
+                },
+                normalized_name: (*name).to_string(),
+                schema: serde_json::json!({ "name": name }),
+            })
+            .collect();
+
+        assert!(
+            manager
+                .registry
+                .register_metadata_if_absent(component_id, tools)
+                .await?,
+            "{component_id} should not already be registered"
+        );
+
+        Ok(())
+    }
+
+    /// The background restore registers components one at a time, so there is a window in
+    /// which one of two colliding components is in the registry and the other is still only
+    /// on disk. The lookup must report the collision throughout that window instead of
+    /// silently resolving to whichever component the restore reached first.
+    #[test(tokio::test)]
+    async fn test_get_component_id_for_tool_reports_ambiguity_mid_restore() -> Result<()> {
+        let manager = create_test_manager().await?;
+        write_cached_component(&manager, "component-a", &["shared-tool"]).await?;
+        write_cached_component(&manager, "component-b", &["shared-tool"]).await?;
+        register_cached_component_in_registry(&manager, "component-a", &["shared-tool"]).await?;
+
+        let error = manager
+            .get_component_id_for_tool("shared-tool")
+            .await
+            .expect_err("a partially restored registry must not hide the collision");
+        let message = error.to_string();
+        assert!(message.contains("Multiple components found"), "{message}");
+        assert!(message.contains("component-a"), "{message}");
+        assert!(message.contains("component-b"), "{message}");
+
+        Ok(())
+    }
+
+    /// A component found in both the registry and the metadata is one component, not two.
+    #[test(tokio::test)]
+    async fn test_get_component_id_for_tool_dedupes_registry_and_metadata() -> Result<()> {
+        let manager = create_test_manager().await?;
+        write_cached_component(&manager, "component-a", &["only-tool"]).await?;
+        register_cached_component_in_registry(&manager, "component-a", &["only-tool"]).await?;
+
+        assert_eq!(
+            manager.get_component_id_for_tool("only-tool").await?,
+            "component-a"
+        );
 
         Ok(())
     }
