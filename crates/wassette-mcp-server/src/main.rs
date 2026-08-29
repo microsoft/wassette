@@ -798,7 +798,7 @@ async fn main() -> Result<()> {
                             .with_arguments(arguments);
 
                         use mcp_server::components::handle_component_call;
-                        let result = handle_component_call(&req, &lifecycle_manager).await;
+                        let result = handle_component_call(&req, &lifecycle_manager, None).await;
 
                         match result {
                             Ok(tool_result) => {

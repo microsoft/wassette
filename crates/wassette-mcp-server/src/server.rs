@@ -478,6 +478,219 @@ mod tests {
         );
     }
 
+    /// Builds the filesystem example component, which needs one storage grant to run and so
+    /// keeps these tests to a single permission.
+    fn build_filesystem_component() -> std::path::PathBuf {
+        let top_level = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("..")
+            .join("..");
+        let component_path =
+            top_level.join("examples/filesystem-rs/target/wasm32-wasip2/release/filesystem.wasm");
+
+        if !component_path.exists() {
+            let status = std::process::Command::new("cargo")
+                .current_dir(top_level.join("examples/filesystem-rs"))
+                .args(["build", "--release", "--target", "wasm32-wasip2"])
+                .status()
+                .expect("cargo build of the filesystem example should run");
+            assert!(status.success(), "filesystem example should compile");
+        }
+
+        assert!(
+            component_path.exists(),
+            "filesystem component should exist at {}",
+            component_path.display()
+        );
+        component_path
+    }
+
+    /// Completes the handshake the way a real client does before it makes requests.
+    async fn send_initialized(client: &mut BufReader<DuplexStream>) {
+        client
+            .get_mut()
+            .write_all(b"{\"jsonrpc\":\"2.0\",\"method\":\"notifications/initialized\"}\n")
+            .await
+            .expect("initialized notification should be written");
+        client
+            .get_mut()
+            .flush()
+            .await
+            .expect("initialized notification should be flushed");
+    }
+
+    /// Issues one `tools/call` and returns how many `tools/list_changed` notifications the
+    /// peer received before the response, together with the response itself.    ///
+    /// A handler sends its notification on the same transport before returning, so every
+    /// notification that belongs to the call has been written by the time the response
+    /// arrives. Counting up to the response therefore counts the call's notifications
+    /// exactly, without a sleep that would make the test both slow and flaky.
+    async fn call_tool_counting_notifications(
+        client: &mut BufReader<DuplexStream>,
+        request_id: i64,
+        tool_name: &str,
+        arguments: Value,
+    ) -> (usize, Value) {
+        let request = serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": request_id,
+            "method": "tools/call",
+            "params": {"name": tool_name, "arguments": arguments},
+        });
+        client
+            .get_mut()
+            .write_all(format!("{request}\n").as_bytes())
+            .await
+            .expect("tools/call request should be written");
+        client
+            .get_mut()
+            .flush()
+            .await
+            .expect("tools/call request should be flushed");
+
+        let mut notifications = 0;
+        loop {
+            let mut line = String::new();
+            tokio::time::timeout(Duration::from_secs(60), client.read_line(&mut line))
+                .await
+                .expect("timed out waiting for the tools/call response")
+                .expect("server should keep writing to the transport");
+            let message: Value = serde_json::from_str(&line).expect("message should be JSON");
+
+            if message["method"] == "notifications/tools/list_changed" {
+                notifications += 1;
+                continue;
+            }
+            if message["id"] == request_id {
+                return (notifications, message);
+            }
+        }
+    }
+
+    /// Populates a component directory the way an earlier process would have, and returns the
+    /// directory, the component id, and a directory the component is allowed to read.
+    async fn populated_component_dir() -> (tempfile::TempDir, tempfile::TempDir, String) {
+        let component_dir =
+            tempfile::tempdir().expect("temporary component directory should exist");
+        let work_dir = tempfile::tempdir().expect("temporary work directory should exist");
+        let component_path = build_filesystem_component();
+
+        let manager = LifecycleManager::new_unloaded(component_dir.path())
+            .await
+            .expect("lifecycle manager should be created");
+        let outcome = manager
+            .load_component(&format!("file://{}", component_path.display()))
+            .await
+            .expect("filesystem component should load");
+        manager
+            .grant_permission(
+                &outcome.component_id,
+                "storage",
+                &serde_json::json!({
+                    "uri": format!("fs://{}", work_dir.path().display()),
+                    "access": ["read"],
+                }),
+            )
+            .await
+            .expect("storage permission should be granted");
+
+        (component_dir, work_dir, outcome.component_id)
+    }
+
+    /// A tool call can be the first thing to register its component: the tool resolves from
+    /// on-disk metadata, and the background restore stays quiet about a component it finds
+    /// already loaded. Nobody else is going to announce that registration, so the call that
+    /// performed it must, or a client waiting on `tools/list_changed` never re-lists.
+    #[tokio::test]
+    async fn on_demand_component_registration_announces_the_tool_list_change_once() {
+        let (component_dir, work_dir, component_id) = populated_component_dir().await;
+        let probe = work_dir.path().join("probe.txt");
+        tokio::fs::write(&probe, b"hello")
+            .await
+            .expect("probe file should be written");
+
+        // A fresh manager over the same directory, with no restore run: exactly the state a
+        // just-started server is in when the first `tools/call` arrives.
+        let lifecycle_manager = LifecycleManager::new_unloaded(component_dir.path())
+            .await
+            .expect("lifecycle manager should be created");
+        assert!(
+            lifecycle_manager.list_components().await.is_empty(),
+            "nothing should be registered before the first call"
+        );
+        let server = McpServer::new(lifecycle_manager, false, true);
+        let (_peer, mut client, service) = connect_peer(server.clone()).await;
+        send_initialized(&mut client).await;
+
+        let arguments = serde_json::json!({ "path": probe.to_string_lossy() });
+        let (notifications, response) =
+            call_tool_counting_notifications(&mut client, 2, "file-exists", arguments.clone())
+                .await;
+        assert!(
+            response["error"].is_null() && response["result"]["isError"] != Value::Bool(true),
+            "the tool call should succeed: {response}"
+        );
+        assert_eq!(
+            server.lifecycle_manager.list_components().await,
+            vec![component_id],
+            "the call should have registered the component"
+        );
+        assert_eq!(
+            notifications, 1,
+            "registering a component through a tool call changes the tool list exactly once"
+        );
+
+        let (notifications, response) =
+            call_tool_counting_notifications(&mut client, 3, "file-exists", arguments).await;
+        assert!(
+            response["error"].is_null() && response["result"]["isError"] != Value::Bool(true),
+            "the second tool call should succeed: {response}"
+        );
+        assert_eq!(
+            notifications, 0,
+            "a call that found the component already loaded changed nothing to announce"
+        );
+
+        drop(client);
+        tokio::time::timeout(Duration::from_secs(5), service)
+            .await
+            .expect("peer should close after its transport is dropped")
+            .expect("peer service should shut down cleanly");
+    }
+
+    /// The explicit load already announces the change itself, so teaching the tool-call path
+    /// to announce must not give it a second voice.
+    #[tokio::test]
+    async fn explicit_component_load_announces_the_tool_list_change_once() {
+        let component_dir =
+            tempfile::tempdir().expect("temporary component directory should exist");
+        let component_path = build_filesystem_component();
+        let lifecycle_manager = LifecycleManager::new_unloaded(component_dir.path())
+            .await
+            .expect("lifecycle manager should be created");
+        let server = McpServer::new(lifecycle_manager, false, true);
+        let (_peer, mut client, service) = connect_peer(server.clone()).await;
+        send_initialized(&mut client).await;
+
+        let arguments =
+            serde_json::json!({ "path": format!("file://{}", component_path.display()) });
+        let (notifications, response) =
+            call_tool_counting_notifications(&mut client, 2, "load-component", arguments).await;
+        assert!(
+            response["error"].is_null() && response["result"]["isError"] != Value::Bool(true),
+            "the load should succeed: {response}"
+        );
+        assert_eq!(
+            notifications, 1,
+            "an explicit load announces the change once, not once per path that could"
+        );
+
+        drop(client);
+        tokio::time::timeout(Duration::from_secs(5), service)
+            .await
+            .expect("peer should close after its transport is dropped")
+            .expect("peer service should shut down cleanly");
+    }
+
     fn http_request_context(
         peer: rmcp::Peer<RoleServer>,
         request_id: i64,

@@ -172,7 +172,7 @@ pub async fn handle_tools_call(
             "reset-permission" if !disable_builtin_tools => {
                 handle_reset_permission(&req, lifecycle_manager).await
             }
-            _ => handle_component_call(&req, lifecycle_manager).await,
+            _ => handle_component_call(&req, lifecycle_manager, Some(server_peer)).await,
         }
     };
 

@@ -10,7 +10,9 @@ use rmcp::{Peer, RoleServer};
 use serde_json::{json, Value};
 use tracing::{debug, error, info, instrument};
 use wassette::schema::{canonicalize_output_schema, ensure_structured_result};
-use wassette::{format_error_chain, ComponentLoadOutcome, LifecycleManager, LoadResult};
+use wassette::{
+    format_error_chain, ComponentLoadOutcome, EnsureLoadedOutcome, LifecycleManager, LoadResult,
+};
 
 #[instrument(skip(lifecycle_manager))]
 pub(crate) async fn get_component_tools(lifecycle_manager: &LifecycleManager) -> Result<Vec<Tool>> {
@@ -125,6 +127,7 @@ pub(crate) async fn handle_unload_component(
 pub async fn handle_component_call(
     req: &CallToolRequestParams,
     lifecycle_manager: &LifecycleManager,
+    server_peer: Option<Peer<RoleServer>>,
 ) -> Result<CallToolResult> {
     let args = extract_args_from_request(req)?;
 
@@ -141,7 +144,7 @@ pub async fn handle_component_call(
 
     // The tool lookup can be satisfied from on-disk metadata, but executing the call
     // needs the component compiled and registered. This is a no-op when it already is.
-    lifecycle_manager
+    let load_outcome = lifecycle_manager
         .ensure_component_loaded(&component_id)
         .await
         .with_context(|| {
@@ -150,6 +153,16 @@ pub async fn handle_component_call(
                 req.name
             )
         })?;
+
+    // This call may be what put the component in the registry: a tool can be resolved from
+    // on-disk metadata before anything registered it, so a `tools/call` can beat both the
+    // explicit load handler and the background restore to the registration. Whichever path
+    // registers the component owns announcing it, and the restore stays quiet about a
+    // component that was already loaded, so notifying here is what keeps the change
+    // announced exactly once instead of not at all.
+    if load_outcome == EnsureLoadedOutcome::Registered {
+        handle_tool_list_notification(server_peer, &component_id, "load").await;
+    }
 
     let tool_schema = lifecycle_manager
         .get_tool_schema_for_component(&component_id, &req.name)

@@ -205,6 +205,20 @@ pub struct ComponentLoadOutcome {
     pub tool_names: Vec<String>,
 }
 
+/// What a call to [`LifecycleManager::ensure_component_loaded`] had to do.
+///
+/// A component can be registered by an on-demand load, by the background restore, or by an
+/// explicit load, and only one of them actually performs the registration. Callers that
+/// announce tool-list changes to clients need to know which one they were, so that the
+/// change is announced exactly once rather than never or twice.
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+pub enum EnsureLoadedOutcome {
+    /// The component was already registered, so the tool list did not change.
+    AlreadyLoaded,
+    /// This call compiled and registered the component, making its tools newly visible.
+    Registered,
+}
+
 impl ComponentRegistry {
     fn new() -> Self {
         Self::default()
@@ -1048,10 +1062,15 @@ impl LifecycleManager {
     /// against the background restore, so the component is compiled and registered once
     /// no matter how many callers race. Calls for different components still proceed in
     /// parallel.
+    ///
+    /// Returns [`EnsureLoadedOutcome::Registered`] only for the call that performed the
+    /// registration. The tool list changed exactly when that is returned, so a caller that
+    /// notifies clients can do so without announcing a change that never happened, and
+    /// without staying silent about one that did.
     #[instrument(skip(self))]
-    pub async fn ensure_component_loaded(&self, component_id: &str) -> Result<()> {
+    pub async fn ensure_component_loaded(&self, component_id: &str) -> Result<EnsureLoadedOutcome> {
         if self.registry.contains_component(component_id).await {
-            return Ok(());
+            return Ok(EnsureLoadedOutcome::AlreadyLoaded);
         }
 
         let entry_path = self.component_path(component_id);
@@ -1065,9 +1084,9 @@ impl LifecycleManager {
         let _guard = guard.lock().await;
 
         // Another caller, including the background restore, may have finished the load
-        // while we waited for the guard.
+        // while we waited for the guard. That caller owns announcing the change.
         if self.registry.contains_component(component_id).await {
-            return Ok(());
+            return Ok(EnsureLoadedOutcome::AlreadyLoaded);
         }
 
         self.compile_and_register_component_locked(component_id, &entry_path)
@@ -1079,7 +1098,7 @@ impl LifecycleManager {
                 )
             })?;
 
-        Ok(())
+        Ok(EnsureLoadedOutcome::Registered)
     }
 
     /// Save component metadata to disk
@@ -2244,6 +2263,47 @@ mod tests {
             1,
             "the on-demand load and the background restore should compile the component once \
              between them"
+        );
+
+        Ok(())
+    }
+
+    /// Whoever registers a component owns telling clients that the tool list changed, so
+    /// exactly one path has to report the registration. The restore deliberately stays quiet
+    /// about a component it found already loaded, which is precisely the case an on-demand
+    /// `tools/call` creates, so the on-demand path is the one that has to report it.
+    #[tokio::test]
+    async fn test_on_demand_load_reports_the_registration_the_restore_then_skips() -> Result<()> {
+        let manager = create_test_manager().await?;
+        let source = build_example_component().await?;
+        tokio::fs::copy(&source, manager.component_path(TEST_COMPONENT_ID)).await?;
+
+        assert_eq!(
+            manager.ensure_component_loaded(TEST_COMPONENT_ID).await?,
+            EnsureLoadedOutcome::Registered,
+            "the on-demand load put the component in the registry, so it has to say so"
+        );
+        assert_eq!(
+            manager.ensure_component_loaded(TEST_COMPONENT_ID).await?,
+            EnsureLoadedOutcome::AlreadyLoaded,
+            "a second caller changed nothing and must not report a registration"
+        );
+
+        let restore_notifications = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let notify = {
+            let restore_notifications = Arc::clone(&restore_notifications);
+            move || {
+                restore_notifications.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            }
+        };
+        manager
+            .load_existing_components_async(None, Some(notify))
+            .await?;
+
+        assert_eq!(
+            restore_notifications.load(std::sync::atomic::Ordering::SeqCst),
+            0,
+            "the restore does not announce a component the on-demand load already registered"
         );
 
         Ok(())
