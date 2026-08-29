@@ -40,6 +40,12 @@ pull request titles and the release notes take care of themselves. The only
 tuning in [`.github/release.yml`](.github/release.yml) is excluding bot-authored
 pull requests (like dependency bumps) so the list stays focused.
 
+For a release that needs a curated introduction, add
+`.github/release-highlights/vX.Y.Z.md` before dispatching the release workflow.
+The workflow prepends that file to the generated "What's Changed" section.
+Because published releases are immutable, the highlights file must be reviewed
+and merged before the workflow publishes the release.
+
 ## Release Versioning
 
 Wassette uses semantic versioning. All releases follow the format `vX.Y.Z`, where X is the major version, Y is the minor version, and Z is the patch version.
