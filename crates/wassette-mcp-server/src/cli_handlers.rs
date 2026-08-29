@@ -125,12 +125,19 @@ pub async fn create_lifecycle_manager(component_dir: Option<PathBuf>) -> Result<
         json_response: _,
     } = config;
 
-    LifecycleManager::builder(component_dir)
+    let manager = LifecycleManager::builder(component_dir)
         .with_environment_vars(environment_vars)
         .with_secrets_dir(secrets_dir)
         .with_oci_client(oci_client::Client::default())
         .with_http_client(reqwest::Client::default())
         .with_eager_loading(false)
         .build()
-        .await
+        .await?;
+
+    // A one-shot CLI process never runs the background restore that fills the registry,
+    // so hydrate it from the cached metadata here. Without this a component on disk is
+    // invisible to tool-name lookup and `tool invoke` reports "Tool not found".
+    manager.populate_registry_from_metadata().await?;
+
+    Ok(manager)
 }

@@ -1205,7 +1205,13 @@ impl LifecycleManager {
     }
 
     /// Populate tool registry from cached metadata without compiling components
-    async fn populate_registry_from_metadata(&self) -> Result<()> {
+    /// Registers tool metadata for every component on disk, without compiling anything.
+    ///
+    /// This makes tool names resolvable in a process that will never run the background
+    /// restore, such as a one-shot CLI invocation. Components are registered from their
+    /// cached metadata only when the validation stamp still matches, so a stale entry is
+    /// skipped rather than trusted. Compilation still happens later, on first use.
+    pub async fn populate_registry_from_metadata(&self) -> Result<()> {
         let mut entries = tokio::fs::read_dir(self.storage.root()).await?;
         let mut loaded_count = 0;
 
