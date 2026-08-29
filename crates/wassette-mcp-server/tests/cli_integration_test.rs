@@ -13,7 +13,7 @@ use tokio::net::{TcpListener, TcpStream};
 use tokio::process::Command as AsyncCommand;
 
 mod common;
-use common::build_fetch_component;
+use common::{build_fetch_component, build_filesystem_component};
 
 /// Helper struct for managing the test environment
 struct CliTestContext {
@@ -1161,6 +1161,113 @@ async fn test_cli_serve_legacy_sessions_requires_a_value() -> Result<()> {
     assert!(
         stderr.contains("a value is required"),
         "clap should ask for the missing value, got: {stderr}"
+    );
+
+    Ok(())
+}
+
+/// `tool invoke` has to work in a fresh process against a component directory that
+/// a previous process populated, which is the shape a scripted user hits.
+///
+/// A one-shot CLI run starts with an empty in-memory tool registry, so the invoke
+/// path must resolve the tool from the on-disk metadata and then load the
+/// component before executing it. Every step below runs in its own process.
+#[test(tokio::test)]
+async fn test_cli_tool_invoke_in_fresh_process() -> Result<()> {
+    let ctx = CliTestContext::new().await?;
+    let component_path = build_filesystem_component().await?;
+
+    // Process 1: populate the component directory.
+    let (stdout, stderr, exit_code) = ctx
+        .run_command(&[
+            "component",
+            "load",
+            &format!("file://{}", component_path.display()),
+        ])
+        .await?;
+    assert_eq!(exit_code, 0, "Load command failed with stderr: {stderr}");
+
+    let load_output: Value = ctx.parse_json_output(&stdout)?;
+    let component_id = load_output["id"]
+        .as_str()
+        .context("Missing component ID")?
+        .to_string();
+    assert!(
+        load_output["tools"]
+            .as_array()
+            .context("Missing tools array")?
+            .iter()
+            .any(|tool| tool == "file-exists"),
+        "expected the loaded component to export file-exists: {load_output}"
+    );
+
+    let work_dir = ctx.temp_dir.path().join("invoke-workdir");
+    tokio::fs::create_dir_all(&work_dir).await?;
+    let probe_file = work_dir.join("probe.txt");
+    tokio::fs::write(&probe_file, b"hello").await?;
+
+    // Process 2: grant the read access the invocation needs.
+    let (_, stderr, exit_code) = ctx
+        .run_command(&[
+            "permission",
+            "grant",
+            "storage",
+            &component_id,
+            &format!("fs://{}", work_dir.display()),
+            "--access",
+            "read",
+        ])
+        .await?;
+    assert_eq!(
+        exit_code, 0,
+        "Grant storage permission failed with stderr: {stderr}"
+    );
+
+    // Process 3: invoke with nothing but the on-disk state left by the two
+    // processes above. This used to fail with "Tool not found".
+    let arguments = serde_json::json!({ "path": probe_file.to_string_lossy() }).to_string();
+    let (stdout, stderr, exit_code) = ctx
+        .run_command(&["tool", "invoke", "file-exists", "--args", &arguments])
+        .await?;
+
+    assert_eq!(
+        exit_code, 0,
+        "tool invoke failed with stdout: {stdout} stderr: {stderr}"
+    );
+    let invoke_output: Value = ctx.parse_json_output(&stdout)?;
+    assert_eq!(
+        invoke_output["ok"],
+        Value::Bool(true),
+        "unexpected invoke result: {invoke_output}"
+    );
+
+    Ok(())
+}
+
+/// An unknown tool name must still fail cleanly from a fresh process rather than
+/// resolving to some arbitrary component.
+#[test(tokio::test)]
+async fn test_cli_tool_invoke_unknown_tool_in_fresh_process() -> Result<()> {
+    let ctx = CliTestContext::new().await?;
+    let component_path = build_filesystem_component().await?;
+
+    let (_, stderr, exit_code) = ctx
+        .run_command(&[
+            "component",
+            "load",
+            &format!("file://{}", component_path.display()),
+        ])
+        .await?;
+    assert_eq!(exit_code, 0, "Load command failed with stderr: {stderr}");
+
+    let (_, stderr, exit_code) = ctx
+        .run_command(&["tool", "invoke", "definitely-not-a-tool"])
+        .await?;
+
+    assert_ne!(exit_code, 0, "an unknown tool must not succeed");
+    assert!(
+        stderr.contains("Tool not found"),
+        "expected a tool lookup failure, got: {stderr}"
     );
 
     Ok(())

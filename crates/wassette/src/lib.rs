@@ -622,25 +622,88 @@ impl LifecycleManager {
     /// If there are multiple components with the same tool name, returns an error.
     #[instrument(skip(self))]
     pub async fn get_component_id_for_tool(&self, tool_name: &str) -> Result<String> {
-        let tool_infos = self
-            .registry
-            .tool_infos(tool_name)
-            .await
-            .context("Tool not found")?;
+        // Prefer the in-memory registry when it knows about the tool.
+        if let Some(tool_infos) = self.registry.tool_infos(tool_name).await {
+            let component_ids: Vec<String> = tool_infos
+                .into_iter()
+                .map(|info| info.component_id)
+                .collect();
+            if !component_ids.is_empty() {
+                return Self::single_component_id_for_tool(tool_name, component_ids);
+            }
+        }
 
-        if tool_infos.len() > 1 {
+        // Fallback to the persisted component metadata without compiling anything.
+        // Short-lived processes (such as one-shot CLI invocations) never populate the
+        // registry, so the on-disk mapping is the only source of truth available.
+        let component_ids = self.find_component_ids_for_tool_on_disk(tool_name).await;
+        if component_ids.is_empty() {
+            bail!("Tool not found");
+        }
+
+        Self::single_component_id_for_tool(tool_name, component_ids)
+    }
+
+    fn single_component_id_for_tool(
+        tool_name: &str,
+        mut component_ids: Vec<String>,
+    ) -> Result<String> {
+        if component_ids.len() > 1 {
             bail!(
                 "Multiple components found for tool '{}': {}",
                 tool_name,
-                tool_infos
-                    .iter()
-                    .map(|info| info.component_id.as_str())
-                    .collect::<Vec<_>>()
-                    .join(", ")
+                component_ids.join(", ")
             );
         }
 
-        Ok(tool_infos[0].component_id.clone())
+        Ok(component_ids.remove(0))
+    }
+
+    /// Scans the persisted component metadata for components exporting `tool_name`.
+    ///
+    /// Mirrors the metadata fallback used by [`Self::get_component_schema`]: the stored
+    /// metadata is only trusted when its validation stamp still matches the component
+    /// file on disk.
+    async fn find_component_ids_for_tool_on_disk(&self, tool_name: &str) -> Vec<String> {
+        let metadata_suffix = format!(".{METADATA_EXT}");
+        let mut component_ids = Vec::new();
+
+        let Ok(mut entries) = tokio::fs::read_dir(self.storage.root()).await else {
+            return component_ids;
+        };
+
+        while let Ok(Some(entry)) = entries.next_entry().await {
+            let path = entry.path();
+            let Some(file_name) = path.file_name().and_then(|name| name.to_str()) else {
+                continue;
+            };
+            if !file_name.ends_with(&metadata_suffix) {
+                continue;
+            }
+
+            let Ok(contents) = tokio::fs::read_to_string(&path).await else {
+                continue;
+            };
+            let Ok(metadata) = serde_json::from_str::<ComponentMetadata>(&contents) else {
+                continue;
+            };
+
+            if !metadata.tool_names.iter().any(|name| name == tool_name) {
+                continue;
+            }
+
+            let component_path = self.component_path(&metadata.component_id);
+            if !ComponentStorage::validate_stamp(&component_path, &metadata.validation_stamp).await
+            {
+                continue;
+            }
+
+            component_ids.push(metadata.component_id);
+        }
+
+        component_ids.sort();
+        component_ids.dedup();
+        component_ids
     }
 
     /// Lists all available tools across all components
@@ -1721,6 +1784,94 @@ mod tests {
 
         tokio::fs::write(&component_path, b"changed component").await?;
         assert!(manager.get_component_schema(component_id).await.is_none());
+
+        Ok(())
+    }
+
+    /// Writes a component file plus matching metadata, mimicking what an earlier
+    /// process leaves behind in the component directory.
+    async fn write_cached_component(
+        manager: &LifecycleManager,
+        component_id: &str,
+        tool_names: &[&str],
+    ) -> Result<PathBuf> {
+        let component_path = manager.component_path(component_id);
+        tokio::fs::write(&component_path, component_id.as_bytes()).await?;
+
+        let metadata = ComponentMetadata {
+            component_id: component_id.to_string(),
+            tool_schemas: tool_names
+                .iter()
+                .map(|name| serde_json::json!({ "name": name }))
+                .collect(),
+            function_identifiers: tool_names
+                .iter()
+                .map(|name| FunctionIdentifier {
+                    package_name: None,
+                    interface_name: None,
+                    function_name: (*name).to_string(),
+                })
+                .collect(),
+            tool_names: tool_names.iter().map(|name| (*name).to_string()).collect(),
+            validation_stamp: manager
+                .storage
+                .create_validation_stamp(&component_path, false)
+                .await?,
+            created_at: 0,
+        };
+        manager.storage.write_metadata(&metadata).await?;
+
+        Ok(component_path)
+    }
+
+    /// A one-shot CLI process never populates the in-memory registry, so the tool
+    /// lookup has to resolve the owning component from the persisted metadata.
+    #[test(tokio::test)]
+    async fn test_get_component_id_for_tool_falls_back_to_metadata() -> Result<()> {
+        let manager = create_test_manager().await?;
+        let component_path =
+            write_cached_component(&manager, "cached-component", &["cached-tool"]).await?;
+
+        assert!(manager.list_components().await.is_empty());
+        assert_eq!(
+            manager.get_component_id_for_tool("cached-tool").await?,
+            "cached-component"
+        );
+
+        // Unknown tools still report the original error.
+        let error = manager
+            .get_component_id_for_tool("missing-tool")
+            .await
+            .expect_err("unknown tools must not resolve");
+        assert!(error.to_string().contains("Tool not found"), "{error:#}");
+
+        // Stale metadata is ignored, matching the get_component_schema fallback.
+        tokio::fs::write(&component_path, b"changed component").await?;
+        let error = manager
+            .get_component_id_for_tool("cached-tool")
+            .await
+            .expect_err("stale metadata must not resolve");
+        assert!(error.to_string().contains("Tool not found"), "{error:#}");
+
+        Ok(())
+    }
+
+    /// Ambiguity has to be reported from the metadata fallback too, otherwise a
+    /// CLI invocation could silently pick an arbitrary component.
+    #[test(tokio::test)]
+    async fn test_get_component_id_for_tool_reports_metadata_ambiguity() -> Result<()> {
+        let manager = create_test_manager().await?;
+        write_cached_component(&manager, "component-a", &["shared-tool"]).await?;
+        write_cached_component(&manager, "component-b", &["shared-tool"]).await?;
+
+        let error = manager
+            .get_component_id_for_tool("shared-tool")
+            .await
+            .expect_err("an ambiguous tool name must not resolve");
+        let message = error.to_string();
+        assert!(message.contains("Multiple components found"), "{message}");
+        assert!(message.contains("component-a"), "{message}");
+        assert!(message.contains("component-b"), "{message}");
 
         Ok(())
     }

@@ -139,6 +139,18 @@ pub async fn handle_component_call(
         "Component function invocation started"
     );
 
+    // The tool lookup can be satisfied from on-disk metadata, but executing the call
+    // needs the component compiled and registered. This is a no-op when it already is.
+    lifecycle_manager
+        .ensure_component_loaded(&component_id)
+        .await
+        .with_context(|| {
+            format!(
+                "Failed to load component '{component_id}' for tool '{}'",
+                req.name
+            )
+        })?;
+
     let tool_schema = lifecycle_manager
         .get_tool_schema_for_component(&component_id, &req.name)
         .await;
