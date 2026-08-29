@@ -9,7 +9,7 @@ use std::collections::HashMap;
 use std::io::IsTerminal;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, Weak};
 use std::time::Instant;
 
 use anyhow::{anyhow, bail, Context, Result};
@@ -124,15 +124,49 @@ struct ComponentRegistry {
 /// [`LifecycleManager::ensure_component_loaded`] races the background restore in exactly
 /// this way. The guard is keyed by component id so unrelated components still load
 /// concurrently.
+///
+/// Entries are weak, so an id occupies the map only while a load of that component is in
+/// flight. Holding strong references instead would grow the map forever in a long-running
+/// server that loads and unloads distinct components.
 #[derive(Clone, Default)]
 struct ComponentLoadGuards {
-    guards: Arc<Mutex<HashMap<String, Arc<Mutex<()>>>>>,
+    guards: Arc<Mutex<HashMap<String, Weak<Mutex<()>>>>>,
 }
 
 impl ComponentLoadGuards {
+    /// Returns the guard for `component_id`, creating one if no load is currently using it.
+    ///
+    /// Callers keep the returned handle alive for as long as they hold (or wait for) the
+    /// guard, which is what makes the weak entries safe: while any load of `component_id` is
+    /// in flight the entry still upgrades, so every concurrent caller for that id is handed
+    /// the very same mutex. A fresh mutex is only ever minted once no caller holds one, and
+    /// therefore never runs concurrently with the mutex it replaces.
     async fn guard_for(&self, component_id: &str) -> Arc<Mutex<()>> {
         let mut guards = self.guards.lock().await;
-        Arc::clone(guards.entry(component_id.to_string()).or_default())
+
+        if let Some(existing) = guards.get(component_id).and_then(Weak::upgrade) {
+            return existing;
+        }
+
+        // Nothing holds a guard for this id, so its entry (and any other entry left behind by
+        // a finished load or an unloaded component) is dead weight. Reclaim them here: this
+        // only runs on the path that is about to compile a component, which dwarfs a sweep of
+        // a map holding at most one entry per component.
+        guards.retain(|_, guard| guard.strong_count() > 0);
+
+        let guard = Arc::new(Mutex::new(()));
+        guards.insert(component_id.to_string(), Arc::downgrade(&guard));
+        guard
+    }
+
+    /// Component ids currently tracked in the map, for tests that assert it does not grow
+    /// without bound.
+    #[cfg(test)]
+    async fn tracked_ids(&self) -> Vec<String> {
+        let guards = self.guards.lock().await;
+        let mut ids: Vec<String> = guards.keys().cloned().collect();
+        ids.sort();
+        ids
     }
 }
 
@@ -2304,6 +2338,68 @@ mod tests {
             restore_notifications.load(std::sync::atomic::Ordering::SeqCst),
             0,
             "the restore does not announce a component the on-demand load already registered"
+        );
+
+        Ok(())
+    }
+
+    /// Two callers racing to load the same component must be handed the same mutex, or the
+    /// guard stops guarding and both compile.
+    #[tokio::test]
+    async fn test_load_guards_hand_out_one_mutex_per_active_component() {
+        let guards = ComponentLoadGuards::default();
+
+        let first = guards.guard_for("component-a").await;
+        let _held = first.lock().await;
+        let second = guards.guard_for("component-a").await;
+
+        assert!(
+            Arc::ptr_eq(&first, &second),
+            "a caller arriving while a load is in flight must wait on that load's mutex"
+        );
+    }
+
+    /// The map is keyed by component id, so a server that loads and unloads distinct
+    /// components over its lifetime would grow it without bound if entries outlived the loads
+    /// that created them.
+    #[tokio::test]
+    async fn test_load_guards_do_not_retain_entries_for_inactive_components() {
+        let guards = ComponentLoadGuards::default();
+
+        {
+            let gone = guards.guard_for("gone").await;
+            let _held = gone.lock().await;
+            assert_eq!(guards.tracked_ids().await, vec!["gone".to_string()]);
+        }
+
+        let still_here = guards.guard_for("still-here").await;
+        let _held = still_here.lock().await;
+
+        assert_eq!(
+            guards.tracked_ids().await,
+            vec!["still-here".to_string()],
+            "an id with no load in flight should not be retained"
+        );
+    }
+
+    /// The same reclamation seen through the manager: a component that was loaded and then
+    /// unloaded leaves nothing behind in the guard map.
+    #[tokio::test]
+    async fn test_unloaded_components_are_not_retained_by_the_load_guards() -> Result<()> {
+        let manager = create_test_manager().await?;
+        let source = build_example_component().await?;
+        let other_component_id = "other_component";
+        tokio::fs::copy(&source, manager.component_path(TEST_COMPONENT_ID)).await?;
+        tokio::fs::copy(&source, manager.component_path(other_component_id)).await?;
+
+        manager.ensure_component_loaded(TEST_COMPONENT_ID).await?;
+        manager.unload_component(TEST_COMPONENT_ID).await?;
+        manager.ensure_component_loaded(other_component_id).await?;
+
+        assert_eq!(
+            manager.load_guards.tracked_ids().await,
+            vec![other_component_id.to_string()],
+            "the unloaded component should not keep an entry in the guard map"
         );
 
         Ok(())
