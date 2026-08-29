@@ -12,7 +12,10 @@ pub fn canonicalize_tool_schema(tool_schema: &Value) -> Value {
         return tool_schema.clone();
     };
 
-    if let Some(output_schema) = tool.get("outputSchema") {
+    if let Some(output_schema) = tool
+        .get("outputSchema")
+        .filter(|output_schema| !output_schema.is_null())
+    {
         tool.insert(
             "outputSchema".to_string(),
             canonicalize_output_schema(output_schema),
@@ -239,4 +242,22 @@ fn looks_like_tuple_keys(map: &Map<String, Value>) -> bool {
         idx += 1;
     }
     idx > 0 && map.len() == idx
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use super::*;
+
+    #[test]
+    fn canonicalize_tool_schema_preserves_null_output_schema() {
+        let tool_schema = json!({
+            "name": "no-output",
+            "inputSchema": {"type": "object"},
+            "outputSchema": null
+        });
+
+        assert_eq!(canonicalize_tool_schema(&tool_schema), tool_schema);
+    }
 }

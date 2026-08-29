@@ -744,6 +744,13 @@ impl LifecycleManager {
         // Fallback to metadata-based schema without compiling the component
         match self.load_component_metadata(component_id).await {
             Ok(Some(metadata)) => {
+                let component_path = self.component_path(component_id);
+                if !ComponentStorage::validate_stamp(&component_path, &metadata.validation_stamp)
+                    .await
+                {
+                    return None;
+                }
+
                 let tools: Vec<Value> = metadata
                     .tool_schemas
                     .into_iter()
@@ -1661,7 +1668,13 @@ mod tests {
                 },
                 "required": ["value"]
             },
-            "outputSchema": {"type": "string"}
+            "outputSchema": {
+                "type": "object",
+                "properties": {
+                    "result": {"type": "string"}
+                },
+                "required": ["result"]
+            }
         });
         let metadata = ComponentMetadata {
             component_id: component_id.to_string(),
@@ -1705,6 +1718,9 @@ mod tests {
         manager.populate_registry_from_metadata().await?;
         let registered_tools = manager.list_tools().await;
         assert_eq!(registered_tools, vec![cached_tool.clone()]);
+
+        tokio::fs::write(&component_path, b"changed component").await?;
+        assert!(manager.get_component_schema(component_id).await.is_none());
 
         Ok(())
     }
