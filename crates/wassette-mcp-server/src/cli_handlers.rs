@@ -149,3 +149,111 @@ pub async fn create_lifecycle_manager_for_tool_lookup(
     manager.populate_registry_from_metadata().await?;
     Ok(manager)
 }
+
+/// Create the LifecycleManager for `wassette tool invoke <name>`.
+///
+/// Only a component-exported tool name is resolved through the registry, so only that case
+/// pays for hydrating it. A built-in name is dispatched straight off [`ToolName`] and never
+/// consults the tool map, while hydration reads and validates the cached metadata of every
+/// installed component. Deciding this before the manager is built is what keeps
+/// `wassette tool invoke load-component` from scanning a component directory it will not look
+/// at.
+pub async fn create_lifecycle_manager_for_tool_invoke(
+    component_dir: Option<PathBuf>,
+    tool_name: &str,
+) -> Result<LifecycleManager> {
+    if ToolName::try_from(tool_name).is_ok() {
+        create_lifecycle_manager(component_dir).await
+    } else {
+        create_lifecycle_manager_for_tool_lookup(component_dir).await
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::path::Path;
+
+    use super::*;
+
+    /// Writes the on-disk state a previous process leaves behind for an installed component:
+    /// the artifact plus the cached tool metadata beside it. Neither has to be a real
+    /// WebAssembly component, because hydrating the registry from cached metadata reads the
+    /// metadata and validates the artifact's stamp without ever compiling it.
+    async fn install_cached_component(
+        dir: &Path,
+        component_id: &str,
+        tool_name: &str,
+    ) -> Result<()> {
+        let artifact = dir.join(format!("{component_id}.wasm"));
+        tokio::fs::write(&artifact, b"stand-in for a component artifact").await?;
+
+        let file_metadata = tokio::fs::metadata(&artifact).await?;
+        let mtime = file_metadata
+            .modified()?
+            .duration_since(std::time::UNIX_EPOCH)?
+            .as_secs();
+
+        let cached = serde_json::json!({
+            "component_id": component_id,
+            "tool_schemas": [{
+                "name": tool_name,
+                "description": "a cached tool",
+                "inputSchema": { "type": "object" },
+            }],
+            "function_identifiers": [{
+                "package_name": null,
+                "interface_name": null,
+                "function_name": tool_name,
+            }],
+            "tool_names": [tool_name],
+            "validation_stamp": {
+                "file_size": file_metadata.len(),
+                "mtime": mtime,
+                "content_hash": null,
+            },
+            "created_at": 0,
+        });
+
+        tokio::fs::write(
+            dir.join(format!("{component_id}.metadata.json")),
+            serde_json::to_vec(&cached)?,
+        )
+        .await?;
+
+        Ok(())
+    }
+
+    /// `wassette tool invoke` only has to resolve a name through the tool registry when that
+    /// name belongs to a component. A built-in is dispatched straight off [`ToolName`] and
+    /// never consults the tool map, while hydrating the registry reads and validates the
+    /// cached metadata of every installed component. Built-in invocations must therefore not
+    /// pay for hydration, and component tool invocations must still get it.
+    #[tokio::test]
+    async fn test_tool_invoke_hydrates_the_registry_only_for_component_tools() -> Result<()> {
+        let dir = tempfile::tempdir()?;
+        install_cached_component(dir.path(), "cached_component", "cached-tool").await?;
+
+        let builtin = create_lifecycle_manager_for_tool_invoke(
+            Some(dir.path().to_path_buf()),
+            ToolName::LoadComponent.as_str(),
+        )
+        .await?;
+        assert!(
+            builtin.list_tools().await.is_empty(),
+            "invoking a built-in must not scan and validate every installed component's metadata"
+        );
+
+        let component_tool =
+            create_lifecycle_manager_for_tool_invoke(Some(dir.path().to_path_buf()), "cached-tool")
+                .await?;
+        assert_eq!(
+            component_tool
+                .get_component_id_for_tool("cached-tool")
+                .await?,
+            "cached_component",
+            "invoking a component tool must still resolve it from the cached metadata"
+        );
+
+        Ok(())
+    }
+}
