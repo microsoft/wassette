@@ -4,6 +4,14 @@
 //! A security-oriented runtime that runs WebAssembly Components via MCP
 
 #![warn(missing_docs)]
+// The guard tests spawn `load_component`, whose `Send` obligation chain runs through
+// resource resolution, staging and compilation. The next trait solver evaluates that
+// chain past the default limit of 128 and reports it as
+// `recursion_depth_exceeding_limit`, which the nightly coverage job turns into an
+// error via `-D warnings`. Stable builds do not use the next solver, so `build` and
+// `lint` stay green while `test coverage` fails to compile. Raising the limit is
+// preferred over allowing the lint, since the note says it becomes a hard error later.
+#![recursion_limit = "256"]
 
 use std::collections::HashMap;
 use std::io::IsTerminal;
