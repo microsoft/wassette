@@ -125,19 +125,27 @@ pub async fn create_lifecycle_manager(component_dir: Option<PathBuf>) -> Result<
         json_response: _,
     } = config;
 
-    let manager = LifecycleManager::builder(component_dir)
+    LifecycleManager::builder(component_dir)
         .with_environment_vars(environment_vars)
         .with_secrets_dir(secrets_dir)
         .with_oci_client(oci_client::Client::default())
         .with_http_client(reqwest::Client::default())
         .with_eager_loading(false)
         .build()
-        .await?;
+        .await
+}
 
-    // A one-shot CLI process never runs the background restore that fills the registry,
-    // so hydrate it from the cached metadata here. Without this a component on disk is
-    // invisible to tool-name lookup and `tool invoke` reports "Tool not found".
+/// Create a LifecycleManager that can resolve tool names to their components.
+///
+/// Only the handlers that look a tool up by name need this. A one-shot CLI process never
+/// runs the background restore that fills the registry, so without hydrating it a component
+/// sitting on disk is invisible to tool-name lookup. Hydration reads the cached metadata for
+/// every component in the directory, so the other subcommands keep the unloaded manager
+/// described above and do not pay for a scan they cannot use.
+pub async fn create_lifecycle_manager_for_tool_lookup(
+    component_dir: Option<PathBuf>,
+) -> Result<LifecycleManager> {
+    let manager = create_lifecycle_manager(component_dir).await?;
     manager.populate_registry_from_metadata().await?;
-
     Ok(manager)
 }

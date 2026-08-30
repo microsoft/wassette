@@ -34,7 +34,9 @@ mod server;
 mod tools;
 mod utils;
 
-use cli_handlers::{create_lifecycle_manager, handle_tool_cli_command};
+use cli_handlers::{
+    create_lifecycle_manager, create_lifecycle_manager_for_tool_lookup, handle_tool_cli_command,
+};
 use commands::{
     Cli, Commands, ComponentCommands, GrantPermissionCommands, PermissionCommands, PolicyCommands,
     RegistryCommands, RevokePermissionCommands, SecretCommands, Shell, ToolCommands, Transport,
@@ -770,7 +772,8 @@ async fn main() -> Result<()> {
                     output_format,
                 } => {
                     let component_dir = component_dir.clone().or_else(|| cli.component_dir.clone());
-                    let lifecycle_manager = create_lifecycle_manager(component_dir).await?;
+                    let lifecycle_manager =
+                        create_lifecycle_manager_for_tool_lookup(component_dir).await?;
 
                     let arguments = if let Some(args_str) = args {
                         let parsed: serde_json::Value = serde_json::from_str(args_str)
