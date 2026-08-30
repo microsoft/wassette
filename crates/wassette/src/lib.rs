@@ -276,22 +276,68 @@ impl ComponentRegistry {
             .collect()
     }
 
-    async fn register_metadata_if_absent(
+    /// Registers cached tool metadata for a whole set of components under one registry write.
+    ///
+    /// Hydration has to become visible all at once. Registering one component at a time
+    /// publishes a `tool_map` in which a tool exported by two installed components is
+    /// momentarily owned by exactly one of them, and a lookup landing in that window resolves
+    /// the tool to that component and runs it, even though the collision rule would refuse it
+    /// once both are registered. Nothing revisits the tool map afterwards to withdraw the
+    /// answer. Taking the write lock once for the entire batch removes the window: a reader
+    /// holds the read lock either before this write or after it, so it sees the registry
+    /// either as it was before hydration or with every hydrated component present, and the
+    /// collision is visible in both.
+    ///
+    /// `artifact_present` is rechecked here, inside that same critical section, rather than
+    /// only under each component's load guard. The guard is released when a component's
+    /// metadata has been validated, so an unload can complete between validation and this
+    /// write, and a batch that trusted the earlier check would put a component with no
+    /// artifact and no instance back into the tool map. The recheck closes that: an unload
+    /// removes the artifact before it deregisters the component, so either the removal is
+    /// already visible here and the entry is skipped, or the unload's own deregistration is
+    /// still to come and, because it needs this very lock, it necessarily runs after this
+    /// write and takes the entry back out.
+    ///
+    /// The predicate is deliberately synchronous. It runs a `stat` per pending component while
+    /// the write lock is held, which is bounded by the number of installed components and
+    /// happens once at startup; awaiting inside the critical section would hold the lock
+    /// across scheduler yields for no benefit.
+    async fn register_cached_metadata_batch(
         &self,
-        component_id: &str,
-        tools: Vec<ToolMetadata>,
-    ) -> Result<bool> {
+        pending: Vec<PendingRegistration>,
+        artifact_present: impl Fn(&Path) -> bool,
+    ) -> usize {
         let mut state = self.state.write().await;
+        let mut registered = 0;
 
-        if state.components.contains_key(component_id)
-            || state.component_map.contains_key(component_id)
-        {
-            return Ok(false);
+        for entry in pending {
+            if !artifact_present(&entry.artifact_path) {
+                debug!(component_id = %entry.component_id, "Component removed before its cached metadata could be registered");
+                continue;
+            }
+
+            if state.components.contains_key(&entry.component_id)
+                || state.component_map.contains_key(&entry.component_id)
+            {
+                debug!(component_id = %entry.component_id, "Skipping cached metadata; component already registered");
+                continue;
+            }
+
+            state.register_tools_only(&entry.component_id, entry.tools);
+            debug!(component_id = %entry.component_id, "Registered tools from cached metadata");
+            registered += 1;
         }
 
-        state.register_tools_only(component_id, tools);
-        Ok(true)
+        registered
     }
+}
+
+/// A component whose cached metadata has been read and validated, waiting to be published
+/// into the registry by [`ComponentRegistry::register_cached_metadata_batch`].
+struct PendingRegistration {
+    component_id: String,
+    artifact_path: PathBuf,
+    tools: Vec<ToolMetadata>,
 }
 
 impl ComponentRegistryState {
@@ -1403,12 +1449,23 @@ impl LifecycleManager {
     /// cached metadata only when the validation stamp still matches, so a stale entry is
     /// skipped rather than trusted. Compilation still happens later, on first use.
     ///
-    /// Each component is registered while holding that component's load guard, so this cannot
-    /// race an unload of the same component. The guard is per component id and is released
-    /// before the next entry, so this never serializes unrelated components against each other.
+    /// The pass has two phases. Each component's cached metadata is read and validated while
+    /// holding that component's load guard, so this cannot race a load or unload of the same
+    /// component; the guard is released before the next entry, so unrelated components are
+    /// never serialized against each other. What every validated component produces is then
+    /// published in a single registry write.
+    ///
+    /// The write is batched because the server starts answering requests while this runs, and
+    /// registering one component at a time exposes a `tool_map` in which a tool exported by
+    /// two installed components has only one owner. A lookup landing there resolves and runs
+    /// the tool that the collision rule should refuse, and nothing revisits the tool map to
+    /// take the answer back. With one write, a lookup sees either no hydrated component or
+    /// all of them, and the collision is visible in both. The cost is that hydration becomes
+    /// visible only once every component has been validated; validation reads metadata and
+    /// stats an artifact, and compiles nothing.
     pub async fn populate_registry_from_metadata(&self) -> Result<()> {
         let mut entries = tokio::fs::read_dir(self.storage.root()).await?;
-        let mut loaded_count = 0;
+        let mut pending = Vec::new();
 
         while let Some(entry) = entries.next_entry().await? {
             let entry_path = entry.path();
@@ -1425,13 +1482,18 @@ impl LifecycleManager {
                 continue;
             };
 
-            if self
-                .register_metadata_under_guard(component_id, &entry_path)
+            if let Some(prepared) = self
+                .prepare_cached_metadata_under_guard(component_id, &entry_path)
                 .await
             {
-                loaded_count += 1;
+                pending.push(prepared);
             }
         }
+
+        let loaded_count = self
+            .registry
+            .register_cached_metadata_batch(pending, |path| path.exists())
+            .await;
 
         if loaded_count > 0 {
             info!(
@@ -1443,21 +1505,30 @@ impl LifecycleManager {
         Ok(())
     }
 
-    /// Register one component's cached tool metadata while holding its load guard.
+    /// Read and validate one component's cached tool metadata while holding its load guard.
     ///
-    /// Reading the metadata, checking its validation stamp and registering the result is a
-    /// check-then-act over the very files and registry entry an unload removes, so all three
-    /// happen inside one critical section. Without the guard an unload landing between the
-    /// validation and the registration would be silently undone: the component would be put
-    /// back into the tool map with no artifact and no instance behind it, and nothing would
-    /// ever take it out again.
+    /// Reading the metadata and checking its validation stamp is a check-then-act over the
+    /// very files a reload replaces and an unload removes, so both happen inside one critical
+    /// section. Without the guard this could read the metadata of one artifact and stamp it
+    /// against another that a reload has just staged in its place.
     ///
-    /// Nothing reached from here takes the guard again, so this cannot deadlock; the registry
-    /// has its own lock. The guard is dropped when this returns, so the caller's loop does not
-    /// hold one component's guard while handling the next.
+    /// The guard is not held until the result is registered, because the registration is
+    /// batched with every other component's and holding one component's guard across another
+    /// component's work would serialize ids that have nothing to do with each other. That is
+    /// safe because [`ComponentRegistry::register_cached_metadata_batch`] rechecks the
+    /// artifact inside its own write, which is what actually rules out reviving a component
+    /// an unload has removed.
     ///
-    /// Returns whether the component was newly registered from cached metadata.
-    async fn register_metadata_under_guard(&self, component_id: &str, entry_path: &Path) -> bool {
+    /// Nothing reached from here takes the guard again, so this cannot deadlock. The guard is
+    /// dropped when this returns, so the caller's loop does not hold one component's guard
+    /// while handling the next.
+    ///
+    /// Returns the registration to publish, or `None` if there is nothing usable to register.
+    async fn prepare_cached_metadata_under_guard(
+        &self,
+        component_id: &str,
+        entry_path: &Path,
+    ) -> Option<PendingRegistration> {
         let guard = self.load_guard(component_id).await;
         let _guard = guard.lock().await;
 
@@ -1465,21 +1536,21 @@ impl LifecycleManager {
         // there is nothing to register, whatever cached metadata may still be lying around.
         if !entry_path.exists() {
             debug!(component_id = %component_id, "Component removed while waiting for the load guard");
-            return false;
+            return None;
         }
 
         let Ok(Some(metadata)) = self.load_component_metadata(component_id).await else {
             debug!(component_id = %component_id, "No valid cached metadata found, will load component later");
-            return false;
+            return None;
         };
 
         // Validate that the component file hasn't changed
         if !ComponentStorage::validate_stamp(entry_path, &metadata.validation_stamp).await {
             debug!(component_id = %component_id, "No valid cached metadata found, will load component later");
-            return false;
+            return None;
         }
 
-        let tool_metadata: Vec<ToolMetadata> = metadata
+        let tools: Vec<ToolMetadata> = metadata
             .function_identifiers
             .into_iter()
             .zip(metadata.tool_schemas)
@@ -1494,24 +1565,11 @@ impl LifecycleManager {
             })
             .collect();
 
-        match self
-            .registry
-            .register_metadata_if_absent(component_id, tool_metadata)
-            .await
-        {
-            Ok(true) => {
-                debug!(component_id = %component_id, "Registered tools from cached metadata");
-                true
-            }
-            Ok(false) => {
-                debug!(component_id = %component_id, "Skipping cached metadata; component already registered");
-                false
-            }
-            Err(e) => {
-                warn!(%component_id, error = %format_error_chain(&e), "Failed to register tools from metadata");
-                false
-            }
-        }
+        Some(PendingRegistration {
+            component_id: component_id.to_string(),
+            artifact_path: entry_path.to_path_buf(),
+            tools,
+        })
     }
 
     /// Load a component from directory entry with optimization
@@ -2475,6 +2533,115 @@ mod tests {
             manager.list_components().await.is_empty(),
             "a component removed from disk must not be reintroduced into the registry"
         );
+
+        Ok(())
+    }
+
+    /// Writes the on-disk state a previous process leaves behind for an installed component:
+    /// the artifact plus the cached tool metadata beside it. Neither has to be a real
+    /// WebAssembly component, because hydrating the registry from cached metadata reads the
+    /// metadata and validates the artifact's stamp without ever compiling it.
+    async fn install_cached_component(
+        component_dir: &Path,
+        component_id: &str,
+        tool_name: &str,
+    ) -> Result<()> {
+        let storage = ComponentStorage::new(component_dir.to_path_buf(), 1).await?;
+        let artifact = storage.component_path(component_id);
+        tokio::fs::write(&artifact, format!("stand-in artifact for {component_id}")).await?;
+
+        let validation_stamp = storage.create_validation_stamp(&artifact, false).await?;
+        storage
+            .write_metadata(&ComponentMetadata {
+                component_id: component_id.to_string(),
+                tool_schemas: vec![serde_json::json!({
+                    "name": tool_name,
+                    "description": "a cached tool",
+                    "inputSchema": { "type": "object" },
+                })],
+                function_identifiers: vec![FunctionIdentifier {
+                    package_name: None,
+                    interface_name: None,
+                    function_name: tool_name.to_string(),
+                }],
+                tool_names: vec![tool_name.to_string()],
+                validation_stamp,
+                created_at: 0,
+            })
+            .await?;
+
+        Ok(())
+    }
+
+    /// A tool name exported by two installed components must never resolve to one of them.
+    /// Hydration is the first phase of the background restore and the server answers requests
+    /// while it runs, so publishing one component at a time opens a window in which only the
+    /// first of the pair is in the tool map. A lookup landing there resolves the tool to that
+    /// component and runs it, even though the collision rule would refuse it once both are
+    /// registered, and nothing revisits the tool map afterwards to withdraw the answer.
+    ///
+    /// Holding one component's load guard stops hydration at that component, which is the
+    /// interleaving. Which of the pair the directory scan reaches first is not something the
+    /// test can choose, so it runs the scenario once per component id: for whichever id the
+    /// scan reaches second, the run that blocks on it leaves the other one already published
+    /// by a per-component write. One of the two runs therefore reproduces the window whatever
+    /// the directory order is, and with a single batched write neither does.
+    #[tokio::test]
+    async fn test_hydration_never_exposes_one_side_of_a_tool_name_collision() -> Result<()> {
+        const COLLIDING_TOOL: &str = "shared-tool";
+        const COMPONENT_IDS: [&str; 2] = ["collide-alpha", "collide-beta"];
+
+        let tempdir = tempfile::tempdir()?;
+        for component_id in COMPONENT_IDS {
+            install_cached_component(tempdir.path(), component_id, COLLIDING_TOOL).await?;
+        }
+
+        for blocked in COMPONENT_IDS {
+            let manager = LifecycleManager::new_unloaded(&tempdir).await?;
+            assert!(manager.list_tools().await.is_empty());
+
+            // Stand in for a concurrent load or unload of this component. Hydration reaches it
+            // and waits, with the other component either already handled or still to come.
+            let guard = manager.load_guard(blocked).await;
+            let held = guard.lock().await;
+
+            let hydrate = tokio::spawn({
+                let manager = manager.clone();
+                async move { manager.populate_registry_from_metadata().await }
+            });
+
+            for _ in 0..10 {
+                tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+                assert!(
+                    manager.list_tools().await.is_empty(),
+                    "hydration blocked on {blocked} must not publish part of the registry"
+                );
+                assert!(
+                    manager
+                        .get_component_id_for_tool(COLLIDING_TOOL)
+                        .await
+                        .is_err(),
+                    "a tool exported by two installed components must not resolve to one of \
+                     them while hydration is blocked on {blocked}"
+                );
+            }
+            assert!(
+                !hydrate.is_finished(),
+                "hydration must still be waiting for the guard"
+            );
+
+            drop(held);
+            hydrate.await??;
+
+            let error = manager
+                .get_component_id_for_tool(COLLIDING_TOOL)
+                .await
+                .expect_err("the collision must be reported once hydration has finished");
+            assert!(
+                error.to_string().contains("Multiple components"),
+                "unexpected error resolving the colliding tool: {error:#}"
+            );
+        }
 
         Ok(())
     }
