@@ -4,11 +4,19 @@
 //! A security-oriented runtime that runs WebAssembly Components via MCP
 
 #![warn(missing_docs)]
+// The guard tests spawn `load_component`, whose `Send` obligation chain runs through
+// resource resolution, staging and compilation. The next trait solver evaluates that
+// chain past the default limit of 128 and reports it as
+// `recursion_depth_exceeding_limit`, which the nightly coverage job turns into an
+// error via `-D warnings`. Stable builds do not use the next solver, so `build` and
+// `lint` stay green while `test coverage` fails to compile. Raising the limit is
+// preferred over allowing the lint, since the note says it becomes a hard error later.
+#![recursion_limit = "256"]
 
 use std::collections::HashMap;
 use std::io::IsTerminal;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::sync::{Arc, Weak};
 use std::time::Instant;
 
 use anyhow::{anyhow, bail, Context, Result};
@@ -21,7 +29,7 @@ use etcetera::BaseStrategy;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tokio::fs::DirEntry;
-use tokio::sync::{RwLock, Semaphore};
+use tokio::sync::{Mutex, RwLock, Semaphore};
 use tracing::{debug, info, instrument, warn};
 use wasmtime::component::{Component, InstancePre};
 use wasmtime::Store;
@@ -112,6 +120,61 @@ pub struct ValidationStamp {
 #[derive(Clone, Default)]
 struct ComponentRegistry {
     state: Arc<RwLock<ComponentRegistryState>>,
+}
+
+/// Per-component guards that serialize concurrent load attempts.
+///
+/// Every path that compiles a component is check-then-act: it tests the registry (or the
+/// artifact's validation stamp) and then compiles. Without a guard, two callers can both
+/// observe the component as absent and both compile it, duplicating wasmtime compilation
+/// and racing on the same metadata and precompiled cache files. The on-demand load done by
+/// [`LifecycleManager::ensure_component_loaded`] races the background restore in exactly
+/// this way. The guard is keyed by component id so unrelated components still load
+/// concurrently.
+///
+/// Entries are weak, so an id occupies the map only while a load of that component is in
+/// flight. Holding strong references instead would grow the map forever in a long-running
+/// server that loads and unloads distinct components.
+#[derive(Clone, Default)]
+struct ComponentLoadGuards {
+    guards: Arc<Mutex<HashMap<String, Weak<Mutex<()>>>>>,
+}
+
+impl ComponentLoadGuards {
+    /// Returns the guard for `component_id`, creating one if no load is currently using it.
+    ///
+    /// Callers keep the returned handle alive for as long as they hold (or wait for) the
+    /// guard, which is what makes the weak entries safe: while any load of `component_id` is
+    /// in flight the entry still upgrades, so every concurrent caller for that id is handed
+    /// the very same mutex. A fresh mutex is only ever minted once no caller holds one, and
+    /// therefore never runs concurrently with the mutex it replaces.
+    async fn guard_for(&self, component_id: &str) -> Arc<Mutex<()>> {
+        let mut guards = self.guards.lock().await;
+
+        if let Some(existing) = guards.get(component_id).and_then(Weak::upgrade) {
+            return existing;
+        }
+
+        // Nothing holds a guard for this id, so its entry (and any other entry left behind by
+        // a finished load or an unloaded component) is dead weight. Reclaim them here: this
+        // only runs on the path that is about to compile a component, which dwarfs a sweep of
+        // a map holding at most one entry per component.
+        guards.retain(|_, guard| guard.strong_count() > 0);
+
+        let guard = Arc::new(Mutex::new(()));
+        guards.insert(component_id.to_string(), Arc::downgrade(&guard));
+        guard
+    }
+
+    /// Component ids currently tracked in the map, for tests that assert it does not grow
+    /// without bound.
+    #[cfg(test)]
+    async fn tracked_ids(&self) -> Vec<String> {
+        let guards = self.guards.lock().await;
+        let mut ids: Vec<String> = guards.keys().cloned().collect();
+        ids.sort();
+        ids
+    }
 }
 
 #[derive(Default)]
@@ -213,22 +276,68 @@ impl ComponentRegistry {
             .collect()
     }
 
-    async fn register_metadata_if_absent(
+    /// Registers cached tool metadata for a whole set of components under one registry write.
+    ///
+    /// Hydration has to become visible all at once. Registering one component at a time
+    /// publishes a `tool_map` in which a tool exported by two installed components is
+    /// momentarily owned by exactly one of them, and a lookup landing in that window resolves
+    /// the tool to that component and runs it, even though the collision rule would refuse it
+    /// once both are registered. Nothing revisits the tool map afterwards to withdraw the
+    /// answer. Taking the write lock once for the entire batch removes the window: a reader
+    /// holds the read lock either before this write or after it, so it sees the registry
+    /// either as it was before hydration or with every hydrated component present, and the
+    /// collision is visible in both.
+    ///
+    /// `artifact_present` is rechecked here, inside that same critical section, rather than
+    /// only under each component's load guard. The guard is released when a component's
+    /// metadata has been validated, so an unload can complete between validation and this
+    /// write, and a batch that trusted the earlier check would put a component with no
+    /// artifact and no instance back into the tool map. The recheck closes that: an unload
+    /// removes the artifact before it deregisters the component, so either the removal is
+    /// already visible here and the entry is skipped, or the unload's own deregistration is
+    /// still to come and, because it needs this very lock, it necessarily runs after this
+    /// write and takes the entry back out.
+    ///
+    /// The predicate is deliberately synchronous. It runs a `stat` per pending component while
+    /// the write lock is held, which is bounded by the number of installed components and
+    /// happens once at startup; awaiting inside the critical section would hold the lock
+    /// across scheduler yields for no benefit.
+    async fn register_cached_metadata_batch(
         &self,
-        component_id: &str,
-        tools: Vec<ToolMetadata>,
-    ) -> Result<bool> {
+        pending: Vec<PendingRegistration>,
+        artifact_present: impl Fn(&Path) -> bool,
+    ) -> usize {
         let mut state = self.state.write().await;
+        let mut registered = 0;
 
-        if state.components.contains_key(component_id)
-            || state.component_map.contains_key(component_id)
-        {
-            return Ok(false);
+        for entry in pending {
+            if !artifact_present(&entry.artifact_path) {
+                debug!(component_id = %entry.component_id, "Component removed before its cached metadata could be registered");
+                continue;
+            }
+
+            if state.components.contains_key(&entry.component_id)
+                || state.component_map.contains_key(&entry.component_id)
+            {
+                debug!(component_id = %entry.component_id, "Skipping cached metadata; component already registered");
+                continue;
+            }
+
+            state.register_tools_only(&entry.component_id, entry.tools);
+            debug!(component_id = %entry.component_id, "Registered tools from cached metadata");
+            registered += 1;
         }
 
-        state.register_tools_only(component_id, tools);
-        Ok(true)
+        registered
     }
+}
+
+/// A component whose cached metadata has been read and validated, waiting to be published
+/// into the registry by [`ComponentRegistry::register_cached_metadata_batch`].
+struct PendingRegistration {
+    component_id: String,
+    artifact_path: PathBuf,
+    tools: Vec<ToolMetadata>,
 }
 
 impl ComponentRegistryState {
@@ -338,6 +447,7 @@ impl ComponentRegistryState {
 pub struct LifecycleManager {
     runtime: Arc<RuntimeContext>,
     registry: ComponentRegistry,
+    load_guards: ComponentLoadGuards,
     storage: ComponentStorage,
     policy_manager: PolicyManager,
     oci_client: Arc<oci_wasm::WasmClient>,
@@ -404,6 +514,7 @@ impl LifecycleManager {
         Ok(Self {
             runtime,
             registry: ComponentRegistry::new(),
+            load_guards: ComponentLoadGuards::default(),
             storage,
             policy_manager,
             oci_client,
@@ -413,48 +524,97 @@ impl LifecycleManager {
     }
 
     /// Load every component present in the component directory, updating the registry and cache.
+    ///
+    /// Each component is compiled and registered while holding that component's load guard, so
+    /// an eager startup load cannot re-register a component that a concurrent unload has already
+    /// removed from disk and from the registry. The guard is per component id, so unrelated
+    /// components are still compiled in parallel.
     #[instrument(skip(self))]
     pub async fn load_all_components(&self) -> Result<()> {
-        let loaded_components =
-            load_components_parallel(self.storage.root(), Arc::clone(&self.runtime)).await?;
+        let mut entries = tokio::fs::read_dir(self.storage.root()).await?;
+        let mut load_futures = Vec::new();
 
-        let mut registered_ids = Vec::new();
-
-        for (component_instance, name) in loaded_components {
-            let tool_metadata = if let Some(ref package_docs) = component_instance.package_docs {
-                component_exports_to_tools_with_docs(
-                    &component_instance.component,
-                    self.runtime.as_ref(),
-                    true,
-                    package_docs,
-                )
-            } else {
-                component_exports_to_tools(
-                    &component_instance.component,
-                    self.runtime.as_ref(),
-                    true,
-                )
-            };
-
-            if let Err(error) = self
-                .registry
-                .upsert_component(name.clone(), component_instance, tool_metadata)
-                .await
-            {
-                warn!(%name, %error, "Failed to register component in registry");
-                continue;
-            }
-
-            registered_ids.push(name);
+        while let Some(entry) = entries.next_entry().await? {
+            load_futures.push(self.load_entry_under_guard(entry));
         }
 
-        for component_id in registered_ids {
-            if let Err(error) = self.restore_policy_attachment(&component_id).await {
-                warn!(%component_id, %error, "Failed to restore policy attachment");
+        for result in futures::future::join_all(load_futures).await {
+            if let Err(error) = result {
+                warn!(error = %format_error_chain(&error), "Failed to load component");
             }
         }
 
         info!("LifecycleManager finished loading components");
+        Ok(())
+    }
+
+    /// Compile and register a single directory entry while holding that component's load guard.
+    ///
+    /// Compiling is not the only thing the guard has to cover: registering the result writes the
+    /// same registry entry an unload removes, so both happen inside one critical section.
+    /// Otherwise an unload could remove the artifact and the registry entry between the two, and
+    /// this would re-register a component the unload had already reported as removed.
+    ///
+    /// Nothing reached from here takes the guard again, so this cannot deadlock:
+    /// [`load_component_from_entry`] is a free function that only compiles, and the registry and
+    /// the policy manager have their own locks.
+    async fn load_entry_under_guard(&self, entry: DirEntry) -> Result<()> {
+        let entry_path = entry.path();
+        let is_wasm = entry_path
+            .extension()
+            .map(|ext| ext == "wasm")
+            .unwrap_or(false);
+        let is_file = entry
+            .metadata()
+            .await
+            .map(|m| m.is_file())
+            .context("unable to read file metadata")?;
+        if !(is_file && is_wasm) {
+            return Ok(());
+        }
+
+        let component_id = entry_path
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .map(String::from)
+            .context("wasm file didn't have a valid file name")?;
+
+        let guard = self.load_guard(&component_id).await;
+        let _guard = guard.lock().await;
+
+        // An unload may have removed this component while we waited for the guard, in which
+        // case there is nothing left to load.
+        if !entry_path.exists() {
+            debug!(component_id = %component_id, "Component removed while waiting for the load guard");
+            return Ok(());
+        }
+
+        let Some((component_instance, name)) =
+            load_component_from_entry(Arc::clone(&self.runtime), entry).await?
+        else {
+            return Ok(());
+        };
+
+        let tool_metadata = if let Some(ref package_docs) = component_instance.package_docs {
+            component_exports_to_tools_with_docs(
+                &component_instance.component,
+                self.runtime.as_ref(),
+                true,
+                package_docs,
+            )
+        } else {
+            component_exports_to_tools(&component_instance.component, self.runtime.as_ref(), true)
+        };
+
+        self.registry
+            .upsert_component(name.clone(), component_instance, tool_metadata)
+            .await
+            .with_context(|| format!("Failed to register component in registry: {name}"))?;
+
+        if let Err(error) = self.restore_policy_attachment(&name).await {
+            warn!(component_id = %name, error = %format_error_chain(&error), "Failed to restore policy attachment");
+        }
+
         Ok(())
     }
 
@@ -493,7 +653,29 @@ impl LifecycleManager {
         }
     }
 
-    async fn compile_and_register_component(
+    /// Returns the per-component load guard, which serializes loading of `component_id`.
+    ///
+    /// The guard covers everything that reads or writes a component's on-disk artifacts:
+    /// staging the `.wasm`, compiling it, writing its metadata and precompiled cache, and
+    /// removing all of them again on unload. The mutex is not reentrant, so a caller that
+    /// already holds it must call the `_locked` form of any helper rather than a wrapper
+    /// that takes the guard itself.
+    async fn load_guard(&self, component_id: &str) -> Arc<Mutex<()>> {
+        self.load_guards.guard_for(component_id).await
+    }
+
+    /// Compiles and registers a component; the caller must hold the guard returned by
+    /// [`Self::load_guard`] for `component_id`.
+    ///
+    /// This is the only place that compiles a component, so holding the guard here is what
+    /// makes "compiled once" hold across the on-demand load path and the background restore.
+    /// Every caller takes the guard itself first, because each of them has to do its own
+    /// check-then-act (recheck the registry, or stage the artifact) inside the same critical
+    /// section. Taking the guard again here would deadlock.
+    ///
+    /// This does not skip the work when the component is already registered, because an
+    /// explicit reload has to recompile a changed artifact.
+    async fn compile_and_register_component_locked(
         &self,
         component_id: &str,
         wasm_path: &Path,
@@ -564,15 +746,31 @@ impl LifecycleManager {
     /// If a component with the given id already exists, it will be updated with the new component.
     /// Returns rich [`ComponentLoadOutcome`] information describing the loaded
     /// component and whether it replaced an existing instance.
+    ///
+    /// Staging replaces the component's `.wasm`, metadata and precompiled cache on disk, so it
+    /// has to happen inside the same critical section as the compilation that reads them back.
+    /// The guard is therefore taken before staging and held until the component is registered:
+    /// otherwise an explicit reload could swap the artifact out from under a concurrent
+    /// on-demand load or background restore, which would then compile a replaced artifact or
+    /// deserialize a precompiled cache that no longer matches it.
     #[instrument(skip(self))]
     pub async fn load_component(&self, uri: &str) -> Result<ComponentLoadOutcome> {
         debug!(uri, "Loading component");
+        // Resolving the resource is what yields the component id, so it necessarily happens
+        // before the guard exists. It only writes to the downloads directory, never to the
+        // component's own artifacts.
         let (component_id, resource) = self.resolve_component_resource(uri).await?;
+
+        let guard = self.load_guard(&component_id).await;
+        let _guard = guard.lock().await;
+
         let staged_path = self
             .stage_component_artifact(&component_id, resource)
             .await?;
+        // We hold the guard, so this must be the `_locked` form; the guard is not reentrant.
+        // A reload always recompiles: there is deliberately no registry recheck here.
         let outcome = self
-            .compile_and_register_component(&component_id, &staged_path)
+            .compile_and_register_component_locked(&component_id, &staged_path)
             .await
             .with_context(|| {
                 format!(
@@ -593,9 +791,21 @@ impl LifecycleManager {
     /// Unloads the component with the specified id. This removes the component from the runtime
     /// and removes all associated files from disk, making it the reverse operation of load_component.
     /// This function fails if any files cannot be removed (except when they don't exist).
+    ///
+    /// Removing the artifacts and cleaning up the registry happen under the same per-component
+    /// guard that loads take, so an unload cannot interleave with a load of the same component.
+    /// Without it a concurrent on-demand load could re-register the component and rewrite its
+    /// metadata and precompiled cache after the unload had already reported success, leaving a
+    /// component registered with no files behind it.
     #[instrument(skip(self))]
     pub async fn unload_component(&self, id: &str) -> Result<()> {
         debug!("Unloading component and removing files from disk");
+
+        // Nothing reached from here takes the guard again, so this cannot deadlock. The guard
+        // map holds weak references, so the entry this creates dies with `guard` and is swept
+        // by the next load that has to mint a mutex.
+        let guard = self.load_guard(id).await;
+        let _guard = guard.lock().await;
 
         // Remove files first, then clean up memory on success
         self.storage.remove_component_artifacts(id).await?;
@@ -865,18 +1075,45 @@ impl LifecycleManager {
     /// Ensure a specific component is loaded (compiled and instantiated) by its ID.
     /// If it's already loaded, this is a no-op. If the wasm file is not present in
     /// the component directory, an error is returned.
+    ///
+    /// Concurrent calls for the same component are serialized against each other and
+    /// against the background restore, so the component is compiled and registered once
+    /// no matter how many callers race. Calls for different components still proceed in
+    /// parallel.
     #[instrument(skip(self))]
     pub async fn ensure_component_loaded(&self, component_id: &str) -> Result<()> {
         if self.registry.contains_component(component_id).await {
             return Ok(());
         }
 
+        // Take the guard before looking at the artifact. An explicit reload of this component
+        // stages its replacement under this same guard, and staging removes the old `.wasm`
+        // before copying the new one in, so for part of a reload the artifact is legitimately
+        // absent. Testing the path first would report the component as missing instead of
+        // waiting for the reload that is already producing it.
+        //
+        // The original ordering existed so an unknown component id could not grow the guard
+        // map. It no longer has to: the map holds `Weak` entries, so the entry minted here
+        // dies with the `Arc` this function holds, and the next caller that has to mint a
+        // mutex sweeps every dead entry before inserting. An id that is never loaded therefore
+        // leaves nothing behind, and repeated lookups of unknown ids cannot accumulate.
+        let guard = self.load_guard(component_id).await;
+        let _guard = guard.lock().await;
+
+        // Another caller, including the background restore, may have finished the load
+        // while we waited for the guard.
+        if self.registry.contains_component(component_id).await {
+            return Ok(());
+        }
+
+        // An unload of this component may have completed while we waited for the guard, or it
+        // may never have existed. Either way there is no artifact to compile.
         let entry_path = self.component_path(component_id);
         if !entry_path.exists() {
             bail!("Component not found: {}", component_id);
         }
 
-        self.compile_and_register_component(component_id, &entry_path)
+        self.compile_and_register_component_locked(component_id, &entry_path)
             .await
             .with_context(|| {
                 format!(
@@ -1205,9 +1442,30 @@ impl LifecycleManager {
     }
 
     /// Populate tool registry from cached metadata without compiling components
-    async fn populate_registry_from_metadata(&self) -> Result<()> {
+    /// Registers tool metadata for every component on disk, without compiling anything.
+    ///
+    /// This makes tool names resolvable in a process that will never run the background
+    /// restore, such as a one-shot CLI invocation. Components are registered from their
+    /// cached metadata only when the validation stamp still matches, so a stale entry is
+    /// skipped rather than trusted. Compilation still happens later, on first use.
+    ///
+    /// The pass has two phases. Each component's cached metadata is read and validated while
+    /// holding that component's load guard, so this cannot race a load or unload of the same
+    /// component; the guard is released before the next entry, so unrelated components are
+    /// never serialized against each other. What every validated component produces is then
+    /// published in a single registry write.
+    ///
+    /// The write is batched because the server starts answering requests while this runs, and
+    /// registering one component at a time exposes a `tool_map` in which a tool exported by
+    /// two installed components has only one owner. A lookup landing there resolves and runs
+    /// the tool that the collision rule should refuse, and nothing revisits the tool map to
+    /// take the answer back. With one write, a lookup sees either no hydrated component or
+    /// all of them, and the collision is visible in both. The cost is that hydration becomes
+    /// visible only once every component has been validated; validation reads metadata and
+    /// stats an artifact, and compiles nothing.
+    pub async fn populate_registry_from_metadata(&self) -> Result<()> {
         let mut entries = tokio::fs::read_dir(self.storage.root()).await?;
-        let mut loaded_count = 0;
+        let mut pending = Vec::new();
 
         while let Some(entry) = entries.next_entry().await? {
             let entry_path = entry.path();
@@ -1224,49 +1482,18 @@ impl LifecycleManager {
                 continue;
             };
 
-            // Try to load cached metadata
-            if let Ok(Some(metadata)) = self.load_component_metadata(component_id).await {
-                // Validate that the component file hasn't changed
-                if ComponentStorage::validate_stamp(&entry_path, &metadata.validation_stamp).await {
-                    let tool_metadata: Vec<ToolMetadata> = metadata
-                        .function_identifiers
-                        .into_iter()
-                        .zip(metadata.tool_schemas)
-                        .zip(metadata.tool_names)
-                        .map(|((identifier, schema), normalized_name)| {
-                            let canonical = schema::canonicalize_tool_schema(&schema);
-                            ToolMetadata {
-                                identifier,
-                                schema: canonical,
-                                normalized_name,
-                            }
-                        })
-                        .collect();
-
-                    match self
-                        .registry
-                        .register_metadata_if_absent(component_id, tool_metadata)
-                        .await
-                    {
-                        Ok(true) => {
-                            loaded_count += 1;
-                            debug!(component_id = %component_id, "Registered tools from cached metadata");
-                            continue;
-                        }
-                        Ok(false) => {
-                            debug!(component_id = %component_id, "Skipping cached metadata; component already registered");
-                            continue;
-                        }
-                        Err(e) => {
-                            warn!(%component_id, error = %format_error_chain(&e), "Failed to register tools from metadata");
-                            continue;
-                        }
-                    }
-                }
+            if let Some(prepared) = self
+                .prepare_cached_metadata_under_guard(component_id, &entry_path)
+                .await
+            {
+                pending.push(prepared);
             }
-
-            debug!(component_id = %component_id, "No valid cached metadata found, will load component later");
         }
+
+        let loaded_count = self
+            .registry
+            .register_cached_metadata_batch(pending, |path| path.exists())
+            .await;
 
         if loaded_count > 0 {
             info!(
@@ -1276,6 +1503,73 @@ impl LifecycleManager {
         }
 
         Ok(())
+    }
+
+    /// Read and validate one component's cached tool metadata while holding its load guard.
+    ///
+    /// Reading the metadata and checking its validation stamp is a check-then-act over the
+    /// very files a reload replaces and an unload removes, so both happen inside one critical
+    /// section. Without the guard this could read the metadata of one artifact and stamp it
+    /// against another that a reload has just staged in its place.
+    ///
+    /// The guard is not held until the result is registered, because the registration is
+    /// batched with every other component's and holding one component's guard across another
+    /// component's work would serialize ids that have nothing to do with each other. That is
+    /// safe because [`ComponentRegistry::register_cached_metadata_batch`] rechecks the
+    /// artifact inside its own write, which is what actually rules out reviving a component
+    /// an unload has removed.
+    ///
+    /// Nothing reached from here takes the guard again, so this cannot deadlock. The guard is
+    /// dropped when this returns, so the caller's loop does not hold one component's guard
+    /// while handling the next.
+    ///
+    /// Returns the registration to publish, or `None` if there is nothing usable to register.
+    async fn prepare_cached_metadata_under_guard(
+        &self,
+        component_id: &str,
+        entry_path: &Path,
+    ) -> Option<PendingRegistration> {
+        let guard = self.load_guard(component_id).await;
+        let _guard = guard.lock().await;
+
+        // An unload may have completed while we waited for the guard. Its artifact is gone, so
+        // there is nothing to register, whatever cached metadata may still be lying around.
+        if !entry_path.exists() {
+            debug!(component_id = %component_id, "Component removed while waiting for the load guard");
+            return None;
+        }
+
+        let Ok(Some(metadata)) = self.load_component_metadata(component_id).await else {
+            debug!(component_id = %component_id, "No valid cached metadata found, will load component later");
+            return None;
+        };
+
+        // Validate that the component file hasn't changed
+        if !ComponentStorage::validate_stamp(entry_path, &metadata.validation_stamp).await {
+            debug!(component_id = %component_id, "No valid cached metadata found, will load component later");
+            return None;
+        }
+
+        let tools: Vec<ToolMetadata> = metadata
+            .function_identifiers
+            .into_iter()
+            .zip(metadata.tool_schemas)
+            .zip(metadata.tool_names)
+            .map(|((identifier, schema), normalized_name)| {
+                let canonical = schema::canonicalize_tool_schema(&schema);
+                ToolMetadata {
+                    identifier,
+                    schema: canonical,
+                    normalized_name,
+                }
+            })
+            .collect();
+
+        Some(PendingRegistration {
+            component_id: component_id.to_string(),
+            artifact_path: entry_path.to_path_buf(),
+            tools,
+        })
     }
 
     /// Load a component from directory entry with optimization
@@ -1305,8 +1599,26 @@ impl LifecycleManager {
             return Ok(false);
         }
 
+        // Serialize against the on-demand load path: a `tools/call` that arrives before the
+        // restore reaches this component compiles it itself, and without the shared guard
+        // both passes would compile it and write the same metadata and cache files.
+        let guard = self.load_guard(&component_id).await;
+        let _guard = guard.lock().await;
+
+        if self.registry.contains_component(&component_id).await {
+            debug!(component_id = %component_id, "Component loaded while waiting for the load guard");
+            return Ok(false);
+        }
+
+        // An unload may have removed this component while we waited for the guard, in which
+        // case there is nothing left to restore.
+        if !entry_path.exists() {
+            debug!(component_id = %component_id, "Component removed while waiting for the load guard");
+            return Ok(false);
+        }
+
         let start_time = Instant::now();
-        self.compile_and_register_component(&component_id, &entry_path)
+        self.compile_and_register_component_locked(&component_id, &entry_path)
             .await
             .with_context(|| {
                 format!(
@@ -1320,38 +1632,6 @@ impl LifecycleManager {
     }
 
     // Granular permission system methods
-}
-// Load components in parallel for improved startup performance
-async fn load_components_parallel(
-    component_dir: &Path,
-    runtime: Arc<RuntimeContext>,
-) -> Result<Vec<(ComponentInstance, String)>> {
-    let mut entries = tokio::fs::read_dir(component_dir).await?;
-    let mut load_futures = Vec::new();
-
-    while let Some(entry) = entries.next_entry().await? {
-        let runtime_clone = Arc::clone(&runtime);
-        let future = async move {
-            match load_component_from_entry(runtime_clone, entry).await {
-                Ok(Some(result)) => Some(Ok(result)),
-                Ok(None) => None,
-                Err(e) => Some(Err(e)),
-            }
-        };
-        load_futures.push(future);
-    }
-
-    let results = futures::future::join_all(load_futures).await;
-    let mut components = Vec::new();
-
-    for result in results.into_iter().flatten() {
-        match result {
-            Ok(component) => components.push(component),
-            Err(e) => warn!("Failed to load component: {:#}", e),
-        }
-    }
-
-    Ok(components)
 }
 
 impl LifecycleManager {
@@ -1721,6 +2001,712 @@ mod tests {
 
         tokio::fs::write(&component_path, b"changed component").await?;
         assert!(manager.get_component_schema(component_id).await.is_none());
+
+        Ok(())
+    }
+
+    /// Counts `tracing` events whose message contains `needle`, which lets a test observe
+    /// how many times a code path ran without changing the code under test.
+    #[derive(Clone)]
+    struct MessageCounter {
+        needle: &'static str,
+        count: Arc<std::sync::atomic::AtomicUsize>,
+    }
+
+    impl MessageCounter {
+        fn new(needle: &'static str) -> Self {
+            Self {
+                needle,
+                count: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
+            }
+        }
+
+        fn count(&self) -> usize {
+            self.count.load(std::sync::atomic::Ordering::SeqCst)
+        }
+    }
+
+    impl<S: tracing::Subscriber> tracing_subscriber::Layer<S> for MessageCounter {
+        fn on_event(
+            &self,
+            event: &tracing::Event<'_>,
+            _ctx: tracing_subscriber::layer::Context<'_, S>,
+        ) {
+            struct MessageVisitor<'a> {
+                needle: &'a str,
+                matched: bool,
+            }
+
+            impl tracing::field::Visit for MessageVisitor<'_> {
+                fn record_debug(
+                    &mut self,
+                    field: &tracing::field::Field,
+                    value: &dyn std::fmt::Debug,
+                ) {
+                    if field.name() == "message" && format!("{value:?}").contains(self.needle) {
+                        self.matched = true;
+                    }
+                }
+            }
+
+            let mut visitor = MessageVisitor {
+                needle: self.needle,
+                matched: false,
+            };
+            event.record(&mut visitor);
+            if visitor.matched {
+                self.count.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            }
+        }
+    }
+
+    /// `ensure_component_loaded` is on the tool-call path, so several requests can race to
+    /// load the same not-yet-restored component. Without a per-component guard each racer
+    /// compiles the component and they all write the same metadata and cache files.
+    ///
+    /// Compilation is not directly observable from the crate's API, so this counts the
+    /// "Saved component metadata" event, which `compile_and_register_component_locked` emits
+    /// exactly once per pass.
+    #[tokio::test]
+    async fn test_ensure_component_loaded_compiles_once_under_concurrency() -> Result<()> {
+        let manager = create_test_manager().await?;
+        let source = build_example_component().await?;
+        tokio::fs::copy(&source, manager.component_path(TEST_COMPONENT_ID)).await?;
+        assert!(manager.list_components().await.is_empty());
+
+        let counter = MessageCounter::new("Saved component metadata");
+        let subscriber = tracing_subscriber::layer::SubscriberExt::with(
+            tracing_subscriber::registry(),
+            counter.clone(),
+        );
+        let _subscriber_guard = tracing::subscriber::set_default(subscriber);
+
+        let results = futures::future::join_all(
+            (0..4).map(|_| manager.ensure_component_loaded(TEST_COMPONENT_ID)),
+        )
+        .await;
+        for result in results {
+            result?;
+        }
+
+        assert_eq!(
+            manager.list_components().await,
+            vec![TEST_COMPONENT_ID.to_string()]
+        );
+        assert_eq!(
+            counter.count(),
+            1,
+            "the component should be compiled and registered exactly once"
+        );
+
+        Ok(())
+    }
+
+    /// The interesting race is not between two `ensure_component_loaded` callers, it is
+    /// between an on-demand load and the background restore: a `tools/call` that arrives
+    /// before the restore reaches a component compiles it on demand while the restore is
+    /// compiling the very same component, and both passes write the same metadata and
+    /// precompiled cache files. The guard therefore has to sit on every path that compiles a
+    /// component, not just on `ensure_component_loaded`.
+    ///
+    /// As above, compilation is observed through the "Saved component metadata" event that
+    /// `compile_and_register_component_locked` emits exactly once per pass.
+    #[tokio::test]
+    async fn test_ensure_component_loaded_compiles_once_against_background_restore() -> Result<()> {
+        let manager = create_test_manager().await?;
+        let source = build_example_component().await?;
+        tokio::fs::copy(&source, manager.component_path(TEST_COMPONENT_ID)).await?;
+        assert!(manager.list_components().await.is_empty());
+
+        let counter = MessageCounter::new("Saved component metadata");
+        let subscriber = tracing_subscriber::layer::SubscriberExt::with(
+            tracing_subscriber::registry(),
+            counter.clone(),
+        );
+        let _subscriber_guard = tracing::subscriber::set_default(subscriber);
+
+        let (restore, on_demand) = tokio::join!(
+            manager.load_existing_components_async(None, None::<fn()>),
+            manager.ensure_component_loaded(TEST_COMPONENT_ID),
+        );
+        restore?;
+        on_demand?;
+
+        assert_eq!(
+            manager.list_components().await,
+            vec![TEST_COMPONENT_ID.to_string()]
+        );
+        assert_eq!(
+            counter.count(),
+            1,
+            "the on-demand load and the background restore should compile the component once \
+             between them"
+        );
+
+        Ok(())
+    }
+
+    /// Two callers racing to load the same component must be handed the same mutex, or the
+    /// guard stops guarding and both compile.
+    #[tokio::test]
+    async fn test_load_guards_hand_out_one_mutex_per_active_component() {
+        let guards = ComponentLoadGuards::default();
+
+        let first = guards.guard_for("component-a").await;
+        let _held = first.lock().await;
+        let second = guards.guard_for("component-a").await;
+
+        assert!(
+            Arc::ptr_eq(&first, &second),
+            "a caller arriving while a load is in flight must wait on that load's mutex"
+        );
+    }
+
+    /// The map is keyed by component id, so a server that loads and unloads distinct
+    /// components over its lifetime would grow it without bound if entries outlived the loads
+    /// that created them.
+    #[tokio::test]
+    async fn test_load_guards_do_not_retain_entries_for_inactive_components() {
+        let guards = ComponentLoadGuards::default();
+
+        {
+            let gone = guards.guard_for("gone").await;
+            let _held = gone.lock().await;
+            assert_eq!(guards.tracked_ids().await, vec!["gone".to_string()]);
+        }
+
+        let still_here = guards.guard_for("still-here").await;
+        let _held = still_here.lock().await;
+
+        assert_eq!(
+            guards.tracked_ids().await,
+            vec!["still-here".to_string()],
+            "an id with no load in flight should not be retained"
+        );
+    }
+
+    /// The same reclamation seen through the manager: a component that was loaded and then
+    /// unloaded leaves nothing behind in the guard map.
+    #[tokio::test]
+    async fn test_unloaded_components_are_not_retained_by_the_load_guards() -> Result<()> {
+        let manager = create_test_manager().await?;
+        let source = build_example_component().await?;
+        let other_component_id = "other_component";
+        tokio::fs::copy(&source, manager.component_path(TEST_COMPONENT_ID)).await?;
+        tokio::fs::copy(&source, manager.component_path(other_component_id)).await?;
+
+        manager.ensure_component_loaded(TEST_COMPONENT_ID).await?;
+        manager.unload_component(TEST_COMPONENT_ID).await?;
+        manager.ensure_component_loaded(other_component_id).await?;
+
+        assert_eq!(
+            manager.load_guards.tracked_ids().await,
+            vec![other_component_id.to_string()],
+            "the unloaded component should not keep an entry in the guard map"
+        );
+
+        Ok(())
+    }
+
+    /// Staging replaces the component's `.wasm`, metadata and precompiled cache on disk, and
+    /// the compiler then reads those very files back, so staging has to happen inside the
+    /// same critical section as the compilation. If the guard were taken around compilation
+    /// only, an explicit reload could delete and rewrite the artifact while an on-demand load
+    /// or the background restore held the guard, and the serialized compiler would read a
+    /// replaced artifact or a precompiled cache that no longer matches it.
+    ///
+    /// That interleaving is not directly observable from outside the crate, so this test pins
+    /// the ordering that rules it out: while another load holds the guard for this component,
+    /// a reload must not have touched any of its files. Releasing the guard then has to let
+    /// the same reload through and recompile, which also pins that holding the guard earlier
+    /// did not turn a reload into an early return.
+    #[tokio::test]
+    async fn test_load_component_stages_the_artifact_under_the_load_guard() -> Result<()> {
+        let manager = create_test_manager().await?;
+        let source_dir = tempfile::tempdir()?;
+        let source = source_dir.path().join(format!("{TEST_COMPONENT_ID}.wasm"));
+        tokio::fs::copy(build_example_component().await?, &source).await?;
+
+        // Stand-ins for the artifacts of an already installed component. Staging removes all
+        // three before copying the new ones in, so any of them changing while the guard is
+        // held elsewhere is proof that staging ran outside the critical section.
+        let artifact_path = manager.component_path(TEST_COMPONENT_ID);
+        let metadata_path = manager.storage.metadata_path(TEST_COMPONENT_ID);
+        let precompiled_path = manager.component_precompiled_path(TEST_COMPONENT_ID);
+        tokio::fs::write(&artifact_path, b"stale artifact").await?;
+        tokio::fs::write(&metadata_path, b"stale metadata").await?;
+        tokio::fs::write(&precompiled_path, b"stale precompiled cache").await?;
+
+        // Stand in for a concurrent on-demand load or background restore that holds the guard
+        // and is about to compile.
+        let guard = manager.load_guard(TEST_COMPONENT_ID).await;
+        let held = guard.lock().await;
+
+        let reload = tokio::spawn({
+            let manager = manager.manager.clone();
+            let uri = format!("file://{}", source.display());
+            async move { manager.load_component(&uri).await }
+        });
+
+        // Resolving a `file://` source and staging it take microseconds, so a reload that
+        // stages outside the guard has long finished doing so by the end of this loop. The
+        // comparisons are booleans because a mismatch here is a whole component's bytes.
+        for _ in 0..10 {
+            tokio::time::sleep(std::time::Duration::from_millis(25)).await;
+            assert!(
+                tokio::fs::read(&artifact_path).await? == b"stale artifact",
+                "a reload must not replace the artifact while another load holds the guard"
+            );
+            assert!(
+                tokio::fs::read(&metadata_path).await? == b"stale metadata",
+                "a reload must not remove the metadata while another load holds the guard"
+            );
+            assert!(
+                tokio::fs::read(&precompiled_path).await? == b"stale precompiled cache",
+                "a reload must not remove the cache while another load holds the guard"
+            );
+        }
+
+        drop(held);
+
+        let outcome = reload.await??;
+        assert_eq!(outcome.component_id, TEST_COMPONENT_ID);
+        assert!(
+            tokio::fs::read(&artifact_path).await? == tokio::fs::read(&source).await?,
+            "the reload must still stage the new artifact once it holds the guard"
+        );
+        assert!(
+            tokio::fs::read(&metadata_path).await? != b"stale metadata",
+            "the reload must still recompile and rewrite the component's metadata"
+        );
+        assert_eq!(
+            manager.list_components().await,
+            vec![TEST_COMPONENT_ID.to_string()]
+        );
+
+        Ok(())
+    }
+
+    /// Unload removes a component's artifacts and its registry entry, both of which a load of
+    /// the same component is simultaneously creating, so it has to take the same guard.
+    ///
+    /// As above, the ordering is what is observable: while a load holds the guard, an unload
+    /// must not have removed anything yet, and releasing the guard has to let it through.
+    #[tokio::test]
+    async fn test_unload_component_removes_artifacts_under_the_load_guard() -> Result<()> {
+        let manager = create_test_manager().await?;
+        manager.load_test_component().await?;
+
+        let artifact_path = manager.component_path(TEST_COMPONENT_ID);
+        assert!(artifact_path.exists());
+
+        let guard = manager.load_guard(TEST_COMPONENT_ID).await;
+        let held = guard.lock().await;
+
+        let unload = tokio::spawn({
+            let manager = manager.manager.clone();
+            async move { manager.unload_component(TEST_COMPONENT_ID).await }
+        });
+
+        for _ in 0..10 {
+            tokio::time::sleep(std::time::Duration::from_millis(25)).await;
+            assert!(
+                artifact_path.exists(),
+                "an unload must not remove the artifact while a load holds the guard"
+            );
+            assert_eq!(
+                manager.list_components().await,
+                vec![TEST_COMPONENT_ID.to_string()],
+                "an unload must not deregister the component while a load holds the guard"
+            );
+        }
+
+        drop(held);
+
+        unload.await??;
+        assert!(!artifact_path.exists());
+        assert!(manager.list_components().await.is_empty());
+
+        Ok(())
+    }
+
+    /// The damaging outcome of an unguarded unload: an on-demand load compiles while unload
+    /// removes the files, so the load writes the metadata and precompiled cache and registers
+    /// the component *after* the unload reported success. The component is then registered
+    /// with no artifact behind it, and the files the unload promised to delete are back.
+    ///
+    /// The load is started first and given a head start so that the unload lands during
+    /// compilation, which is the window that matters. Under the guard the unload waits for
+    /// the load to finish and then removes everything it created, so the end state is the
+    /// same no matter which one wins: nothing registered and no files left.
+    #[tokio::test]
+    async fn test_unload_during_on_demand_load_leaves_no_half_removed_component() -> Result<()> {
+        let manager = create_test_manager().await?;
+        let source = build_example_component().await?;
+        tokio::fs::copy(&source, manager.component_path(TEST_COMPONENT_ID)).await?;
+        assert!(manager.list_components().await.is_empty());
+
+        let load = tokio::spawn({
+            let manager = manager.manager.clone();
+            async move { manager.ensure_component_loaded(TEST_COMPONENT_ID).await }
+        });
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+
+        manager.unload_component(TEST_COMPONENT_ID).await?;
+
+        // The load may win the guard and be undone by the unload, or lose it and find the
+        // component gone. Both are consistent; only the end state is asserted.
+        let _ = load.await?;
+
+        assert!(
+            manager.list_components().await.is_empty(),
+            "a component must not stay registered after its unload reported success"
+        );
+        assert!(
+            !manager.component_path(TEST_COMPONENT_ID).exists(),
+            "the component artifact must not survive its unload"
+        );
+        assert!(
+            !manager.storage.metadata_path(TEST_COMPONENT_ID).exists(),
+            "the component metadata must not be rewritten after its unload reported success"
+        );
+        assert!(
+            !manager
+                .component_precompiled_path(TEST_COMPONENT_ID)
+                .exists(),
+            "the precompiled cache must not be rewritten after its unload reported success"
+        );
+
+        Ok(())
+    }
+
+    /// Builds a component directory holding an installed component's artifact, cached metadata
+    /// and precompiled cache, then returns a manager over it whose registry is still empty.
+    ///
+    /// That is the state a fresh CLI process, or a server about to run its background restore,
+    /// starts from: everything is on disk and nothing is registered yet.
+    async fn create_manager_over_installed_component() -> Result<TestLifecycleManager> {
+        let tempdir = tempfile::tempdir()?;
+        let source = build_example_component().await?;
+
+        let installer = LifecycleManager::new_unloaded(&tempdir).await?;
+        installer
+            .load_component(&format!("file://{}", source.display()))
+            .await?;
+        drop(installer);
+
+        let manager = LifecycleManager::new_unloaded(&tempdir).await?;
+        assert!(manager.list_components().await.is_empty());
+        assert!(manager.list_tools().await.is_empty());
+
+        Ok(TestLifecycleManager {
+            manager,
+            _tempdir: tempdir,
+        })
+    }
+
+    /// `load_all_components` is the eager startup path, and registering what it compiles writes
+    /// the very registry entry an unload removes. Without the per-component guard an unload can
+    /// remove a component's files and deregister it while this pass is still compiling, and the
+    /// pass then re-registers a component that the unload already reported as gone.
+    ///
+    /// The interleaving is not directly observable, so the ordering that rules it out is what is
+    /// pinned: while another load holds the guard for this component, the eager pass must not
+    /// have registered it. The window is generous because without the guard the pass registers
+    /// as soon as it has compiled, which takes far less than this.
+    #[tokio::test]
+    async fn test_load_all_components_registers_under_the_load_guard() -> Result<()> {
+        let manager = create_test_manager().await?;
+        let source = build_example_component().await?;
+        tokio::fs::copy(&source, manager.component_path(TEST_COMPONENT_ID)).await?;
+        assert!(manager.list_components().await.is_empty());
+
+        // Stand in for a concurrent load or unload of this component that holds the guard.
+        let guard = manager.load_guard(TEST_COMPONENT_ID).await;
+        let held = guard.lock().await;
+
+        let load_all = tokio::spawn({
+            let manager = manager.manager.clone();
+            async move { manager.load_all_components().await }
+        });
+
+        for _ in 0..50 {
+            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+            assert!(
+                manager.list_components().await.is_empty(),
+                "the eager load must not register a component while another load holds its guard"
+            );
+        }
+        assert!(
+            !load_all.is_finished(),
+            "the eager load must still be waiting for the guard"
+        );
+
+        drop(held);
+
+        load_all.await??;
+        assert_eq!(
+            manager.list_components().await,
+            vec![TEST_COMPONENT_ID.to_string()],
+            "the eager load must still register the component once it holds the guard"
+        );
+
+        Ok(())
+    }
+
+    /// Hydrating the registry from cached metadata is a check-then-act over the same files and
+    /// registry entry an unload removes, so it has to hold the same per-component guard. The
+    /// server runs it from the background restore while live requests may be unloading
+    /// components.
+    ///
+    /// As above, the ordering is what is observable: while another load holds the guard for this
+    /// component, the hydration pass must not have registered its tools, and releasing the guard
+    /// has to let it through. Hydration compiles nothing, so without the guard it finishes
+    /// almost immediately.
+    #[tokio::test]
+    async fn test_populate_registry_from_metadata_registers_under_the_load_guard() -> Result<()> {
+        let manager = create_manager_over_installed_component().await?;
+
+        let guard = manager.load_guard(TEST_COMPONENT_ID).await;
+        let held = guard.lock().await;
+
+        let hydrate = tokio::spawn({
+            let manager = manager.manager.clone();
+            async move { manager.populate_registry_from_metadata().await }
+        });
+
+        for _ in 0..20 {
+            tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+            assert!(
+                manager.list_tools().await.is_empty(),
+                "hydration must not register tools while another load holds the component's guard"
+            );
+        }
+        assert!(
+            !hydrate.is_finished(),
+            "hydration must still be waiting for the guard"
+        );
+
+        drop(held);
+
+        hydrate.await??;
+        assert!(
+            !manager.list_tools().await.is_empty(),
+            "hydration must still register the cached tools once it holds the guard"
+        );
+
+        Ok(())
+    }
+
+    /// The damaging outcome of unguarded hydration: an unload completes between the validation
+    /// of a component's cached metadata and the registration of it. The component is put back
+    /// into the tool map with no artifact and no instance behind it, and because nothing else
+    /// ever revisits the tool map that entry is permanent.
+    ///
+    /// The unload is stood in for by holding the guard and removing the artifact, which is the
+    /// state an unload leaves behind for a hydration pass that is waiting on the guard.
+    #[tokio::test]
+    async fn test_populate_registry_from_metadata_does_not_resurrect_an_unloaded_component(
+    ) -> Result<()> {
+        let manager = create_manager_over_installed_component().await?;
+
+        let guard = manager.load_guard(TEST_COMPONENT_ID).await;
+        let held = guard.lock().await;
+
+        let hydrate = tokio::spawn({
+            let manager = manager.manager.clone();
+            async move { manager.populate_registry_from_metadata().await }
+        });
+
+        // Give the pass time to reach the guard, then let the "unload" win it.
+        tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+        tokio::fs::remove_file(manager.component_path(TEST_COMPONENT_ID)).await?;
+        drop(held);
+
+        hydrate.await??;
+
+        assert!(
+            manager.list_tools().await.is_empty(),
+            "a component removed from disk must not be reintroduced into the tool map"
+        );
+        assert!(
+            manager.list_components().await.is_empty(),
+            "a component removed from disk must not be reintroduced into the registry"
+        );
+
+        Ok(())
+    }
+
+    /// Writes the on-disk state a previous process leaves behind for an installed component:
+    /// the artifact plus the cached tool metadata beside it. Neither has to be a real
+    /// WebAssembly component, because hydrating the registry from cached metadata reads the
+    /// metadata and validates the artifact's stamp without ever compiling it.
+    async fn install_cached_component(
+        component_dir: &Path,
+        component_id: &str,
+        tool_name: &str,
+    ) -> Result<()> {
+        let storage = ComponentStorage::new(component_dir.to_path_buf(), 1).await?;
+        let artifact = storage.component_path(component_id);
+        tokio::fs::write(&artifact, format!("stand-in artifact for {component_id}")).await?;
+
+        let validation_stamp = storage.create_validation_stamp(&artifact, false).await?;
+        storage
+            .write_metadata(&ComponentMetadata {
+                component_id: component_id.to_string(),
+                tool_schemas: vec![serde_json::json!({
+                    "name": tool_name,
+                    "description": "a cached tool",
+                    "inputSchema": { "type": "object" },
+                })],
+                function_identifiers: vec![FunctionIdentifier {
+                    package_name: None,
+                    interface_name: None,
+                    function_name: tool_name.to_string(),
+                }],
+                tool_names: vec![tool_name.to_string()],
+                validation_stamp,
+                created_at: 0,
+            })
+            .await?;
+
+        Ok(())
+    }
+
+    /// A tool name exported by two installed components must never resolve to one of them.
+    /// Hydration is the first phase of the background restore and the server answers requests
+    /// while it runs, so publishing one component at a time opens a window in which only the
+    /// first of the pair is in the tool map. A lookup landing there resolves the tool to that
+    /// component and runs it, even though the collision rule would refuse it once both are
+    /// registered, and nothing revisits the tool map afterwards to withdraw the answer.
+    ///
+    /// Holding one component's load guard stops hydration at that component, which is the
+    /// interleaving. Which of the pair the directory scan reaches first is not something the
+    /// test can choose, so it runs the scenario once per component id: for whichever id the
+    /// scan reaches second, the run that blocks on it leaves the other one already published
+    /// by a per-component write. One of the two runs therefore reproduces the window whatever
+    /// the directory order is, and with a single batched write neither does.
+    #[tokio::test]
+    async fn test_hydration_never_exposes_one_side_of_a_tool_name_collision() -> Result<()> {
+        const COLLIDING_TOOL: &str = "shared-tool";
+        const COMPONENT_IDS: [&str; 2] = ["collide-alpha", "collide-beta"];
+
+        let tempdir = tempfile::tempdir()?;
+        for component_id in COMPONENT_IDS {
+            install_cached_component(tempdir.path(), component_id, COLLIDING_TOOL).await?;
+        }
+
+        for blocked in COMPONENT_IDS {
+            let manager = LifecycleManager::new_unloaded(&tempdir).await?;
+            assert!(manager.list_tools().await.is_empty());
+
+            // Stand in for a concurrent load or unload of this component. Hydration reaches it
+            // and waits, with the other component either already handled or still to come.
+            let guard = manager.load_guard(blocked).await;
+            let held = guard.lock().await;
+
+            let hydrate = tokio::spawn({
+                let manager = manager.clone();
+                async move { manager.populate_registry_from_metadata().await }
+            });
+
+            for _ in 0..10 {
+                tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+                assert!(
+                    manager.list_tools().await.is_empty(),
+                    "hydration blocked on {blocked} must not publish part of the registry"
+                );
+                assert!(
+                    manager
+                        .get_component_id_for_tool(COLLIDING_TOOL)
+                        .await
+                        .is_err(),
+                    "a tool exported by two installed components must not resolve to one of \
+                     them while hydration is blocked on {blocked}"
+                );
+            }
+            assert!(
+                !hydrate.is_finished(),
+                "hydration must still be waiting for the guard"
+            );
+
+            drop(held);
+            hydrate.await??;
+
+            let error = manager
+                .get_component_id_for_tool(COLLIDING_TOOL)
+                .await
+                .expect_err("the collision must be reported once hydration has finished");
+            assert!(
+                error.to_string().contains("Multiple components"),
+                "unexpected error resolving the colliding tool: {error:#}"
+            );
+        }
+
+        Ok(())
+    }
+
+    /// An explicit reload stages its replacement under the load guard, and staging removes the
+    /// old `.wasm` before copying the new one in. A concurrent tool call must wait for that
+    /// reload rather than deciding the component is missing, so the guard has to be taken
+    /// before the artifact is looked at.
+    ///
+    /// The staging window is reproduced exactly: the guard is held and the artifact is absent,
+    /// which is what a caller arriving mid-reload sees.
+    #[tokio::test]
+    async fn test_ensure_component_loaded_waits_for_a_reload_that_is_staging() -> Result<()> {
+        let manager = create_test_manager().await?;
+        let source = build_example_component().await?;
+        let artifact_path = manager.component_path(TEST_COMPONENT_ID);
+        tokio::fs::copy(&source, &artifact_path).await?;
+
+        // Stand in for a reload that holds the guard and has removed the old artifact.
+        let guard = manager.load_guard(TEST_COMPONENT_ID).await;
+        let held = guard.lock().await;
+        tokio::fs::remove_file(&artifact_path).await?;
+
+        let on_demand = tokio::spawn({
+            let manager = manager.manager.clone();
+            async move { manager.ensure_component_loaded(TEST_COMPONENT_ID).await }
+        });
+
+        tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+        assert!(
+            !on_demand.is_finished(),
+            "a tool call arriving while a reload is staging must wait for it, not fail"
+        );
+
+        // The reload finishes staging and releases the guard.
+        tokio::fs::copy(&source, &artifact_path).await?;
+        drop(held);
+
+        on_demand.await??;
+        assert_eq!(
+            manager.list_components().await,
+            vec![TEST_COMPONENT_ID.to_string()]
+        );
+
+        Ok(())
+    }
+
+    /// Taking the guard before the artifact check means unknown component ids now reach the
+    /// guard map. They must not accumulate there: the entries are weak, so each dies with the
+    /// `Arc` the failed call held, and the next caller that has to mint a mutex sweeps them.
+    #[tokio::test]
+    async fn test_unknown_components_are_not_retained_by_the_load_guards() -> Result<()> {
+        let manager = create_test_manager().await?;
+
+        for index in 0..32 {
+            let missing = format!("never-installed-{index}");
+            assert!(
+                manager.ensure_component_loaded(&missing).await.is_err(),
+                "an id with no artifact must still fail"
+            );
+            assert!(
+                manager.load_guards.tracked_ids().await.len() <= 1,
+                "failed lookups of unknown ids must not accumulate in the guard map"
+            );
+        }
 
         Ok(())
     }

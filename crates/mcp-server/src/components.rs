@@ -139,6 +139,18 @@ pub async fn handle_component_call(
         "Component function invocation started"
     );
 
+    // The tool name can resolve from metadata registered without an instance, so the
+    // component may not be compiled yet. This is a no-op once it is.
+    lifecycle_manager
+        .ensure_component_loaded(&component_id)
+        .await
+        .with_context(|| {
+            format!(
+                "Failed to load component '{component_id}' for tool '{}'",
+                req.name
+            )
+        })?;
+
     let tool_schema = lifecycle_manager
         .get_tool_schema_for_component(&component_id, &req.name)
         .await;
