@@ -1,0 +1,30 @@
+diff --git a/Cargo.toml b/Cargo.toml
+index eca7af9..17501a3 100644
+--- a/Cargo.toml
++++ b/Cargo.toml
+@@ -16,7 +16,7 @@ rust-version.workspace = true
+ default = ["json", "wasip2"]
+ json = ["dep:serde", "dep:serde_json"]
+ wasip2 = ["dep:wasip2"]
+-wasip3 = ["dep:wasip3", "dep:wit-bindgen"]
++wasip3 = ["dep:wasip3", "dep:wit-bindgen", "dep:wit-bindgen-p3"]
+ 
+ [dependencies]
+ anyhow.workspace = true
+@@ -33,6 +33,7 @@ slab.workspace = true
+ wasip2 = { workspace = true, optional = true }
+ wasip3 = { workspace = true, optional = true }
+ wit-bindgen = { workspace = true, optional = true }
++wit-bindgen-p3 = { package = "wit-bindgen", version = "0.57", default-features = false, features = ["async", "async-spawn", "inter-task-wakeup"], optional = true }
+ wstd-macro.workspace = true
+ 
+ # optional
+@@ -150,7 +151,7 @@ test-programs = { path = "test-programs" }
+ tower-service = "0.3.3"
+ ureq = { version = "3.1", default-features = false, features = ["json"] }
+ wasip2 = "1.0"
+-wasip3 = "0.5"
++wasip3 = "0.7.1"
+ wit-bindgen = { version = "0.54", default-features = false, features = ["async", "async-spawn", "inter-task-wakeup"] }
+ wstd = { path = ".", version = "=0.6.8", default-features = false }
+ wstd-axum = { path = "./axum", version = "=0.6.8" }

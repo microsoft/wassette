@@ -1,0 +1,35 @@
+package yosh:acp@7.0.0;
+
+/// Protocol errors, modelled after JSON-RPC 2.0.
+///
+/// See: <https://www.jsonrpc.org/specification#error_object>
+interface errors {
+    /// A protocol error.
+    record error {
+        /// JSON-RPC / ACP error code.
+        code: error-code,
+        /// Concise, human-readable description of the error.
+        message: string,
+    }
+
+    /// Predefined error codes. Covers JSON-RPC standard codes plus
+    /// ACP-specific ones.
+    variant error-code {
+        /// Invalid JSON was received.
+        parse-error,
+        /// The JSON sent is not a valid Request object.
+        invalid-request,
+        /// The method does not exist or is not available.
+        method-not-found,
+        /// Invalid method parameter(s).
+        invalid-params,
+        /// Internal error.
+        internal-error,
+        /// Authentication is required before this operation can be performed.
+        auth-required,
+        /// A given resource (e.g. a file) was not found.
+        resource-not-found,
+        /// Any other implementation-defined error code.
+        other(s32),
+    }
+}

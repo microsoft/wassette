@@ -1,0 +1,162 @@
+package yosh:acp@7.0.0;
+
+/// Tool calls, plans, and permission requests.
+///
+/// Tool calls are resource-shaped: the agent constructs a
+/// [`tool-call`] when it starts dispatching, applies `update`s as the
+/// call progresses, and drops it when the call ends. The tool-call's
+/// state is mirrored to the surrounding [`agent.prompt-turn`]'s
+/// `updates` stream as `session-update::ToolCall` /
+/// `session-update::ToolCallUpdate` entries — guests don't write
+/// those variants directly.
+///
+/// See: <https://agentclientprotocol.com/protocol/tool-calls>
+///      <https://agentclientprotocol.com/protocol/agent-plan>
+interface tools {
+    use content.{content-block};
+    use terminals.{terminal-id};
+
+    /// Unique identifier for a tool call within a session. Used in
+    /// the streamed `session-update`s the client sees; guests construct
+    /// `tool-call` resources rather than referencing ids directly.
+    type tool-call-id = string;
+
+    /// An active tool call. Construct with [`tool-call.constructor`]
+    /// to announce the call to the parent prompt-turn; apply
+    /// [`update`] to mutate state; drop when the call ends (the
+    /// `status` at drop time is the call's final state).
+    resource tool-call {
+        /// Begin a tool call. Initial state is announced to the
+        /// parent prompt-turn's update stream as a
+        /// `session-update::ToolCall`.
+        constructor(initial: tool-call-init);
+
+        /// Mutate one or more fields of the tool call. Each call
+        /// emits a `session-update::ToolCallUpdate` carrying the
+        /// patch into the parent prompt-turn's stream.
+        update: async func(patch: tool-call-patch);
+    }
+
+    /// Initial state used to construct a [`tool-call`].
+    record tool-call-init {
+        /// Unique id assigned by the agent. Surfaced to clients via
+        /// the streamed update; not used to identify the resource on
+        /// the wasm side.
+        id: tool-call-id,
+        /// Human-readable title (e.g. `"Reading config.json"`).
+        title: string,
+        /// Category, used by clients to pick icons / display treatment.
+        kind: tool-kind,
+        /// Initial execution status.
+        status: tool-call-status,
+        /// Content produced so far.
+        content: list<tool-call-content>,
+        /// File locations this call is touching.
+        locations: list<tool-call-location>,
+        /// Raw JSON-encoded input parameters.
+        raw-input: option<string>,
+    }
+
+    /// A patch to apply to an active [`tool-call`]. Each field is
+    /// optional; only populated fields are changed.
+    record tool-call-patch {
+        title: option<string>,
+        kind: option<tool-kind>,
+        status: option<tool-call-status>,
+        content: option<list<tool-call-content>>,
+        locations: option<list<tool-call-location>>,
+        raw-input: option<string>,
+        raw-output: option<string>,
+    }
+
+    /// Categories of tools.
+    enum tool-kind {
+        read, edit, delete, move, search, execute, think, fetch, other,
+    }
+
+    /// Lifecycle states of a tool call.
+    enum tool-call-status {
+        pending, in-progress, completed, failed,
+    }
+
+    /// Output produced by a tool call.
+    variant tool-call-content {
+        content(content-block),
+        diff(diff),
+        terminal(terminal-id),
+    }
+
+    /// A diff against a single file.
+    record diff {
+        path: string,
+        old-text: option<string>,
+        new-text: string,
+    }
+
+    /// A file location a tool call is operating on.
+    record tool-call-location {
+        path: string,
+        line: option<u32>,
+    }
+
+    // ------------------------------------------------------------------
+    // Plans
+    // ------------------------------------------------------------------
+
+    record plan {
+        entries: list<plan-entry>,
+    }
+
+    record plan-entry {
+        content: string,
+        priority: plan-entry-priority,
+        status: plan-entry-status,
+    }
+
+    enum plan-entry-priority { high, medium, low }
+    enum plan-entry-status { pending, in-progress, completed }
+
+    // ------------------------------------------------------------------
+    // Permission requests (agent → client)
+    // ------------------------------------------------------------------
+
+    /// Snapshot of a tool call's current state as part of a permission
+    /// request. Carries the value (not a resource handle) so the
+    /// client can render the request without participating in
+    /// resource ownership.
+    record tool-call-snapshot {
+        id: tool-call-id,
+        title: string,
+        kind: tool-kind,
+        status: tool-call-status,
+        content: list<tool-call-content>,
+        locations: list<tool-call-location>,
+        raw-input: option<string>,
+        raw-output: option<string>,
+    }
+
+    record request-permission-request {
+        session-id: string,
+        tool-call: tool-call-snapshot,
+        options: list<permission-option>,
+    }
+
+    record permission-option {
+        id: string,
+        name: string,
+        kind: permission-option-kind,
+    }
+
+    enum permission-option-kind {
+        allow-once, allow-always, reject-once, reject-always,
+    }
+
+    record request-permission-response {
+        outcome: permission-outcome,
+    }
+
+    variant permission-outcome {
+        selected(string),
+        cancelled,
+    }
+}

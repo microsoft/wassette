@@ -1,0 +1,64 @@
+package yosh:acp@7.0.0;
+
+/// An ACP agent component: exports [`agent`] (driven by the host) and imports
+/// [`client`] (for fs, terminal, and permission callbacks).
+///
+/// A terminal endpoint in an ACP topology. The host needs no separate world —
+/// it provides the `client` import and calls the `agent` export.
+world provider {
+    import errors;
+    import init;
+    import sessions;
+    import content;
+    import terminals;
+    import tools;
+    import prompts;
+    // The `agent` interface defines the `session` resource that
+    // `new-session` etc. return. wit-bindgen emits an import for the
+    // resource's destructor (so the guest can drop its own owned
+    // resource handles internally); the import here registers that
+    // entry point in the host linker. The provider has no downstream
+    // to forward to — the host's linker impl is a noop drop.
+    import agent;
+    import filesystem;
+    import client;
+    import wasmcloud:secrets/store@0.1.0-draft;
+    import wasmcloud:secrets/reveal@0.1.0-draft;
+
+    export agent;
+}
+
+/// An ACP layer component: bidirectional middleware that wraps a downstream
+/// [`provider`] (or another [`layer`]) with the same protocol on both sides
+/// and in both directions.
+///
+/// On the downstream (agent) side, a layer exports [`agent`] upstream and
+/// imports [`agent`] from the next stage — letting it intercept prompts,
+/// tool calls, and session control flowing toward the provider.
+///
+/// On the upstream (client) side, a layer exports [`client`] (called by the
+/// next stage's [`client`] import) and imports [`client`] from the previous
+/// stage or host — letting it intercept `update-session` notifications, fs
+/// callbacks, terminal ops, and permission requests flowing back toward the
+/// editor.
+///
+/// Useful for logging, prompt rewriting, tool-call filtering, denying
+/// permission requests, rewriting session updates, or routing across
+/// backends.
+world layer {
+    import errors;
+    import init;
+    import sessions;
+    import content;
+    import terminals;
+    import tools;
+    import prompts;
+    import agent;
+    import filesystem;
+    import client;
+    import wasmcloud:secrets/store@0.1.0-draft;
+    import wasmcloud:secrets/reveal@0.1.0-draft;
+
+    export agent;
+    export client;
+}

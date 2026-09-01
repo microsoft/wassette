@@ -40,6 +40,24 @@ test-mcp-clients-negative:
     just build release
     ./scripts/test-mcp-clients.sh --negative
 
+# Build the standalone ACP example components (provider + layer)
+build-acp-examples:
+    (cd examples/acp-echo-provider && cargo build --release --target wasm32-wasip2)
+    (cd examples/acp-uppercase-layer && cargo build --release --target wasm32-wasip2)
+
+# Build a real (model-backed) ACP provider from a playground-wasm-acp checkout.
+# Needs the wstd p3 branch plus a two-line patch for wasmtime 47; see
+# crates/wassette-acp/real-providers/ and docs/design/acp.md.
+build-acp-real-provider playground provider="ollama-provider":
+    ./scripts/build-acp-real-provider.sh {{ playground }} {{ provider }}
+
+# Run the `wassette acp` end-to-end tests against the example components.
+# They drive the built `wassette` binary over stdio, so build it first.
+test-acp:
+    just build-acp-examples
+    cargo build -p wassette-mcp-server
+    cargo test -p wassette-acp -- --nocapture
+
 build mode="debug":
     mkdir -p bin
     cargo build --workspace {{ if mode == "release" { "--release" } else { "" } }}
