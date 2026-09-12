@@ -387,7 +387,7 @@ mod tests {
     use std::time::Duration;
 
     use axum::http::Request;
-    use rmcp::model::RequestId;
+    use rmcp::model::{ClientCapabilities, Implementation, RequestId, RequestMetaObject};
     use rmcp::ServiceExt;
     use serde_json::Value;
     use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader, DuplexStream};
@@ -395,7 +395,6 @@ mod tests {
     use super::*;
 
     const LEGACY_PROTOCOL_VERSION: &str = "2025-06-18";
-    const STATELESS_PROTOCOL_VERSION: &str = "2026-07-28";
 
     fn initialize_request(protocol_version: &str) -> String {
         format!(
@@ -405,17 +404,6 @@ mod tests {
 
     async fn connect_peer(
         server: McpServer,
-    ) -> (
-        rmcp::Peer<RoleServer>,
-        BufReader<DuplexStream>,
-        tokio::task::JoinHandle<()>,
-    ) {
-        connect_peer_with_version(server, LEGACY_PROTOCOL_VERSION).await
-    }
-
-    async fn connect_peer_with_version(
-        server: McpServer,
-        protocol_version: &str,
     ) -> (
         rmcp::Peer<RoleServer>,
         BufReader<DuplexStream>,
@@ -437,7 +425,7 @@ mod tests {
         let mut client = BufReader::new(client_transport);
         client
             .get_mut()
-            .write_all(initialize_request(protocol_version).as_bytes())
+            .write_all(initialize_request(LEGACY_PROTOCOL_VERSION).as_bytes())
             .await
             .expect("initialize request should be written");
         client
@@ -456,6 +444,10 @@ mod tests {
         assert!(
             response.get("error").is_none(),
             "initialize failed: {response}"
+        );
+        assert_eq!(
+            response["result"]["protocolVersion"], LEGACY_PROTOCOL_VERSION,
+            "test peer should negotiate the requested legacy version"
         );
 
         let peer = peer_receiver
@@ -510,9 +502,19 @@ mod tests {
             .expect("lifecycle manager should be created");
         let server = McpServer::new(lifecycle_manager, false, true);
 
-        let (peer, client, service) =
-            connect_peer_with_version(server.clone(), STATELESS_PROTOCOL_VERSION).await;
-        let context = http_request_context(peer, 1, Some("left-over-session"));
+        let (peer, client, service) = connect_peer(server.clone()).await;
+        let mut context = http_request_context(peer, 1, Some("left-over-session"));
+        // Stateless requests declare their version in _meta, not initialize.
+        // It must take precedence over the peer's legacy handshake state.
+        context.meta = RequestMetaObject::with_client_context(
+            ProtocolVersion::V_2026_07_28,
+            Implementation::new("peer-lifecycle-test", "1.0.0"),
+            ClientCapabilities::default(),
+        );
+        assert_eq!(
+            context.protocol_version(),
+            Some(ProtocolVersion::V_2026_07_28)
+        );
         server
             .list_tools(None, context)
             .await
