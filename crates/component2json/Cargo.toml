@@ -9,7 +9,7 @@ license.workspace = true
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
 wasmtime = { workspace = true }
-wasmparser = "0.258"
+wasmparser = "0.259"
 thiserror = { workspace = true }
 
 [dev-dependencies]
