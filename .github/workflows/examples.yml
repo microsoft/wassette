@@ -43,7 +43,7 @@ jobs:
     - uses: bytecodealliance/actions/wasm-tools/setup@9152e710e9f7182e4c29ad218e4f335a7b203613 # v1.1.3
     - run: ./scripts/install-protobuf.sh
       shell: bash
-    - uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659 # v1.17.0
+    - uses: actions-rust-lang/setup-rust-toolchain@ecabd13d1c56bd1345c230e542e9144811ad706f # v2.0.0
     - run: rustup target add wasm32-wasip2
 
     - name: Install wit-docs-inject
