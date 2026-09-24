@@ -14,7 +14,7 @@ use mcp_server::{
 use rmcp::model::{
     CacheScope, CallToolRequestParams, CallToolResponse, ErrorData, ListPromptsResult,
     ListResourceTemplatesResult, ListResourcesResult, ListToolsResult, PaginatedRequestParams,
-    ProtocolVersion, ServerCapabilities, ServerInfo, ServerNotification, SubscriptionFilter,
+    ProtocolVersion, ServerCapabilities, ServerConfig, ServerNotification, SubscriptionFilter,
     ToolListChangedNotification,
 };
 use rmcp::service::{RequestContext, RoleServer, SubscriptionContext, SubscriptionSendError};
@@ -169,8 +169,8 @@ impl McpServer {
 
 #[allow(refining_impl_trait_reachable)]
 impl ServerHandler for McpServer {
-    fn get_info(&self) -> ServerInfo {
-        let mut info = ServerInfo::default();
+    fn get_info(&self) -> ServerConfig {
+        let mut info = ServerConfig::default();
         info.capabilities = ServerCapabilities::builder()
             .enable_tools()
             .enable_tool_list_changed()

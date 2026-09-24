@@ -2400,33 +2400,7 @@ dependencies = [
  "http-auth",
  "jsonwebtoken",
  "lazy_static",
- "oci-spec 0.9.0",
- "olpc-cjson",
- "regex",
- "reqwest",
- "serde",
- "serde_json",
- "sha2 0.11.0",
- "thiserror 2.0.20",
- "tokio",
- "tracing",
- "unicase",
-]
-
-[[package]]
-name = "oci-client"
-version = "0.18.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ddc7848d781053285280fcd35aab24c9c0a677e26db4aa4209bd5db57467de0f"
-dependencies = [
- "base64 0.22.1",
- "bytes",
- "chrono",
- "futures-util",
- "hex",
- "http",
- "http-auth",
- "oci-spec 0.10.0",
+ "oci-spec",
  "olpc-cjson",
  "regex",
  "reqwest",
@@ -2457,23 +2431,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "oci-spec"
-version = "0.10.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3df6f876ad774d6a676f7e968f5c3edacc32f90e65fe680a8b686235396556fb"
-dependencies = [
- "const_format",
- "derive_builder",
- "getset",
- "regex",
- "serde",
- "serde_json",
- "strum",
- "strum_macros",
- "thiserror 2.0.20",
-]
-
-[[package]]
 name = "oci-wasm"
 version = "0.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2481,7 +2438,7 @@ checksum = "87689298bd74f0f2675fcac99956a34c31098ca3bdced3d7635e71dc03c5ca21"
 dependencies = [
  "anyhow",
  "chrono",
- "oci-client 0.17.0",
+ "oci-client",
  "serde",
  "serde_json",
  "sha2 0.11.0",
@@ -5059,7 +5016,7 @@ dependencies = [
  "http",
  "hyper",
  "num_cpus",
- "oci-client 0.18.0",
+ "oci-client",
  "oci-wasm",
  "policy",
  "proptest",
@@ -5103,7 +5060,7 @@ dependencies = [
  "hyper",
  "hyper-util",
  "mcp-server",
- "oci-client 0.18.0",
+ "oci-client",
  "oci-wasm",
  "policy",
  "proptest",
