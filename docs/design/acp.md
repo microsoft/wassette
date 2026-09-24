@@ -126,10 +126,10 @@ Build the two example components and run the chain:
 just build-acp-examples
 
 cargo run -p wassette-mcp-server -- acp \
-  --provider examples/acp-echo-provider/target/wasm32-wasip2/release/acp_echo_provider.wasm
+  --provider components/acp-echo-provider/target/wasm32-wasip2/release/acp_echo_provider.wasm
 ```
 
-`examples/acp-echo-provider` is a provider that answers a prompt by
+`components/acp-echo-provider` is a provider that answers a prompt by
 streaming the user's own text back, one word at a time, and then ends the
 turn. It uses `wit-bindgen` and nothing else — no network, no secrets —
 so the demo is reproducible offline and needs no policy (and therefore no
@@ -139,8 +139,8 @@ Add the layer to see chaining:
 
 ```sh
 cargo run -p wassette-mcp-server -- acp \
-  --provider examples/acp-echo-provider/target/wasm32-wasip2/release/acp_echo_provider.wasm \
-  --layer    examples/acp-uppercase-layer/target/wasm32-wasip2/release/acp_uppercase_layer.wasm
+  --provider components/acp-echo-provider/target/wasm32-wasip2/release/acp_echo_provider.wasm \
+  --layer    components/acp-uppercase-layer/target/wasm32-wasip2/release/acp_uppercase_layer.wasm
 ```
 
 Prompt `/shout` and the layer answers it itself, toggling on uppercase

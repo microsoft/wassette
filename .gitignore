@@ -16,3 +16,4 @@ __pycache__/
 
 # Standalone example component build dirs
 examples/*/target/
+components/*/target/

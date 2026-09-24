@@ -40,10 +40,10 @@ test-mcp-clients-negative:
     just build release
     ./scripts/test-mcp-clients.sh --negative
 
-# Build the standalone ACP example components (provider + layer)
+# Build the standalone ACP components (provider + layer)
 build-acp-examples:
-    (cd examples/acp-echo-provider && cargo build --release --target wasm32-wasip2)
-    (cd examples/acp-uppercase-layer && cargo build --release --target wasm32-wasip2)
+    (cd components/acp-echo-provider && cargo build --release --target wasm32-wasip2)
+    (cd components/acp-uppercase-layer && cargo build --release --target wasm32-wasip2)
 
 # Build a real (model-backed) ACP provider from a playground-wasm-acp checkout.
 # Needs the wstd p3 branch plus a two-line patch for wasmtime 47; see

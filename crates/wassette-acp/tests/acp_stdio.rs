@@ -13,7 +13,7 @@
 //!
 //! ```sh
 //! cargo build -p wassette-mcp-server
-//! (cd examples/acp-echo-provider && cargo build --release --target wasm32-wasip2)
+//! (cd components/acp-echo-provider && cargo build --release --target wasm32-wasip2)
 //! ```
 //!
 //! When either is missing the tests print why and pass, so a plain
@@ -56,7 +56,7 @@ fn wassette_binary() -> Option<PathBuf> {
 /// The echo provider component, built by `just build-acp-examples`.
 fn echo_provider() -> Option<PathBuf> {
     let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(
-        "../../examples/acp-echo-provider/target/wasm32-wasip2/release/acp_echo_provider.wasm",
+        "../../components/acp-echo-provider/target/wasm32-wasip2/release/acp_echo_provider.wasm",
     );
     path.is_file().then_some(path)
 }
@@ -71,7 +71,7 @@ fn artifacts() -> Option<(PathBuf, PathBuf)> {
     };
     let Some(wasm) = echo_provider() else {
         eprintln!(
-            "skipping: examples/acp-echo-provider/target/wasm32-wasip2/release/\
+            "skipping: components/acp-echo-provider/target/wasm32-wasip2/release/\
              acp_echo_provider.wasm not found; run `just build-acp-examples`"
         );
         return None;
