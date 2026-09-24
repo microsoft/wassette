@@ -16,7 +16,7 @@
 //! ```ignore
 //! store.lock().await.run_concurrent(async |a| {
 //!     a.with(|x| x.get().push_stage(head_idx));
-//!     let res = head_bindings.yosh_acp_agent().call_X(a, req).await;
+//!     let res = head_bindings.wassette_acp_agent().call_X(a, req).await;
 //!     a.with(|x| x.get().pop_stage());
 //!     res
 //! }).await
@@ -52,10 +52,10 @@ use crate::install::Resolver;
 use crate::sandbox::{ChainSandbox, Sandbox};
 use crate::secrets::SecretsRegistry;
 use crate::state::{Bindings, ClientSink, HostState, OutboundEvent, StageData, StageKind};
-use crate::yosh::acp::errors::Error;
-use crate::yosh::acp::init::{AuthenticateRequest, InitializeRequest, InitializeResponse};
-use crate::yosh::acp::prompts::PromptResponse;
-use crate::yosh::acp::sessions::{
+use crate::wassette::acp::errors::Error;
+use crate::wassette::acp::init::{AuthenticateRequest, InitializeRequest, InitializeResponse};
+use crate::wassette::acp::prompts::PromptResponse;
+use crate::wassette::acp::sessions::{
     LoadSessionRequest, LoadSessionResponse, NewSessionRequest, NewSessionResponse,
 };
 use crate::{Layer, Provider};
@@ -273,7 +273,7 @@ impl SessionFactory {
 
         // Shared linker for every stage. Crucially, this gives every
         // component instance the *same* resource type identity for
-        // `yosh:acp/agent/session`, so a `ResourceAny` returned from
+        // `wassette:acp/agent/session`, so a `ResourceAny` returned from
         // the provider's `new-session` export can be lifted into the
         // layer's imported `session` slot via `try_into_resource`
         // without a "resource type mismatch" trap.
@@ -421,7 +421,7 @@ pub enum SetModeOutcome {
 }
 
 pub enum SetConfigOptionOutcome {
-    Done(Vec<crate::yosh::acp::sessions::SessionConfigOption>),
+    Done(Vec<crate::wassette::acp::sessions::SessionConfigOption>),
     Wit(Error),
     Trap(wasmtime::Error),
 }
@@ -517,8 +517,8 @@ impl Session {
                     .with(|mut x| x.get().stages[head_idx].bindings.clone())
                     .expect("head bindings filled");
                 match &*bindings {
-                    Bindings::Provider(b) => b.yosh_acp_agent().call_initialize(a, req).await,
-                    Bindings::Layer(b) => b.yosh_acp_agent().call_initialize(a, req).await,
+                    Bindings::Provider(b) => b.wassette_acp_agent().call_initialize(a, req).await,
+                    Bindings::Layer(b) => b.wassette_acp_agent().call_initialize(a, req).await,
                 }
             })
         })
@@ -536,8 +536,8 @@ impl Session {
                     .with(|mut x| x.get().stages[head_idx].bindings.clone())
                     .expect("head bindings filled");
                 match &*bindings {
-                    Bindings::Provider(b) => b.yosh_acp_agent().call_authenticate(a, req).await,
-                    Bindings::Layer(b) => b.yosh_acp_agent().call_authenticate(a, req).await,
+                    Bindings::Provider(b) => b.wassette_acp_agent().call_authenticate(a, req).await,
+                    Bindings::Layer(b) => b.wassette_acp_agent().call_authenticate(a, req).await,
                 }
             })
         })
@@ -556,8 +556,8 @@ impl Session {
                     .with(|mut x| x.get().stages[head_idx].bindings.clone())
                     .expect("head bindings filled");
                 let raw = match &*bindings {
-                    Bindings::Provider(b) => b.yosh_acp_agent().call_new_session(a, req).await,
-                    Bindings::Layer(b) => b.yosh_acp_agent().call_new_session(a, req).await,
+                    Bindings::Provider(b) => b.wassette_acp_agent().call_new_session(a, req).await,
+                    Bindings::Layer(b) => b.wassette_acp_agent().call_new_session(a, req).await,
                 };
                 raw.map(|r| {
                     r.map(|(resource, resp)| {
@@ -582,8 +582,8 @@ impl Session {
                     .with(|mut x| x.get().stages[head_idx].bindings.clone())
                     .expect("head bindings filled");
                 let raw = match &*bindings {
-                    Bindings::Provider(b) => b.yosh_acp_agent().call_load_session(a, req).await,
-                    Bindings::Layer(b) => b.yosh_acp_agent().call_load_session(a, req).await,
+                    Bindings::Provider(b) => b.wassette_acp_agent().call_load_session(a, req).await,
+                    Bindings::Layer(b) => b.wassette_acp_agent().call_load_session(a, req).await,
                 };
                 raw.map(|r| {
                     r.map(|(resource, resp)| {
@@ -598,7 +598,7 @@ impl Session {
 
     pub async fn set_mode(
         &self,
-        mode_id: crate::yosh::acp::sessions::SessionModeId,
+        mode_id: crate::wassette::acp::sessions::SessionModeId,
     ) -> SetModeOutcome {
         let head_idx = self.inner.head_idx;
         let head_session = match *self.inner.head_session.lock().unwrap() {
@@ -617,13 +617,13 @@ impl Session {
                         .expect("head bindings filled");
                     match &*bindings {
                         Bindings::Provider(b) => {
-                            b.yosh_acp_agent()
+                            b.wassette_acp_agent()
                                 .session()
                                 .call_set_mode(a, head_session, mode_id)
                                 .await
                         }
                         Bindings::Layer(b) => {
-                            b.yosh_acp_agent()
+                            b.wassette_acp_agent()
                                 .session()
                                 .call_set_mode(a, head_session, mode_id)
                                 .await
@@ -642,8 +642,8 @@ impl Session {
 
     pub async fn set_config_option(
         &self,
-        config_id: crate::yosh::acp::sessions::SessionConfigId,
-        value: crate::yosh::acp::sessions::SessionConfigValueId,
+        config_id: crate::wassette::acp::sessions::SessionConfigId,
+        value: crate::wassette::acp::sessions::SessionConfigValueId,
     ) -> SetConfigOptionOutcome {
         let head_idx = self.inner.head_idx;
         let head_session = match *self.inner.head_session.lock().unwrap() {
@@ -662,13 +662,13 @@ impl Session {
                         .expect("head bindings filled");
                     match &*bindings {
                         Bindings::Provider(b) => {
-                            b.yosh_acp_agent()
+                            b.wassette_acp_agent()
                                 .session()
                                 .call_set_config_option(a, head_session, config_id, value)
                                 .await
                         }
                         Bindings::Layer(b) => {
-                            b.yosh_acp_agent()
+                            b.wassette_acp_agent()
                                 .session()
                                 .call_set_config_option(a, head_session, config_id, value)
                                 .await
@@ -693,7 +693,7 @@ impl Session {
     pub async fn prompt(
         &self,
         _session_id: String,
-        prompt: Vec<crate::yosh::acp::content::ContentBlock>,
+        prompt: Vec<crate::wassette::acp::content::ContentBlock>,
     ) -> PromptOutcome {
         let _ = self.inner.cancel.send_replace(false);
         let mut cancel_rx = self.inner.cancel.subscribe();
@@ -718,13 +718,13 @@ impl Session {
                             .expect("head bindings filled");
                         let resp = match &*bindings {
                             Bindings::Provider(b) => {
-                                b.yosh_acp_agent()
+                                b.wassette_acp_agent()
                                     .session()
                                     .call_prompt(a, head_session, prompt)
                                     .await
                             }
                             Bindings::Layer(b) => {
-                                b.yosh_acp_agent()
+                                b.wassette_acp_agent()
                                     .session()
                                     .call_prompt(a, head_session, prompt)
                                     .await
@@ -805,7 +805,7 @@ impl SessionRegistry {
 // oneshot. Push/pop the stage stack around the call so the linker's
 // host getter returns the correct stage for any nested host imports.
 
-use crate::yosh::acp::sessions::{
+use crate::wassette::acp::sessions::{
     ListSessionsRequest, ListSessionsResponse, ResumeSessionRequest, ResumeSessionResponse,
 };
 use crate::{layer_agent, translate};
@@ -998,7 +998,7 @@ impl<D: 'static> StreamProducer<D> for TerminalOutputProducer {
 /// into an mpsc channel and its exit status into a `watch` channel. A
 /// background task pumps both.
 fn spawn_terminal(
-    req: &crate::yosh::acp::terminals::CreateTerminalRequest,
+    req: &crate::wassette::acp::terminals::CreateTerminalRequest,
 ) -> std::io::Result<TerminalProcess> {
     use std::process::Stdio;
 
@@ -1149,11 +1149,11 @@ fn signal_name(sig: i32) -> String {
     name.to_string()
 }
 
-impl crate::yosh::acp::client::HostTerminal for HostState {
+impl crate::wassette::acp::client::HostTerminal for HostState {
     async fn new(
         &mut self,
-        req: crate::yosh::acp::terminals::CreateTerminalRequest,
-    ) -> Resource<crate::yosh::acp::client::Terminal> {
+        req: crate::wassette::acp::terminals::CreateTerminalRequest,
+    ) -> Resource<crate::wassette::acp::client::Terminal> {
         let entry = if !self.terminal_enabled {
             tracing::warn!(
                 command = %req.command,
@@ -1194,7 +1194,7 @@ impl crate::yosh::acp::client::HostTerminal for HostState {
 
     async fn drop(
         &mut self,
-        rep: Resource<crate::yosh::acp::client::Terminal>,
+        rep: Resource<crate::wassette::acp::client::Terminal>,
     ) -> wasmtime::Result<()> {
         let entry: Resource<HostTerminalEntry> = Resource::new_own(rep.rep());
         // Dropping the entry runs `TerminalProcess::drop`, killing any
@@ -1208,10 +1208,10 @@ impl crate::yosh::acp::client::HostTerminal for HostState {
 // `async fn` in a trait impl cannot restate that bound, so the desugared form
 // stays.
 #[allow(clippy::manual_async_fn)]
-impl<T: Send> crate::yosh::acp::client::HostTerminalWithStore<T> for HasSelf<HostState> {
+impl<T: Send> crate::wassette::acp::client::HostTerminalWithStore<T> for HasSelf<HostState> {
     fn output(
         accessor: &wasmtime::component::Accessor<T, Self>,
-        self_: Resource<crate::yosh::acp::client::Terminal>,
+        self_: Resource<crate::wassette::acp::client::Terminal>,
     ) -> impl ::core::future::Future<Output = StreamReader<u8>> + Send {
         async move {
             // Take the output receiver out of the entry (a stream is
@@ -1235,9 +1235,9 @@ impl<T: Send> crate::yosh::acp::client::HostTerminalWithStore<T> for HasSelf<Hos
 
     fn wait_for_exit(
         accessor: &wasmtime::component::Accessor<T, Self>,
-        self_: Resource<crate::yosh::acp::client::Terminal>,
+        self_: Resource<crate::wassette::acp::client::Terminal>,
     ) -> impl ::core::future::Future<
-        Output = Result<crate::yosh::acp::terminals::TerminalExitStatus, Error>,
+        Output = Result<crate::wassette::acp::terminals::TerminalExitStatus, Error>,
     > + Send {
         async move {
             enum Waiter {
@@ -1265,7 +1265,7 @@ impl<T: Send> crate::yosh::acp::client::HostTerminalWithStore<T> for HasSelf<Hos
                 Waiter::Missing => Err(translate::internal_error("terminal resource not found")),
                 Waiter::Wait(mut rx) => loop {
                     if let Some(info) = rx.borrow_and_update().clone() {
-                        return Ok(crate::yosh::acp::terminals::TerminalExitStatus {
+                        return Ok(crate::wassette::acp::terminals::TerminalExitStatus {
                             exit_code: info.code,
                             signal: info.signal,
                         });
@@ -1281,17 +1281,17 @@ impl<T: Send> crate::yosh::acp::client::HostTerminalWithStore<T> for HasSelf<Hos
     }
 }
 
-impl crate::yosh::acp::tools::HostToolCall for HostState {
+impl crate::wassette::acp::tools::HostToolCall for HostState {
     async fn new(
         &mut self,
-        _initial: crate::yosh::acp::tools::ToolCallInit,
-    ) -> wasmtime::component::Resource<crate::yosh::acp::tools::ToolCall> {
+        _initial: crate::wassette::acp::tools::ToolCallInit,
+    ) -> wasmtime::component::Resource<crate::wassette::acp::tools::ToolCall> {
         unimplemented!("phase 4: tools::HostToolCall::new")
     }
 
     async fn drop(
         &mut self,
-        _rep: wasmtime::component::Resource<crate::yosh::acp::tools::ToolCall>,
+        _rep: wasmtime::component::Resource<crate::wassette::acp::tools::ToolCall>,
     ) -> wasmtime::Result<()> {
         Ok(())
     }
@@ -1301,11 +1301,11 @@ impl crate::yosh::acp::tools::HostToolCall for HostState {
 // `async fn` in a trait impl cannot restate that bound, so the desugared form
 // stays.
 #[allow(clippy::manual_async_fn)]
-impl<T: Send> crate::yosh::acp::tools::HostToolCallWithStore<T> for HasSelf<HostState> {
+impl<T: Send> crate::wassette::acp::tools::HostToolCallWithStore<T> for HasSelf<HostState> {
     fn update(
         _accessor: &wasmtime::component::Accessor<T, Self>,
-        _self_: wasmtime::component::Resource<crate::yosh::acp::tools::ToolCall>,
-        _patch: crate::yosh::acp::tools::ToolCallPatch,
+        _self_: wasmtime::component::Resource<crate::wassette::acp::tools::ToolCall>,
+        _patch: crate::wassette::acp::tools::ToolCallPatch,
     ) -> impl ::core::future::Future<Output = ()> + Send {
         async move { unimplemented!("phase 4: tools::HostToolCallWithStore::update") }
     }
@@ -1324,9 +1324,11 @@ impl<T: Send> layer_agent::HostWithStore<T> for HasSelf<HostState> {
             let res = downstream_call(accessor, idx, || async {
                 match &*bindings {
                     Bindings::Provider(b) => {
-                        b.yosh_acp_agent().call_initialize(accessor, req).await
+                        b.wassette_acp_agent().call_initialize(accessor, req).await
                     }
-                    Bindings::Layer(b) => b.yosh_acp_agent().call_initialize(accessor, req).await,
+                    Bindings::Layer(b) => {
+                        b.wassette_acp_agent().call_initialize(accessor, req).await
+                    }
                 }
             })
             .await;
@@ -1346,9 +1348,15 @@ impl<T: Send> layer_agent::HostWithStore<T> for HasSelf<HostState> {
             let res = downstream_call(accessor, idx, || async {
                 match &*bindings {
                     Bindings::Provider(b) => {
-                        b.yosh_acp_agent().call_authenticate(accessor, req).await
+                        b.wassette_acp_agent()
+                            .call_authenticate(accessor, req)
+                            .await
                     }
-                    Bindings::Layer(b) => b.yosh_acp_agent().call_authenticate(accessor, req).await,
+                    Bindings::Layer(b) => {
+                        b.wassette_acp_agent()
+                            .call_authenticate(accessor, req)
+                            .await
+                    }
                 }
             })
             .await;
@@ -1377,10 +1385,10 @@ impl<T: Send> layer_agent::HostWithStore<T> for HasSelf<HostState> {
                 downstream_call(accessor, idx, || async {
                     match &*bindings {
                         Bindings::Provider(b) => {
-                            b.yosh_acp_agent().call_new_session(accessor, req).await
+                            b.wassette_acp_agent().call_new_session(accessor, req).await
                         }
                         Bindings::Layer(b) => {
-                            b.yosh_acp_agent().call_new_session(accessor, req).await
+                            b.wassette_acp_agent().call_new_session(accessor, req).await
                         }
                     }
                 })
@@ -1412,10 +1420,14 @@ impl<T: Send> layer_agent::HostWithStore<T> for HasSelf<HostState> {
                 downstream_call(accessor, idx, || async {
                     match &*bindings {
                         Bindings::Provider(b) => {
-                            b.yosh_acp_agent().call_load_session(accessor, req).await
+                            b.wassette_acp_agent()
+                                .call_load_session(accessor, req)
+                                .await
                         }
                         Bindings::Layer(b) => {
-                            b.yosh_acp_agent().call_load_session(accessor, req).await
+                            b.wassette_acp_agent()
+                                .call_load_session(accessor, req)
+                                .await
                         }
                     }
                 })
@@ -1438,10 +1450,14 @@ impl<T: Send> layer_agent::HostWithStore<T> for HasSelf<HostState> {
             let res = downstream_call(accessor, idx, || async {
                 match &*bindings {
                     Bindings::Provider(b) => {
-                        b.yosh_acp_agent().call_list_sessions(accessor, req).await
+                        b.wassette_acp_agent()
+                            .call_list_sessions(accessor, req)
+                            .await
                     }
                     Bindings::Layer(b) => {
-                        b.yosh_acp_agent().call_list_sessions(accessor, req).await
+                        b.wassette_acp_agent()
+                            .call_list_sessions(accessor, req)
+                            .await
                     }
                 }
             })
@@ -1471,10 +1487,14 @@ impl<T: Send> layer_agent::HostWithStore<T> for HasSelf<HostState> {
                 downstream_call(accessor, idx, || async {
                     match &*bindings {
                         Bindings::Provider(b) => {
-                            b.yosh_acp_agent().call_resume_session(accessor, req).await
+                            b.wassette_acp_agent()
+                                .call_resume_session(accessor, req)
+                                .await
                         }
                         Bindings::Layer(b) => {
-                            b.yosh_acp_agent().call_resume_session(accessor, req).await
+                            b.wassette_acp_agent()
+                                .call_resume_session(accessor, req)
+                                .await
                         }
                     }
                 })
@@ -1495,7 +1515,7 @@ impl<T: Send> layer_agent::HostSessionWithStore<T> for HasSelf<HostState> {
     fn prompt(
         accessor: &wasmtime::component::Accessor<T, Self>,
         self_: wasmtime::component::Resource<layer_agent::Session>,
-        prompt: Vec<crate::yosh::acp::content::ContentBlock>,
+        prompt: Vec<crate::wassette::acp::content::ContentBlock>,
     ) -> impl ::core::future::Future<Output = Result<PromptResponse, Error>> + Send {
         let downstream = accessor.with(|mut a| {
             let state = a.get();
@@ -1514,13 +1534,13 @@ impl<T: Send> layer_agent::HostSessionWithStore<T> for HasSelf<HostState> {
             let res = downstream_call(accessor, idx, || async {
                 match &*bindings {
                     Bindings::Provider(b) => {
-                        b.yosh_acp_agent()
+                        b.wassette_acp_agent()
                             .session()
                             .call_prompt(accessor, session_any, prompt)
                             .await
                     }
                     Bindings::Layer(b) => {
-                        b.yosh_acp_agent()
+                        b.wassette_acp_agent()
                             .session()
                             .call_prompt(accessor, session_any, prompt)
                             .await
@@ -1535,7 +1555,7 @@ impl<T: Send> layer_agent::HostSessionWithStore<T> for HasSelf<HostState> {
     fn set_mode(
         accessor: &wasmtime::component::Accessor<T, Self>,
         self_: wasmtime::component::Resource<layer_agent::Session>,
-        mode_id: crate::yosh::acp::sessions::SessionModeId,
+        mode_id: crate::wassette::acp::sessions::SessionModeId,
     ) -> impl ::core::future::Future<Output = Result<(), Error>> + Send {
         let downstream = accessor.with(|mut a| {
             let state = a.get();
@@ -1554,13 +1574,13 @@ impl<T: Send> layer_agent::HostSessionWithStore<T> for HasSelf<HostState> {
             let res = downstream_call(accessor, idx, || async {
                 match &*bindings {
                     Bindings::Provider(b) => {
-                        b.yosh_acp_agent()
+                        b.wassette_acp_agent()
                             .session()
                             .call_set_mode(accessor, any, mode_id)
                             .await
                     }
                     Bindings::Layer(b) => {
-                        b.yosh_acp_agent()
+                        b.wassette_acp_agent()
                             .session()
                             .call_set_mode(accessor, any, mode_id)
                             .await
@@ -1575,7 +1595,7 @@ impl<T: Send> layer_agent::HostSessionWithStore<T> for HasSelf<HostState> {
     fn select_model(
         accessor: &wasmtime::component::Accessor<T, Self>,
         self_: wasmtime::component::Resource<layer_agent::Session>,
-        model_id: crate::yosh::acp::sessions::SessionModelId,
+        model_id: crate::wassette::acp::sessions::SessionModelId,
     ) -> impl ::core::future::Future<Output = Result<(), Error>> + Send {
         let downstream = accessor.with(|mut a| {
             let state = a.get();
@@ -1594,13 +1614,13 @@ impl<T: Send> layer_agent::HostSessionWithStore<T> for HasSelf<HostState> {
             let res = downstream_call(accessor, idx, || async {
                 match &*bindings {
                     Bindings::Provider(b) => {
-                        b.yosh_acp_agent()
+                        b.wassette_acp_agent()
                             .session()
                             .call_select_model(accessor, any, model_id)
                             .await
                     }
                     Bindings::Layer(b) => {
-                        b.yosh_acp_agent()
+                        b.wassette_acp_agent()
                             .session()
                             .call_select_model(accessor, any, model_id)
                             .await
@@ -1615,10 +1635,10 @@ impl<T: Send> layer_agent::HostSessionWithStore<T> for HasSelf<HostState> {
     fn set_config_option(
         accessor: &wasmtime::component::Accessor<T, Self>,
         self_: wasmtime::component::Resource<layer_agent::Session>,
-        config_id: crate::yosh::acp::sessions::SessionConfigId,
-        value: crate::yosh::acp::sessions::SessionConfigValueId,
+        config_id: crate::wassette::acp::sessions::SessionConfigId,
+        value: crate::wassette::acp::sessions::SessionConfigValueId,
     ) -> impl ::core::future::Future<
-        Output = Result<Vec<crate::yosh::acp::sessions::SessionConfigOption>, Error>,
+        Output = Result<Vec<crate::wassette::acp::sessions::SessionConfigOption>, Error>,
     > + Send {
         let downstream = accessor.with(|mut a| {
             let state = a.get();
@@ -1637,13 +1657,13 @@ impl<T: Send> layer_agent::HostSessionWithStore<T> for HasSelf<HostState> {
             let res = downstream_call(accessor, idx, || async {
                 match &*bindings {
                     Bindings::Provider(b) => {
-                        b.yosh_acp_agent()
+                        b.wassette_acp_agent()
                             .session()
                             .call_set_config_option(accessor, any, config_id, value)
                             .await
                     }
                     Bindings::Layer(b) => {
-                        b.yosh_acp_agent()
+                        b.wassette_acp_agent()
                             .session()
                             .call_set_config_option(accessor, any, config_id, value)
                             .await
@@ -1665,8 +1685,8 @@ mod terminal_tests {
     fn make_request(
         command: &str,
         args: &[&str],
-    ) -> crate::yosh::acp::terminals::CreateTerminalRequest {
-        crate::yosh::acp::terminals::CreateTerminalRequest {
+    ) -> crate::wassette::acp::terminals::CreateTerminalRequest {
+        crate::wassette::acp::terminals::CreateTerminalRequest {
             session_id: "test-session".to_string(),
             command: command.to_string(),
             args: args.iter().map(|s| s.to_string()).collect(),
@@ -1695,7 +1715,9 @@ mod terminal_tests {
 
     /// Spawn `req`, drain its combined output to EOF, then wait for and
     /// return the collected bytes alongside the resolved exit info.
-    async fn run(req: &crate::yosh::acp::terminals::CreateTerminalRequest) -> (Vec<u8>, ExitInfo) {
+    async fn run(
+        req: &crate::wassette::acp::terminals::CreateTerminalRequest,
+    ) -> (Vec<u8>, ExitInfo) {
         let mut proc = spawn_terminal(req).expect("spawn");
         let mut rx = proc.output_rx.take().expect("output stream present");
         let mut out = Vec::new();
@@ -1747,7 +1769,7 @@ mod terminal_tests {
         assert_eq!(group.terminal_option(), Some(false));
         let disabled = {
             let mut store = primary.inner.store.lock().await;
-            <HostState as crate::yosh::acp::client::HostTerminal>::new(
+            <HostState as crate::wassette::acp::client::HostTerminal>::new(
                 store.data_mut(),
                 make_request("echo", &["must-not-run"]),
             )
@@ -1773,7 +1795,7 @@ mod terminal_tests {
             assert!(primary.inner.store.lock().await.data().terminal_enabled);
             let mut store = secondary.inner.store.lock().await;
             assert!(store.data().terminal_enabled);
-            let terminal = <HostState as crate::yosh::acp::client::HostTerminal>::new(
+            let terminal = <HostState as crate::wassette::acp::client::HostTerminal>::new(
                 store.data_mut(),
                 make_request("echo", &["terminal-enabled"]),
             )

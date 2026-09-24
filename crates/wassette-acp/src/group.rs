@@ -25,8 +25,8 @@ use std::sync::{Arc, Mutex};
 
 use crate::translate;
 use crate::wasm::{PromptOutcome, Session, SetConfigOptionOutcome, SetModeOutcome};
-use crate::yosh::acp::content::ContentBlock;
-use crate::yosh::acp::sessions::{
+use crate::wassette::acp::content::ContentBlock;
+use crate::wassette::acp::sessions::{
     ComponentSource, SessionConfigId, SessionConfigOption, SessionConfigOptionCategory,
     SessionConfigSelectGroup, SessionConfigSelectOption, SessionConfigSelectOptions,
     SessionConfigValueId, SessionModeId,

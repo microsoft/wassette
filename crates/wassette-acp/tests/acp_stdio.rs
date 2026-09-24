@@ -55,9 +55,13 @@ fn wassette_binary() -> Option<PathBuf> {
 
 /// The echo provider component, built by `just build-acp-examples`.
 fn echo_provider() -> Option<PathBuf> {
-    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(
-        "../../components/acp-echo-provider/target/wasm32-wasip2/release/acp_echo_provider.wasm",
-    );
+    let target_dir = std::env::var_os("CARGO_TARGET_DIR")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| {
+            PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                .join("../../components/acp-echo-provider/target")
+        });
+    let path = target_dir.join("wasm32-wasip2/release/acp_echo_provider.wasm");
     path.is_file().then_some(path)
 }
 
@@ -71,8 +75,8 @@ fn artifacts() -> Option<(PathBuf, PathBuf)> {
     };
     let Some(wasm) = echo_provider() else {
         eprintln!(
-            "skipping: components/acp-echo-provider/target/wasm32-wasip2/release/\
-             acp_echo_provider.wasm not found; run `just build-acp-examples`"
+            "skipping: ACP echo provider not found in its component target directory \
+             (or CARGO_TARGET_DIR); run `just build-acp-examples`"
         );
         return None;
     };

@@ -12,23 +12,10 @@ pub mod wasmcloud {
             #[doc(hidden)]
             static __FORCE_SECTION_REF: fn() = super::super::super::__link_custom_section_describing_imports;
             use super::super::super::_rt;
-            /// An error type that encapsulates the different errors that can occur fetching secrets
             #[derive(Clone)]
             pub enum SecretsError {
-                /// This indicates an error from an "upstream" secrets source.
-                /// As this could be almost _anything_ (such as Vault, Kubernetes Secrets, KeyValue buckets, etc),
-                /// the error message is a string.
                 Upstream(_rt::String),
-                /// This indicates an error from an I/O operation.
-                /// As this could be almost _anything_ (such as a file read, network connection, etc),
-                /// the error message is a string.
-                /// Depending on how this ends up being consumed,
-                /// we may consider moving this to use the `wasi:io/error` type instead.
-                /// For simplicity right now in supporting multiple implementations, it is being left as a string.
                 Io(_rt::String),
-                /// This indicates that the secret was not found. Generally "not found" errors will
-                /// be handled by the upstream secrets backend, but there are cases where the host
-                /// may need to return this error.
                 NotFound,
             }
             impl ::core::fmt::Debug for SecretsError {
@@ -58,13 +45,9 @@ pub mod wasmcloud {
                 }
             }
             impl ::core::error::Error for SecretsError {}
-            /// A secret value can be either a string or a byte array, which lets you
-            /// store binary data as a secret.
             #[derive(Clone)]
             pub enum SecretValue {
-                /// A string value
                 String(_rt::String),
-                /// A byte array value
                 Bytes(_rt::Vec<u8>),
             }
             impl ::core::fmt::Debug for SecretValue {
@@ -82,10 +65,6 @@ pub mod wasmcloud {
                     }
                 }
             }
-            /// A secret is a resource that can only be borrowed. This allows you to
-            /// pass around handles to secrets and not reveal the values until a
-            /// component needs them.
-            /// You need to use the reveal interface to get the value.
             #[derive(Debug)]
             #[repr(transparent)]
             pub struct Secret {
@@ -126,7 +105,6 @@ pub mod wasmcloud {
                 }
             }
             #[allow(unused_unsafe, clippy::all)]
-            /// Gets a single opaque secrets value set at the given key if it exists
             #[allow(async_fn_in_trait)]
             pub fn get(key: &str) -> Result<Secret, SecretsError> {
                 unsafe {
@@ -233,8 +211,6 @@ pub mod wasmcloud {
             pub type Secret = super::super::super::wasmcloud::secrets::store::Secret;
             pub type SecretValue = super::super::super::wasmcloud::secrets::store::SecretValue;
             #[allow(unused_unsafe, clippy::all)]
-            /// Reveals the value of a secret to the caller.
-            /// This lets you easily audit your code to discover where secrets are being used.
             #[allow(async_fn_in_trait)]
             pub fn reveal(s: &Secret) -> SecretValue {
                 unsafe {
@@ -308,7 +284,7 @@ pub mod wasmcloud {
 }
 #[rustfmt::skip]
 #[allow(dead_code, clippy::all)]
-pub mod yosh {
+pub mod wassette {
     pub mod acp {
         /// Protocol errors, modelled after JSON-RPC 2.0.
         ///
@@ -1597,8 +1573,8 @@ pub mod yosh {
             #[doc(hidden)]
             static __FORCE_SECTION_REF: fn() = super::super::super::__link_custom_section_describing_imports;
             use super::super::super::_rt;
-            pub type SessionId = super::super::super::yosh::acp::sessions::SessionId;
-            pub type EnvVar = super::super::super::yosh::acp::sessions::EnvVar;
+            pub type SessionId = super::super::super::wassette::acp::sessions::SessionId;
+            pub type EnvVar = super::super::super::wassette::acp::sessions::EnvVar;
             /// Unique identifier for a terminal created via `create-terminal`.
             pub type TerminalId = _rt::String;
             /// Parameters to `create-terminal`.
@@ -1671,8 +1647,8 @@ pub mod yosh {
             #[doc(hidden)]
             static __FORCE_SECTION_REF: fn() = super::super::super::__link_custom_section_describing_imports;
             use super::super::super::_rt;
-            pub type ContentBlock = super::super::super::yosh::acp::content::ContentBlock;
-            pub type TerminalId = super::super::super::yosh::acp::terminals::TerminalId;
+            pub type ContentBlock = super::super::super::wassette::acp::content::ContentBlock;
+            pub type TerminalId = super::super::super::wassette::acp::terminals::TerminalId;
             /// Unique identifier for a tool call within a session. Used in
             /// the streamed `session-update`s the client sees; guests construct
             /// `tool-call` resources rather than referencing ids directly.
@@ -1706,7 +1682,7 @@ pub mod yosh {
                 #[inline]
                 unsafe fn drop(_handle: u32) {
                     #[cfg(target_arch = "wasm32")]
-                    #[link(wasm_import_module = "yosh:acp/tools@7.0.0")]
+                    #[link(wasm_import_module = "wassette:acp/tools@7.0.0")]
                     unsafe extern "C" {
                         #[link_name = "[resource-drop]tool-call"]
                         fn drop(_: i32);
@@ -2245,11 +2221,11 @@ pub mod yosh {
                                 match e {
                                     ToolCallContent::Content(e) => {
                                         *base.add(0).cast::<u8>() = (0i32) as u8;
-                                        use super::super::super::yosh::acp::content::ContentBlock as V28;
+                                        use super::super::super::wassette::acp::content::ContentBlock as V28;
                                         match e {
                                             V28::Text(e) => {
                                                 *base.add(8).cast::<u8>() = (0i32) as u8;
-                                                let super::super::super::yosh::acp::content::TextContent {
+                                                let super::super::super::wassette::acp::content::TextContent {
                                                     text: text3,
                                                 } = e;
                                                 let vec4 = text3;
@@ -2262,7 +2238,7 @@ pub mod yosh {
                                             }
                                             V28::Image(e) => {
                                                 *base.add(8).cast::<u8>() = (1i32) as u8;
-                                                let super::super::super::yosh::acp::content::ImageContent {
+                                                let super::super::super::wassette::acp::content::ImageContent {
                                                     data: data5,
                                                     mime_type: mime_type5,
                                                     uri: uri5,
@@ -2307,7 +2283,7 @@ pub mod yosh {
                                             }
                                             V28::Audio(e) => {
                                                 *base.add(8).cast::<u8>() = (2i32) as u8;
-                                                let super::super::super::yosh::acp::content::AudioContent {
+                                                let super::super::super::wassette::acp::content::AudioContent {
                                                     data: data9,
                                                     mime_type: mime_type9,
                                                 } = e;
@@ -2330,7 +2306,7 @@ pub mod yosh {
                                             }
                                             V28::ResourceLink(e) => {
                                                 *base.add(8).cast::<u8>() = (3i32) as u8;
-                                                let super::super::super::yosh::acp::content::ResourceLink {
+                                                let super::super::super::wassette::acp::content::ResourceLink {
                                                     uri: uri12,
                                                     name: name12,
                                                     mime_type: mime_type12,
@@ -2435,14 +2411,14 @@ pub mod yosh {
                                             }
                                             V28::Resource(e) => {
                                                 *base.add(8).cast::<u8>() = (4i32) as u8;
-                                                let super::super::super::yosh::acp::content::EmbeddedResource {
+                                                let super::super::super::wassette::acp::content::EmbeddedResource {
                                                     resource: resource18,
                                                 } = e;
-                                                use super::super::super::yosh::acp::content::ResourceContents as V27;
+                                                use super::super::super::wassette::acp::content::ResourceContents as V27;
                                                 match resource18 {
                                                     V27::Text(e) => {
                                                         *base.add(16).cast::<u8>() = (0i32) as u8;
-                                                        let super::super::super::yosh::acp::content::TextResourceContents {
+                                                        let super::super::super::wassette::acp::content::TextResourceContents {
                                                             uri: uri19,
                                                             mime_type: mime_type19,
                                                             text: text19,
@@ -2489,7 +2465,7 @@ pub mod yosh {
                                                     }
                                                     V27::Blob(e) => {
                                                         *base.add(16).cast::<u8>() = (1i32) as u8;
-                                                        let super::super::super::yosh::acp::content::BlobResourceContents {
+                                                        let super::super::super::wassette::acp::content::BlobResourceContents {
                                                             uri: uri23,
                                                             mime_type: mime_type23,
                                                             blob: blob23,
@@ -2645,7 +2621,7 @@ pub mod yosh {
                             None => (0i32, ::core::ptr::null_mut(), 0usize),
                         };
                         #[cfg(target_arch = "wasm32")]
-                        #[link(wasm_import_module = "yosh:acp/tools@7.0.0")]
+                        #[link(wasm_import_module = "wassette:acp/tools@7.0.0")]
                         unsafe extern "C" {
                             #[link_name = "[constructor]tool-call"]
                             fn wit_import40(
@@ -2738,7 +2714,7 @@ pub mod yosh {
                                 _results: *mut u8,
                             ) -> u32 {
                                 #[cfg(target_arch = "wasm32")]
-                                #[link(wasm_import_module = "yosh:acp/tools@7.0.0")]
+                                #[link(wasm_import_module = "wassette:acp/tools@7.0.0")]
                                 unsafe extern "C" {
                                     #[link_name = "[async-lower][method]tool-call.update"]
                                     fn call(_: *mut u8) -> i32;
@@ -3586,11 +3562,11 @@ pub mod yosh {
                                                     match e {
                                                         ToolCallContent::Content(e) => {
                                                             *base.add(0).cast::<u8>() = (0i32) as u8;
-                                                            use super::super::super::yosh::acp::content::ContentBlock as V27;
+                                                            use super::super::super::wassette::acp::content::ContentBlock as V27;
                                                             match e {
                                                                 V27::Text(e) => {
                                                                     *base.add(8).cast::<u8>() = (0i32) as u8;
-                                                                    let super::super::super::yosh::acp::content::TextContent {
+                                                                    let super::super::super::wassette::acp::content::TextContent {
                                                                         text: text2,
                                                                     } = e;
                                                                     let vec3 = (text2.into_bytes()).into_boxed_slice();
@@ -3604,7 +3580,7 @@ pub mod yosh {
                                                                 }
                                                                 V27::Image(e) => {
                                                                     *base.add(8).cast::<u8>() = (1i32) as u8;
-                                                                    let super::super::super::yosh::acp::content::ImageContent {
+                                                                    let super::super::super::wassette::acp::content::ImageContent {
                                                                         data: data4,
                                                                         mime_type: mime_type4,
                                                                         uri: uri4,
@@ -3652,7 +3628,7 @@ pub mod yosh {
                                                                 }
                                                                 V27::Audio(e) => {
                                                                     *base.add(8).cast::<u8>() = (2i32) as u8;
-                                                                    let super::super::super::yosh::acp::content::AudioContent {
+                                                                    let super::super::super::wassette::acp::content::AudioContent {
                                                                         data: data8,
                                                                         mime_type: mime_type8,
                                                                     } = e;
@@ -3677,7 +3653,7 @@ pub mod yosh {
                                                                 }
                                                                 V27::ResourceLink(e) => {
                                                                     *base.add(8).cast::<u8>() = (3i32) as u8;
-                                                                    let super::super::super::yosh::acp::content::ResourceLink {
+                                                                    let super::super::super::wassette::acp::content::ResourceLink {
                                                                         uri: uri11,
                                                                         name: name11,
                                                                         mime_type: mime_type11,
@@ -3787,14 +3763,14 @@ pub mod yosh {
                                                                 }
                                                                 V27::Resource(e) => {
                                                                     *base.add(8).cast::<u8>() = (4i32) as u8;
-                                                                    let super::super::super::yosh::acp::content::EmbeddedResource {
+                                                                    let super::super::super::wassette::acp::content::EmbeddedResource {
                                                                         resource: resource17,
                                                                     } = e;
-                                                                    use super::super::super::yosh::acp::content::ResourceContents as V26;
+                                                                    use super::super::super::wassette::acp::content::ResourceContents as V26;
                                                                     match resource17 {
                                                                         V26::Text(e) => {
                                                                             *base.add(16).cast::<u8>() = (0i32) as u8;
-                                                                            let super::super::super::yosh::acp::content::TextResourceContents {
+                                                                            let super::super::super::wassette::acp::content::TextResourceContents {
                                                                                 uri: uri18,
                                                                                 mime_type: mime_type18,
                                                                                 text: text18,
@@ -3844,7 +3820,7 @@ pub mod yosh {
                                                                         }
                                                                         V26::Blob(e) => {
                                                                             *base.add(16).cast::<u8>() = (1i32) as u8;
-                                                                            let super::super::super::yosh::acp::content::BlobResourceContents {
+                                                                            let super::super::super::wassette::acp::content::BlobResourceContents {
                                                                                 uri: uri22,
                                                                                 mime_type: mime_type22,
                                                                                 blob: blob22,
@@ -4109,11 +4085,11 @@ pub mod yosh {
             #[doc(hidden)]
             static __FORCE_SECTION_REF: fn() = super::super::super::__link_custom_section_describing_imports;
             use super::super::super::_rt;
-            pub type SessionModeId = super::super::super::yosh::acp::sessions::SessionModeId;
-            pub type SessionInfoUpdate = super::super::super::yosh::acp::sessions::SessionInfoUpdate;
-            pub type ContentBlock = super::super::super::yosh::acp::content::ContentBlock;
-            pub type ToolCallSnapshot = super::super::super::yosh::acp::tools::ToolCallSnapshot;
-            pub type Plan = super::super::super::yosh::acp::tools::Plan;
+            pub type SessionModeId = super::super::super::wassette::acp::sessions::SessionModeId;
+            pub type SessionInfoUpdate = super::super::super::wassette::acp::sessions::SessionInfoUpdate;
+            pub type ContentBlock = super::super::super::wassette::acp::content::ContentBlock;
+            pub type ToolCallSnapshot = super::super::super::wassette::acp::tools::ToolCallSnapshot;
+            pub type Plan = super::super::super::wassette::acp::tools::Plan;
             #[repr(u8)]
             #[derive(Clone, Copy, Eq, Ord, PartialEq, PartialOrd)]
             pub enum StopReason {
@@ -4365,25 +4341,25 @@ pub mod yosh {
             #[doc(hidden)]
             static __FORCE_SECTION_REF: fn() = super::super::super::__link_custom_section_describing_imports;
             use super::super::super::_rt;
-            pub type Error = super::super::super::yosh::acp::errors::Error;
-            pub type InitializeRequest = super::super::super::yosh::acp::init::InitializeRequest;
-            pub type InitializeResponse = super::super::super::yosh::acp::init::InitializeResponse;
-            pub type AuthenticateRequest = super::super::super::yosh::acp::init::AuthenticateRequest;
-            pub type SessionModeId = super::super::super::yosh::acp::sessions::SessionModeId;
-            pub type SessionModelId = super::super::super::yosh::acp::sessions::SessionModelId;
-            pub type SessionConfigId = super::super::super::yosh::acp::sessions::SessionConfigId;
-            pub type SessionConfigValueId = super::super::super::yosh::acp::sessions::SessionConfigValueId;
-            pub type SessionConfigOption = super::super::super::yosh::acp::sessions::SessionConfigOption;
-            pub type NewSessionRequest = super::super::super::yosh::acp::sessions::NewSessionRequest;
-            pub type NewSessionResponse = super::super::super::yosh::acp::sessions::NewSessionResponse;
-            pub type LoadSessionRequest = super::super::super::yosh::acp::sessions::LoadSessionRequest;
-            pub type LoadSessionResponse = super::super::super::yosh::acp::sessions::LoadSessionResponse;
-            pub type ListSessionsRequest = super::super::super::yosh::acp::sessions::ListSessionsRequest;
-            pub type ListSessionsResponse = super::super::super::yosh::acp::sessions::ListSessionsResponse;
-            pub type ResumeSessionRequest = super::super::super::yosh::acp::sessions::ResumeSessionRequest;
-            pub type ResumeSessionResponse = super::super::super::yosh::acp::sessions::ResumeSessionResponse;
-            pub type ContentBlock = super::super::super::yosh::acp::content::ContentBlock;
-            pub type PromptResponse = super::super::super::yosh::acp::prompts::PromptResponse;
+            pub type Error = super::super::super::wassette::acp::errors::Error;
+            pub type InitializeRequest = super::super::super::wassette::acp::init::InitializeRequest;
+            pub type InitializeResponse = super::super::super::wassette::acp::init::InitializeResponse;
+            pub type AuthenticateRequest = super::super::super::wassette::acp::init::AuthenticateRequest;
+            pub type SessionModeId = super::super::super::wassette::acp::sessions::SessionModeId;
+            pub type SessionModelId = super::super::super::wassette::acp::sessions::SessionModelId;
+            pub type SessionConfigId = super::super::super::wassette::acp::sessions::SessionConfigId;
+            pub type SessionConfigValueId = super::super::super::wassette::acp::sessions::SessionConfigValueId;
+            pub type SessionConfigOption = super::super::super::wassette::acp::sessions::SessionConfigOption;
+            pub type NewSessionRequest = super::super::super::wassette::acp::sessions::NewSessionRequest;
+            pub type NewSessionResponse = super::super::super::wassette::acp::sessions::NewSessionResponse;
+            pub type LoadSessionRequest = super::super::super::wassette::acp::sessions::LoadSessionRequest;
+            pub type LoadSessionResponse = super::super::super::wassette::acp::sessions::LoadSessionResponse;
+            pub type ListSessionsRequest = super::super::super::wassette::acp::sessions::ListSessionsRequest;
+            pub type ListSessionsResponse = super::super::super::wassette::acp::sessions::ListSessionsResponse;
+            pub type ResumeSessionRequest = super::super::super::wassette::acp::sessions::ResumeSessionRequest;
+            pub type ResumeSessionResponse = super::super::super::wassette::acp::sessions::ResumeSessionResponse;
+            pub type ContentBlock = super::super::super::wassette::acp::content::ContentBlock;
+            pub type PromptResponse = super::super::super::wassette::acp::prompts::PromptResponse;
             /// Opaque handle to an active session.
             ///
             /// Returned (owned) from `new-session` / `load-session` /
@@ -4414,7 +4390,7 @@ pub mod yosh {
                 #[inline]
                 unsafe fn drop(_handle: u32) {
                     #[cfg(target_arch = "wasm32")]
-                    #[link(wasm_import_module = "yosh:acp/agent@7.0.0")]
+                    #[link(wasm_import_module = "wassette:acp/agent@7.0.0")]
                     unsafe extern "C" {
                         #[link_name = "[resource-drop]session"]
                         fn drop(_: i32);
@@ -4475,7 +4451,7 @@ pub mod yosh {
                                 _results: *mut u8,
                             ) -> u32 {
                                 #[cfg(target_arch = "wasm32")]
-                                #[link(wasm_import_module = "yosh:acp/agent@7.0.0")]
+                                #[link(wasm_import_module = "wassette:acp/agent@7.0.0")]
                                 unsafe extern "C" {
                                     #[link_name = "[async-lower][method]session.prompt"]
                                     fn call(_: i32, _: *mut u8, _: usize, _: *mut u8) -> i32;
@@ -4939,11 +4915,11 @@ pub mod yosh {
                                         let base = result26
                                             .add(i * (32 + 12 * ::core::mem::size_of::<*const u8>()));
                                         {
-                                            use super::super::super::yosh::acp::content::ContentBlock as V25;
+                                            use super::super::super::wassette::acp::content::ContentBlock as V25;
                                             match e {
                                                 V25::Text(e) => {
                                                     *base.add(0).cast::<u8>() = (0i32) as u8;
-                                                    let super::super::super::yosh::acp::content::TextContent {
+                                                    let super::super::super::wassette::acp::content::TextContent {
                                                         text: text0,
                                                     } = e;
                                                     let vec1 = (text0.into_bytes()).into_boxed_slice();
@@ -4957,7 +4933,7 @@ pub mod yosh {
                                                 }
                                                 V25::Image(e) => {
                                                     *base.add(0).cast::<u8>() = (1i32) as u8;
-                                                    let super::super::super::yosh::acp::content::ImageContent {
+                                                    let super::super::super::wassette::acp::content::ImageContent {
                                                         data: data2,
                                                         mime_type: mime_type2,
                                                         uri: uri2,
@@ -5005,7 +4981,7 @@ pub mod yosh {
                                                 }
                                                 V25::Audio(e) => {
                                                     *base.add(0).cast::<u8>() = (2i32) as u8;
-                                                    let super::super::super::yosh::acp::content::AudioContent {
+                                                    let super::super::super::wassette::acp::content::AudioContent {
                                                         data: data6,
                                                         mime_type: mime_type6,
                                                     } = e;
@@ -5030,7 +5006,7 @@ pub mod yosh {
                                                 }
                                                 V25::ResourceLink(e) => {
                                                     *base.add(0).cast::<u8>() = (3i32) as u8;
-                                                    let super::super::super::yosh::acp::content::ResourceLink {
+                                                    let super::super::super::wassette::acp::content::ResourceLink {
                                                         uri: uri9,
                                                         name: name9,
                                                         mime_type: mime_type9,
@@ -5140,14 +5116,14 @@ pub mod yosh {
                                                 }
                                                 V25::Resource(e) => {
                                                     *base.add(0).cast::<u8>() = (4i32) as u8;
-                                                    let super::super::super::yosh::acp::content::EmbeddedResource {
+                                                    let super::super::super::wassette::acp::content::EmbeddedResource {
                                                         resource: resource15,
                                                     } = e;
-                                                    use super::super::super::yosh::acp::content::ResourceContents as V24;
+                                                    use super::super::super::wassette::acp::content::ResourceContents as V24;
                                                     match resource15 {
                                                         V24::Text(e) => {
                                                             *base.add(8).cast::<u8>() = (0i32) as u8;
-                                                            let super::super::super::yosh::acp::content::TextResourceContents {
+                                                            let super::super::super::wassette::acp::content::TextResourceContents {
                                                                 uri: uri16,
                                                                 mime_type: mime_type16,
                                                                 text: text16,
@@ -5197,7 +5173,7 @@ pub mod yosh {
                                                         }
                                                         V24::Blob(e) => {
                                                             *base.add(8).cast::<u8>() = (1i32) as u8;
-                                                            let super::super::super::yosh::acp::content::BlobResourceContents {
+                                                            let super::super::super::wassette::acp::content::BlobResourceContents {
                                                                 uri: uri20,
                                                                 mime_type: mime_type20,
                                                                 blob: blob20,
@@ -5265,8 +5241,8 @@ pub mod yosh {
                                                 let l1 = i32::from(
                                                     *_ptr.add(::core::mem::size_of::<*const u8>()).cast::<u8>(),
                                                 );
-                                                super::super::super::yosh::acp::prompts::PromptResponse {
-                                                    stop_reason: super::super::super::yosh::acp::prompts::StopReason::_lift(
+                                                super::super::super::wassette::acp::prompts::PromptResponse {
+                                                    stop_reason: super::super::super::wassette::acp::prompts::StopReason::_lift(
                                                         l1 as u8,
                                                     ),
                                                 }
@@ -5278,7 +5254,7 @@ pub mod yosh {
                                                 let l2 = i32::from(
                                                     *_ptr.add(::core::mem::size_of::<*const u8>()).cast::<u8>(),
                                                 );
-                                                use super::super::super::yosh::acp::errors::ErrorCode as V4;
+                                                use super::super::super::wassette::acp::errors::ErrorCode as V4;
                                                 let v4 = match l2 {
                                                     0 => V4::ParseError,
                                                     1 => V4::InvalidRequest,
@@ -5310,7 +5286,7 @@ pub mod yosh {
                                                     len7,
                                                     len7,
                                                 );
-                                                super::super::super::yosh::acp::errors::Error {
+                                                super::super::super::wassette::acp::errors::Error {
                                                     code: v4,
                                                     message: _rt::string_lift(bytes7),
                                                 }
@@ -5372,7 +5348,7 @@ pub mod yosh {
                                 _results: *mut u8,
                             ) -> u32 {
                                 #[cfg(target_arch = "wasm32")]
-                                #[link(wasm_import_module = "yosh:acp/agent@7.0.0")]
+                                #[link(wasm_import_module = "wassette:acp/agent@7.0.0")]
                                 unsafe extern "C" {
                                     #[link_name = "[async-lower][method]session.set-mode"]
                                     fn call(_: i32, _: *mut u8, _: usize, _: *mut u8) -> i32;
@@ -5439,7 +5415,7 @@ pub mod yosh {
                                                 let l1 = i32::from(
                                                     *_ptr.add(::core::mem::size_of::<*const u8>()).cast::<u8>(),
                                                 );
-                                                use super::super::super::yosh::acp::errors::ErrorCode as V3;
+                                                use super::super::super::wassette::acp::errors::ErrorCode as V3;
                                                 let v3 = match l1 {
                                                     0 => V3::ParseError,
                                                     1 => V3::InvalidRequest,
@@ -5471,7 +5447,7 @@ pub mod yosh {
                                                     len6,
                                                     len6,
                                                 );
-                                                super::super::super::yosh::acp::errors::Error {
+                                                super::super::super::wassette::acp::errors::Error {
                                                     code: v3,
                                                     message: _rt::string_lift(bytes6),
                                                 }
@@ -5531,7 +5507,7 @@ pub mod yosh {
                                 _results: *mut u8,
                             ) -> u32 {
                                 #[cfg(target_arch = "wasm32")]
-                                #[link(wasm_import_module = "yosh:acp/agent@7.0.0")]
+                                #[link(wasm_import_module = "wassette:acp/agent@7.0.0")]
                                 unsafe extern "C" {
                                     #[link_name = "[async-lower][method]session.select-model"]
                                     fn call(_: i32, _: *mut u8, _: usize, _: *mut u8) -> i32;
@@ -5598,7 +5574,7 @@ pub mod yosh {
                                                 let l1 = i32::from(
                                                     *_ptr.add(::core::mem::size_of::<*const u8>()).cast::<u8>(),
                                                 );
-                                                use super::super::super::yosh::acp::errors::ErrorCode as V3;
+                                                use super::super::super::wassette::acp::errors::ErrorCode as V3;
                                                 let v3 = match l1 {
                                                     0 => V3::ParseError,
                                                     1 => V3::InvalidRequest,
@@ -5630,7 +5606,7 @@ pub mod yosh {
                                                     len6,
                                                     len6,
                                                 );
-                                                super::super::super::yosh::acp::errors::Error {
+                                                super::super::super::wassette::acp::errors::Error {
                                                     code: v3,
                                                     message: _rt::string_lift(bytes6),
                                                 }
@@ -5699,7 +5675,7 @@ pub mod yosh {
                                 _results: *mut u8,
                             ) -> u32 {
                                 #[cfg(target_arch = "wasm32")]
-                                #[link(wasm_import_module = "yosh:acp/agent@7.0.0")]
+                                #[link(wasm_import_module = "wassette:acp/agent@7.0.0")]
                                 unsafe extern "C" {
                                     #[link_name = "[async-lower][method]session.set-config-option"]
                                     fn call(_: *mut u8, _: *mut u8) -> i32;
@@ -5869,7 +5845,7 @@ pub mod yosh {
                                                                 .add(13 * ::core::mem::size_of::<*const u8>())
                                                                 .cast::<u8>(),
                                                         );
-                                                        use super::super::super::yosh::acp::sessions::SessionConfigSelectOptions as V58;
+                                                        use super::super::super::wassette::acp::sessions::SessionConfigSelectOptions as V58;
                                                         let v58 = match l22 {
                                                             0 => {
                                                                 let e58 = {
@@ -5913,7 +5889,7 @@ pub mod yosh {
                                                                                     .add(4 * ::core::mem::size_of::<*const u8>())
                                                                                     .cast::<u8>(),
                                                                             );
-                                                                            super::super::super::yosh::acp::sessions::SessionConfigSelectOption {
+                                                                            super::super::super::wassette::acp::sessions::SessionConfigSelectOption {
                                                                                 value: _rt::string_lift(bytes27),
                                                                                 name: _rt::string_lift(bytes30),
                                                                                 description: match l31 {
@@ -6029,7 +6005,7 @@ pub mod yosh {
                                                                                             .add(4 * ::core::mem::size_of::<*const u8>())
                                                                                             .cast::<u8>(),
                                                                                     );
-                                                                                    super::super::super::yosh::acp::sessions::SessionConfigSelectOption {
+                                                                                    super::super::super::wassette::acp::sessions::SessionConfigSelectOption {
                                                                                         value: _rt::string_lift(bytes48),
                                                                                         name: _rt::string_lift(bytes51),
                                                                                         description: match l52 {
@@ -6063,7 +6039,7 @@ pub mod yosh {
                                                                                 len56 * (7 * ::core::mem::size_of::<*const u8>()),
                                                                                 ::core::mem::size_of::<*const u8>(),
                                                                             );
-                                                                            super::super::super::yosh::acp::sessions::SessionConfigSelectGroup {
+                                                                            super::super::super::wassette::acp::sessions::SessionConfigSelectGroup {
                                                                                 group: _rt::string_lift(bytes40),
                                                                                 name: _rt::string_lift(bytes43),
                                                                                 options: result56,
@@ -6093,7 +6069,7 @@ pub mod yosh {
                                                             len61,
                                                             len61,
                                                         );
-                                                        super::super::super::yosh::acp::sessions::SessionConfigOption {
+                                                        super::super::super::wassette::acp::sessions::SessionConfigOption {
                                                             id: _rt::string_lift(bytes5),
                                                             name: _rt::string_lift(bytes8),
                                                             description: match l9 {
@@ -6127,7 +6103,7 @@ pub mod yosh {
                                                                                 .add(8 * ::core::mem::size_of::<*const u8>())
                                                                                 .cast::<u8>(),
                                                                         );
-                                                                        use super::super::super::yosh::acp::sessions::SessionConfigOptionCategory as V18;
+                                                                        use super::super::super::wassette::acp::sessions::SessionConfigOptionCategory as V18;
                                                                         let v18 = match l14 {
                                                                             0 => V18::Mode,
                                                                             1 => V18::Model,
@@ -6160,7 +6136,7 @@ pub mod yosh {
                                                             },
                                                             current_value: _rt::string_lift(bytes21),
                                                             options: v58,
-                                                            provided_by: super::super::super::yosh::acp::sessions::ComponentSource {
+                                                            provided_by: super::super::super::wassette::acp::sessions::ComponentSource {
                                                                 component_id: _rt::string_lift(bytes61),
                                                             },
                                                         }
@@ -6181,7 +6157,7 @@ pub mod yosh {
                                                 let l63 = i32::from(
                                                     *_ptr.add(::core::mem::size_of::<*const u8>()).cast::<u8>(),
                                                 );
-                                                use super::super::super::yosh::acp::errors::ErrorCode as V65;
+                                                use super::super::super::wassette::acp::errors::ErrorCode as V65;
                                                 let v65 = match l63 {
                                                     0 => V65::ParseError,
                                                     1 => V65::InvalidRequest,
@@ -6213,7 +6189,7 @@ pub mod yosh {
                                                     len68,
                                                     len68,
                                                 );
-                                                super::super::super::yosh::acp::errors::Error {
+                                                super::super::super::wassette::acp::errors::Error {
                                                     code: v65,
                                                     message: _rt::string_lift(bytes68),
                                                 }
@@ -6274,7 +6250,7 @@ pub mod yosh {
                             _results: *mut u8,
                         ) -> u32 {
                             #[cfg(target_arch = "wasm32")]
-                            #[link(wasm_import_module = "yosh:acp/agent@7.0.0")]
+                            #[link(wasm_import_module = "wassette:acp/agent@7.0.0")]
                             unsafe extern "C" {
                                 #[link_name = "[async-lower]initialize"]
                                 fn call(_: *mut u8, _: *mut u8) -> i32;
@@ -6394,7 +6370,7 @@ pub mod yosh {
                         ) -> Self::ParamsLower {
                             let _param_ptr = unsafe { _ptr.add(0) };
                             unsafe {
-                                let super::super::super::yosh::acp::init::InitializeRequest {
+                                let super::super::super::wassette::acp::init::InitializeRequest {
                                     protocol_version: protocol_version0,
                                     client_capabilities: client_capabilities0,
                                     client_info: client_info0,
@@ -6402,11 +6378,11 @@ pub mod yosh {
                                 *_param_ptr.add(0).cast::<i32>() = _rt::as_i32(
                                     protocol_version0,
                                 );
-                                let super::super::super::yosh::acp::init::ClientCapabilities {
+                                let super::super::super::wassette::acp::init::ClientCapabilities {
                                     fs: fs1,
                                     terminal: terminal1,
                                 } = client_capabilities0;
-                                let super::super::super::yosh::acp::init::FsCapabilities {
+                                let super::super::super::wassette::acp::init::FsCapabilities {
                                     read_text_file: read_text_file2,
                                     write_text_file: write_text_file2,
                                 } = fs1;
@@ -6425,7 +6401,7 @@ pub mod yosh {
                                 match client_info0 {
                                     Some(e) => {
                                         *_param_ptr.add(8).cast::<u8>() = (1i32) as u8;
-                                        let super::super::super::yosh::acp::init::ImplementationInfo {
+                                        let super::super::super::wassette::acp::init::ImplementationInfo {
                                             name: name3,
                                             title: title3,
                                             version: version3,
@@ -6582,7 +6558,7 @@ pub mod yosh {
                                                             .add(4 * ::core::mem::size_of::<*const u8>())
                                                             .cast::<u8>(),
                                                     );
-                                                    super::super::super::yosh::acp::init::AuthMethod {
+                                                    super::super::super::wassette::acp::init::AuthMethod {
                                                         id: _rt::string_lift(bytes26),
                                                         name: _rt::string_lift(bytes29),
                                                         description: match l30 {
@@ -6616,20 +6592,20 @@ pub mod yosh {
                                                 len34 * (7 * ::core::mem::size_of::<*const u8>()),
                                                 ::core::mem::size_of::<*const u8>(),
                                             );
-                                            super::super::super::yosh::acp::init::InitializeResponse {
+                                            super::super::super::wassette::acp::init::InitializeResponse {
                                                 protocol_version: l1 as u32,
-                                                agent_capabilities: super::super::super::yosh::acp::init::AgentCapabilities {
+                                                agent_capabilities: super::super::super::wassette::acp::init::AgentCapabilities {
                                                     load_session: _rt::bool_lift(l2 as u8),
-                                                    prompt_capabilities: super::super::super::yosh::acp::init::PromptCapabilities {
+                                                    prompt_capabilities: super::super::super::wassette::acp::init::PromptCapabilities {
                                                         image: _rt::bool_lift(l3 as u8),
                                                         audio: _rt::bool_lift(l4 as u8),
                                                         embedded_context: _rt::bool_lift(l5 as u8),
                                                     },
-                                                    mcp_capabilities: super::super::super::yosh::acp::init::McpCapabilities {
+                                                    mcp_capabilities: super::super::super::wassette::acp::init::McpCapabilities {
                                                         http: _rt::bool_lift(l6 as u8),
                                                         sse: _rt::bool_lift(l7 as u8),
                                                     },
-                                                    session_capabilities: super::super::super::yosh::acp::init::SessionCapabilities {
+                                                    session_capabilities: super::super::super::wassette::acp::init::SessionCapabilities {
                                                         list: _rt::bool_lift(l8 as u8),
                                                         resume: _rt::bool_lift(l9 as u8),
                                                         close: _rt::bool_lift(l10 as u8),
@@ -6668,7 +6644,7 @@ pub mod yosh {
                                                                 len21,
                                                                 len21,
                                                             );
-                                                            super::super::super::yosh::acp::init::ImplementationInfo {
+                                                            super::super::super::wassette::acp::init::ImplementationInfo {
                                                                 name: _rt::string_lift(bytes14),
                                                                 title: match l15 {
                                                                     0 => None,
@@ -6709,7 +6685,7 @@ pub mod yosh {
                                             let l35 = i32::from(
                                                 *_ptr.add(::core::mem::size_of::<*const u8>()).cast::<u8>(),
                                             );
-                                            use super::super::super::yosh::acp::errors::ErrorCode as V37;
+                                            use super::super::super::wassette::acp::errors::ErrorCode as V37;
                                             let v37 = match l35 {
                                                 0 => V37::ParseError,
                                                 1 => V37::InvalidRequest,
@@ -6741,7 +6717,7 @@ pub mod yosh {
                                                 len40,
                                                 len40,
                                             );
-                                            super::super::super::yosh::acp::errors::Error {
+                                            super::super::super::wassette::acp::errors::Error {
                                                 code: v37,
                                                 message: _rt::string_lift(bytes40),
                                             }
@@ -6797,7 +6773,7 @@ pub mod yosh {
                             _results: *mut u8,
                         ) -> u32 {
                             #[cfg(target_arch = "wasm32")]
-                            #[link(wasm_import_module = "yosh:acp/agent@7.0.0")]
+                            #[link(wasm_import_module = "wassette:acp/agent@7.0.0")]
                             unsafe extern "C" {
                                 #[link_name = "[async-lower]authenticate"]
                                 fn call(_: *mut u8, _: usize, _: *mut u8) -> i32;
@@ -6834,7 +6810,7 @@ pub mod yosh {
                             _ptr: *mut u8,
                         ) -> Self::ParamsLower {
                             unsafe {
-                                let super::super::super::yosh::acp::init::AuthenticateRequest {
+                                let super::super::super::wassette::acp::init::AuthenticateRequest {
                                     method_id: method_id0,
                                 } = _lower0;
                                 let vec1 = (method_id0.into_bytes()).into_boxed_slice();
@@ -6860,7 +6836,7 @@ pub mod yosh {
                                             let l1 = i32::from(
                                                 *_ptr.add(::core::mem::size_of::<*const u8>()).cast::<u8>(),
                                             );
-                                            use super::super::super::yosh::acp::errors::ErrorCode as V3;
+                                            use super::super::super::wassette::acp::errors::ErrorCode as V3;
                                             let v3 = match l1 {
                                                 0 => V3::ParseError,
                                                 1 => V3::InvalidRequest,
@@ -6892,7 +6868,7 @@ pub mod yosh {
                                                 len6,
                                                 len6,
                                             );
-                                            super::super::super::yosh::acp::errors::Error {
+                                            super::super::super::wassette::acp::errors::Error {
                                                 code: v3,
                                                 message: _rt::string_lift(bytes6),
                                             }
@@ -6951,7 +6927,7 @@ pub mod yosh {
                             _results: *mut u8,
                         ) -> u32 {
                             #[cfg(target_arch = "wasm32")]
-                            #[link(wasm_import_module = "yosh:acp/agent@7.0.0")]
+                            #[link(wasm_import_module = "wassette:acp/agent@7.0.0")]
                             unsafe extern "C" {
                                 #[link_name = "[async-lower]new-session"]
                                 fn call(
@@ -7361,7 +7337,7 @@ pub mod yosh {
                             _ptr: *mut u8,
                         ) -> Self::ParamsLower {
                             unsafe {
-                                let super::super::super::yosh::acp::sessions::NewSessionRequest {
+                                let super::super::super::wassette::acp::sessions::NewSessionRequest {
                                     cwd: cwd0,
                                     mcp_servers: mcp_servers0,
                                 } = _lower0;
@@ -7386,11 +7362,11 @@ pub mod yosh {
                                     let base = result26
                                         .add(i * (9 * ::core::mem::size_of::<*const u8>()));
                                     {
-                                        use super::super::super::yosh::acp::sessions::McpServer as V25;
+                                        use super::super::super::wassette::acp::sessions::McpServer as V25;
                                         match e {
                                             V25::Stdio(e) => {
                                                 *base.add(0).cast::<u8>() = (0i32) as u8;
-                                                let super::super::super::yosh::acp::sessions::McpServerStdio {
+                                                let super::super::super::wassette::acp::sessions::McpServerStdio {
                                                     name: name2,
                                                     command: command2,
                                                     args: args2,
@@ -7466,7 +7442,7 @@ pub mod yosh {
                                                     let base = result10
                                                         .add(i * (4 * ::core::mem::size_of::<*const u8>()));
                                                     {
-                                                        let super::super::super::yosh::acp::sessions::EnvVar {
+                                                        let super::super::super::wassette::acp::sessions::EnvVar {
                                                             name: name7,
                                                             value: value7,
                                                         } = e;
@@ -7499,7 +7475,7 @@ pub mod yosh {
                                             }
                                             V25::Http(e) => {
                                                 *base.add(0).cast::<u8>() = (1i32) as u8;
-                                                let super::super::super::yosh::acp::sessions::McpServerHttp {
+                                                let super::super::super::wassette::acp::sessions::McpServerHttp {
                                                     name: name11,
                                                     url: url11,
                                                     headers: headers11,
@@ -7541,7 +7517,7 @@ pub mod yosh {
                                                     let base = result17
                                                         .add(i * (4 * ::core::mem::size_of::<*const u8>()));
                                                     {
-                                                        let super::super::super::yosh::acp::sessions::HttpHeader {
+                                                        let super::super::super::wassette::acp::sessions::HttpHeader {
                                                             name: name14,
                                                             value: value14,
                                                         } = e;
@@ -7574,7 +7550,7 @@ pub mod yosh {
                                             }
                                             V25::Sse(e) => {
                                                 *base.add(0).cast::<u8>() = (2i32) as u8;
-                                                let super::super::super::yosh::acp::sessions::McpServerSse {
+                                                let super::super::super::wassette::acp::sessions::McpServerSse {
                                                     name: name18,
                                                     url: url18,
                                                     headers: headers18,
@@ -7616,7 +7592,7 @@ pub mod yosh {
                                                     let base = result24
                                                         .add(i * (4 * ::core::mem::size_of::<*const u8>()));
                                                     {
-                                                        let super::super::super::yosh::acp::sessions::HttpHeader {
+                                                        let super::super::super::wassette::acp::sessions::HttpHeader {
                                                             name: name21,
                                                             value: value21,
                                                         } = e;
@@ -7694,7 +7670,7 @@ pub mod yosh {
                                             );
                                             (
                                                 Session::from_handle(l1 as u32),
-                                                super::super::super::yosh::acp::sessions::NewSessionResponse {
+                                                super::super::super::wassette::acp::sessions::NewSessionResponse {
                                                     session_id: _rt::string_lift(bytes4),
                                                     modes: match l5 {
                                                         0 => None,
@@ -7764,7 +7740,7 @@ pub mod yosh {
                                                                             len23,
                                                                             len23,
                                                                         );
-                                                                        super::super::super::yosh::acp::sessions::SessionMode {
+                                                                        super::super::super::wassette::acp::sessions::SessionMode {
                                                                             id: _rt::string_lift(bytes13),
                                                                             name: _rt::string_lift(bytes16),
                                                                             description: match l17 {
@@ -7789,7 +7765,7 @@ pub mod yosh {
                                                                                 }
                                                                                 _ => _rt::invalid_enum_discriminant(),
                                                                             },
-                                                                            provided_by: super::super::super::yosh::acp::sessions::ComponentSource {
+                                                                            provided_by: super::super::super::wassette::acp::sessions::ComponentSource {
                                                                                 component_id: _rt::string_lift(bytes23),
                                                                             },
                                                                         }
@@ -7801,7 +7777,7 @@ pub mod yosh {
                                                                     len24 * (9 * ::core::mem::size_of::<*const u8>()),
                                                                     ::core::mem::size_of::<*const u8>(),
                                                                 );
-                                                                super::super::super::yosh::acp::sessions::SessionModeState {
+                                                                super::super::super::wassette::acp::sessions::SessionModeState {
                                                                     current_mode_id: _rt::string_lift(bytes8),
                                                                     available_modes: result24,
                                                                 }
@@ -7878,7 +7854,7 @@ pub mod yosh {
                                                                             len43,
                                                                             len43,
                                                                         );
-                                                                        super::super::super::yosh::acp::sessions::SessionModel {
+                                                                        super::super::super::wassette::acp::sessions::SessionModel {
                                                                             id: _rt::string_lift(bytes33),
                                                                             name: _rt::string_lift(bytes36),
                                                                             description: match l37 {
@@ -7903,7 +7879,7 @@ pub mod yosh {
                                                                                 }
                                                                                 _ => _rt::invalid_enum_discriminant(),
                                                                             },
-                                                                            provided_by: super::super::super::yosh::acp::sessions::ComponentSource {
+                                                                            provided_by: super::super::super::wassette::acp::sessions::ComponentSource {
                                                                                 component_id: _rt::string_lift(bytes43),
                                                                             },
                                                                         }
@@ -7915,7 +7891,7 @@ pub mod yosh {
                                                                     len44 * (9 * ::core::mem::size_of::<*const u8>()),
                                                                     ::core::mem::size_of::<*const u8>(),
                                                                 );
-                                                                super::super::super::yosh::acp::sessions::SessionModelState {
+                                                                super::super::super::wassette::acp::sessions::SessionModelState {
                                                                     current_model_id: _rt::string_lift(bytes28),
                                                                     available_models: result44,
                                                                 }
@@ -7990,7 +7966,7 @@ pub mod yosh {
                                                                                 .add(13 * ::core::mem::size_of::<*const u8>())
                                                                                 .cast::<u8>(),
                                                                         );
-                                                                        use super::super::super::yosh::acp::sessions::SessionConfigSelectOptions as V103;
+                                                                        use super::super::super::wassette::acp::sessions::SessionConfigSelectOptions as V103;
                                                                         let v103 = match l67 {
                                                                             0 => {
                                                                                 let e103 = {
@@ -8034,7 +8010,7 @@ pub mod yosh {
                                                                                                     .add(4 * ::core::mem::size_of::<*const u8>())
                                                                                                     .cast::<u8>(),
                                                                                             );
-                                                                                            super::super::super::yosh::acp::sessions::SessionConfigSelectOption {
+                                                                                            super::super::super::wassette::acp::sessions::SessionConfigSelectOption {
                                                                                                 value: _rt::string_lift(bytes72),
                                                                                                 name: _rt::string_lift(bytes75),
                                                                                                 description: match l76 {
@@ -8150,7 +8126,7 @@ pub mod yosh {
                                                                                                             .add(4 * ::core::mem::size_of::<*const u8>())
                                                                                                             .cast::<u8>(),
                                                                                                     );
-                                                                                                    super::super::super::yosh::acp::sessions::SessionConfigSelectOption {
+                                                                                                    super::super::super::wassette::acp::sessions::SessionConfigSelectOption {
                                                                                                         value: _rt::string_lift(bytes93),
                                                                                                         name: _rt::string_lift(bytes96),
                                                                                                         description: match l97 {
@@ -8184,7 +8160,7 @@ pub mod yosh {
                                                                                                 len101 * (7 * ::core::mem::size_of::<*const u8>()),
                                                                                                 ::core::mem::size_of::<*const u8>(),
                                                                                             );
-                                                                                            super::super::super::yosh::acp::sessions::SessionConfigSelectGroup {
+                                                                                            super::super::super::wassette::acp::sessions::SessionConfigSelectGroup {
                                                                                                 group: _rt::string_lift(bytes85),
                                                                                                 name: _rt::string_lift(bytes88),
                                                                                                 options: result101,
@@ -8214,7 +8190,7 @@ pub mod yosh {
                                                                             len106,
                                                                             len106,
                                                                         );
-                                                                        super::super::super::yosh::acp::sessions::SessionConfigOption {
+                                                                        super::super::super::wassette::acp::sessions::SessionConfigOption {
                                                                             id: _rt::string_lift(bytes50),
                                                                             name: _rt::string_lift(bytes53),
                                                                             description: match l54 {
@@ -8248,7 +8224,7 @@ pub mod yosh {
                                                                                                 .add(8 * ::core::mem::size_of::<*const u8>())
                                                                                                 .cast::<u8>(),
                                                                                         );
-                                                                                        use super::super::super::yosh::acp::sessions::SessionConfigOptionCategory as V63;
+                                                                                        use super::super::super::wassette::acp::sessions::SessionConfigOptionCategory as V63;
                                                                                         let v63 = match l59 {
                                                                                             0 => V63::Mode,
                                                                                             1 => V63::Model,
@@ -8281,7 +8257,7 @@ pub mod yosh {
                                                                             },
                                                                             current_value: _rt::string_lift(bytes66),
                                                                             options: v103,
-                                                                            provided_by: super::super::super::yosh::acp::sessions::ComponentSource {
+                                                                            provided_by: super::super::super::wassette::acp::sessions::ComponentSource {
                                                                                 component_id: _rt::string_lift(bytes106),
                                                                             },
                                                                         }
@@ -8309,7 +8285,7 @@ pub mod yosh {
                                             let l108 = i32::from(
                                                 *_ptr.add(::core::mem::size_of::<*const u8>()).cast::<u8>(),
                                             );
-                                            use super::super::super::yosh::acp::errors::ErrorCode as V110;
+                                            use super::super::super::wassette::acp::errors::ErrorCode as V110;
                                             let v110 = match l108 {
                                                 0 => V110::ParseError,
                                                 1 => V110::InvalidRequest,
@@ -8341,7 +8317,7 @@ pub mod yosh {
                                                 len113,
                                                 len113,
                                             );
-                                            super::super::super::yosh::acp::errors::Error {
+                                            super::super::super::wassette::acp::errors::Error {
                                                 code: v110,
                                                 message: _rt::string_lift(bytes113),
                                             }
@@ -8402,7 +8378,7 @@ pub mod yosh {
                             _results: *mut u8,
                         ) -> u32 {
                             #[cfg(target_arch = "wasm32")]
-                            #[link(wasm_import_module = "yosh:acp/agent@7.0.0")]
+                            #[link(wasm_import_module = "wassette:acp/agent@7.0.0")]
                             unsafe extern "C" {
                                 #[link_name = "[async-lower]load-session"]
                                 fn call(_: *mut u8, _: *mut u8) -> i32;
@@ -8842,7 +8818,7 @@ pub mod yosh {
                         ) -> Self::ParamsLower {
                             let _param_ptr = unsafe { _ptr.add(0) };
                             unsafe {
-                                let super::super::super::yosh::acp::sessions::LoadSessionRequest {
+                                let super::super::super::wassette::acp::sessions::LoadSessionRequest {
                                     session_id: session_id0,
                                     cwd: cwd0,
                                     mcp_servers: mcp_servers0,
@@ -8882,11 +8858,11 @@ pub mod yosh {
                                     let base = result27
                                         .add(i * (9 * ::core::mem::size_of::<*const u8>()));
                                     {
-                                        use super::super::super::yosh::acp::sessions::McpServer as V26;
+                                        use super::super::super::wassette::acp::sessions::McpServer as V26;
                                         match e {
                                             V26::Stdio(e) => {
                                                 *base.add(0).cast::<u8>() = (0i32) as u8;
-                                                let super::super::super::yosh::acp::sessions::McpServerStdio {
+                                                let super::super::super::wassette::acp::sessions::McpServerStdio {
                                                     name: name3,
                                                     command: command3,
                                                     args: args3,
@@ -8962,7 +8938,7 @@ pub mod yosh {
                                                     let base = result11
                                                         .add(i * (4 * ::core::mem::size_of::<*const u8>()));
                                                     {
-                                                        let super::super::super::yosh::acp::sessions::EnvVar {
+                                                        let super::super::super::wassette::acp::sessions::EnvVar {
                                                             name: name8,
                                                             value: value8,
                                                         } = e;
@@ -8995,7 +8971,7 @@ pub mod yosh {
                                             }
                                             V26::Http(e) => {
                                                 *base.add(0).cast::<u8>() = (1i32) as u8;
-                                                let super::super::super::yosh::acp::sessions::McpServerHttp {
+                                                let super::super::super::wassette::acp::sessions::McpServerHttp {
                                                     name: name12,
                                                     url: url12,
                                                     headers: headers12,
@@ -9037,7 +9013,7 @@ pub mod yosh {
                                                     let base = result18
                                                         .add(i * (4 * ::core::mem::size_of::<*const u8>()));
                                                     {
-                                                        let super::super::super::yosh::acp::sessions::HttpHeader {
+                                                        let super::super::super::wassette::acp::sessions::HttpHeader {
                                                             name: name15,
                                                             value: value15,
                                                         } = e;
@@ -9070,7 +9046,7 @@ pub mod yosh {
                                             }
                                             V26::Sse(e) => {
                                                 *base.add(0).cast::<u8>() = (2i32) as u8;
-                                                let super::super::super::yosh::acp::sessions::McpServerSse {
+                                                let super::super::super::wassette::acp::sessions::McpServerSse {
                                                     name: name19,
                                                     url: url19,
                                                     headers: headers19,
@@ -9112,7 +9088,7 @@ pub mod yosh {
                                                     let base = result25
                                                         .add(i * (4 * ::core::mem::size_of::<*const u8>()));
                                                     {
-                                                        let super::super::super::yosh::acp::sessions::HttpHeader {
+                                                        let super::super::super::wassette::acp::sessions::HttpHeader {
                                                             name: name22,
                                                             value: value22,
                                                         } = e;
@@ -9184,7 +9160,7 @@ pub mod yosh {
                                             );
                                             (
                                                 Session::from_handle(l1 as u32),
-                                                super::super::super::yosh::acp::sessions::LoadSessionResponse {
+                                                super::super::super::wassette::acp::sessions::LoadSessionResponse {
                                                     modes: match l2 {
                                                         0 => None,
                                                         1 => {
@@ -9253,7 +9229,7 @@ pub mod yosh {
                                                                             len20,
                                                                             len20,
                                                                         );
-                                                                        super::super::super::yosh::acp::sessions::SessionMode {
+                                                                        super::super::super::wassette::acp::sessions::SessionMode {
                                                                             id: _rt::string_lift(bytes10),
                                                                             name: _rt::string_lift(bytes13),
                                                                             description: match l14 {
@@ -9278,7 +9254,7 @@ pub mod yosh {
                                                                                 }
                                                                                 _ => _rt::invalid_enum_discriminant(),
                                                                             },
-                                                                            provided_by: super::super::super::yosh::acp::sessions::ComponentSource {
+                                                                            provided_by: super::super::super::wassette::acp::sessions::ComponentSource {
                                                                                 component_id: _rt::string_lift(bytes20),
                                                                             },
                                                                         }
@@ -9290,7 +9266,7 @@ pub mod yosh {
                                                                     len21 * (9 * ::core::mem::size_of::<*const u8>()),
                                                                     ::core::mem::size_of::<*const u8>(),
                                                                 );
-                                                                super::super::super::yosh::acp::sessions::SessionModeState {
+                                                                super::super::super::wassette::acp::sessions::SessionModeState {
                                                                     current_mode_id: _rt::string_lift(bytes5),
                                                                     available_modes: result21,
                                                                 }
@@ -9367,7 +9343,7 @@ pub mod yosh {
                                                                             len40,
                                                                             len40,
                                                                         );
-                                                                        super::super::super::yosh::acp::sessions::SessionModel {
+                                                                        super::super::super::wassette::acp::sessions::SessionModel {
                                                                             id: _rt::string_lift(bytes30),
                                                                             name: _rt::string_lift(bytes33),
                                                                             description: match l34 {
@@ -9392,7 +9368,7 @@ pub mod yosh {
                                                                                 }
                                                                                 _ => _rt::invalid_enum_discriminant(),
                                                                             },
-                                                                            provided_by: super::super::super::yosh::acp::sessions::ComponentSource {
+                                                                            provided_by: super::super::super::wassette::acp::sessions::ComponentSource {
                                                                                 component_id: _rt::string_lift(bytes40),
                                                                             },
                                                                         }
@@ -9404,7 +9380,7 @@ pub mod yosh {
                                                                     len41 * (9 * ::core::mem::size_of::<*const u8>()),
                                                                     ::core::mem::size_of::<*const u8>(),
                                                                 );
-                                                                super::super::super::yosh::acp::sessions::SessionModelState {
+                                                                super::super::super::wassette::acp::sessions::SessionModelState {
                                                                     current_model_id: _rt::string_lift(bytes25),
                                                                     available_models: result41,
                                                                 }
@@ -9479,7 +9455,7 @@ pub mod yosh {
                                                                                 .add(13 * ::core::mem::size_of::<*const u8>())
                                                                                 .cast::<u8>(),
                                                                         );
-                                                                        use super::super::super::yosh::acp::sessions::SessionConfigSelectOptions as V100;
+                                                                        use super::super::super::wassette::acp::sessions::SessionConfigSelectOptions as V100;
                                                                         let v100 = match l64 {
                                                                             0 => {
                                                                                 let e100 = {
@@ -9523,7 +9499,7 @@ pub mod yosh {
                                                                                                     .add(4 * ::core::mem::size_of::<*const u8>())
                                                                                                     .cast::<u8>(),
                                                                                             );
-                                                                                            super::super::super::yosh::acp::sessions::SessionConfigSelectOption {
+                                                                                            super::super::super::wassette::acp::sessions::SessionConfigSelectOption {
                                                                                                 value: _rt::string_lift(bytes69),
                                                                                                 name: _rt::string_lift(bytes72),
                                                                                                 description: match l73 {
@@ -9639,7 +9615,7 @@ pub mod yosh {
                                                                                                             .add(4 * ::core::mem::size_of::<*const u8>())
                                                                                                             .cast::<u8>(),
                                                                                                     );
-                                                                                                    super::super::super::yosh::acp::sessions::SessionConfigSelectOption {
+                                                                                                    super::super::super::wassette::acp::sessions::SessionConfigSelectOption {
                                                                                                         value: _rt::string_lift(bytes90),
                                                                                                         name: _rt::string_lift(bytes93),
                                                                                                         description: match l94 {
@@ -9673,7 +9649,7 @@ pub mod yosh {
                                                                                                 len98 * (7 * ::core::mem::size_of::<*const u8>()),
                                                                                                 ::core::mem::size_of::<*const u8>(),
                                                                                             );
-                                                                                            super::super::super::yosh::acp::sessions::SessionConfigSelectGroup {
+                                                                                            super::super::super::wassette::acp::sessions::SessionConfigSelectGroup {
                                                                                                 group: _rt::string_lift(bytes82),
                                                                                                 name: _rt::string_lift(bytes85),
                                                                                                 options: result98,
@@ -9703,7 +9679,7 @@ pub mod yosh {
                                                                             len103,
                                                                             len103,
                                                                         );
-                                                                        super::super::super::yosh::acp::sessions::SessionConfigOption {
+                                                                        super::super::super::wassette::acp::sessions::SessionConfigOption {
                                                                             id: _rt::string_lift(bytes47),
                                                                             name: _rt::string_lift(bytes50),
                                                                             description: match l51 {
@@ -9737,7 +9713,7 @@ pub mod yosh {
                                                                                                 .add(8 * ::core::mem::size_of::<*const u8>())
                                                                                                 .cast::<u8>(),
                                                                                         );
-                                                                                        use super::super::super::yosh::acp::sessions::SessionConfigOptionCategory as V60;
+                                                                                        use super::super::super::wassette::acp::sessions::SessionConfigOptionCategory as V60;
                                                                                         let v60 = match l56 {
                                                                                             0 => V60::Mode,
                                                                                             1 => V60::Model,
@@ -9770,7 +9746,7 @@ pub mod yosh {
                                                                             },
                                                                             current_value: _rt::string_lift(bytes63),
                                                                             options: v100,
-                                                                            provided_by: super::super::super::yosh::acp::sessions::ComponentSource {
+                                                                            provided_by: super::super::super::wassette::acp::sessions::ComponentSource {
                                                                                 component_id: _rt::string_lift(bytes103),
                                                                             },
                                                                         }
@@ -9798,7 +9774,7 @@ pub mod yosh {
                                             let l105 = i32::from(
                                                 *_ptr.add(::core::mem::size_of::<*const u8>()).cast::<u8>(),
                                             );
-                                            use super::super::super::yosh::acp::errors::ErrorCode as V107;
+                                            use super::super::super::wassette::acp::errors::ErrorCode as V107;
                                             let v107 = match l105 {
                                                 0 => V107::ParseError,
                                                 1 => V107::InvalidRequest,
@@ -9830,7 +9806,7 @@ pub mod yosh {
                                                 len110,
                                                 len110,
                                             );
-                                            super::super::super::yosh::acp::errors::Error {
+                                            super::super::super::wassette::acp::errors::Error {
                                                 code: v107,
                                                 message: _rt::string_lift(bytes110),
                                             }
@@ -9888,7 +9864,7 @@ pub mod yosh {
                             _results: *mut u8,
                         ) -> u32 {
                             #[cfg(target_arch = "wasm32")]
-                            #[link(wasm_import_module = "yosh:acp/agent@7.0.0")]
+                            #[link(wasm_import_module = "wassette:acp/agent@7.0.0")]
                             unsafe extern "C" {
                                 #[link_name = "[async-lower]list-sessions"]
                                 fn call(_: *mut u8, _: *mut u8) -> i32;
@@ -9990,7 +9966,7 @@ pub mod yosh {
                         ) -> Self::ParamsLower {
                             let _param_ptr = unsafe { _ptr.add(0) };
                             unsafe {
-                                let super::super::super::yosh::acp::sessions::ListSessionsRequest {
+                                let super::super::super::wassette::acp::sessions::ListSessionsRequest {
                                     cwd: cwd0,
                                     cursor: cursor0,
                                 } = _lower0;
@@ -10091,7 +10067,7 @@ pub mod yosh {
                                                             .add(7 * ::core::mem::size_of::<*const u8>())
                                                             .cast::<u8>(),
                                                     );
-                                                    super::super::super::yosh::acp::sessions::SessionInfo {
+                                                    super::super::super::wassette::acp::sessions::SessionInfo {
                                                         session_id: _rt::string_lift(bytes5),
                                                         cwd: _rt::string_lift(bytes8),
                                                         title: match l9 {
@@ -10152,7 +10128,7 @@ pub mod yosh {
                                                     .add(3 * ::core::mem::size_of::<*const u8>())
                                                     .cast::<u8>(),
                                             );
-                                            super::super::super::yosh::acp::sessions::ListSessionsResponse {
+                                            super::super::super::wassette::acp::sessions::ListSessionsResponse {
                                                 sessions: result17,
                                                 next_cursor: match l18 {
                                                     0 => None,
@@ -10185,7 +10161,7 @@ pub mod yosh {
                                             let l22 = i32::from(
                                                 *_ptr.add(::core::mem::size_of::<*const u8>()).cast::<u8>(),
                                             );
-                                            use super::super::super::yosh::acp::errors::ErrorCode as V24;
+                                            use super::super::super::wassette::acp::errors::ErrorCode as V24;
                                             let v24 = match l22 {
                                                 0 => V24::ParseError,
                                                 1 => V24::InvalidRequest,
@@ -10217,7 +10193,7 @@ pub mod yosh {
                                                 len27,
                                                 len27,
                                             );
-                                            super::super::super::yosh::acp::errors::Error {
+                                            super::super::super::wassette::acp::errors::Error {
                                                 code: v24,
                                                 message: _rt::string_lift(bytes27),
                                             }
@@ -10275,7 +10251,7 @@ pub mod yosh {
                             _results: *mut u8,
                         ) -> u32 {
                             #[cfg(target_arch = "wasm32")]
-                            #[link(wasm_import_module = "yosh:acp/agent@7.0.0")]
+                            #[link(wasm_import_module = "wassette:acp/agent@7.0.0")]
                             unsafe extern "C" {
                                 #[link_name = "[async-lower]resume-session"]
                                 fn call(_: *mut u8, _: *mut u8) -> i32;
@@ -10715,7 +10691,7 @@ pub mod yosh {
                         ) -> Self::ParamsLower {
                             let _param_ptr = unsafe { _ptr.add(0) };
                             unsafe {
-                                let super::super::super::yosh::acp::sessions::ResumeSessionRequest {
+                                let super::super::super::wassette::acp::sessions::ResumeSessionRequest {
                                     session_id: session_id0,
                                     cwd: cwd0,
                                     mcp_servers: mcp_servers0,
@@ -10755,11 +10731,11 @@ pub mod yosh {
                                     let base = result27
                                         .add(i * (9 * ::core::mem::size_of::<*const u8>()));
                                     {
-                                        use super::super::super::yosh::acp::sessions::McpServer as V26;
+                                        use super::super::super::wassette::acp::sessions::McpServer as V26;
                                         match e {
                                             V26::Stdio(e) => {
                                                 *base.add(0).cast::<u8>() = (0i32) as u8;
-                                                let super::super::super::yosh::acp::sessions::McpServerStdio {
+                                                let super::super::super::wassette::acp::sessions::McpServerStdio {
                                                     name: name3,
                                                     command: command3,
                                                     args: args3,
@@ -10835,7 +10811,7 @@ pub mod yosh {
                                                     let base = result11
                                                         .add(i * (4 * ::core::mem::size_of::<*const u8>()));
                                                     {
-                                                        let super::super::super::yosh::acp::sessions::EnvVar {
+                                                        let super::super::super::wassette::acp::sessions::EnvVar {
                                                             name: name8,
                                                             value: value8,
                                                         } = e;
@@ -10868,7 +10844,7 @@ pub mod yosh {
                                             }
                                             V26::Http(e) => {
                                                 *base.add(0).cast::<u8>() = (1i32) as u8;
-                                                let super::super::super::yosh::acp::sessions::McpServerHttp {
+                                                let super::super::super::wassette::acp::sessions::McpServerHttp {
                                                     name: name12,
                                                     url: url12,
                                                     headers: headers12,
@@ -10910,7 +10886,7 @@ pub mod yosh {
                                                     let base = result18
                                                         .add(i * (4 * ::core::mem::size_of::<*const u8>()));
                                                     {
-                                                        let super::super::super::yosh::acp::sessions::HttpHeader {
+                                                        let super::super::super::wassette::acp::sessions::HttpHeader {
                                                             name: name15,
                                                             value: value15,
                                                         } = e;
@@ -10943,7 +10919,7 @@ pub mod yosh {
                                             }
                                             V26::Sse(e) => {
                                                 *base.add(0).cast::<u8>() = (2i32) as u8;
-                                                let super::super::super::yosh::acp::sessions::McpServerSse {
+                                                let super::super::super::wassette::acp::sessions::McpServerSse {
                                                     name: name19,
                                                     url: url19,
                                                     headers: headers19,
@@ -10985,7 +10961,7 @@ pub mod yosh {
                                                     let base = result25
                                                         .add(i * (4 * ::core::mem::size_of::<*const u8>()));
                                                     {
-                                                        let super::super::super::yosh::acp::sessions::HttpHeader {
+                                                        let super::super::super::wassette::acp::sessions::HttpHeader {
                                                             name: name22,
                                                             value: value22,
                                                         } = e;
@@ -11057,7 +11033,7 @@ pub mod yosh {
                                             );
                                             (
                                                 Session::from_handle(l1 as u32),
-                                                super::super::super::yosh::acp::sessions::ResumeSessionResponse {
+                                                super::super::super::wassette::acp::sessions::ResumeSessionResponse {
                                                     modes: match l2 {
                                                         0 => None,
                                                         1 => {
@@ -11126,7 +11102,7 @@ pub mod yosh {
                                                                             len20,
                                                                             len20,
                                                                         );
-                                                                        super::super::super::yosh::acp::sessions::SessionMode {
+                                                                        super::super::super::wassette::acp::sessions::SessionMode {
                                                                             id: _rt::string_lift(bytes10),
                                                                             name: _rt::string_lift(bytes13),
                                                                             description: match l14 {
@@ -11151,7 +11127,7 @@ pub mod yosh {
                                                                                 }
                                                                                 _ => _rt::invalid_enum_discriminant(),
                                                                             },
-                                                                            provided_by: super::super::super::yosh::acp::sessions::ComponentSource {
+                                                                            provided_by: super::super::super::wassette::acp::sessions::ComponentSource {
                                                                                 component_id: _rt::string_lift(bytes20),
                                                                             },
                                                                         }
@@ -11163,7 +11139,7 @@ pub mod yosh {
                                                                     len21 * (9 * ::core::mem::size_of::<*const u8>()),
                                                                     ::core::mem::size_of::<*const u8>(),
                                                                 );
-                                                                super::super::super::yosh::acp::sessions::SessionModeState {
+                                                                super::super::super::wassette::acp::sessions::SessionModeState {
                                                                     current_mode_id: _rt::string_lift(bytes5),
                                                                     available_modes: result21,
                                                                 }
@@ -11240,7 +11216,7 @@ pub mod yosh {
                                                                             len40,
                                                                             len40,
                                                                         );
-                                                                        super::super::super::yosh::acp::sessions::SessionModel {
+                                                                        super::super::super::wassette::acp::sessions::SessionModel {
                                                                             id: _rt::string_lift(bytes30),
                                                                             name: _rt::string_lift(bytes33),
                                                                             description: match l34 {
@@ -11265,7 +11241,7 @@ pub mod yosh {
                                                                                 }
                                                                                 _ => _rt::invalid_enum_discriminant(),
                                                                             },
-                                                                            provided_by: super::super::super::yosh::acp::sessions::ComponentSource {
+                                                                            provided_by: super::super::super::wassette::acp::sessions::ComponentSource {
                                                                                 component_id: _rt::string_lift(bytes40),
                                                                             },
                                                                         }
@@ -11277,7 +11253,7 @@ pub mod yosh {
                                                                     len41 * (9 * ::core::mem::size_of::<*const u8>()),
                                                                     ::core::mem::size_of::<*const u8>(),
                                                                 );
-                                                                super::super::super::yosh::acp::sessions::SessionModelState {
+                                                                super::super::super::wassette::acp::sessions::SessionModelState {
                                                                     current_model_id: _rt::string_lift(bytes25),
                                                                     available_models: result41,
                                                                 }
@@ -11352,7 +11328,7 @@ pub mod yosh {
                                                                                 .add(13 * ::core::mem::size_of::<*const u8>())
                                                                                 .cast::<u8>(),
                                                                         );
-                                                                        use super::super::super::yosh::acp::sessions::SessionConfigSelectOptions as V100;
+                                                                        use super::super::super::wassette::acp::sessions::SessionConfigSelectOptions as V100;
                                                                         let v100 = match l64 {
                                                                             0 => {
                                                                                 let e100 = {
@@ -11396,7 +11372,7 @@ pub mod yosh {
                                                                                                     .add(4 * ::core::mem::size_of::<*const u8>())
                                                                                                     .cast::<u8>(),
                                                                                             );
-                                                                                            super::super::super::yosh::acp::sessions::SessionConfigSelectOption {
+                                                                                            super::super::super::wassette::acp::sessions::SessionConfigSelectOption {
                                                                                                 value: _rt::string_lift(bytes69),
                                                                                                 name: _rt::string_lift(bytes72),
                                                                                                 description: match l73 {
@@ -11512,7 +11488,7 @@ pub mod yosh {
                                                                                                             .add(4 * ::core::mem::size_of::<*const u8>())
                                                                                                             .cast::<u8>(),
                                                                                                     );
-                                                                                                    super::super::super::yosh::acp::sessions::SessionConfigSelectOption {
+                                                                                                    super::super::super::wassette::acp::sessions::SessionConfigSelectOption {
                                                                                                         value: _rt::string_lift(bytes90),
                                                                                                         name: _rt::string_lift(bytes93),
                                                                                                         description: match l94 {
@@ -11546,7 +11522,7 @@ pub mod yosh {
                                                                                                 len98 * (7 * ::core::mem::size_of::<*const u8>()),
                                                                                                 ::core::mem::size_of::<*const u8>(),
                                                                                             );
-                                                                                            super::super::super::yosh::acp::sessions::SessionConfigSelectGroup {
+                                                                                            super::super::super::wassette::acp::sessions::SessionConfigSelectGroup {
                                                                                                 group: _rt::string_lift(bytes82),
                                                                                                 name: _rt::string_lift(bytes85),
                                                                                                 options: result98,
@@ -11576,7 +11552,7 @@ pub mod yosh {
                                                                             len103,
                                                                             len103,
                                                                         );
-                                                                        super::super::super::yosh::acp::sessions::SessionConfigOption {
+                                                                        super::super::super::wassette::acp::sessions::SessionConfigOption {
                                                                             id: _rt::string_lift(bytes47),
                                                                             name: _rt::string_lift(bytes50),
                                                                             description: match l51 {
@@ -11610,7 +11586,7 @@ pub mod yosh {
                                                                                                 .add(8 * ::core::mem::size_of::<*const u8>())
                                                                                                 .cast::<u8>(),
                                                                                         );
-                                                                                        use super::super::super::yosh::acp::sessions::SessionConfigOptionCategory as V60;
+                                                                                        use super::super::super::wassette::acp::sessions::SessionConfigOptionCategory as V60;
                                                                                         let v60 = match l56 {
                                                                                             0 => V60::Mode,
                                                                                             1 => V60::Model,
@@ -11643,7 +11619,7 @@ pub mod yosh {
                                                                             },
                                                                             current_value: _rt::string_lift(bytes63),
                                                                             options: v100,
-                                                                            provided_by: super::super::super::yosh::acp::sessions::ComponentSource {
+                                                                            provided_by: super::super::super::wassette::acp::sessions::ComponentSource {
                                                                                 component_id: _rt::string_lift(bytes103),
                                                                             },
                                                                         }
@@ -11671,7 +11647,7 @@ pub mod yosh {
                                             let l105 = i32::from(
                                                 *_ptr.add(::core::mem::size_of::<*const u8>()).cast::<u8>(),
                                             );
-                                            use super::super::super::yosh::acp::errors::ErrorCode as V107;
+                                            use super::super::super::wassette::acp::errors::ErrorCode as V107;
                                             let v107 = match l105 {
                                                 0 => V107::ParseError,
                                                 1 => V107::InvalidRequest,
@@ -11703,7 +11679,7 @@ pub mod yosh {
                                                 len110,
                                                 len110,
                                             );
-                                            super::super::super::yosh::acp::errors::Error {
+                                            super::super::super::wassette::acp::errors::Error {
                                                 code: v107,
                                                 message: _rt::string_lift(bytes110),
                                             }
@@ -11732,7 +11708,7 @@ pub mod yosh {
             #[doc(hidden)]
             static __FORCE_SECTION_REF: fn() = super::super::super::__link_custom_section_describing_imports;
             use super::super::super::_rt;
-            pub type SessionId = super::super::super::yosh::acp::sessions::SessionId;
+            pub type SessionId = super::super::super::wassette::acp::sessions::SessionId;
             /// Parameters to `read-text-file`.
             #[derive(Clone)]
             pub struct ReadTextFileRequest {
@@ -11815,16 +11791,16 @@ pub mod yosh {
             #[doc(hidden)]
             static __FORCE_SECTION_REF: fn() = super::super::super::__link_custom_section_describing_imports;
             use super::super::super::_rt;
-            pub type Error = super::super::super::yosh::acp::errors::Error;
-            pub type SessionId = super::super::super::yosh::acp::sessions::SessionId;
-            pub type SessionUpdate = super::super::super::yosh::acp::prompts::SessionUpdate;
-            pub type RequestPermissionRequest = super::super::super::yosh::acp::tools::RequestPermissionRequest;
-            pub type RequestPermissionResponse = super::super::super::yosh::acp::tools::RequestPermissionResponse;
-            pub type ReadTextFileRequest = super::super::super::yosh::acp::filesystem::ReadTextFileRequest;
-            pub type ReadTextFileResponse = super::super::super::yosh::acp::filesystem::ReadTextFileResponse;
-            pub type WriteTextFileRequest = super::super::super::yosh::acp::filesystem::WriteTextFileRequest;
-            pub type CreateTerminalRequest = super::super::super::yosh::acp::terminals::CreateTerminalRequest;
-            pub type TerminalExitStatus = super::super::super::yosh::acp::terminals::TerminalExitStatus;
+            pub type Error = super::super::super::wassette::acp::errors::Error;
+            pub type SessionId = super::super::super::wassette::acp::sessions::SessionId;
+            pub type SessionUpdate = super::super::super::wassette::acp::prompts::SessionUpdate;
+            pub type RequestPermissionRequest = super::super::super::wassette::acp::tools::RequestPermissionRequest;
+            pub type RequestPermissionResponse = super::super::super::wassette::acp::tools::RequestPermissionResponse;
+            pub type ReadTextFileRequest = super::super::super::wassette::acp::filesystem::ReadTextFileRequest;
+            pub type ReadTextFileResponse = super::super::super::wassette::acp::filesystem::ReadTextFileResponse;
+            pub type WriteTextFileRequest = super::super::super::wassette::acp::filesystem::WriteTextFileRequest;
+            pub type CreateTerminalRequest = super::super::super::wassette::acp::terminals::CreateTerminalRequest;
+            pub type TerminalExitStatus = super::super::super::wassette::acp::terminals::TerminalExitStatus;
             /// A live terminal owned by the client. Construct with
             /// [`terminal.constructor`] to start a command; consume `output()`
             /// as a stream of raw bytes; await `wait-for-exit()` for the exit
@@ -11859,7 +11835,7 @@ pub mod yosh {
                 #[inline]
                 unsafe fn drop(_handle: u32) {
                     #[cfg(target_arch = "wasm32")]
-                    #[link(wasm_import_module = "yosh:acp/client@7.0.0")]
+                    #[link(wasm_import_module = "wassette:acp/client@7.0.0")]
                     unsafe extern "C" {
                         #[link_name = "[resource-drop]terminal"]
                         fn drop(_: i32);
@@ -11915,7 +11891,7 @@ pub mod yosh {
                             _results: *mut u8,
                         ) -> u32 {
                             #[cfg(target_arch = "wasm32")]
-                            #[link(wasm_import_module = "yosh:acp/client@7.0.0")]
+                            #[link(wasm_import_module = "wassette:acp/client@7.0.0")]
                             unsafe extern "C" {
                                 #[link_name = "[async-lower]notify-session"]
                                 fn call(_: *mut u8) -> i32;
@@ -15168,15 +15144,15 @@ pub mod yosh {
                                 _ptr.add((2 * ::core::mem::size_of::<*const u8>()))
                             };
                             unsafe {
-                                use super::super::super::yosh::acp::prompts::SessionUpdate as V177;
+                                use super::super::super::wassette::acp::prompts::SessionUpdate as V177;
                                 match _lower1 {
                                     V177::UserMessageChunk(e) => {
                                         *_param_ptr.add(0).cast::<u8>() = (0i32) as u8;
-                                        use super::super::super::yosh::acp::content::ContentBlock as V25;
+                                        use super::super::super::wassette::acp::content::ContentBlock as V25;
                                         match e {
                                             V25::Text(e) => {
                                                 *_param_ptr.add(8).cast::<u8>() = (0i32) as u8;
-                                                let super::super::super::yosh::acp::content::TextContent {
+                                                let super::super::super::wassette::acp::content::TextContent {
                                                     text: text0,
                                                 } = e;
                                                 let vec1 = (text0.into_bytes()).into_boxed_slice();
@@ -15190,7 +15166,7 @@ pub mod yosh {
                                             }
                                             V25::Image(e) => {
                                                 *_param_ptr.add(8).cast::<u8>() = (1i32) as u8;
-                                                let super::super::super::yosh::acp::content::ImageContent {
+                                                let super::super::super::wassette::acp::content::ImageContent {
                                                     data: data2,
                                                     mime_type: mime_type2,
                                                     uri: uri2,
@@ -15238,7 +15214,7 @@ pub mod yosh {
                                             }
                                             V25::Audio(e) => {
                                                 *_param_ptr.add(8).cast::<u8>() = (2i32) as u8;
-                                                let super::super::super::yosh::acp::content::AudioContent {
+                                                let super::super::super::wassette::acp::content::AudioContent {
                                                     data: data6,
                                                     mime_type: mime_type6,
                                                 } = e;
@@ -15263,7 +15239,7 @@ pub mod yosh {
                                             }
                                             V25::ResourceLink(e) => {
                                                 *_param_ptr.add(8).cast::<u8>() = (3i32) as u8;
-                                                let super::super::super::yosh::acp::content::ResourceLink {
+                                                let super::super::super::wassette::acp::content::ResourceLink {
                                                     uri: uri9,
                                                     name: name9,
                                                     mime_type: mime_type9,
@@ -15373,14 +15349,14 @@ pub mod yosh {
                                             }
                                             V25::Resource(e) => {
                                                 *_param_ptr.add(8).cast::<u8>() = (4i32) as u8;
-                                                let super::super::super::yosh::acp::content::EmbeddedResource {
+                                                let super::super::super::wassette::acp::content::EmbeddedResource {
                                                     resource: resource15,
                                                 } = e;
-                                                use super::super::super::yosh::acp::content::ResourceContents as V24;
+                                                use super::super::super::wassette::acp::content::ResourceContents as V24;
                                                 match resource15 {
                                                     V24::Text(e) => {
                                                         *_param_ptr.add(16).cast::<u8>() = (0i32) as u8;
-                                                        let super::super::super::yosh::acp::content::TextResourceContents {
+                                                        let super::super::super::wassette::acp::content::TextResourceContents {
                                                             uri: uri16,
                                                             mime_type: mime_type16,
                                                             text: text16,
@@ -15430,7 +15406,7 @@ pub mod yosh {
                                                     }
                                                     V24::Blob(e) => {
                                                         *_param_ptr.add(16).cast::<u8>() = (1i32) as u8;
-                                                        let super::super::super::yosh::acp::content::BlobResourceContents {
+                                                        let super::super::super::wassette::acp::content::BlobResourceContents {
                                                             uri: uri20,
                                                             mime_type: mime_type20,
                                                             blob: blob20,
@@ -15484,11 +15460,11 @@ pub mod yosh {
                                     }
                                     V177::AgentMessageChunk(e) => {
                                         *_param_ptr.add(0).cast::<u8>() = (1i32) as u8;
-                                        use super::super::super::yosh::acp::content::ContentBlock as V51;
+                                        use super::super::super::wassette::acp::content::ContentBlock as V51;
                                         match e {
                                             V51::Text(e) => {
                                                 *_param_ptr.add(8).cast::<u8>() = (0i32) as u8;
-                                                let super::super::super::yosh::acp::content::TextContent {
+                                                let super::super::super::wassette::acp::content::TextContent {
                                                     text: text26,
                                                 } = e;
                                                 let vec27 = (text26.into_bytes()).into_boxed_slice();
@@ -15502,7 +15478,7 @@ pub mod yosh {
                                             }
                                             V51::Image(e) => {
                                                 *_param_ptr.add(8).cast::<u8>() = (1i32) as u8;
-                                                let super::super::super::yosh::acp::content::ImageContent {
+                                                let super::super::super::wassette::acp::content::ImageContent {
                                                     data: data28,
                                                     mime_type: mime_type28,
                                                     uri: uri28,
@@ -15550,7 +15526,7 @@ pub mod yosh {
                                             }
                                             V51::Audio(e) => {
                                                 *_param_ptr.add(8).cast::<u8>() = (2i32) as u8;
-                                                let super::super::super::yosh::acp::content::AudioContent {
+                                                let super::super::super::wassette::acp::content::AudioContent {
                                                     data: data32,
                                                     mime_type: mime_type32,
                                                 } = e;
@@ -15575,7 +15551,7 @@ pub mod yosh {
                                             }
                                             V51::ResourceLink(e) => {
                                                 *_param_ptr.add(8).cast::<u8>() = (3i32) as u8;
-                                                let super::super::super::yosh::acp::content::ResourceLink {
+                                                let super::super::super::wassette::acp::content::ResourceLink {
                                                     uri: uri35,
                                                     name: name35,
                                                     mime_type: mime_type35,
@@ -15685,14 +15661,14 @@ pub mod yosh {
                                             }
                                             V51::Resource(e) => {
                                                 *_param_ptr.add(8).cast::<u8>() = (4i32) as u8;
-                                                let super::super::super::yosh::acp::content::EmbeddedResource {
+                                                let super::super::super::wassette::acp::content::EmbeddedResource {
                                                     resource: resource41,
                                                 } = e;
-                                                use super::super::super::yosh::acp::content::ResourceContents as V50;
+                                                use super::super::super::wassette::acp::content::ResourceContents as V50;
                                                 match resource41 {
                                                     V50::Text(e) => {
                                                         *_param_ptr.add(16).cast::<u8>() = (0i32) as u8;
-                                                        let super::super::super::yosh::acp::content::TextResourceContents {
+                                                        let super::super::super::wassette::acp::content::TextResourceContents {
                                                             uri: uri42,
                                                             mime_type: mime_type42,
                                                             text: text42,
@@ -15742,7 +15718,7 @@ pub mod yosh {
                                                     }
                                                     V50::Blob(e) => {
                                                         *_param_ptr.add(16).cast::<u8>() = (1i32) as u8;
-                                                        let super::super::super::yosh::acp::content::BlobResourceContents {
+                                                        let super::super::super::wassette::acp::content::BlobResourceContents {
                                                             uri: uri46,
                                                             mime_type: mime_type46,
                                                             blob: blob46,
@@ -15796,11 +15772,11 @@ pub mod yosh {
                                     }
                                     V177::AgentThoughtChunk(e) => {
                                         *_param_ptr.add(0).cast::<u8>() = (2i32) as u8;
-                                        use super::super::super::yosh::acp::content::ContentBlock as V77;
+                                        use super::super::super::wassette::acp::content::ContentBlock as V77;
                                         match e {
                                             V77::Text(e) => {
                                                 *_param_ptr.add(8).cast::<u8>() = (0i32) as u8;
-                                                let super::super::super::yosh::acp::content::TextContent {
+                                                let super::super::super::wassette::acp::content::TextContent {
                                                     text: text52,
                                                 } = e;
                                                 let vec53 = (text52.into_bytes()).into_boxed_slice();
@@ -15814,7 +15790,7 @@ pub mod yosh {
                                             }
                                             V77::Image(e) => {
                                                 *_param_ptr.add(8).cast::<u8>() = (1i32) as u8;
-                                                let super::super::super::yosh::acp::content::ImageContent {
+                                                let super::super::super::wassette::acp::content::ImageContent {
                                                     data: data54,
                                                     mime_type: mime_type54,
                                                     uri: uri54,
@@ -15862,7 +15838,7 @@ pub mod yosh {
                                             }
                                             V77::Audio(e) => {
                                                 *_param_ptr.add(8).cast::<u8>() = (2i32) as u8;
-                                                let super::super::super::yosh::acp::content::AudioContent {
+                                                let super::super::super::wassette::acp::content::AudioContent {
                                                     data: data58,
                                                     mime_type: mime_type58,
                                                 } = e;
@@ -15887,7 +15863,7 @@ pub mod yosh {
                                             }
                                             V77::ResourceLink(e) => {
                                                 *_param_ptr.add(8).cast::<u8>() = (3i32) as u8;
-                                                let super::super::super::yosh::acp::content::ResourceLink {
+                                                let super::super::super::wassette::acp::content::ResourceLink {
                                                     uri: uri61,
                                                     name: name61,
                                                     mime_type: mime_type61,
@@ -15997,14 +15973,14 @@ pub mod yosh {
                                             }
                                             V77::Resource(e) => {
                                                 *_param_ptr.add(8).cast::<u8>() = (4i32) as u8;
-                                                let super::super::super::yosh::acp::content::EmbeddedResource {
+                                                let super::super::super::wassette::acp::content::EmbeddedResource {
                                                     resource: resource67,
                                                 } = e;
-                                                use super::super::super::yosh::acp::content::ResourceContents as V76;
+                                                use super::super::super::wassette::acp::content::ResourceContents as V76;
                                                 match resource67 {
                                                     V76::Text(e) => {
                                                         *_param_ptr.add(16).cast::<u8>() = (0i32) as u8;
-                                                        let super::super::super::yosh::acp::content::TextResourceContents {
+                                                        let super::super::super::wassette::acp::content::TextResourceContents {
                                                             uri: uri68,
                                                             mime_type: mime_type68,
                                                             text: text68,
@@ -16054,7 +16030,7 @@ pub mod yosh {
                                                     }
                                                     V76::Blob(e) => {
                                                         *_param_ptr.add(16).cast::<u8>() = (1i32) as u8;
-                                                        let super::super::super::yosh::acp::content::BlobResourceContents {
+                                                        let super::super::super::wassette::acp::content::BlobResourceContents {
                                                             uri: uri72,
                                                             mime_type: mime_type72,
                                                             blob: blob72,
@@ -16108,7 +16084,7 @@ pub mod yosh {
                                     }
                                     V177::ToolCall(e) => {
                                         *_param_ptr.add(0).cast::<u8>() = (3i32) as u8;
-                                        let super::super::super::yosh::acp::tools::ToolCallSnapshot {
+                                        let super::super::super::wassette::acp::tools::ToolCallSnapshot {
                                             id: id78,
                                             title: title78,
                                             kind: kind78,
@@ -16160,15 +16136,15 @@ pub mod yosh {
                                             let base = result113
                                                 .add(i * (40 + 12 * ::core::mem::size_of::<*const u8>()));
                                             {
-                                                use super::super::super::yosh::acp::tools::ToolCallContent as V112;
+                                                use super::super::super::wassette::acp::tools::ToolCallContent as V112;
                                                 match e {
                                                     V112::Content(e) => {
                                                         *base.add(0).cast::<u8>() = (0i32) as u8;
-                                                        use super::super::super::yosh::acp::content::ContentBlock as V106;
+                                                        use super::super::super::wassette::acp::content::ContentBlock as V106;
                                                         match e {
                                                             V106::Text(e) => {
                                                                 *base.add(8).cast::<u8>() = (0i32) as u8;
-                                                                let super::super::super::yosh::acp::content::TextContent {
+                                                                let super::super::super::wassette::acp::content::TextContent {
                                                                     text: text81,
                                                                 } = e;
                                                                 let vec82 = (text81.into_bytes()).into_boxed_slice();
@@ -16182,7 +16158,7 @@ pub mod yosh {
                                                             }
                                                             V106::Image(e) => {
                                                                 *base.add(8).cast::<u8>() = (1i32) as u8;
-                                                                let super::super::super::yosh::acp::content::ImageContent {
+                                                                let super::super::super::wassette::acp::content::ImageContent {
                                                                     data: data83,
                                                                     mime_type: mime_type83,
                                                                     uri: uri83,
@@ -16230,7 +16206,7 @@ pub mod yosh {
                                                             }
                                                             V106::Audio(e) => {
                                                                 *base.add(8).cast::<u8>() = (2i32) as u8;
-                                                                let super::super::super::yosh::acp::content::AudioContent {
+                                                                let super::super::super::wassette::acp::content::AudioContent {
                                                                     data: data87,
                                                                     mime_type: mime_type87,
                                                                 } = e;
@@ -16255,7 +16231,7 @@ pub mod yosh {
                                                             }
                                                             V106::ResourceLink(e) => {
                                                                 *base.add(8).cast::<u8>() = (3i32) as u8;
-                                                                let super::super::super::yosh::acp::content::ResourceLink {
+                                                                let super::super::super::wassette::acp::content::ResourceLink {
                                                                     uri: uri90,
                                                                     name: name90,
                                                                     mime_type: mime_type90,
@@ -16365,14 +16341,14 @@ pub mod yosh {
                                                             }
                                                             V106::Resource(e) => {
                                                                 *base.add(8).cast::<u8>() = (4i32) as u8;
-                                                                let super::super::super::yosh::acp::content::EmbeddedResource {
+                                                                let super::super::super::wassette::acp::content::EmbeddedResource {
                                                                     resource: resource96,
                                                                 } = e;
-                                                                use super::super::super::yosh::acp::content::ResourceContents as V105;
+                                                                use super::super::super::wassette::acp::content::ResourceContents as V105;
                                                                 match resource96 {
                                                                     V105::Text(e) => {
                                                                         *base.add(16).cast::<u8>() = (0i32) as u8;
-                                                                        let super::super::super::yosh::acp::content::TextResourceContents {
+                                                                        let super::super::super::wassette::acp::content::TextResourceContents {
                                                                             uri: uri97,
                                                                             mime_type: mime_type97,
                                                                             text: text97,
@@ -16422,7 +16398,7 @@ pub mod yosh {
                                                                     }
                                                                     V105::Blob(e) => {
                                                                         *base.add(16).cast::<u8>() = (1i32) as u8;
-                                                                        let super::super::super::yosh::acp::content::BlobResourceContents {
+                                                                        let super::super::super::wassette::acp::content::BlobResourceContents {
                                                                             uri: uri101,
                                                                             mime_type: mime_type101,
                                                                             blob: blob101,
@@ -16476,7 +16452,7 @@ pub mod yosh {
                                                     }
                                                     V112::Diff(e) => {
                                                         *base.add(0).cast::<u8>() = (1i32) as u8;
-                                                        let super::super::super::yosh::acp::tools::Diff {
+                                                        let super::super::super::wassette::acp::tools::Diff {
                                                             path: path107,
                                                             old_text: old_text107,
                                                             new_text: new_text107,
@@ -16560,7 +16536,7 @@ pub mod yosh {
                                             let base = result116
                                                 .add(i * (8 + 2 * ::core::mem::size_of::<*const u8>()));
                                             {
-                                                let super::super::super::yosh::acp::tools::ToolCallLocation {
+                                                let super::super::super::wassette::acp::tools::ToolCallLocation {
                                                     path: path114,
                                                     line: line114,
                                                 } = e;
@@ -16642,7 +16618,7 @@ pub mod yosh {
                                     }
                                     V177::ToolCallUpdate(e) => {
                                         *_param_ptr.add(0).cast::<u8>() = (4i32) as u8;
-                                        let super::super::super::yosh::acp::tools::ToolCallSnapshot {
+                                        let super::super::super::wassette::acp::tools::ToolCallSnapshot {
                                             id: id119,
                                             title: title119,
                                             kind: kind119,
@@ -16694,15 +16670,15 @@ pub mod yosh {
                                             let base = result154
                                                 .add(i * (40 + 12 * ::core::mem::size_of::<*const u8>()));
                                             {
-                                                use super::super::super::yosh::acp::tools::ToolCallContent as V153;
+                                                use super::super::super::wassette::acp::tools::ToolCallContent as V153;
                                                 match e {
                                                     V153::Content(e) => {
                                                         *base.add(0).cast::<u8>() = (0i32) as u8;
-                                                        use super::super::super::yosh::acp::content::ContentBlock as V147;
+                                                        use super::super::super::wassette::acp::content::ContentBlock as V147;
                                                         match e {
                                                             V147::Text(e) => {
                                                                 *base.add(8).cast::<u8>() = (0i32) as u8;
-                                                                let super::super::super::yosh::acp::content::TextContent {
+                                                                let super::super::super::wassette::acp::content::TextContent {
                                                                     text: text122,
                                                                 } = e;
                                                                 let vec123 = (text122.into_bytes()).into_boxed_slice();
@@ -16716,7 +16692,7 @@ pub mod yosh {
                                                             }
                                                             V147::Image(e) => {
                                                                 *base.add(8).cast::<u8>() = (1i32) as u8;
-                                                                let super::super::super::yosh::acp::content::ImageContent {
+                                                                let super::super::super::wassette::acp::content::ImageContent {
                                                                     data: data124,
                                                                     mime_type: mime_type124,
                                                                     uri: uri124,
@@ -16764,7 +16740,7 @@ pub mod yosh {
                                                             }
                                                             V147::Audio(e) => {
                                                                 *base.add(8).cast::<u8>() = (2i32) as u8;
-                                                                let super::super::super::yosh::acp::content::AudioContent {
+                                                                let super::super::super::wassette::acp::content::AudioContent {
                                                                     data: data128,
                                                                     mime_type: mime_type128,
                                                                 } = e;
@@ -16789,7 +16765,7 @@ pub mod yosh {
                                                             }
                                                             V147::ResourceLink(e) => {
                                                                 *base.add(8).cast::<u8>() = (3i32) as u8;
-                                                                let super::super::super::yosh::acp::content::ResourceLink {
+                                                                let super::super::super::wassette::acp::content::ResourceLink {
                                                                     uri: uri131,
                                                                     name: name131,
                                                                     mime_type: mime_type131,
@@ -16899,14 +16875,14 @@ pub mod yosh {
                                                             }
                                                             V147::Resource(e) => {
                                                                 *base.add(8).cast::<u8>() = (4i32) as u8;
-                                                                let super::super::super::yosh::acp::content::EmbeddedResource {
+                                                                let super::super::super::wassette::acp::content::EmbeddedResource {
                                                                     resource: resource137,
                                                                 } = e;
-                                                                use super::super::super::yosh::acp::content::ResourceContents as V146;
+                                                                use super::super::super::wassette::acp::content::ResourceContents as V146;
                                                                 match resource137 {
                                                                     V146::Text(e) => {
                                                                         *base.add(16).cast::<u8>() = (0i32) as u8;
-                                                                        let super::super::super::yosh::acp::content::TextResourceContents {
+                                                                        let super::super::super::wassette::acp::content::TextResourceContents {
                                                                             uri: uri138,
                                                                             mime_type: mime_type138,
                                                                             text: text138,
@@ -16956,7 +16932,7 @@ pub mod yosh {
                                                                     }
                                                                     V146::Blob(e) => {
                                                                         *base.add(16).cast::<u8>() = (1i32) as u8;
-                                                                        let super::super::super::yosh::acp::content::BlobResourceContents {
+                                                                        let super::super::super::wassette::acp::content::BlobResourceContents {
                                                                             uri: uri142,
                                                                             mime_type: mime_type142,
                                                                             blob: blob142,
@@ -17010,7 +16986,7 @@ pub mod yosh {
                                                     }
                                                     V153::Diff(e) => {
                                                         *base.add(0).cast::<u8>() = (1i32) as u8;
-                                                        let super::super::super::yosh::acp::tools::Diff {
+                                                        let super::super::super::wassette::acp::tools::Diff {
                                                             path: path148,
                                                             old_text: old_text148,
                                                             new_text: new_text148,
@@ -17094,7 +17070,7 @@ pub mod yosh {
                                             let base = result157
                                                 .add(i * (8 + 2 * ::core::mem::size_of::<*const u8>()));
                                             {
-                                                let super::super::super::yosh::acp::tools::ToolCallLocation {
+                                                let super::super::super::wassette::acp::tools::ToolCallLocation {
                                                     path: path155,
                                                     line: line155,
                                                 } = e;
@@ -17176,7 +17152,7 @@ pub mod yosh {
                                     }
                                     V177::Plan(e) => {
                                         *_param_ptr.add(0).cast::<u8>() = (5i32) as u8;
-                                        let super::super::super::yosh::acp::tools::Plan {
+                                        let super::super::super::wassette::acp::tools::Plan {
                                             entries: entries160,
                                         } = e;
                                         let vec163 = entries160;
@@ -17196,7 +17172,7 @@ pub mod yosh {
                                             let base = result163
                                                 .add(i * (3 * ::core::mem::size_of::<*const u8>()));
                                             {
-                                                let super::super::super::yosh::acp::tools::PlanEntry {
+                                                let super::super::super::wassette::acp::tools::PlanEntry {
                                                     content: content161,
                                                     priority: priority161,
                                                     status: status161,
@@ -17235,7 +17211,7 @@ pub mod yosh {
                                     }
                                     V177::SessionInfoUpdate(e) => {
                                         *_param_ptr.add(0).cast::<u8>() = (7i32) as u8;
-                                        let super::super::super::yosh::acp::sessions::SessionInfoUpdate {
+                                        let super::super::super::wassette::acp::sessions::SessionInfoUpdate {
                                             title: title165,
                                             updated_at: updated_at165,
                                         } = e;
@@ -17299,7 +17275,7 @@ pub mod yosh {
                                             let base = result173
                                                 .add(i * (7 * ::core::mem::size_of::<*const u8>()));
                                             {
-                                                let super::super::super::yosh::acp::prompts::AvailableCommand {
+                                                let super::super::super::wassette::acp::prompts::AvailableCommand {
                                                     name: name168,
                                                     description: description168,
                                                     input: input168,
@@ -17328,7 +17304,7 @@ pub mod yosh {
                                                         *base
                                                             .add(4 * ::core::mem::size_of::<*const u8>())
                                                             .cast::<u8>() = (1i32) as u8;
-                                                        let super::super::super::yosh::acp::prompts::AvailableCommandInput {
+                                                        let super::super::super::wassette::acp::prompts::AvailableCommandInput {
                                                             hint: hint171,
                                                         } = e;
                                                         let vec172 = (hint171.into_bytes()).into_boxed_slice();
@@ -17357,7 +17333,7 @@ pub mod yosh {
                                     }
                                     V177::UsageUpdate(e) => {
                                         *_param_ptr.add(0).cast::<u8>() = (9i32) as u8;
-                                        let super::super::super::yosh::acp::prompts::UsageUpdate {
+                                        let super::super::super::wassette::acp::prompts::UsageUpdate {
                                             used: used174,
                                             size: size174,
                                             cost: cost174,
@@ -17367,7 +17343,7 @@ pub mod yosh {
                                         match cost174 {
                                             Some(e) => {
                                                 *_param_ptr.add(24).cast::<u8>() = (1i32) as u8;
-                                                let super::super::super::yosh::acp::prompts::UsageCost {
+                                                let super::super::super::wassette::acp::prompts::UsageCost {
                                                     amount: amount175,
                                                     currency: currency175,
                                                 } = e;
@@ -17441,7 +17417,7 @@ pub mod yosh {
                             _results: *mut u8,
                         ) -> u32 {
                             #[cfg(target_arch = "wasm32")]
-                            #[link(wasm_import_module = "yosh:acp/client@7.0.0")]
+                            #[link(wasm_import_module = "wassette:acp/client@7.0.0")]
                             unsafe extern "C" {
                                 #[link_name = "[async-lower]request-permission"]
                                 fn call(_: *mut u8, _: *mut u8) -> i32;
@@ -18229,7 +18205,7 @@ pub mod yosh {
                         ) -> Self::ParamsLower {
                             let _param_ptr = unsafe { _ptr.add(0) };
                             unsafe {
-                                let super::super::super::yosh::acp::tools::RequestPermissionRequest {
+                                let super::super::super::wassette::acp::tools::RequestPermissionRequest {
                                     session_id: session_id0,
                                     tool_call: tool_call0,
                                     options: options0,
@@ -18242,7 +18218,7 @@ pub mod yosh {
                                     .add(::core::mem::size_of::<*const u8>())
                                     .cast::<usize>() = len1;
                                 *_param_ptr.add(0).cast::<*mut u8>() = ptr1.cast_mut();
-                                let super::super::super::yosh::acp::tools::ToolCallSnapshot {
+                                let super::super::super::wassette::acp::tools::ToolCallSnapshot {
                                     id: id2,
                                     title: title2,
                                     kind: kind2,
@@ -18296,15 +18272,15 @@ pub mod yosh {
                                     let base = result37
                                         .add(i * (40 + 12 * ::core::mem::size_of::<*const u8>()));
                                     {
-                                        use super::super::super::yosh::acp::tools::ToolCallContent as V36;
+                                        use super::super::super::wassette::acp::tools::ToolCallContent as V36;
                                         match e {
                                             V36::Content(e) => {
                                                 *base.add(0).cast::<u8>() = (0i32) as u8;
-                                                use super::super::super::yosh::acp::content::ContentBlock as V30;
+                                                use super::super::super::wassette::acp::content::ContentBlock as V30;
                                                 match e {
                                                     V30::Text(e) => {
                                                         *base.add(8).cast::<u8>() = (0i32) as u8;
-                                                        let super::super::super::yosh::acp::content::TextContent {
+                                                        let super::super::super::wassette::acp::content::TextContent {
                                                             text: text5,
                                                         } = e;
                                                         let vec6 = (text5.into_bytes()).into_boxed_slice();
@@ -18318,7 +18294,7 @@ pub mod yosh {
                                                     }
                                                     V30::Image(e) => {
                                                         *base.add(8).cast::<u8>() = (1i32) as u8;
-                                                        let super::super::super::yosh::acp::content::ImageContent {
+                                                        let super::super::super::wassette::acp::content::ImageContent {
                                                             data: data7,
                                                             mime_type: mime_type7,
                                                             uri: uri7,
@@ -18366,7 +18342,7 @@ pub mod yosh {
                                                     }
                                                     V30::Audio(e) => {
                                                         *base.add(8).cast::<u8>() = (2i32) as u8;
-                                                        let super::super::super::yosh::acp::content::AudioContent {
+                                                        let super::super::super::wassette::acp::content::AudioContent {
                                                             data: data11,
                                                             mime_type: mime_type11,
                                                         } = e;
@@ -18391,7 +18367,7 @@ pub mod yosh {
                                                     }
                                                     V30::ResourceLink(e) => {
                                                         *base.add(8).cast::<u8>() = (3i32) as u8;
-                                                        let super::super::super::yosh::acp::content::ResourceLink {
+                                                        let super::super::super::wassette::acp::content::ResourceLink {
                                                             uri: uri14,
                                                             name: name14,
                                                             mime_type: mime_type14,
@@ -18501,14 +18477,14 @@ pub mod yosh {
                                                     }
                                                     V30::Resource(e) => {
                                                         *base.add(8).cast::<u8>() = (4i32) as u8;
-                                                        let super::super::super::yosh::acp::content::EmbeddedResource {
+                                                        let super::super::super::wassette::acp::content::EmbeddedResource {
                                                             resource: resource20,
                                                         } = e;
-                                                        use super::super::super::yosh::acp::content::ResourceContents as V29;
+                                                        use super::super::super::wassette::acp::content::ResourceContents as V29;
                                                         match resource20 {
                                                             V29::Text(e) => {
                                                                 *base.add(16).cast::<u8>() = (0i32) as u8;
-                                                                let super::super::super::yosh::acp::content::TextResourceContents {
+                                                                let super::super::super::wassette::acp::content::TextResourceContents {
                                                                     uri: uri21,
                                                                     mime_type: mime_type21,
                                                                     text: text21,
@@ -18558,7 +18534,7 @@ pub mod yosh {
                                                             }
                                                             V29::Blob(e) => {
                                                                 *base.add(16).cast::<u8>() = (1i32) as u8;
-                                                                let super::super::super::yosh::acp::content::BlobResourceContents {
+                                                                let super::super::super::wassette::acp::content::BlobResourceContents {
                                                                     uri: uri25,
                                                                     mime_type: mime_type25,
                                                                     blob: blob25,
@@ -18612,7 +18588,7 @@ pub mod yosh {
                                             }
                                             V36::Diff(e) => {
                                                 *base.add(0).cast::<u8>() = (1i32) as u8;
-                                                let super::super::super::yosh::acp::tools::Diff {
+                                                let super::super::super::wassette::acp::tools::Diff {
                                                     path: path31,
                                                     old_text: old_text31,
                                                     new_text: new_text31,
@@ -18695,7 +18671,7 @@ pub mod yosh {
                                     let base = result40
                                         .add(i * (8 + 2 * ::core::mem::size_of::<*const u8>()));
                                     {
-                                        let super::super::super::yosh::acp::tools::ToolCallLocation {
+                                        let super::super::super::wassette::acp::tools::ToolCallLocation {
                                             path: path38,
                                             line: line38,
                                         } = e;
@@ -18791,7 +18767,7 @@ pub mod yosh {
                                     let base = result46
                                         .add(i * (5 * ::core::mem::size_of::<*const u8>()));
                                     {
-                                        let super::super::super::yosh::acp::tools::PermissionOption {
+                                        let super::super::super::wassette::acp::tools::PermissionOption {
                                             id: id43,
                                             name: name43,
                                             kind: kind43,
@@ -18840,7 +18816,7 @@ pub mod yosh {
                                             let l1 = i32::from(
                                                 *_ptr.add(::core::mem::size_of::<*const u8>()).cast::<u8>(),
                                             );
-                                            use super::super::super::yosh::acp::tools::PermissionOutcome as V5;
+                                            use super::super::super::wassette::acp::tools::PermissionOutcome as V5;
                                             let v5 = match l1 {
                                                 0 => {
                                                     let e5 = {
@@ -18865,7 +18841,7 @@ pub mod yosh {
                                                     V5::Cancelled
                                                 }
                                             };
-                                            super::super::super::yosh::acp::tools::RequestPermissionResponse {
+                                            super::super::super::wassette::acp::tools::RequestPermissionResponse {
                                                 outcome: v5,
                                             }
                                         };
@@ -18876,7 +18852,7 @@ pub mod yosh {
                                             let l6 = i32::from(
                                                 *_ptr.add(::core::mem::size_of::<*const u8>()).cast::<u8>(),
                                             );
-                                            use super::super::super::yosh::acp::errors::ErrorCode as V8;
+                                            use super::super::super::wassette::acp::errors::ErrorCode as V8;
                                             let v8 = match l6 {
                                                 0 => V8::ParseError,
                                                 1 => V8::InvalidRequest,
@@ -18908,7 +18884,7 @@ pub mod yosh {
                                                 len11,
                                                 len11,
                                             );
-                                            super::super::super::yosh::acp::errors::Error {
+                                            super::super::super::wassette::acp::errors::Error {
                                                 code: v8,
                                                 message: _rt::string_lift(bytes11),
                                             }
@@ -18966,7 +18942,7 @@ pub mod yosh {
                             _results: *mut u8,
                         ) -> u32 {
                             #[cfg(target_arch = "wasm32")]
-                            #[link(wasm_import_module = "yosh:acp/client@7.0.0")]
+                            #[link(wasm_import_module = "wassette:acp/client@7.0.0")]
                             unsafe extern "C" {
                                 #[link_name = "[async-lower]read-text-file"]
                                 fn call(_: *mut u8, _: *mut u8) -> i32;
@@ -19028,7 +19004,7 @@ pub mod yosh {
                         ) -> Self::ParamsLower {
                             let _param_ptr = unsafe { _ptr.add(0) };
                             unsafe {
-                                let super::super::super::yosh::acp::filesystem::ReadTextFileRequest {
+                                let super::super::super::wassette::acp::filesystem::ReadTextFileRequest {
                                     session_id: session_id0,
                                     path: path0,
                                     line: line0,
@@ -19106,7 +19082,7 @@ pub mod yosh {
                                                 len3,
                                                 len3,
                                             );
-                                            super::super::super::yosh::acp::filesystem::ReadTextFileResponse {
+                                            super::super::super::wassette::acp::filesystem::ReadTextFileResponse {
                                                 content: _rt::string_lift(bytes3),
                                             }
                                         };
@@ -19117,7 +19093,7 @@ pub mod yosh {
                                             let l4 = i32::from(
                                                 *_ptr.add(::core::mem::size_of::<*const u8>()).cast::<u8>(),
                                             );
-                                            use super::super::super::yosh::acp::errors::ErrorCode as V6;
+                                            use super::super::super::wassette::acp::errors::ErrorCode as V6;
                                             let v6 = match l4 {
                                                 0 => V6::ParseError,
                                                 1 => V6::InvalidRequest,
@@ -19149,7 +19125,7 @@ pub mod yosh {
                                                 len9,
                                                 len9,
                                             );
-                                            super::super::super::yosh::acp::errors::Error {
+                                            super::super::super::wassette::acp::errors::Error {
                                                 code: v6,
                                                 message: _rt::string_lift(bytes9),
                                             }
@@ -19207,7 +19183,7 @@ pub mod yosh {
                             _results: *mut u8,
                         ) -> u32 {
                             #[cfg(target_arch = "wasm32")]
-                            #[link(wasm_import_module = "yosh:acp/client@7.0.0")]
+                            #[link(wasm_import_module = "wassette:acp/client@7.0.0")]
                             unsafe extern "C" {
                                 #[link_name = "[async-lower]write-text-file"]
                                 fn call(_: *mut u8, _: *mut u8) -> i32;
@@ -19287,7 +19263,7 @@ pub mod yosh {
                         ) -> Self::ParamsLower {
                             let _param_ptr = unsafe { _ptr.add(0) };
                             unsafe {
-                                let super::super::super::yosh::acp::filesystem::WriteTextFileRequest {
+                                let super::super::super::wassette::acp::filesystem::WriteTextFileRequest {
                                     session_id: session_id0,
                                     path: path0,
                                     content: content0,
@@ -19339,7 +19315,7 @@ pub mod yosh {
                                             let l1 = i32::from(
                                                 *_ptr.add(::core::mem::size_of::<*const u8>()).cast::<u8>(),
                                             );
-                                            use super::super::super::yosh::acp::errors::ErrorCode as V3;
+                                            use super::super::super::wassette::acp::errors::ErrorCode as V3;
                                             let v3 = match l1 {
                                                 0 => V3::ParseError,
                                                 1 => V3::InvalidRequest,
@@ -19371,7 +19347,7 @@ pub mod yosh {
                                                 len6,
                                                 len6,
                                             );
-                                            super::super::super::yosh::acp::errors::Error {
+                                            super::super::super::wassette::acp::errors::Error {
                                                 code: v3,
                                                 message: _rt::string_lift(bytes6),
                                             }
@@ -19400,7 +19376,7 @@ pub mod yosh {
                 #[allow(async_fn_in_trait)]
                 pub fn new(req: &CreateTerminalRequest) -> Self {
                     unsafe {
-                        let super::super::super::yosh::acp::terminals::CreateTerminalRequest {
+                        let super::super::super::wassette::acp::terminals::CreateTerminalRequest {
                             session_id: session_id0,
                             command: command0,
                             args: args0,
@@ -19451,7 +19427,7 @@ pub mod yosh {
                             let base = result8
                                 .add(i * (4 * ::core::mem::size_of::<*const u8>()));
                             {
-                                let super::super::super::yosh::acp::sessions::EnvVar {
+                                let super::super::super::wassette::acp::sessions::EnvVar {
                                     name: name5,
                                     value: value5,
                                 } = e;
@@ -19487,7 +19463,7 @@ pub mod yosh {
                             None => (0i32, 0i64),
                         };
                         #[cfg(target_arch = "wasm32")]
-                        #[link(wasm_import_module = "yosh:acp/client@7.0.0")]
+                        #[link(wasm_import_module = "wassette:acp/client@7.0.0")]
                         unsafe extern "C" {
                             #[link_name = "[constructor]terminal"]
                             fn wit_import12(
@@ -19581,7 +19557,7 @@ pub mod yosh {
                                 _results: *mut u8,
                             ) -> u32 {
                                 #[cfg(target_arch = "wasm32")]
-                                #[link(wasm_import_module = "yosh:acp/client@7.0.0")]
+                                #[link(wasm_import_module = "wassette:acp/client@7.0.0")]
                                 unsafe extern "C" {
                                     #[link_name = "[async-lower][method]terminal.output"]
                                     fn call(_: i32, _: *mut u8) -> i32;
@@ -19669,7 +19645,7 @@ pub mod yosh {
                                 _results: *mut u8,
                             ) -> u32 {
                                 #[cfg(target_arch = "wasm32")]
-                                #[link(wasm_import_module = "yosh:acp/client@7.0.0")]
+                                #[link(wasm_import_module = "wassette:acp/client@7.0.0")]
                                 unsafe extern "C" {
                                     #[link_name = "[async-lower][method]terminal.wait-for-exit"]
                                     fn call(_: i32, _: *mut u8) -> i32;
@@ -19716,7 +19692,7 @@ pub mod yosh {
                                                         .add(8 + 1 * ::core::mem::size_of::<*const u8>())
                                                         .cast::<u8>(),
                                                 );
-                                                super::super::super::yosh::acp::terminals::TerminalExitStatus {
+                                                super::super::super::wassette::acp::terminals::TerminalExitStatus {
                                                     exit_code: match l1 {
                                                         0 => None,
                                                         1 => {
@@ -19761,7 +19737,7 @@ pub mod yosh {
                                                 let l7 = i32::from(
                                                     *_ptr.add(::core::mem::size_of::<*const u8>()).cast::<u8>(),
                                                 );
-                                                use super::super::super::yosh::acp::errors::ErrorCode as V9;
+                                                use super::super::super::wassette::acp::errors::ErrorCode as V9;
                                                 let v9 = match l7 {
                                                     0 => V9::ParseError,
                                                     1 => V9::InvalidRequest,
@@ -19793,7 +19769,7 @@ pub mod yosh {
                                                     len12,
                                                     len12,
                                                 );
-                                                super::super::super::yosh::acp::errors::Error {
+                                                super::super::super::wassette::acp::errors::Error {
                                                     code: v9,
                                                     message: _rt::string_lift(bytes12),
                                                 }
@@ -19819,7 +19795,7 @@ pub mod yosh {
 #[rustfmt::skip]
 #[allow(dead_code, clippy::all)]
 pub mod exports {
-    pub mod yosh {
+    pub mod wassette {
         pub mod acp {
             /// Methods exported by an agent. The client calls these.
             ///
@@ -19842,25 +19818,25 @@ pub mod exports {
                 #[doc(hidden)]
                 static __FORCE_SECTION_REF: fn() = super::super::super::super::__link_custom_section_describing_imports;
                 use super::super::super::super::_rt;
-                pub type Error = super::super::super::super::yosh::acp::errors::Error;
-                pub type InitializeRequest = super::super::super::super::yosh::acp::init::InitializeRequest;
-                pub type InitializeResponse = super::super::super::super::yosh::acp::init::InitializeResponse;
-                pub type AuthenticateRequest = super::super::super::super::yosh::acp::init::AuthenticateRequest;
-                pub type SessionModeId = super::super::super::super::yosh::acp::sessions::SessionModeId;
-                pub type SessionModelId = super::super::super::super::yosh::acp::sessions::SessionModelId;
-                pub type SessionConfigId = super::super::super::super::yosh::acp::sessions::SessionConfigId;
-                pub type SessionConfigValueId = super::super::super::super::yosh::acp::sessions::SessionConfigValueId;
-                pub type SessionConfigOption = super::super::super::super::yosh::acp::sessions::SessionConfigOption;
-                pub type NewSessionRequest = super::super::super::super::yosh::acp::sessions::NewSessionRequest;
-                pub type NewSessionResponse = super::super::super::super::yosh::acp::sessions::NewSessionResponse;
-                pub type LoadSessionRequest = super::super::super::super::yosh::acp::sessions::LoadSessionRequest;
-                pub type LoadSessionResponse = super::super::super::super::yosh::acp::sessions::LoadSessionResponse;
-                pub type ListSessionsRequest = super::super::super::super::yosh::acp::sessions::ListSessionsRequest;
-                pub type ListSessionsResponse = super::super::super::super::yosh::acp::sessions::ListSessionsResponse;
-                pub type ResumeSessionRequest = super::super::super::super::yosh::acp::sessions::ResumeSessionRequest;
-                pub type ResumeSessionResponse = super::super::super::super::yosh::acp::sessions::ResumeSessionResponse;
-                pub type ContentBlock = super::super::super::super::yosh::acp::content::ContentBlock;
-                pub type PromptResponse = super::super::super::super::yosh::acp::prompts::PromptResponse;
+                pub type Error = super::super::super::super::wassette::acp::errors::Error;
+                pub type InitializeRequest = super::super::super::super::wassette::acp::init::InitializeRequest;
+                pub type InitializeResponse = super::super::super::super::wassette::acp::init::InitializeResponse;
+                pub type AuthenticateRequest = super::super::super::super::wassette::acp::init::AuthenticateRequest;
+                pub type SessionModeId = super::super::super::super::wassette::acp::sessions::SessionModeId;
+                pub type SessionModelId = super::super::super::super::wassette::acp::sessions::SessionModelId;
+                pub type SessionConfigId = super::super::super::super::wassette::acp::sessions::SessionConfigId;
+                pub type SessionConfigValueId = super::super::super::super::wassette::acp::sessions::SessionConfigValueId;
+                pub type SessionConfigOption = super::super::super::super::wassette::acp::sessions::SessionConfigOption;
+                pub type NewSessionRequest = super::super::super::super::wassette::acp::sessions::NewSessionRequest;
+                pub type NewSessionResponse = super::super::super::super::wassette::acp::sessions::NewSessionResponse;
+                pub type LoadSessionRequest = super::super::super::super::wassette::acp::sessions::LoadSessionRequest;
+                pub type LoadSessionResponse = super::super::super::super::wassette::acp::sessions::LoadSessionResponse;
+                pub type ListSessionsRequest = super::super::super::super::wassette::acp::sessions::ListSessionsRequest;
+                pub type ListSessionsResponse = super::super::super::super::wassette::acp::sessions::ListSessionsResponse;
+                pub type ResumeSessionRequest = super::super::super::super::wassette::acp::sessions::ResumeSessionRequest;
+                pub type ResumeSessionResponse = super::super::super::super::wassette::acp::sessions::ResumeSessionResponse;
+                pub type ContentBlock = super::super::super::super::wassette::acp::content::ContentBlock;
+                pub type PromptResponse = super::super::super::super::wassette::acp::prompts::PromptResponse;
                 /// Opaque handle to an active session.
                 ///
                 /// Returned (owned) from `new-session` / `load-session` /
@@ -19975,7 +19951,7 @@ pub mod exports {
                     #[inline]
                     unsafe fn drop(_handle: u32) {
                         #[cfg(target_arch = "wasm32")]
-                        #[link(wasm_import_module = "[export]yosh:acp/agent@7.0.0")]
+                        #[link(wasm_import_module = "[export]wassette:acp/agent@7.0.0")]
                         unsafe extern "C" {
                             #[link_name = "[resource-drop]session"]
                             fn drop(_: i32);
@@ -20009,7 +19985,7 @@ pub mod exports {
                                         .add(i * (32 + 12 * ::core::mem::size_of::<*const u8>()));
                                     let e63 = {
                                         let l0 = i32::from(*base.add(0).cast::<u8>());
-                                        use super::super::super::super::yosh::acp::content::ContentBlock as V62;
+                                        use super::super::super::super::wassette::acp::content::ContentBlock as V62;
                                         let v62 = match l0 {
                                             0 => {
                                                 let e62 = {
@@ -20023,7 +19999,7 @@ pub mod exports {
                                                         len3,
                                                         len3,
                                                     );
-                                                    super::super::super::super::yosh::acp::content::TextContent {
+                                                    super::super::super::super::wassette::acp::content::TextContent {
                                                         text: _rt::string_lift(bytes3),
                                                     }
                                                 };
@@ -20058,7 +20034,7 @@ pub mod exports {
                                                             .add(8 + 4 * ::core::mem::size_of::<*const u8>())
                                                             .cast::<u8>(),
                                                     );
-                                                    super::super::super::super::yosh::acp::content::ImageContent {
+                                                    super::super::super::super::wassette::acp::content::ImageContent {
                                                         data: _rt::string_lift(bytes6),
                                                         mime_type: _rt::string_lift(bytes9),
                                                         uri: match l10 {
@@ -20111,7 +20087,7 @@ pub mod exports {
                                                         len19,
                                                         len19,
                                                     );
-                                                    super::super::super::super::yosh::acp::content::AudioContent {
+                                                    super::super::super::super::wassette::acp::content::AudioContent {
                                                         data: _rt::string_lift(bytes16),
                                                         mime_type: _rt::string_lift(bytes19),
                                                     }
@@ -20162,7 +20138,7 @@ pub mod exports {
                                                             .add(16 + 12 * ::core::mem::size_of::<*const u8>())
                                                             .cast::<u8>(),
                                                     );
-                                                    super::super::super::super::yosh::acp::content::ResourceLink {
+                                                    super::super::super::super::wassette::acp::content::ResourceLink {
                                                         uri: _rt::string_lift(bytes22),
                                                         name: _rt::string_lift(bytes25),
                                                         mime_type: match l26 {
@@ -20252,7 +20228,7 @@ pub mod exports {
                                                 debug_assert_eq!(n, 4, "invalid enum discriminant");
                                                 let e62 = {
                                                     let l40 = i32::from(*base.add(8).cast::<u8>());
-                                                    use super::super::super::super::yosh::acp::content::ResourceContents as V61;
+                                                    use super::super::super::super::wassette::acp::content::ResourceContents as V61;
                                                     let v61 = match l40 {
                                                         0 => {
                                                             let e61 = {
@@ -20285,7 +20261,7 @@ pub mod exports {
                                                                     len50,
                                                                     len50,
                                                                 );
-                                                                super::super::super::super::yosh::acp::content::TextResourceContents {
+                                                                super::super::super::super::wassette::acp::content::TextResourceContents {
                                                                     uri: _rt::string_lift(bytes43),
                                                                     mime_type: match l44 {
                                                                         0 => None,
@@ -20346,7 +20322,7 @@ pub mod exports {
                                                                     len60,
                                                                     len60,
                                                                 );
-                                                                super::super::super::super::yosh::acp::content::BlobResourceContents {
+                                                                super::super::super::super::wassette::acp::content::BlobResourceContents {
                                                                     uri: _rt::string_lift(bytes53),
                                                                     mime_type: match l54 {
                                                                         0 => None,
@@ -20376,7 +20352,7 @@ pub mod exports {
                                                             V61::Blob(e61)
                                                         }
                                                     };
-                                                    super::super::super::super::yosh::acp::content::EmbeddedResource {
+                                                    super::super::super::super::wassette::acp::content::EmbeddedResource {
                                                         resource: v61,
                                                     }
                                                 };
@@ -20406,7 +20382,7 @@ pub mod exports {
                                 result70_4,
                             ) = match result64 {
                                 Ok(e) => {
-                                    let super::super::super::super::yosh::acp::prompts::PromptResponse {
+                                    let super::super::super::super::wassette::acp::prompts::PromptResponse {
                                         stop_reason: stop_reason65,
                                     } = e;
                                     (
@@ -20418,11 +20394,11 @@ pub mod exports {
                                     )
                                 }
                                 Err(e) => {
-                                    let super::super::super::super::yosh::acp::errors::Error {
+                                    let super::super::super::super::wassette::acp::errors::Error {
                                         code: code66,
                                         message: message66,
                                     } = e;
-                                    use super::super::super::super::yosh::acp::errors::ErrorCode as V67;
+                                    use super::super::super::super::wassette::acp::errors::ErrorCode as V67;
                                     let (result68_0, result68_1) = match code66 {
                                         V67::ParseError => (0i32, 0i32),
                                         V67::InvalidRequest => (1i32, 0i32),
@@ -20440,7 +20416,9 @@ pub mod exports {
                                 }
                             };
                             #[cfg(target_arch = "wasm32")]
-                            #[link(wasm_import_module = "[export]yosh:acp/agent@7.0.0")]
+                            #[link(
+                                wasm_import_module = "[export]wassette:acp/agent@7.0.0"
+                            )]
                             unsafe extern "C" {
                                 #[link_name = "[task-return][method]session.prompt"]
                                 fn wit_import71(
@@ -20516,11 +20494,11 @@ pub mod exports {
                             ) = match result1 {
                                 Ok(_) => (0i32, 0i32, 0i32, ::core::ptr::null_mut(), 0usize),
                                 Err(e) => {
-                                    let super::super::super::super::yosh::acp::errors::Error {
+                                    let super::super::super::super::wassette::acp::errors::Error {
                                         code: code2,
                                         message: message2,
                                     } = e;
-                                    use super::super::super::super::yosh::acp::errors::ErrorCode as V3;
+                                    use super::super::super::super::wassette::acp::errors::ErrorCode as V3;
                                     let (result4_0, result4_1) = match code2 {
                                         V3::ParseError => (0i32, 0i32),
                                         V3::InvalidRequest => (1i32, 0i32),
@@ -20538,7 +20516,9 @@ pub mod exports {
                                 }
                             };
                             #[cfg(target_arch = "wasm32")]
-                            #[link(wasm_import_module = "[export]yosh:acp/agent@7.0.0")]
+                            #[link(
+                                wasm_import_module = "[export]wassette:acp/agent@7.0.0"
+                            )]
                             unsafe extern "C" {
                                 #[link_name = "[task-return][method]session.set-mode"]
                                 fn wit_import7(
@@ -20614,11 +20594,11 @@ pub mod exports {
                             ) = match result1 {
                                 Ok(_) => (0i32, 0i32, 0i32, ::core::ptr::null_mut(), 0usize),
                                 Err(e) => {
-                                    let super::super::super::super::yosh::acp::errors::Error {
+                                    let super::super::super::super::wassette::acp::errors::Error {
                                         code: code2,
                                         message: message2,
                                     } = e;
-                                    use super::super::super::super::yosh::acp::errors::ErrorCode as V3;
+                                    use super::super::super::super::wassette::acp::errors::ErrorCode as V3;
                                     let (result4_0, result4_1) = match code2 {
                                         V3::ParseError => (0i32, 0i32),
                                         V3::InvalidRequest => (1i32, 0i32),
@@ -20636,7 +20616,9 @@ pub mod exports {
                                 }
                             };
                             #[cfg(target_arch = "wasm32")]
-                            #[link(wasm_import_module = "[export]yosh:acp/agent@7.0.0")]
+                            #[link(
+                                wasm_import_module = "[export]wassette:acp/agent@7.0.0"
+                            )]
                             unsafe extern "C" {
                                 #[link_name = "[task-return][method]session.select-model"]
                                 fn wit_import7(
@@ -20738,7 +20720,7 @@ pub mod exports {
                                         let base = result27
                                             .add(i * (18 * ::core::mem::size_of::<*const u8>()));
                                         {
-                                            let super::super::super::super::yosh::acp::sessions::SessionConfigOption {
+                                            let super::super::super::super::wassette::acp::sessions::SessionConfigOption {
                                                 id: id3,
                                                 name: name3,
                                                 description: description3,
@@ -20789,7 +20771,7 @@ pub mod exports {
                                                     *base
                                                         .add(7 * ::core::mem::size_of::<*const u8>())
                                                         .cast::<u8>() = (1i32) as u8;
-                                                    use super::super::super::super::yosh::acp::sessions::SessionConfigOptionCategory as V8;
+                                                    use super::super::super::super::wassette::acp::sessions::SessionConfigOptionCategory as V8;
                                                     match e {
                                                         V8::Mode => {
                                                             *base
@@ -20837,7 +20819,7 @@ pub mod exports {
                                             *base
                                                 .add(11 * ::core::mem::size_of::<*const u8>())
                                                 .cast::<*mut u8>() = ptr9.cast_mut();
-                                            use super::super::super::super::yosh::acp::sessions::SessionConfigSelectOptions as V24;
+                                            use super::super::super::super::wassette::acp::sessions::SessionConfigSelectOptions as V24;
                                             match options3 {
                                                 V24::Ungrouped(e) => {
                                                     *base
@@ -20858,7 +20840,7 @@ pub mod exports {
                                                         let base = result14
                                                             .add(i * (7 * ::core::mem::size_of::<*const u8>()));
                                                         {
-                                                            let super::super::super::super::yosh::acp::sessions::SessionConfigSelectOption {
+                                                            let super::super::super::super::wassette::acp::sessions::SessionConfigSelectOption {
                                                                 value: value10,
                                                                 name: name10,
                                                                 description: description10,
@@ -20928,7 +20910,7 @@ pub mod exports {
                                                         let base = result23
                                                             .add(i * (6 * ::core::mem::size_of::<*const u8>()));
                                                         {
-                                                            let super::super::super::super::yosh::acp::sessions::SessionConfigSelectGroup {
+                                                            let super::super::super::super::wassette::acp::sessions::SessionConfigSelectGroup {
                                                                 group: group15,
                                                                 name: name15,
                                                                 options: options15,
@@ -20964,7 +20946,7 @@ pub mod exports {
                                                                 let base = result22
                                                                     .add(i * (7 * ::core::mem::size_of::<*const u8>()));
                                                                 {
-                                                                    let super::super::super::super::yosh::acp::sessions::SessionConfigSelectOption {
+                                                                    let super::super::super::super::wassette::acp::sessions::SessionConfigSelectOption {
                                                                         value: value18,
                                                                         name: name18,
                                                                         description: description18,
@@ -21024,7 +21006,7 @@ pub mod exports {
                                                         .cast::<*mut u8>() = result23;
                                                 }
                                             }
-                                            let super::super::super::super::yosh::acp::sessions::ComponentSource {
+                                            let super::super::super::super::wassette::acp::sessions::ComponentSource {
                                                 component_id: component_id25,
                                             } = provided_by3;
                                             let vec26 = component_id25;
@@ -21041,11 +21023,11 @@ pub mod exports {
                                     (0i32, result27, len27, ::core::ptr::null_mut(), 0usize)
                                 }
                                 Err(e) => {
-                                    let super::super::super::super::yosh::acp::errors::Error {
+                                    let super::super::super::super::wassette::acp::errors::Error {
                                         code: code28,
                                         message: message28,
                                     } = e;
-                                    use super::super::super::super::yosh::acp::errors::ErrorCode as V29;
+                                    use super::super::super::super::wassette::acp::errors::ErrorCode as V29;
                                     let (result30_0, result30_1) = match code28 {
                                         V29::ParseError => (0i32, 0i32),
                                         V29::InvalidRequest => (1i32, 0i32),
@@ -21069,7 +21051,9 @@ pub mod exports {
                                 }
                             };
                             #[cfg(target_arch = "wasm32")]
-                            #[link(wasm_import_module = "[export]yosh:acp/agent@7.0.0")]
+                            #[link(
+                                wasm_import_module = "[export]wassette:acp/agent@7.0.0"
+                            )]
                             unsafe extern "C" {
                                 #[link_name = "[task-return][method]session.set-config-option"]
                                 fn wit_import33(
@@ -21134,10 +21118,10 @@ pub mod exports {
                             let _task_cancel = wit_bindgen::rt::async_support::TaskCancelOnDrop::new();
                             let mut cleanup_list = _rt::Vec::new();
                             let result3 = &{
-                                T_::initialize(super::super::super::super::yosh::acp::init::InitializeRequest {
+                                T_::initialize(super::super::super::super::wassette::acp::init::InitializeRequest {
                                         protocol_version: arg0 as u32,
-                                        client_capabilities: super::super::super::super::yosh::acp::init::ClientCapabilities {
-                                            fs: super::super::super::super::yosh::acp::init::FsCapabilities {
+                                        client_capabilities: super::super::super::super::wassette::acp::init::ClientCapabilities {
+                                            fs: super::super::super::super::wassette::acp::init::FsCapabilities {
                                                 read_text_file: _rt::bool_lift(arg1 as u8),
                                                 write_text_file: _rt::bool_lift(arg2 as u8),
                                             },
@@ -21159,7 +21143,7 @@ pub mod exports {
                                                         len2,
                                                         len2,
                                                     );
-                                                    super::super::super::super::yosh::acp::init::ImplementationInfo {
+                                                    super::super::super::super::wassette::acp::init::ImplementationInfo {
                                                         name: _rt::string_lift(bytes0),
                                                         title: match arg7 {
                                                             0 => None,
@@ -21191,7 +21175,7 @@ pub mod exports {
                             match result3 {
                                 Ok(e) => {
                                     *ptr4.add(0).cast::<u8>() = (0i32) as u8;
-                                    let super::super::super::super::yosh::acp::init::InitializeResponse {
+                                    let super::super::super::super::wassette::acp::init::InitializeResponse {
                                         protocol_version: protocol_version5,
                                         agent_capabilities: agent_capabilities5,
                                         agent_info: agent_info5,
@@ -21200,7 +21184,7 @@ pub mod exports {
                                     *ptr4
                                         .add(::core::mem::size_of::<*const u8>())
                                         .cast::<i32>() = _rt::as_i32(protocol_version5);
-                                    let super::super::super::super::yosh::acp::init::AgentCapabilities {
+                                    let super::super::super::super::wassette::acp::init::AgentCapabilities {
                                         load_session: load_session6,
                                         prompt_capabilities: prompt_capabilities6,
                                         mcp_capabilities: mcp_capabilities6,
@@ -21212,7 +21196,7 @@ pub mod exports {
                                         true => 1,
                                         false => 0,
                                     }) as u8;
-                                    let super::super::super::super::yosh::acp::init::PromptCapabilities {
+                                    let super::super::super::super::wassette::acp::init::PromptCapabilities {
                                         image: image7,
                                         audio: audio7,
                                         embedded_context: embedded_context7,
@@ -21235,7 +21219,7 @@ pub mod exports {
                                         true => 1,
                                         false => 0,
                                     }) as u8;
-                                    let super::super::super::super::yosh::acp::init::McpCapabilities {
+                                    let super::super::super::super::wassette::acp::init::McpCapabilities {
                                         http: http8,
                                         sse: sse8,
                                     } = mcp_capabilities6;
@@ -21251,7 +21235,7 @@ pub mod exports {
                                         true => 1,
                                         false => 0,
                                     }) as u8;
-                                    let super::super::super::super::yosh::acp::init::SessionCapabilities {
+                                    let super::super::super::super::wassette::acp::init::SessionCapabilities {
                                         list: list9,
                                         resume: resume9,
                                         close: close9,
@@ -21279,7 +21263,7 @@ pub mod exports {
                                             *ptr4
                                                 .add(16 + 1 * ::core::mem::size_of::<*const u8>())
                                                 .cast::<u8>() = (1i32) as u8;
-                                            let super::super::super::super::yosh::acp::init::ImplementationInfo {
+                                            let super::super::super::super::wassette::acp::init::ImplementationInfo {
                                                 name: name10,
                                                 title: title10,
                                                 version: version10,
@@ -21345,7 +21329,7 @@ pub mod exports {
                                         let base = result18
                                             .add(i * (7 * ::core::mem::size_of::<*const u8>()));
                                         {
-                                            let super::super::super::super::yosh::acp::init::AuthMethod {
+                                            let super::super::super::super::wassette::acp::init::AuthMethod {
                                                 id: id14,
                                                 name: name14,
                                                 description: description14,
@@ -21398,11 +21382,11 @@ pub mod exports {
                                 }
                                 Err(e) => {
                                     *ptr4.add(0).cast::<u8>() = (1i32) as u8;
-                                    let super::super::super::super::yosh::acp::errors::Error {
+                                    let super::super::super::super::wassette::acp::errors::Error {
                                         code: code19,
                                         message: message19,
                                     } = e;
-                                    use super::super::super::super::yosh::acp::errors::ErrorCode as V20;
+                                    use super::super::super::super::wassette::acp::errors::ErrorCode as V20;
                                     match code19 {
                                         V20::ParseError => {
                                             *ptr4
@@ -21460,7 +21444,9 @@ pub mod exports {
                                 }
                             };
                             #[cfg(target_arch = "wasm32")]
-                            #[link(wasm_import_module = "[export]yosh:acp/agent@7.0.0")]
+                            #[link(
+                                wasm_import_module = "[export]wassette:acp/agent@7.0.0"
+                            )]
                             unsafe extern "C" {
                                 #[link_name = "[task-return]initialize"]
                                 fn wit_import22(_: *mut u8);
@@ -21502,7 +21488,7 @@ pub mod exports {
                                     len0,
                                     len0,
                                 );
-                                T_::authenticate(super::super::super::super::yosh::acp::init::AuthenticateRequest {
+                                T_::authenticate(super::super::super::super::wassette::acp::init::AuthenticateRequest {
                                         method_id: _rt::string_lift(bytes0),
                                     })
                                     .await
@@ -21516,11 +21502,11 @@ pub mod exports {
                             ) = match result1 {
                                 Ok(_) => (0i32, 0i32, 0i32, ::core::ptr::null_mut(), 0usize),
                                 Err(e) => {
-                                    let super::super::super::super::yosh::acp::errors::Error {
+                                    let super::super::super::super::wassette::acp::errors::Error {
                                         code: code2,
                                         message: message2,
                                     } = e;
-                                    use super::super::super::super::yosh::acp::errors::ErrorCode as V3;
+                                    use super::super::super::super::wassette::acp::errors::ErrorCode as V3;
                                     let (result4_0, result4_1) = match code2 {
                                         V3::ParseError => (0i32, 0i32),
                                         V3::InvalidRequest => (1i32, 0i32),
@@ -21538,7 +21524,9 @@ pub mod exports {
                                 }
                             };
                             #[cfg(target_arch = "wasm32")]
-                            #[link(wasm_import_module = "[export]yosh:acp/agent@7.0.0")]
+                            #[link(
+                                wasm_import_module = "[export]wassette:acp/agent@7.0.0"
+                            )]
                             unsafe extern "C" {
                                 #[link_name = "[task-return]authenticate"]
                                 fn wit_import7(
@@ -21609,7 +21597,7 @@ pub mod exports {
                                         .add(i * (9 * ::core::mem::size_of::<*const u8>()));
                                     let e54 = {
                                         let l1 = i32::from(*base.add(0).cast::<u8>());
-                                        use super::super::super::super::yosh::acp::sessions::McpServer as V53;
+                                        use super::super::super::super::wassette::acp::sessions::McpServer as V53;
                                         let v53 = match l1 {
                                             0 => {
                                                 let e53 = {
@@ -21704,7 +21692,7 @@ pub mod exports {
                                                                 len21,
                                                                 len21,
                                                             );
-                                                            super::super::super::super::yosh::acp::sessions::EnvVar {
+                                                            super::super::super::super::wassette::acp::sessions::EnvVar {
                                                                 name: _rt::string_lift(bytes18),
                                                                 value: _rt::string_lift(bytes21),
                                                             }
@@ -21716,7 +21704,7 @@ pub mod exports {
                                                         len22 * (4 * ::core::mem::size_of::<*const u8>()),
                                                         ::core::mem::size_of::<*const u8>(),
                                                     );
-                                                    super::super::super::super::yosh::acp::sessions::McpServerStdio {
+                                                    super::super::super::super::wassette::acp::sessions::McpServerStdio {
                                                         name: _rt::string_lift(bytes4),
                                                         command: _rt::string_lift(bytes7),
                                                         args: result13,
@@ -21786,7 +21774,7 @@ pub mod exports {
                                                                 len36,
                                                                 len36,
                                                             );
-                                                            super::super::super::super::yosh::acp::sessions::HttpHeader {
+                                                            super::super::super::super::wassette::acp::sessions::HttpHeader {
                                                                 name: _rt::string_lift(bytes33),
                                                                 value: _rt::string_lift(bytes36),
                                                             }
@@ -21798,7 +21786,7 @@ pub mod exports {
                                                         len37 * (4 * ::core::mem::size_of::<*const u8>()),
                                                         ::core::mem::size_of::<*const u8>(),
                                                     );
-                                                    super::super::super::super::yosh::acp::sessions::McpServerHttp {
+                                                    super::super::super::super::wassette::acp::sessions::McpServerHttp {
                                                         name: _rt::string_lift(bytes25),
                                                         url: _rt::string_lift(bytes28),
                                                         headers: result37,
@@ -21868,7 +21856,7 @@ pub mod exports {
                                                                 len51,
                                                                 len51,
                                                             );
-                                                            super::super::super::super::yosh::acp::sessions::HttpHeader {
+                                                            super::super::super::super::wassette::acp::sessions::HttpHeader {
                                                                 name: _rt::string_lift(bytes48),
                                                                 value: _rt::string_lift(bytes51),
                                                             }
@@ -21880,7 +21868,7 @@ pub mod exports {
                                                         len52 * (4 * ::core::mem::size_of::<*const u8>()),
                                                         ::core::mem::size_of::<*const u8>(),
                                                     );
-                                                    super::super::super::super::yosh::acp::sessions::McpServerSse {
+                                                    super::super::super::super::wassette::acp::sessions::McpServerSse {
                                                         name: _rt::string_lift(bytes40),
                                                         url: _rt::string_lift(bytes43),
                                                         headers: result52,
@@ -21898,7 +21886,7 @@ pub mod exports {
                                     len54 * (9 * ::core::mem::size_of::<*const u8>()),
                                     ::core::mem::size_of::<*const u8>(),
                                 );
-                                T_::new_session(super::super::super::super::yosh::acp::sessions::NewSessionRequest {
+                                T_::new_session(super::super::super::super::wassette::acp::sessions::NewSessionRequest {
                                         cwd: _rt::string_lift(bytes0),
                                         mcp_servers: result54,
                                     })
@@ -21912,7 +21900,7 @@ pub mod exports {
                                     *ptr56
                                         .add(::core::mem::size_of::<*const u8>())
                                         .cast::<i32>() = (t57_0).take_handle() as i32;
-                                    let super::super::super::super::yosh::acp::sessions::NewSessionResponse {
+                                    let super::super::super::super::wassette::acp::sessions::NewSessionResponse {
                                         session_id: session_id58,
                                         modes: modes58,
                                         models: models58,
@@ -21932,7 +21920,7 @@ pub mod exports {
                                             *ptr56
                                                 .add(4 * ::core::mem::size_of::<*const u8>())
                                                 .cast::<u8>() = (1i32) as u8;
-                                            let super::super::super::super::yosh::acp::sessions::SessionModeState {
+                                            let super::super::super::super::wassette::acp::sessions::SessionModeState {
                                                 current_mode_id: current_mode_id60,
                                                 available_modes: available_modes60,
                                             } = e;
@@ -21960,7 +21948,7 @@ pub mod exports {
                                                 let base = result68
                                                     .add(i * (9 * ::core::mem::size_of::<*const u8>()));
                                                 {
-                                                    let super::super::super::super::yosh::acp::sessions::SessionMode {
+                                                    let super::super::super::super::wassette::acp::sessions::SessionMode {
                                                         id: id62,
                                                         name: name62,
                                                         description: description62,
@@ -22003,7 +21991,7 @@ pub mod exports {
                                                                 .cast::<u8>() = (0i32) as u8;
                                                         }
                                                     };
-                                                    let super::super::super::super::yosh::acp::sessions::ComponentSource {
+                                                    let super::super::super::super::wassette::acp::sessions::ComponentSource {
                                                         component_id: component_id66,
                                                     } = provided_by62;
                                                     let vec67 = component_id66;
@@ -22035,7 +22023,7 @@ pub mod exports {
                                             *ptr56
                                                 .add(9 * ::core::mem::size_of::<*const u8>())
                                                 .cast::<u8>() = (1i32) as u8;
-                                            let super::super::super::super::yosh::acp::sessions::SessionModelState {
+                                            let super::super::super::super::wassette::acp::sessions::SessionModelState {
                                                 current_model_id: current_model_id69,
                                                 available_models: available_models69,
                                             } = e;
@@ -22063,7 +22051,7 @@ pub mod exports {
                                                 let base = result77
                                                     .add(i * (9 * ::core::mem::size_of::<*const u8>()));
                                                 {
-                                                    let super::super::super::super::yosh::acp::sessions::SessionModel {
+                                                    let super::super::super::super::wassette::acp::sessions::SessionModel {
                                                         id: id71,
                                                         name: name71,
                                                         description: description71,
@@ -22106,7 +22094,7 @@ pub mod exports {
                                                                 .cast::<u8>() = (0i32) as u8;
                                                         }
                                                     };
-                                                    let super::super::super::super::yosh::acp::sessions::ComponentSource {
+                                                    let super::super::super::super::wassette::acp::sessions::ComponentSource {
                                                         component_id: component_id75,
                                                     } = provided_by71;
                                                     let vec76 = component_id75;
@@ -22153,7 +22141,7 @@ pub mod exports {
                                                 let base = result102
                                                     .add(i * (18 * ::core::mem::size_of::<*const u8>()));
                                                 {
-                                                    let super::super::super::super::yosh::acp::sessions::SessionConfigOption {
+                                                    let super::super::super::super::wassette::acp::sessions::SessionConfigOption {
                                                         id: id78,
                                                         name: name78,
                                                         description: description78,
@@ -22204,7 +22192,7 @@ pub mod exports {
                                                             *base
                                                                 .add(7 * ::core::mem::size_of::<*const u8>())
                                                                 .cast::<u8>() = (1i32) as u8;
-                                                            use super::super::super::super::yosh::acp::sessions::SessionConfigOptionCategory as V83;
+                                                            use super::super::super::super::wassette::acp::sessions::SessionConfigOptionCategory as V83;
                                                             match e {
                                                                 V83::Mode => {
                                                                     *base
@@ -22252,7 +22240,7 @@ pub mod exports {
                                                     *base
                                                         .add(11 * ::core::mem::size_of::<*const u8>())
                                                         .cast::<*mut u8>() = ptr84.cast_mut();
-                                                    use super::super::super::super::yosh::acp::sessions::SessionConfigSelectOptions as V99;
+                                                    use super::super::super::super::wassette::acp::sessions::SessionConfigSelectOptions as V99;
                                                     match options78 {
                                                         V99::Ungrouped(e) => {
                                                             *base
@@ -22273,7 +22261,7 @@ pub mod exports {
                                                                 let base = result89
                                                                     .add(i * (7 * ::core::mem::size_of::<*const u8>()));
                                                                 {
-                                                                    let super::super::super::super::yosh::acp::sessions::SessionConfigSelectOption {
+                                                                    let super::super::super::super::wassette::acp::sessions::SessionConfigSelectOption {
                                                                         value: value85,
                                                                         name: name85,
                                                                         description: description85,
@@ -22343,7 +22331,7 @@ pub mod exports {
                                                                 let base = result98
                                                                     .add(i * (6 * ::core::mem::size_of::<*const u8>()));
                                                                 {
-                                                                    let super::super::super::super::yosh::acp::sessions::SessionConfigSelectGroup {
+                                                                    let super::super::super::super::wassette::acp::sessions::SessionConfigSelectGroup {
                                                                         group: group90,
                                                                         name: name90,
                                                                         options: options90,
@@ -22379,7 +22367,7 @@ pub mod exports {
                                                                         let base = result97
                                                                             .add(i * (7 * ::core::mem::size_of::<*const u8>()));
                                                                         {
-                                                                            let super::super::super::super::yosh::acp::sessions::SessionConfigSelectOption {
+                                                                            let super::super::super::super::wassette::acp::sessions::SessionConfigSelectOption {
                                                                                 value: value93,
                                                                                 name: name93,
                                                                                 description: description93,
@@ -22439,7 +22427,7 @@ pub mod exports {
                                                                 .cast::<*mut u8>() = result98;
                                                         }
                                                     }
-                                                    let super::super::super::super::yosh::acp::sessions::ComponentSource {
+                                                    let super::super::super::super::wassette::acp::sessions::ComponentSource {
                                                         component_id: component_id100,
                                                     } = provided_by78;
                                                     let vec101 = component_id100;
@@ -22469,11 +22457,11 @@ pub mod exports {
                                 }
                                 Err(e) => {
                                     *ptr56.add(0).cast::<u8>() = (1i32) as u8;
-                                    let super::super::super::super::yosh::acp::errors::Error {
+                                    let super::super::super::super::wassette::acp::errors::Error {
                                         code: code103,
                                         message: message103,
                                     } = e;
-                                    use super::super::super::super::yosh::acp::errors::ErrorCode as V104;
+                                    use super::super::super::super::wassette::acp::errors::ErrorCode as V104;
                                     match code103 {
                                         V104::ParseError => {
                                             *ptr56
@@ -22531,7 +22519,9 @@ pub mod exports {
                                 }
                             };
                             #[cfg(target_arch = "wasm32")]
-                            #[link(wasm_import_module = "[export]yosh:acp/agent@7.0.0")]
+                            #[link(
+                                wasm_import_module = "[export]wassette:acp/agent@7.0.0"
+                            )]
                             unsafe extern "C" {
                                 #[link_name = "[task-return]new-session"]
                                 fn wit_import106(_: *mut u8);
@@ -22592,7 +22582,7 @@ pub mod exports {
                                         .add(i * (9 * ::core::mem::size_of::<*const u8>()));
                                     let e55 = {
                                         let l2 = i32::from(*base.add(0).cast::<u8>());
-                                        use super::super::super::super::yosh::acp::sessions::McpServer as V54;
+                                        use super::super::super::super::wassette::acp::sessions::McpServer as V54;
                                         let v54 = match l2 {
                                             0 => {
                                                 let e54 = {
@@ -22687,7 +22677,7 @@ pub mod exports {
                                                                 len22,
                                                                 len22,
                                                             );
-                                                            super::super::super::super::yosh::acp::sessions::EnvVar {
+                                                            super::super::super::super::wassette::acp::sessions::EnvVar {
                                                                 name: _rt::string_lift(bytes19),
                                                                 value: _rt::string_lift(bytes22),
                                                             }
@@ -22699,7 +22689,7 @@ pub mod exports {
                                                         len23 * (4 * ::core::mem::size_of::<*const u8>()),
                                                         ::core::mem::size_of::<*const u8>(),
                                                     );
-                                                    super::super::super::super::yosh::acp::sessions::McpServerStdio {
+                                                    super::super::super::super::wassette::acp::sessions::McpServerStdio {
                                                         name: _rt::string_lift(bytes5),
                                                         command: _rt::string_lift(bytes8),
                                                         args: result14,
@@ -22769,7 +22759,7 @@ pub mod exports {
                                                                 len37,
                                                                 len37,
                                                             );
-                                                            super::super::super::super::yosh::acp::sessions::HttpHeader {
+                                                            super::super::super::super::wassette::acp::sessions::HttpHeader {
                                                                 name: _rt::string_lift(bytes34),
                                                                 value: _rt::string_lift(bytes37),
                                                             }
@@ -22781,7 +22771,7 @@ pub mod exports {
                                                         len38 * (4 * ::core::mem::size_of::<*const u8>()),
                                                         ::core::mem::size_of::<*const u8>(),
                                                     );
-                                                    super::super::super::super::yosh::acp::sessions::McpServerHttp {
+                                                    super::super::super::super::wassette::acp::sessions::McpServerHttp {
                                                         name: _rt::string_lift(bytes26),
                                                         url: _rt::string_lift(bytes29),
                                                         headers: result38,
@@ -22851,7 +22841,7 @@ pub mod exports {
                                                                 len52,
                                                                 len52,
                                                             );
-                                                            super::super::super::super::yosh::acp::sessions::HttpHeader {
+                                                            super::super::super::super::wassette::acp::sessions::HttpHeader {
                                                                 name: _rt::string_lift(bytes49),
                                                                 value: _rt::string_lift(bytes52),
                                                             }
@@ -22863,7 +22853,7 @@ pub mod exports {
                                                         len53 * (4 * ::core::mem::size_of::<*const u8>()),
                                                         ::core::mem::size_of::<*const u8>(),
                                                     );
-                                                    super::super::super::super::yosh::acp::sessions::McpServerSse {
+                                                    super::super::super::super::wassette::acp::sessions::McpServerSse {
                                                         name: _rt::string_lift(bytes41),
                                                         url: _rt::string_lift(bytes44),
                                                         headers: result53,
@@ -22881,7 +22871,7 @@ pub mod exports {
                                     len55 * (9 * ::core::mem::size_of::<*const u8>()),
                                     ::core::mem::size_of::<*const u8>(),
                                 );
-                                T_::load_session(super::super::super::super::yosh::acp::sessions::LoadSessionRequest {
+                                T_::load_session(super::super::super::super::wassette::acp::sessions::LoadSessionRequest {
                                         session_id: _rt::string_lift(bytes0),
                                         cwd: _rt::string_lift(bytes1),
                                         mcp_servers: result55,
@@ -22907,7 +22897,7 @@ pub mod exports {
                             ) = match result56 {
                                 Ok(e) => {
                                     let (t57_0, t57_1) = e;
-                                    let super::super::super::super::yosh::acp::sessions::LoadSessionResponse {
+                                    let super::super::super::super::wassette::acp::sessions::LoadSessionResponse {
                                         modes: modes58,
                                         models: models58,
                                         config_options: config_options58,
@@ -22920,7 +22910,7 @@ pub mod exports {
                                         result68_4,
                                     ) = match modes58 {
                                         Some(e) => {
-                                            let super::super::super::super::yosh::acp::sessions::SessionModeState {
+                                            let super::super::super::super::wassette::acp::sessions::SessionModeState {
                                                 current_mode_id: current_mode_id59,
                                                 available_modes: available_modes59,
                                             } = e;
@@ -22942,7 +22932,7 @@ pub mod exports {
                                                 let base = result67
                                                     .add(i * (9 * ::core::mem::size_of::<*const u8>()));
                                                 {
-                                                    let super::super::super::super::yosh::acp::sessions::SessionMode {
+                                                    let super::super::super::super::wassette::acp::sessions::SessionMode {
                                                         id: id61,
                                                         name: name61,
                                                         description: description61,
@@ -22985,7 +22975,7 @@ pub mod exports {
                                                                 .cast::<u8>() = (0i32) as u8;
                                                         }
                                                     };
-                                                    let super::super::super::super::yosh::acp::sessions::ComponentSource {
+                                                    let super::super::super::super::wassette::acp::sessions::ComponentSource {
                                                         component_id: component_id65,
                                                     } = provided_by61;
                                                     let vec66 = component_id65;
@@ -23019,7 +23009,7 @@ pub mod exports {
                                         result78_4,
                                     ) = match models58 {
                                         Some(e) => {
-                                            let super::super::super::super::yosh::acp::sessions::SessionModelState {
+                                            let super::super::super::super::wassette::acp::sessions::SessionModelState {
                                                 current_model_id: current_model_id69,
                                                 available_models: available_models69,
                                             } = e;
@@ -23041,7 +23031,7 @@ pub mod exports {
                                                 let base = result77
                                                     .add(i * (9 * ::core::mem::size_of::<*const u8>()));
                                                 {
-                                                    let super::super::super::super::yosh::acp::sessions::SessionModel {
+                                                    let super::super::super::super::wassette::acp::sessions::SessionModel {
                                                         id: id71,
                                                         name: name71,
                                                         description: description71,
@@ -23084,7 +23074,7 @@ pub mod exports {
                                                                 .cast::<u8>() = (0i32) as u8;
                                                         }
                                                     };
-                                                    let super::super::super::super::yosh::acp::sessions::ComponentSource {
+                                                    let super::super::super::super::wassette::acp::sessions::ComponentSource {
                                                         component_id: component_id75,
                                                     } = provided_by71;
                                                     let vec76 = component_id75;
@@ -23127,7 +23117,7 @@ pub mod exports {
                                                 let base = result103
                                                     .add(i * (18 * ::core::mem::size_of::<*const u8>()));
                                                 {
-                                                    let super::super::super::super::yosh::acp::sessions::SessionConfigOption {
+                                                    let super::super::super::super::wassette::acp::sessions::SessionConfigOption {
                                                         id: id79,
                                                         name: name79,
                                                         description: description79,
@@ -23178,7 +23168,7 @@ pub mod exports {
                                                             *base
                                                                 .add(7 * ::core::mem::size_of::<*const u8>())
                                                                 .cast::<u8>() = (1i32) as u8;
-                                                            use super::super::super::super::yosh::acp::sessions::SessionConfigOptionCategory as V84;
+                                                            use super::super::super::super::wassette::acp::sessions::SessionConfigOptionCategory as V84;
                                                             match e {
                                                                 V84::Mode => {
                                                                     *base
@@ -23226,7 +23216,7 @@ pub mod exports {
                                                     *base
                                                         .add(11 * ::core::mem::size_of::<*const u8>())
                                                         .cast::<*mut u8>() = ptr85.cast_mut();
-                                                    use super::super::super::super::yosh::acp::sessions::SessionConfigSelectOptions as V100;
+                                                    use super::super::super::super::wassette::acp::sessions::SessionConfigSelectOptions as V100;
                                                     match options79 {
                                                         V100::Ungrouped(e) => {
                                                             *base
@@ -23247,7 +23237,7 @@ pub mod exports {
                                                                 let base = result90
                                                                     .add(i * (7 * ::core::mem::size_of::<*const u8>()));
                                                                 {
-                                                                    let super::super::super::super::yosh::acp::sessions::SessionConfigSelectOption {
+                                                                    let super::super::super::super::wassette::acp::sessions::SessionConfigSelectOption {
                                                                         value: value86,
                                                                         name: name86,
                                                                         description: description86,
@@ -23317,7 +23307,7 @@ pub mod exports {
                                                                 let base = result99
                                                                     .add(i * (6 * ::core::mem::size_of::<*const u8>()));
                                                                 {
-                                                                    let super::super::super::super::yosh::acp::sessions::SessionConfigSelectGroup {
+                                                                    let super::super::super::super::wassette::acp::sessions::SessionConfigSelectGroup {
                                                                         group: group91,
                                                                         name: name91,
                                                                         options: options91,
@@ -23353,7 +23343,7 @@ pub mod exports {
                                                                         let base = result98
                                                                             .add(i * (7 * ::core::mem::size_of::<*const u8>()));
                                                                         {
-                                                                            let super::super::super::super::yosh::acp::sessions::SessionConfigSelectOption {
+                                                                            let super::super::super::super::wassette::acp::sessions::SessionConfigSelectOption {
                                                                                 value: value94,
                                                                                 name: name94,
                                                                                 description: description94,
@@ -23413,7 +23403,7 @@ pub mod exports {
                                                                 .cast::<*mut u8>() = result99;
                                                         }
                                                     }
-                                                    let super::super::super::super::yosh::acp::sessions::ComponentSource {
+                                                    let super::super::super::super::wassette::acp::sessions::ComponentSource {
                                                         component_id: component_id101,
                                                     } = provided_by79;
                                                     let vec102 = component_id101;
@@ -23450,11 +23440,11 @@ pub mod exports {
                                     )
                                 }
                                 Err(e) => {
-                                    let super::super::super::super::yosh::acp::errors::Error {
+                                    let super::super::super::super::wassette::acp::errors::Error {
                                         code: code105,
                                         message: message105,
                                     } = e;
-                                    use super::super::super::super::yosh::acp::errors::ErrorCode as V106;
+                                    use super::super::super::super::wassette::acp::errors::ErrorCode as V106;
                                     let (result107_0, result107_1) = match code105 {
                                         V106::ParseError => (0i32, 0i32),
                                         V106::InvalidRequest => (1i32, 0i32),
@@ -23488,7 +23478,9 @@ pub mod exports {
                                 }
                             };
                             #[cfg(target_arch = "wasm32")]
-                            #[link(wasm_import_module = "[export]yosh:acp/agent@7.0.0")]
+                            #[link(
+                                wasm_import_module = "[export]wassette:acp/agent@7.0.0"
+                            )]
                             unsafe extern "C" {
                                 #[link_name = "[task-return]load-session"]
                                 fn wit_import110(
@@ -23577,7 +23569,7 @@ pub mod exports {
                             let _task_cancel = wit_bindgen::rt::async_support::TaskCancelOnDrop::new();
                             let mut cleanup_list = _rt::Vec::new();
                             let result2 = &{
-                                T_::list_sessions(super::super::super::super::yosh::acp::sessions::ListSessionsRequest {
+                                T_::list_sessions(super::super::super::super::wassette::acp::sessions::ListSessionsRequest {
                                         cwd: match arg0 {
                                             0 => None,
                                             1 => {
@@ -23622,7 +23614,7 @@ pub mod exports {
                                 result16_5,
                             ) = match result2 {
                                 Ok(e) => {
-                                    let super::super::super::super::yosh::acp::sessions::ListSessionsResponse {
+                                    let super::super::super::super::wassette::acp::sessions::ListSessionsResponse {
                                         sessions: sessions3,
                                         next_cursor: next_cursor3,
                                     } = e;
@@ -23641,7 +23633,7 @@ pub mod exports {
                                         let base = result9
                                             .add(i * (10 * ::core::mem::size_of::<*const u8>()));
                                         {
-                                            let super::super::super::super::yosh::acp::sessions::SessionInfo {
+                                            let super::super::super::super::wassette::acp::sessions::SessionInfo {
                                                 session_id: session_id4,
                                                 cwd: cwd4,
                                                 title: title4,
@@ -23726,11 +23718,11 @@ pub mod exports {
                                     )
                                 }
                                 Err(e) => {
-                                    let super::super::super::super::yosh::acp::errors::Error {
+                                    let super::super::super::super::wassette::acp::errors::Error {
                                         code: code12,
                                         message: message12,
                                     } = e;
-                                    use super::super::super::super::yosh::acp::errors::ErrorCode as V13;
+                                    use super::super::super::super::wassette::acp::errors::ErrorCode as V13;
                                     let (result14_0, result14_1) = match code12 {
                                         V13::ParseError => (0i32, 0i32),
                                         V13::InvalidRequest => (1i32, 0i32),
@@ -23755,7 +23747,9 @@ pub mod exports {
                                 }
                             };
                             #[cfg(target_arch = "wasm32")]
-                            #[link(wasm_import_module = "[export]yosh:acp/agent@7.0.0")]
+                            #[link(
+                                wasm_import_module = "[export]wassette:acp/agent@7.0.0"
+                            )]
                             unsafe extern "C" {
                                 #[link_name = "[task-return]list-sessions"]
                                 fn wit_import17(
@@ -23837,7 +23831,7 @@ pub mod exports {
                                         .add(i * (9 * ::core::mem::size_of::<*const u8>()));
                                     let e55 = {
                                         let l2 = i32::from(*base.add(0).cast::<u8>());
-                                        use super::super::super::super::yosh::acp::sessions::McpServer as V54;
+                                        use super::super::super::super::wassette::acp::sessions::McpServer as V54;
                                         let v54 = match l2 {
                                             0 => {
                                                 let e54 = {
@@ -23932,7 +23926,7 @@ pub mod exports {
                                                                 len22,
                                                                 len22,
                                                             );
-                                                            super::super::super::super::yosh::acp::sessions::EnvVar {
+                                                            super::super::super::super::wassette::acp::sessions::EnvVar {
                                                                 name: _rt::string_lift(bytes19),
                                                                 value: _rt::string_lift(bytes22),
                                                             }
@@ -23944,7 +23938,7 @@ pub mod exports {
                                                         len23 * (4 * ::core::mem::size_of::<*const u8>()),
                                                         ::core::mem::size_of::<*const u8>(),
                                                     );
-                                                    super::super::super::super::yosh::acp::sessions::McpServerStdio {
+                                                    super::super::super::super::wassette::acp::sessions::McpServerStdio {
                                                         name: _rt::string_lift(bytes5),
                                                         command: _rt::string_lift(bytes8),
                                                         args: result14,
@@ -24014,7 +24008,7 @@ pub mod exports {
                                                                 len37,
                                                                 len37,
                                                             );
-                                                            super::super::super::super::yosh::acp::sessions::HttpHeader {
+                                                            super::super::super::super::wassette::acp::sessions::HttpHeader {
                                                                 name: _rt::string_lift(bytes34),
                                                                 value: _rt::string_lift(bytes37),
                                                             }
@@ -24026,7 +24020,7 @@ pub mod exports {
                                                         len38 * (4 * ::core::mem::size_of::<*const u8>()),
                                                         ::core::mem::size_of::<*const u8>(),
                                                     );
-                                                    super::super::super::super::yosh::acp::sessions::McpServerHttp {
+                                                    super::super::super::super::wassette::acp::sessions::McpServerHttp {
                                                         name: _rt::string_lift(bytes26),
                                                         url: _rt::string_lift(bytes29),
                                                         headers: result38,
@@ -24096,7 +24090,7 @@ pub mod exports {
                                                                 len52,
                                                                 len52,
                                                             );
-                                                            super::super::super::super::yosh::acp::sessions::HttpHeader {
+                                                            super::super::super::super::wassette::acp::sessions::HttpHeader {
                                                                 name: _rt::string_lift(bytes49),
                                                                 value: _rt::string_lift(bytes52),
                                                             }
@@ -24108,7 +24102,7 @@ pub mod exports {
                                                         len53 * (4 * ::core::mem::size_of::<*const u8>()),
                                                         ::core::mem::size_of::<*const u8>(),
                                                     );
-                                                    super::super::super::super::yosh::acp::sessions::McpServerSse {
+                                                    super::super::super::super::wassette::acp::sessions::McpServerSse {
                                                         name: _rt::string_lift(bytes41),
                                                         url: _rt::string_lift(bytes44),
                                                         headers: result53,
@@ -24126,7 +24120,7 @@ pub mod exports {
                                     len55 * (9 * ::core::mem::size_of::<*const u8>()),
                                     ::core::mem::size_of::<*const u8>(),
                                 );
-                                T_::resume_session(super::super::super::super::yosh::acp::sessions::ResumeSessionRequest {
+                                T_::resume_session(super::super::super::super::wassette::acp::sessions::ResumeSessionRequest {
                                         session_id: _rt::string_lift(bytes0),
                                         cwd: _rt::string_lift(bytes1),
                                         mcp_servers: result55,
@@ -24152,7 +24146,7 @@ pub mod exports {
                             ) = match result56 {
                                 Ok(e) => {
                                     let (t57_0, t57_1) = e;
-                                    let super::super::super::super::yosh::acp::sessions::ResumeSessionResponse {
+                                    let super::super::super::super::wassette::acp::sessions::ResumeSessionResponse {
                                         modes: modes58,
                                         models: models58,
                                         config_options: config_options58,
@@ -24165,7 +24159,7 @@ pub mod exports {
                                         result68_4,
                                     ) = match modes58 {
                                         Some(e) => {
-                                            let super::super::super::super::yosh::acp::sessions::SessionModeState {
+                                            let super::super::super::super::wassette::acp::sessions::SessionModeState {
                                                 current_mode_id: current_mode_id59,
                                                 available_modes: available_modes59,
                                             } = e;
@@ -24187,7 +24181,7 @@ pub mod exports {
                                                 let base = result67
                                                     .add(i * (9 * ::core::mem::size_of::<*const u8>()));
                                                 {
-                                                    let super::super::super::super::yosh::acp::sessions::SessionMode {
+                                                    let super::super::super::super::wassette::acp::sessions::SessionMode {
                                                         id: id61,
                                                         name: name61,
                                                         description: description61,
@@ -24230,7 +24224,7 @@ pub mod exports {
                                                                 .cast::<u8>() = (0i32) as u8;
                                                         }
                                                     };
-                                                    let super::super::super::super::yosh::acp::sessions::ComponentSource {
+                                                    let super::super::super::super::wassette::acp::sessions::ComponentSource {
                                                         component_id: component_id65,
                                                     } = provided_by61;
                                                     let vec66 = component_id65;
@@ -24264,7 +24258,7 @@ pub mod exports {
                                         result78_4,
                                     ) = match models58 {
                                         Some(e) => {
-                                            let super::super::super::super::yosh::acp::sessions::SessionModelState {
+                                            let super::super::super::super::wassette::acp::sessions::SessionModelState {
                                                 current_model_id: current_model_id69,
                                                 available_models: available_models69,
                                             } = e;
@@ -24286,7 +24280,7 @@ pub mod exports {
                                                 let base = result77
                                                     .add(i * (9 * ::core::mem::size_of::<*const u8>()));
                                                 {
-                                                    let super::super::super::super::yosh::acp::sessions::SessionModel {
+                                                    let super::super::super::super::wassette::acp::sessions::SessionModel {
                                                         id: id71,
                                                         name: name71,
                                                         description: description71,
@@ -24329,7 +24323,7 @@ pub mod exports {
                                                                 .cast::<u8>() = (0i32) as u8;
                                                         }
                                                     };
-                                                    let super::super::super::super::yosh::acp::sessions::ComponentSource {
+                                                    let super::super::super::super::wassette::acp::sessions::ComponentSource {
                                                         component_id: component_id75,
                                                     } = provided_by71;
                                                     let vec76 = component_id75;
@@ -24372,7 +24366,7 @@ pub mod exports {
                                                 let base = result103
                                                     .add(i * (18 * ::core::mem::size_of::<*const u8>()));
                                                 {
-                                                    let super::super::super::super::yosh::acp::sessions::SessionConfigOption {
+                                                    let super::super::super::super::wassette::acp::sessions::SessionConfigOption {
                                                         id: id79,
                                                         name: name79,
                                                         description: description79,
@@ -24423,7 +24417,7 @@ pub mod exports {
                                                             *base
                                                                 .add(7 * ::core::mem::size_of::<*const u8>())
                                                                 .cast::<u8>() = (1i32) as u8;
-                                                            use super::super::super::super::yosh::acp::sessions::SessionConfigOptionCategory as V84;
+                                                            use super::super::super::super::wassette::acp::sessions::SessionConfigOptionCategory as V84;
                                                             match e {
                                                                 V84::Mode => {
                                                                     *base
@@ -24471,7 +24465,7 @@ pub mod exports {
                                                     *base
                                                         .add(11 * ::core::mem::size_of::<*const u8>())
                                                         .cast::<*mut u8>() = ptr85.cast_mut();
-                                                    use super::super::super::super::yosh::acp::sessions::SessionConfigSelectOptions as V100;
+                                                    use super::super::super::super::wassette::acp::sessions::SessionConfigSelectOptions as V100;
                                                     match options79 {
                                                         V100::Ungrouped(e) => {
                                                             *base
@@ -24492,7 +24486,7 @@ pub mod exports {
                                                                 let base = result90
                                                                     .add(i * (7 * ::core::mem::size_of::<*const u8>()));
                                                                 {
-                                                                    let super::super::super::super::yosh::acp::sessions::SessionConfigSelectOption {
+                                                                    let super::super::super::super::wassette::acp::sessions::SessionConfigSelectOption {
                                                                         value: value86,
                                                                         name: name86,
                                                                         description: description86,
@@ -24562,7 +24556,7 @@ pub mod exports {
                                                                 let base = result99
                                                                     .add(i * (6 * ::core::mem::size_of::<*const u8>()));
                                                                 {
-                                                                    let super::super::super::super::yosh::acp::sessions::SessionConfigSelectGroup {
+                                                                    let super::super::super::super::wassette::acp::sessions::SessionConfigSelectGroup {
                                                                         group: group91,
                                                                         name: name91,
                                                                         options: options91,
@@ -24598,7 +24592,7 @@ pub mod exports {
                                                                         let base = result98
                                                                             .add(i * (7 * ::core::mem::size_of::<*const u8>()));
                                                                         {
-                                                                            let super::super::super::super::yosh::acp::sessions::SessionConfigSelectOption {
+                                                                            let super::super::super::super::wassette::acp::sessions::SessionConfigSelectOption {
                                                                                 value: value94,
                                                                                 name: name94,
                                                                                 description: description94,
@@ -24658,7 +24652,7 @@ pub mod exports {
                                                                 .cast::<*mut u8>() = result99;
                                                         }
                                                     }
-                                                    let super::super::super::super::yosh::acp::sessions::ComponentSource {
+                                                    let super::super::super::super::wassette::acp::sessions::ComponentSource {
                                                         component_id: component_id101,
                                                     } = provided_by79;
                                                     let vec102 = component_id101;
@@ -24695,11 +24689,11 @@ pub mod exports {
                                     )
                                 }
                                 Err(e) => {
-                                    let super::super::super::super::yosh::acp::errors::Error {
+                                    let super::super::super::super::wassette::acp::errors::Error {
                                         code: code105,
                                         message: message105,
                                     } = e;
-                                    use super::super::super::super::yosh::acp::errors::ErrorCode as V106;
+                                    use super::super::super::super::wassette::acp::errors::ErrorCode as V106;
                                     let (result107_0, result107_1) = match code105 {
                                         V106::ParseError => (0i32, 0i32),
                                         V106::InvalidRequest => (1i32, 0i32),
@@ -24733,7 +24727,9 @@ pub mod exports {
                                 }
                             };
                             #[cfg(target_arch = "wasm32")]
-                            #[link(wasm_import_module = "[export]yosh:acp/agent@7.0.0")]
+                            #[link(
+                                wasm_import_module = "[export]wassette:acp/agent@7.0.0"
+                            )]
                             unsafe extern "C" {
                                 #[link_name = "[task-return]resume-session"]
                                 fn wit_import110(
@@ -24868,7 +24864,7 @@ pub mod exports {
                         Self: Sized,
                     {
                         #[cfg(target_arch = "wasm32")]
-                        #[link(wasm_import_module = "[export]yosh:acp/agent@7.0.0")]
+                        #[link(wasm_import_module = "[export]wassette:acp/agent@7.0.0")]
                         unsafe extern "C" {
                             #[link_name = "[resource-new]session"]
                             fn new(_: *mut u8) -> i32;
@@ -24885,7 +24881,7 @@ pub mod exports {
                         Self: Sized,
                     {
                         #[cfg(target_arch = "wasm32")]
-                        #[link(wasm_import_module = "[export]yosh:acp/agent@7.0.0")]
+                        #[link(wasm_import_module = "[export]wassette:acp/agent@7.0.0")]
                         unsafe extern "C" {
                             #[link_name = "[resource-rep]session"]
                             fn rep(_: i32) -> *mut u8;
@@ -24945,125 +24941,131 @@ pub mod exports {
                 }
                 #[doc(hidden)]
                 #[macro_export]
-                macro_rules! __export_yosh_acp_agent_7_0_0_cabi {
+                macro_rules! __export_wassette_acp_agent_7_0_0_cabi {
                     ($ty:ident with_types_in $($path_to_types:tt)*) => {
                         const _ : () = { #[unsafe (export_name =
-                        "[async-lift]yosh:acp/agent@7.0.0#[method]session.prompt")]
+                        "[async-lift]wassette:acp/agent@7.0.0#[method]session.prompt")]
                         unsafe extern "C" fn export_method_session_prompt(arg0 : * mut
                         u8, arg1 : * mut u8, arg2 : usize,) -> i32 { unsafe {
                         $($path_to_types)*:: _export_method_session_prompt_cabi::<<$ty as
                         $($path_to_types)*:: Guest >::Session > (arg0, arg1, arg2) } }
                         #[unsafe (export_name =
-                        "[callback][async-lift]yosh:acp/agent@7.0.0#[method]session.prompt")]
+                        "[callback][async-lift]wassette:acp/agent@7.0.0#[method]session.prompt")]
                         unsafe extern "C" fn _callback_method_session_prompt(event0 :
                         u32, event1 : u32, event2 : u32) -> u32 { unsafe {
                         $($path_to_types)*:: __callback_method_session_prompt(event0,
                         event1, event2) } } #[unsafe (export_name =
-                        "[async-lift]yosh:acp/agent@7.0.0#[method]session.set-mode")]
+                        "[async-lift]wassette:acp/agent@7.0.0#[method]session.set-mode")]
                         unsafe extern "C" fn export_method_session_set_mode(arg0 : * mut
                         u8, arg1 : * mut u8, arg2 : usize,) -> i32 { unsafe {
                         $($path_to_types)*:: _export_method_session_set_mode_cabi::<<$ty
                         as $($path_to_types)*:: Guest >::Session > (arg0, arg1, arg2) } }
                         #[unsafe (export_name =
-                        "[callback][async-lift]yosh:acp/agent@7.0.0#[method]session.set-mode")]
+                        "[callback][async-lift]wassette:acp/agent@7.0.0#[method]session.set-mode")]
                         unsafe extern "C" fn _callback_method_session_set_mode(event0 :
                         u32, event1 : u32, event2 : u32) -> u32 { unsafe {
                         $($path_to_types)*:: __callback_method_session_set_mode(event0,
                         event1, event2) } } #[unsafe (export_name =
-                        "[async-lift]yosh:acp/agent@7.0.0#[method]session.select-model")]
+                        "[async-lift]wassette:acp/agent@7.0.0#[method]session.select-model")]
                         unsafe extern "C" fn export_method_session_select_model(arg0 : *
                         mut u8, arg1 : * mut u8, arg2 : usize,) -> i32 { unsafe {
                         $($path_to_types)*::
                         _export_method_session_select_model_cabi::<<$ty as
                         $($path_to_types)*:: Guest >::Session > (arg0, arg1, arg2) } }
                         #[unsafe (export_name =
-                        "[callback][async-lift]yosh:acp/agent@7.0.0#[method]session.select-model")]
+                        "[callback][async-lift]wassette:acp/agent@7.0.0#[method]session.select-model")]
                         unsafe extern "C" fn _callback_method_session_select_model(event0
                         : u32, event1 : u32, event2 : u32) -> u32 { unsafe {
                         $($path_to_types)*::
                         __callback_method_session_select_model(event0, event1, event2) }
                         } #[unsafe (export_name =
-                        "[async-lift]yosh:acp/agent@7.0.0#[method]session.set-config-option")]
+                        "[async-lift]wassette:acp/agent@7.0.0#[method]session.set-config-option")]
                         unsafe extern "C" fn export_method_session_set_config_option(arg0
                         : * mut u8, arg1 : * mut u8, arg2 : usize, arg3 : * mut u8, arg4
                         : usize,) -> i32 { unsafe { $($path_to_types)*::
                         _export_method_session_set_config_option_cabi::<<$ty as
                         $($path_to_types)*:: Guest >::Session > (arg0, arg1, arg2, arg3,
                         arg4) } } #[unsafe (export_name =
-                        "[callback][async-lift]yosh:acp/agent@7.0.0#[method]session.set-config-option")]
+                        "[callback][async-lift]wassette:acp/agent@7.0.0#[method]session.set-config-option")]
                         unsafe extern "C" fn
                         _callback_method_session_set_config_option(event0 : u32, event1 :
                         u32, event2 : u32) -> u32 { unsafe { $($path_to_types)*::
                         __callback_method_session_set_config_option(event0, event1,
                         event2) } } #[unsafe (export_name =
-                        "[async-lift]yosh:acp/agent@7.0.0#initialize")] unsafe extern "C"
-                        fn export_initialize(arg0 : i32, arg1 : i32, arg2 : i32, arg3 :
-                        i32, arg4 : i32, arg5 : * mut u8, arg6 : usize, arg7 : i32, arg8
-                        : * mut u8, arg9 : usize, arg10 : * mut u8, arg11 : usize,) ->
-                        i32 { unsafe { $($path_to_types)*:: _export_initialize_cabi::<$ty
-                        > (arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9,
-                        arg10, arg11) } } #[unsafe (export_name =
-                        "[callback][async-lift]yosh:acp/agent@7.0.0#initialize")] unsafe
-                        extern "C" fn _callback_initialize(event0 : u32, event1 : u32,
-                        event2 : u32) -> u32 { unsafe { $($path_to_types)*::
+                        "[async-lift]wassette:acp/agent@7.0.0#initialize")] unsafe extern
+                        "C" fn export_initialize(arg0 : i32, arg1 : i32, arg2 : i32, arg3
+                        : i32, arg4 : i32, arg5 : * mut u8, arg6 : usize, arg7 : i32,
+                        arg8 : * mut u8, arg9 : usize, arg10 : * mut u8, arg11 : usize,)
+                        -> i32 { unsafe { $($path_to_types)*::
+                        _export_initialize_cabi::<$ty > (arg0, arg1, arg2, arg3, arg4,
+                        arg5, arg6, arg7, arg8, arg9, arg10, arg11) } } #[unsafe
+                        (export_name =
+                        "[callback][async-lift]wassette:acp/agent@7.0.0#initialize")]
+                        unsafe extern "C" fn _callback_initialize(event0 : u32, event1 :
+                        u32, event2 : u32) -> u32 { unsafe { $($path_to_types)*::
                         __callback_initialize(event0, event1, event2) } } #[unsafe
-                        (export_name = "[async-lift]yosh:acp/agent@7.0.0#authenticate")]
-                        unsafe extern "C" fn export_authenticate(arg0 : * mut u8, arg1 :
-                        usize,) -> i32 { unsafe { $($path_to_types)*::
+                        (export_name =
+                        "[async-lift]wassette:acp/agent@7.0.0#authenticate")] unsafe
+                        extern "C" fn export_authenticate(arg0 : * mut u8, arg1 : usize,)
+                        -> i32 { unsafe { $($path_to_types)*::
                         _export_authenticate_cabi::<$ty > (arg0, arg1) } } #[unsafe
                         (export_name =
-                        "[callback][async-lift]yosh:acp/agent@7.0.0#authenticate")]
+                        "[callback][async-lift]wassette:acp/agent@7.0.0#authenticate")]
                         unsafe extern "C" fn _callback_authenticate(event0 : u32, event1
                         : u32, event2 : u32) -> u32 { unsafe { $($path_to_types)*::
                         __callback_authenticate(event0, event1, event2) } } #[unsafe
-                        (export_name = "[async-lift]yosh:acp/agent@7.0.0#new-session")]
-                        unsafe extern "C" fn export_new_session(arg0 : * mut u8, arg1 :
-                        usize, arg2 : * mut u8, arg3 : usize,) -> i32 { unsafe {
+                        (export_name =
+                        "[async-lift]wassette:acp/agent@7.0.0#new-session")] unsafe
+                        extern "C" fn export_new_session(arg0 : * mut u8, arg1 : usize,
+                        arg2 : * mut u8, arg3 : usize,) -> i32 { unsafe {
                         $($path_to_types)*:: _export_new_session_cabi::<$ty > (arg0,
                         arg1, arg2, arg3) } } #[unsafe (export_name =
-                        "[callback][async-lift]yosh:acp/agent@7.0.0#new-session")] unsafe
-                        extern "C" fn _callback_new_session(event0 : u32, event1 : u32,
-                        event2 : u32) -> u32 { unsafe { $($path_to_types)*::
+                        "[callback][async-lift]wassette:acp/agent@7.0.0#new-session")]
+                        unsafe extern "C" fn _callback_new_session(event0 : u32, event1 :
+                        u32, event2 : u32) -> u32 { unsafe { $($path_to_types)*::
                         __callback_new_session(event0, event1, event2) } } #[unsafe
-                        (export_name = "[async-lift]yosh:acp/agent@7.0.0#load-session")]
-                        unsafe extern "C" fn export_load_session(arg0 : * mut u8, arg1 :
-                        usize, arg2 : * mut u8, arg3 : usize, arg4 : * mut u8, arg5 :
-                        usize,) -> i32 { unsafe { $($path_to_types)*::
+                        (export_name =
+                        "[async-lift]wassette:acp/agent@7.0.0#load-session")] unsafe
+                        extern "C" fn export_load_session(arg0 : * mut u8, arg1 : usize,
+                        arg2 : * mut u8, arg3 : usize, arg4 : * mut u8, arg5 : usize,) ->
+                        i32 { unsafe { $($path_to_types)*::
                         _export_load_session_cabi::<$ty > (arg0, arg1, arg2, arg3, arg4,
                         arg5) } } #[unsafe (export_name =
-                        "[callback][async-lift]yosh:acp/agent@7.0.0#load-session")]
+                        "[callback][async-lift]wassette:acp/agent@7.0.0#load-session")]
                         unsafe extern "C" fn _callback_load_session(event0 : u32, event1
                         : u32, event2 : u32) -> u32 { unsafe { $($path_to_types)*::
                         __callback_load_session(event0, event1, event2) } } #[unsafe
-                        (export_name = "[async-lift]yosh:acp/agent@7.0.0#list-sessions")]
-                        unsafe extern "C" fn export_list_sessions(arg0 : i32, arg1 : *
-                        mut u8, arg2 : usize, arg3 : i32, arg4 : * mut u8, arg5 : usize,)
-                        -> i32 { unsafe { $($path_to_types)*::
-                        _export_list_sessions_cabi::<$ty > (arg0, arg1, arg2, arg3, arg4,
-                        arg5) } } #[unsafe (export_name =
-                        "[callback][async-lift]yosh:acp/agent@7.0.0#list-sessions")]
+                        (export_name =
+                        "[async-lift]wassette:acp/agent@7.0.0#list-sessions")] unsafe
+                        extern "C" fn export_list_sessions(arg0 : i32, arg1 : * mut u8,
+                        arg2 : usize, arg3 : i32, arg4 : * mut u8, arg5 : usize,) -> i32
+                        { unsafe { $($path_to_types)*:: _export_list_sessions_cabi::<$ty
+                        > (arg0, arg1, arg2, arg3, arg4, arg5) } } #[unsafe (export_name
+                        =
+                        "[callback][async-lift]wassette:acp/agent@7.0.0#list-sessions")]
                         unsafe extern "C" fn _callback_list_sessions(event0 : u32, event1
                         : u32, event2 : u32) -> u32 { unsafe { $($path_to_types)*::
                         __callback_list_sessions(event0, event1, event2) } } #[unsafe
                         (export_name =
-                        "[async-lift]yosh:acp/agent@7.0.0#resume-session")] unsafe extern
-                        "C" fn export_resume_session(arg0 : * mut u8, arg1 : usize, arg2
-                        : * mut u8, arg3 : usize, arg4 : * mut u8, arg5 : usize,) -> i32
-                        { unsafe { $($path_to_types)*:: _export_resume_session_cabi::<$ty
-                        > (arg0, arg1, arg2, arg3, arg4, arg5) } } #[unsafe (export_name
-                        = "[callback][async-lift]yosh:acp/agent@7.0.0#resume-session")]
+                        "[async-lift]wassette:acp/agent@7.0.0#resume-session")] unsafe
+                        extern "C" fn export_resume_session(arg0 : * mut u8, arg1 :
+                        usize, arg2 : * mut u8, arg3 : usize, arg4 : * mut u8, arg5 :
+                        usize,) -> i32 { unsafe { $($path_to_types)*::
+                        _export_resume_session_cabi::<$ty > (arg0, arg1, arg2, arg3,
+                        arg4, arg5) } } #[unsafe (export_name =
+                        "[callback][async-lift]wassette:acp/agent@7.0.0#resume-session")]
                         unsafe extern "C" fn _callback_resume_session(event0 : u32,
                         event1 : u32, event2 : u32) -> u32 { unsafe {
                         $($path_to_types)*:: __callback_resume_session(event0, event1,
                         event2) } } const _ : () = { #[doc(hidden)] #[unsafe (export_name
-                        = "yosh:acp/agent@7.0.0#[dtor]session")] #[allow(non_snake_case)]
-                        unsafe extern "C" fn dtor(rep : * mut u8) { unsafe {
-                        $($path_to_types)*:: Session::dtor::< <$ty as
+                        = "wassette:acp/agent@7.0.0#[dtor]session")]
+                        #[allow(non_snake_case)] unsafe extern "C" fn dtor(rep : * mut
+                        u8) { unsafe { $($path_to_types)*:: Session::dtor::< <$ty as
                         $($path_to_types)*:: Guest >::Session > (rep) } } }; };
                     };
                 }
                 #[doc(hidden)]
-                pub use __export_yosh_acp_agent_7_0_0_cabi;
+                pub use __export_wassette_acp_agent_7_0_0_cabi;
                 #[cfg_attr(target_pointer_width = "64", repr(align(8)))]
                 #[cfg_attr(target_pointer_width = "32", repr(align(4)))]
                 struct _RetArea(
@@ -25336,7 +25338,7 @@ pub mod wit_stream {
             unreachable!()
         }
         #[cfg(target_arch = "wasm32")]
-        #[link(wasm_import_module = "yosh:acp/client@7.0.0")]
+        #[link(wasm_import_module = "wassette:acp/client@7.0.0")]
         unsafe extern "C" {
             #[link_name = "[stream-new-0][method]terminal.output"]
             fn new() -> u64;
@@ -25405,217 +25407,218 @@ macro_rules! __export_provider_impl {
     };
     ($ty:ident with_types_in $($path_to_types_root:tt)*) => {
         $($path_to_types_root)*::
-        exports::yosh::acp::agent::__export_yosh_acp_agent_7_0_0_cabi!($ty with_types_in
-        $($path_to_types_root)*:: exports::yosh::acp::agent); const _ : () = {
-        #[rustfmt::skip] #[cfg(target_arch = "wasm32")] #[unsafe (link_section =
-        "component-type:wit-bindgen:0.54.0:yosh:acp@7.0.0:provider:imports and exports")]
+        exports::wassette::acp::agent::__export_wassette_acp_agent_7_0_0_cabi!($ty
+        with_types_in $($path_to_types_root)*:: exports::wassette::acp::agent); const _ :
+        () = { #[rustfmt::skip] #[cfg(target_arch = "wasm32")] #[unsafe (link_section =
+        "component-type:wit-bindgen:0.54.0:wassette:acp@7.0.0:provider:imports and exports")]
         #[doc(hidden)] #[allow(clippy::octal_escapes)] pub static
-        __WIT_BINDGEN_COMPONENT_TYPE : [u8; 9572] = *
+        __WIT_BINDGEN_COMPONENT_TYPE : [u8; 9620] = *
         b"\
-\0asm\x0d\0\x01\0\0\x19\x16wit-component-encoding\x04\0\x07\xe5I\x01A\x02\x01A=\x01\
+\0asm\x0d\0\x01\0\0\x19\x16wit-component-encoding\x04\0\x07\x95J\x01A\x02\x01A=\x01\
 B\x04\x01q\x08\x0bparse-error\0\0\x0finvalid-request\0\0\x10method-not-found\0\0\
 \x0einvalid-params\0\0\x0einternal-error\0\0\x0dauth-required\0\0\x12resource-no\
 t-found\0\0\x05other\x01z\0\x04\0\x0aerror-code\x03\0\0\x01r\x02\x04code\x01\x07\
-messages\x04\0\x05error\x03\0\x02\x03\0\x15yosh:acp/errors@7.0.0\x05\0\x01B\x19\x01\
-ks\x01r\x03\x04names\x05title\0\x07versions\x04\0\x13implementation-info\x03\0\x01\
-\x01r\x02\x0eread-text-file\x7f\x0fwrite-text-file\x7f\x04\0\x0ffs-capabilities\x03\
-\0\x03\x01r\x02\x02fs\x04\x08terminal\x7f\x04\0\x13client-capabilities\x03\0\x05\
-\x01r\x03\x05image\x7f\x05audio\x7f\x10embedded-context\x7f\x04\0\x13prompt-capa\
-bilities\x03\0\x07\x01r\x02\x04http\x7f\x03sse\x7f\x04\0\x10mcp-capabilities\x03\
-\0\x09\x01r\x03\x04list\x7f\x06resume\x7f\x05close\x7f\x04\0\x14session-capabili\
-ties\x03\0\x0b\x01r\x04\x0cload-session\x7f\x13prompt-capabilities\x08\x10mcp-ca\
-pabilities\x0a\x14session-capabilities\x0c\x04\0\x12agent-capabilities\x03\0\x0d\
-\x01r\x03\x02ids\x04names\x0bdescription\0\x04\0\x0bauth-method\x03\0\x0f\x01r\x01\
-\x09method-ids\x04\0\x14authenticate-request\x03\0\x11\x01k\x02\x01r\x03\x10prot\
-ocol-versiony\x13client-capabilities\x06\x0bclient-info\x13\x04\0\x12initialize-\
-request\x03\0\x14\x01p\x10\x01r\x04\x10protocol-versiony\x12agent-capabilities\x0e\
-\x0aagent-info\x13\x0cauth-methods\x16\x04\0\x13initialize-response\x03\0\x17\x03\
-\0\x13yosh:acp/init@7.0.0\x05\x01\x01BS\x01s\x04\0\x0asession-id\x03\0\0\x01s\x04\
-\0\x0fsession-mode-id\x03\0\x02\x01s\x04\0\x10session-model-id\x03\0\x04\x01r\x02\
-\x04names\x05values\x04\0\x07env-var\x03\0\x06\x01r\x02\x04names\x05values\x04\0\
-\x0bhttp-header\x03\0\x08\x01ps\x01p\x07\x01r\x04\x04names\x07commands\x04args\x0a\
-\x03env\x0b\x04\0\x10mcp-server-stdio\x03\0\x0c\x01p\x09\x01r\x03\x04names\x03ur\
-ls\x07headers\x0e\x04\0\x0fmcp-server-http\x03\0\x0f\x01r\x03\x04names\x03urls\x07\
-headers\x0e\x04\0\x0emcp-server-sse\x03\0\x11\x01q\x03\x05stdio\x01\x0d\0\x04htt\
-p\x01\x10\0\x03sse\x01\x12\0\x04\0\x0amcp-server\x03\0\x13\x01r\x01\x0ccomponent\
--ids\x04\0\x10component-source\x03\0\x15\x01ks\x01r\x04\x02id\x03\x04names\x0bde\
-scription\x17\x0bprovided-by\x16\x04\0\x0csession-mode\x03\0\x18\x01p\x19\x01r\x02\
-\x0fcurrent-mode-id\x03\x0favailable-modes\x1a\x04\0\x12session-mode-state\x03\0\
-\x1b\x01r\x02\x0asession-id\x01\x07mode-id\x03\x04\0\x18set-session-mode-request\
-\x03\0\x1d\x01r\x04\x02id\x05\x04names\x0bdescription\x17\x0bprovided-by\x16\x04\
-\0\x0dsession-model\x03\0\x1f\x01p\x20\x01r\x02\x10current-model-id\x05\x10avail\
-able-models!\x04\0\x13session-model-state\x03\0\"\x01r\x02\x0asession-id\x01\x08\
-model-id\x05\x04\0\x14select-model-request\x03\0$\x01s\x04\0\x11session-config-i\
-d\x03\0&\x01s\x04\0\x17session-config-value-id\x03\0(\x01s\x04\0\x17session-conf\
-ig-group-id\x03\0*\x01q\x04\x04mode\0\0\x05model\0\0\x0dthought-level\0\0\x05oth\
-er\x01s\0\x04\0\x1esession-config-option-category\x03\0,\x01r\x03\x05value)\x04n\
-ames\x0bdescription\x17\x04\0\x1csession-config-select-option\x03\0.\x01p/\x01r\x03\
-\x05group+\x04names\x07options0\x04\0\x1bsession-config-select-group\x03\01\x01p\
-2\x01q\x02\x09ungrouped\x010\0\x07grouped\x013\0\x04\0\x1dsession-config-select-\
-options\x03\04\x01k-\x01r\x07\x02id'\x04names\x0bdescription\x17\x08category6\x0d\
-current-value)\x07options5\x0bprovided-by\x16\x04\0\x15session-config-option\x03\
-\07\x01p\x14\x01r\x02\x03cwds\x0bmcp-servers9\x04\0\x13new-session-request\x03\0\
-:\x01k\x1c\x01k#\x01p8\x01k>\x01r\x04\x0asession-id\x01\x05modes<\x06models=\x0e\
-config-options?\x04\0\x14new-session-response\x03\0@\x01r\x03\x0asession-id\x01\x03\
-cwds\x0bmcp-servers9\x04\0\x14load-session-request\x03\0B\x01r\x03\x05modes<\x06\
-models=\x0econfig-options?\x04\0\x15load-session-response\x03\0D\x01r\x04\x0ases\
-sion-id\x01\x03cwds\x05title\x17\x0aupdated-at\x17\x04\0\x0csession-info\x03\0F\x01\
-r\x02\x03cwd\x17\x06cursor\x17\x04\0\x15list-sessions-request\x03\0H\x01p\xc7\0\x01\
-r\x02\x08sessions\xca\0\x0bnext-cursor\x17\x04\0\x16list-sessions-response\x03\0\
-K\x01r\x03\x0asession-id\x01\x03cwds\x0bmcp-servers9\x04\0\x16resume-session-req\
-uest\x03\0M\x01r\x03\x05modes<\x06models=\x0econfig-options?\x04\0\x17resume-ses\
-sion-response\x03\0O\x01r\x02\x05title\x17\x0aupdated-at\x17\x04\0\x13session-in\
-fo-update\x03\0Q\x03\0\x17yosh:acp/sessions@7.0.0\x05\x02\x01B\x14\x01r\x01\x04t\
-exts\x04\0\x0ctext-content\x03\0\0\x01ks\x01r\x03\x04datas\x09mime-types\x03uri\x02\
-\x04\0\x0dimage-content\x03\0\x03\x01r\x02\x04datas\x09mime-types\x04\0\x0daudio\
--content\x03\0\x05\x01kw\x01r\x06\x03uris\x04names\x09mime-type\x02\x05title\x02\
-\x0bdescription\x02\x04size\x07\x04\0\x0dresource-link\x03\0\x08\x01r\x03\x03uri\
-s\x09mime-type\x02\x04texts\x04\0\x16text-resource-contents\x03\0\x0a\x01r\x03\x03\
-uris\x09mime-type\x02\x04blobs\x04\0\x16blob-resource-contents\x03\0\x0c\x01q\x02\
-\x04text\x01\x0b\0\x04blob\x01\x0d\0\x04\0\x11resource-contents\x03\0\x0e\x01r\x01\
-\x08resource\x0f\x04\0\x11embedded-resource\x03\0\x10\x01q\x05\x04text\x01\x01\0\
-\x05image\x01\x04\0\x05audio\x01\x06\0\x0dresource-link\x01\x09\0\x08resource\x01\
-\x11\0\x04\0\x0dcontent-block\x03\0\x12\x03\0\x16yosh:acp/content@7.0.0\x05\x03\x02\
-\x03\0\x02\x0asession-id\x02\x03\0\x02\x07env-var\x01B\x14\x02\x03\x02\x01\x04\x04\
-\0\x0asession-id\x03\0\0\x02\x03\x02\x01\x05\x04\0\x07env-var\x03\0\x02\x01s\x04\
-\0\x0bterminal-id\x03\0\x04\x01ps\x01p\x03\x01ks\x01kw\x01r\x06\x0asession-id\x01\
-\x07commands\x04args\x06\x03env\x07\x03cwd\x08\x11output-byte-limit\x09\x04\0\x17\
-create-terminal-request\x03\0\x0a\x01r\x01\x0bterminal-id\x05\x04\0\x18create-te\
-rminal-response\x03\0\x0c\x01kz\x01r\x02\x09exit-code\x0e\x06signal\x08\x04\0\x14\
-terminal-exit-status\x03\0\x0f\x01k\x10\x01r\x03\x06outputs\x09truncated\x7f\x0b\
-exit-status\x11\x04\0\x0fterminal-output\x03\0\x12\x03\0\x18yosh:acp/terminals@7\
-.0.0\x05\x06\x02\x03\0\x03\x0dcontent-block\x02\x03\0\x04\x0bterminal-id\x01B9\x02\
-\x03\x02\x01\x07\x04\0\x0dcontent-block\x03\0\0\x02\x03\x02\x01\x08\x04\0\x0bter\
-minal-id\x03\0\x02\x01s\x04\0\x0ctool-call-id\x03\0\x04\x04\0\x09tool-call\x03\x01\
-\x01m\x09\x04read\x04edit\x06delete\x04move\x06search\x07execute\x05think\x05fet\
-ch\x05other\x04\0\x09tool-kind\x03\0\x07\x01m\x04\x07pending\x0bin-progress\x09c\
-ompleted\x06failed\x04\0\x10tool-call-status\x03\0\x09\x01ks\x01r\x03\x04paths\x08\
-old-text\x0b\x08new-texts\x04\0\x04diff\x03\0\x0c\x01q\x03\x07content\x01\x01\0\x04\
-diff\x01\x0d\0\x08terminal\x01\x03\0\x04\0\x11tool-call-content\x03\0\x0e\x01ky\x01\
-r\x02\x04paths\x04line\x10\x04\0\x12tool-call-location\x03\0\x11\x01p\x0f\x01p\x12\
-\x01r\x07\x02id\x05\x05titles\x04kind\x08\x06status\x0a\x07content\x13\x09locati\
-ons\x14\x09raw-input\x0b\x04\0\x0etool-call-init\x03\0\x15\x01k\x08\x01k\x0a\x01\
-k\x13\x01k\x14\x01r\x07\x05title\x0b\x04kind\x17\x06status\x18\x07content\x19\x09\
-locations\x1a\x09raw-input\x0b\x0araw-output\x0b\x04\0\x0ftool-call-patch\x03\0\x1b\
-\x01m\x03\x04high\x06medium\x03low\x04\0\x13plan-entry-priority\x03\0\x1d\x01m\x03\
-\x07pending\x0bin-progress\x09completed\x04\0\x11plan-entry-status\x03\0\x1f\x01\
-r\x03\x07contents\x08priority\x1e\x06status\x20\x04\0\x0aplan-entry\x03\0!\x01p\"\
-\x01r\x01\x07entries#\x04\0\x04plan\x03\0$\x01r\x08\x02id\x05\x05titles\x04kind\x08\
-\x06status\x0a\x07content\x13\x09locations\x14\x09raw-input\x0b\x0araw-output\x0b\
-\x04\0\x12tool-call-snapshot\x03\0&\x01m\x04\x0aallow-once\x0callow-always\x0bre\
-ject-once\x0dreject-always\x04\0\x16permission-option-kind\x03\0(\x01r\x03\x02id\
-s\x04names\x04kind)\x04\0\x11permission-option\x03\0*\x01p+\x01r\x03\x0asession-\
-ids\x09tool-call'\x07options,\x04\0\x1arequest-permission-request\x03\0-\x01q\x02\
-\x08selected\x01s\0\x09cancelled\0\0\x04\0\x12permission-outcome\x03\0/\x01r\x01\
-\x07outcome0\x04\0\x1brequest-permission-response\x03\01\x01i\x06\x01@\x01\x07in\
-itial\x16\03\x04\0\x16[constructor]tool-call\x014\x01h\x06\x01C\x02\x04self5\x05\
-patch\x1c\x01\0\x04\0\x18[method]tool-call.update\x016\x03\0\x14yosh:acp/tools@7\
-.0.0\x05\x09\x02\x03\0\x02\x0fsession-mode-id\x02\x03\0\x02\x13session-info-upda\
-te\x02\x03\0\x05\x12tool-call-snapshot\x02\x03\0\x05\x04plan\x01B\x1b\x02\x03\x02\
-\x01\x0a\x04\0\x0fsession-mode-id\x03\0\0\x02\x03\x02\x01\x0b\x04\0\x13session-i\
-nfo-update\x03\0\x02\x02\x03\x02\x01\x07\x04\0\x0dcontent-block\x03\0\x04\x02\x03\
-\x02\x01\x0c\x04\0\x12tool-call-snapshot\x03\0\x06\x02\x03\x02\x01\x0d\x04\0\x04\
-plan\x03\0\x08\x01m\x05\x08end-turn\x0amax-tokens\x11max-turn-requests\x07refusa\
-l\x09cancelled\x04\0\x0bstop-reason\x03\0\x0a\x01r\x01\x0bstop-reason\x0b\x04\0\x0f\
-prompt-response\x03\0\x0c\x01r\x01\x04hints\x04\0\x17available-command-input\x03\
-\0\x0e\x01k\x0f\x01r\x03\x04names\x0bdescriptions\x05input\x10\x04\0\x11availabl\
-e-command\x03\0\x11\x01r\x02\x06amountu\x08currencys\x04\0\x0ausage-cost\x03\0\x13\
-\x01k\x14\x01r\x03\x04usedw\x04sizew\x04cost\x15\x04\0\x0cusage-update\x03\0\x16\
-\x01p\x12\x01q\x0a\x12user-message-chunk\x01\x05\0\x13agent-message-chunk\x01\x05\
-\0\x13agent-thought-chunk\x01\x05\0\x09tool-call\x01\x07\0\x10tool-call-update\x01\
-\x07\0\x04plan\x01\x09\0\x13current-mode-update\x01\x01\0\x13session-info-update\
-\x01\x03\0\x19available-commands-update\x01\x18\0\x0cusage-update\x01\x17\0\x04\0\
-\x0esession-update\x03\0\x19\x03\0\x16yosh:acp/prompts@7.0.0\x05\x0e\x02\x03\0\0\
-\x05error\x02\x03\0\x01\x12initialize-request\x02\x03\0\x01\x13initialize-respon\
-se\x02\x03\0\x01\x14authenticate-request\x02\x03\0\x02\x10session-model-id\x02\x03\
-\0\x02\x11session-config-id\x02\x03\0\x02\x17session-config-value-id\x02\x03\0\x02\
-\x15session-config-option\x02\x03\0\x02\x13new-session-request\x02\x03\0\x02\x14\
-new-session-response\x02\x03\0\x02\x14load-session-request\x02\x03\0\x02\x15load\
--session-response\x02\x03\0\x02\x15list-sessions-request\x02\x03\0\x02\x16list-s\
-essions-response\x02\x03\0\x02\x16resume-session-request\x02\x03\0\x02\x17resume\
--session-response\x02\x03\0\x06\x0fprompt-response\x01BJ\x02\x03\x02\x01\x0f\x04\
-\0\x05error\x03\0\0\x02\x03\x02\x01\x10\x04\0\x12initialize-request\x03\0\x02\x02\
-\x03\x02\x01\x11\x04\0\x13initialize-response\x03\0\x04\x02\x03\x02\x01\x12\x04\0\
-\x14authenticate-request\x03\0\x06\x02\x03\x02\x01\x0a\x04\0\x0fsession-mode-id\x03\
-\0\x08\x02\x03\x02\x01\x13\x04\0\x10session-model-id\x03\0\x0a\x02\x03\x02\x01\x14\
-\x04\0\x11session-config-id\x03\0\x0c\x02\x03\x02\x01\x15\x04\0\x17session-confi\
-g-value-id\x03\0\x0e\x02\x03\x02\x01\x16\x04\0\x15session-config-option\x03\0\x10\
-\x02\x03\x02\x01\x17\x04\0\x13new-session-request\x03\0\x12\x02\x03\x02\x01\x18\x04\
-\0\x14new-session-response\x03\0\x14\x02\x03\x02\x01\x19\x04\0\x14load-session-r\
-equest\x03\0\x16\x02\x03\x02\x01\x1a\x04\0\x15load-session-response\x03\0\x18\x02\
-\x03\x02\x01\x1b\x04\0\x15list-sessions-request\x03\0\x1a\x02\x03\x02\x01\x1c\x04\
-\0\x16list-sessions-response\x03\0\x1c\x02\x03\x02\x01\x1d\x04\0\x16resume-sessi\
-on-request\x03\0\x1e\x02\x03\x02\x01\x1e\x04\0\x17resume-session-response\x03\0\x20\
-\x02\x03\x02\x01\x07\x04\0\x0dcontent-block\x03\0\"\x02\x03\x02\x01\x1f\x04\0\x0f\
-prompt-response\x03\0$\x04\0\x07session\x03\x01\x01h&\x01p#\x01j\x01%\x01\x01\x01\
-C\x02\x04self'\x06prompt(\0)\x04\0\x16[method]session.prompt\x01*\x01j\0\x01\x01\
-\x01C\x02\x04self'\x07mode-id\x09\0+\x04\0\x18[method]session.set-mode\x01,\x01C\
-\x02\x04self'\x08model-id\x0b\0+\x04\0\x1c[method]session.select-model\x01-\x01p\
-\x11\x01j\x01.\x01\x01\x01C\x03\x04self'\x09config-id\x0d\x05value\x0f\0/\x04\0!\
-[method]session.set-config-option\x010\x01j\x01\x05\x01\x01\x01C\x01\x03req\x03\0\
-1\x04\0\x0ainitialize\x012\x01C\x01\x03req\x07\0+\x04\0\x0cauthenticate\x013\x01\
-i&\x01o\x024\x15\x01j\x015\x01\x01\x01C\x01\x03req\x13\06\x04\0\x0bnew-session\x01\
-7\x01o\x024\x19\x01j\x018\x01\x01\x01C\x01\x03req\x17\09\x04\0\x0cload-session\x01\
-:\x01j\x01\x1d\x01\x01\x01C\x01\x03req\x1b\0;\x04\0\x0dlist-sessions\x01<\x01o\x02\
-4!\x01j\x01=\x01\x01\x01C\x01\x03req\x1f\0>\x04\0\x0eresume-session\x01?\x03\0\x14\
-yosh:acp/agent@7.0.0\x05\x20\x01B\x09\x02\x03\x02\x01\x04\x04\0\x0asession-id\x03\
-\0\0\x01ky\x01r\x04\x0asession-id\x01\x04paths\x04line\x02\x05limit\x02\x04\0\x16\
-read-text-file-request\x03\0\x03\x01r\x01\x07contents\x04\0\x17read-text-file-re\
-sponse\x03\0\x05\x01r\x03\x0asession-id\x01\x04paths\x07contents\x04\0\x17write-\
-text-file-request\x03\0\x07\x03\0\x19yosh:acp/filesystem@7.0.0\x05!\x02\x03\0\x06\
-\x0esession-update\x02\x03\0\x05\x1arequest-permission-request\x02\x03\0\x05\x1b\
-request-permission-response\x02\x03\0\x08\x16read-text-file-request\x02\x03\0\x08\
-\x17read-text-file-response\x02\x03\0\x08\x17write-text-file-request\x02\x03\0\x04\
-\x17create-terminal-request\x02\x03\0\x04\x14terminal-exit-status\x01B*\x02\x03\x02\
-\x01\x0f\x04\0\x05error\x03\0\0\x02\x03\x02\x01\x04\x04\0\x0asession-id\x03\0\x02\
-\x02\x03\x02\x01\"\x04\0\x0esession-update\x03\0\x04\x02\x03\x02\x01#\x04\0\x1ar\
-equest-permission-request\x03\0\x06\x02\x03\x02\x01$\x04\0\x1brequest-permission\
--response\x03\0\x08\x02\x03\x02\x01%\x04\0\x16read-text-file-request\x03\0\x0a\x02\
-\x03\x02\x01&\x04\0\x17read-text-file-response\x03\0\x0c\x02\x03\x02\x01'\x04\0\x17\
-write-text-file-request\x03\0\x0e\x02\x03\x02\x01(\x04\0\x17create-terminal-requ\
-est\x03\0\x10\x02\x03\x02\x01)\x04\0\x14terminal-exit-status\x03\0\x12\x04\0\x08\
-terminal\x03\x01\x01i\x14\x01@\x01\x03req\x11\0\x15\x04\0\x15[constructor]termin\
-al\x01\x16\x01h\x14\x01f\x01}\x01C\x01\x04self\x17\0\x18\x04\0\x17[method]termin\
-al.output\x01\x19\x01j\x01\x13\x01\x01\x01C\x01\x04self\x17\0\x1a\x04\0\x1e[meth\
-od]terminal.wait-for-exit\x01\x1b\x01C\x02\x0asession-id\x03\x06update\x05\x01\0\
-\x04\0\x0enotify-session\x01\x1c\x01j\x01\x09\x01\x01\x01C\x01\x03req\x07\0\x1d\x04\
-\0\x12request-permission\x01\x1e\x01j\x01\x0d\x01\x01\x01C\x01\x03req\x0b\0\x1f\x04\
-\0\x0eread-text-file\x01\x20\x01j\0\x01\x01\x01C\x01\x03req\x0f\0!\x04\0\x0fwrit\
-e-text-file\x01\"\x03\0\x15yosh:acp/client@7.0.0\x05*\x01B\x0a\x01q\x03\x08upstr\
-eam\x01s\0\x02io\x01s\0\x09not-found\0\0\x04\0\x0dsecrets-error\x03\0\0\x01p}\x01\
-q\x02\x06string\x01s\0\x05bytes\x01\x02\0\x04\0\x0csecret-value\x03\0\x03\x04\0\x06\
-secret\x03\x01\x01i\x05\x01j\x01\x06\x01\x01\x01@\x01\x03keys\0\x07\x04\0\x03get\
-\x01\x08\x03\0#wasmcloud:secrets/store@0.1.0-draft\x05+\x02\x03\0\x0a\x06secret\x02\
-\x03\0\x0a\x0csecret-value\x01B\x07\x02\x03\x02\x01,\x04\0\x06secret\x03\0\0\x02\
-\x03\x02\x01-\x04\0\x0csecret-value\x03\0\x02\x01h\x01\x01@\x01\x01s\x04\0\x03\x04\
-\0\x06reveal\x01\x05\x03\0$wasmcloud:secrets/reveal@0.1.0-draft\x05.\x01BJ\x02\x03\
-\x02\x01\x0f\x04\0\x05error\x03\0\0\x02\x03\x02\x01\x10\x04\0\x12initialize-requ\
-est\x03\0\x02\x02\x03\x02\x01\x11\x04\0\x13initialize-response\x03\0\x04\x02\x03\
-\x02\x01\x12\x04\0\x14authenticate-request\x03\0\x06\x02\x03\x02\x01\x0a\x04\0\x0f\
-session-mode-id\x03\0\x08\x02\x03\x02\x01\x13\x04\0\x10session-model-id\x03\0\x0a\
-\x02\x03\x02\x01\x14\x04\0\x11session-config-id\x03\0\x0c\x02\x03\x02\x01\x15\x04\
-\0\x17session-config-value-id\x03\0\x0e\x02\x03\x02\x01\x16\x04\0\x15session-con\
-fig-option\x03\0\x10\x02\x03\x02\x01\x17\x04\0\x13new-session-request\x03\0\x12\x02\
-\x03\x02\x01\x18\x04\0\x14new-session-response\x03\0\x14\x02\x03\x02\x01\x19\x04\
-\0\x14load-session-request\x03\0\x16\x02\x03\x02\x01\x1a\x04\0\x15load-session-r\
-esponse\x03\0\x18\x02\x03\x02\x01\x1b\x04\0\x15list-sessions-request\x03\0\x1a\x02\
-\x03\x02\x01\x1c\x04\0\x16list-sessions-response\x03\0\x1c\x02\x03\x02\x01\x1d\x04\
-\0\x16resume-session-request\x03\0\x1e\x02\x03\x02\x01\x1e\x04\0\x17resume-sessi\
-on-response\x03\0\x20\x02\x03\x02\x01\x07\x04\0\x0dcontent-block\x03\0\"\x02\x03\
-\x02\x01\x1f\x04\0\x0fprompt-response\x03\0$\x04\0\x07session\x03\x01\x01h&\x01p\
-#\x01j\x01%\x01\x01\x01C\x02\x04self'\x06prompt(\0)\x04\0\x16[method]session.pro\
-mpt\x01*\x01j\0\x01\x01\x01C\x02\x04self'\x07mode-id\x09\0+\x04\0\x18[method]ses\
-sion.set-mode\x01,\x01C\x02\x04self'\x08model-id\x0b\0+\x04\0\x1c[method]session\
-.select-model\x01-\x01p\x11\x01j\x01.\x01\x01\x01C\x03\x04self'\x09config-id\x0d\
-\x05value\x0f\0/\x04\0![method]session.set-config-option\x010\x01j\x01\x05\x01\x01\
-\x01C\x01\x03req\x03\01\x04\0\x0ainitialize\x012\x01C\x01\x03req\x07\0+\x04\0\x0c\
-authenticate\x013\x01i&\x01o\x024\x15\x01j\x015\x01\x01\x01C\x01\x03req\x13\06\x04\
-\0\x0bnew-session\x017\x01o\x024\x19\x01j\x018\x01\x01\x01C\x01\x03req\x17\09\x04\
-\0\x0cload-session\x01:\x01j\x01\x1d\x01\x01\x01C\x01\x03req\x1b\0;\x04\0\x0dlis\
-t-sessions\x01<\x01o\x024!\x01j\x01=\x01\x01\x01C\x01\x03req\x1f\0>\x04\0\x0eres\
-ume-session\x01?\x04\0\x14yosh:acp/agent@7.0.0\x05/\x04\0\x17yosh:acp/provider@7\
-.0.0\x04\0\x0b\x0e\x01\0\x08provider\x03\0\0\0G\x09producers\x01\x0cprocessed-by\
-\x02\x0dwit-component\x070.245.1\x10wit-bindgen-rust\x060.54.0";
+messages\x04\0\x05error\x03\0\x02\x03\0\x19wassette:acp/errors@7.0.0\x05\0\x01B\x19\
+\x01ks\x01r\x03\x04names\x05title\0\x07versions\x04\0\x13implementation-info\x03\
+\0\x01\x01r\x02\x0eread-text-file\x7f\x0fwrite-text-file\x7f\x04\0\x0ffs-capabil\
+ities\x03\0\x03\x01r\x02\x02fs\x04\x08terminal\x7f\x04\0\x13client-capabilities\x03\
+\0\x05\x01r\x03\x05image\x7f\x05audio\x7f\x10embedded-context\x7f\x04\0\x13promp\
+t-capabilities\x03\0\x07\x01r\x02\x04http\x7f\x03sse\x7f\x04\0\x10mcp-capabiliti\
+es\x03\0\x09\x01r\x03\x04list\x7f\x06resume\x7f\x05close\x7f\x04\0\x14session-ca\
+pabilities\x03\0\x0b\x01r\x04\x0cload-session\x7f\x13prompt-capabilities\x08\x10\
+mcp-capabilities\x0a\x14session-capabilities\x0c\x04\0\x12agent-capabilities\x03\
+\0\x0d\x01r\x03\x02ids\x04names\x0bdescription\0\x04\0\x0bauth-method\x03\0\x0f\x01\
+r\x01\x09method-ids\x04\0\x14authenticate-request\x03\0\x11\x01k\x02\x01r\x03\x10\
+protocol-versiony\x13client-capabilities\x06\x0bclient-info\x13\x04\0\x12initial\
+ize-request\x03\0\x14\x01p\x10\x01r\x04\x10protocol-versiony\x12agent-capabiliti\
+es\x0e\x0aagent-info\x13\x0cauth-methods\x16\x04\0\x13initialize-response\x03\0\x17\
+\x03\0\x17wassette:acp/init@7.0.0\x05\x01\x01BS\x01s\x04\0\x0asession-id\x03\0\0\
+\x01s\x04\0\x0fsession-mode-id\x03\0\x02\x01s\x04\0\x10session-model-id\x03\0\x04\
+\x01r\x02\x04names\x05values\x04\0\x07env-var\x03\0\x06\x01r\x02\x04names\x05val\
+ues\x04\0\x0bhttp-header\x03\0\x08\x01ps\x01p\x07\x01r\x04\x04names\x07commands\x04\
+args\x0a\x03env\x0b\x04\0\x10mcp-server-stdio\x03\0\x0c\x01p\x09\x01r\x03\x04nam\
+es\x03urls\x07headers\x0e\x04\0\x0fmcp-server-http\x03\0\x0f\x01r\x03\x04names\x03\
+urls\x07headers\x0e\x04\0\x0emcp-server-sse\x03\0\x11\x01q\x03\x05stdio\x01\x0d\0\
+\x04http\x01\x10\0\x03sse\x01\x12\0\x04\0\x0amcp-server\x03\0\x13\x01r\x01\x0cco\
+mponent-ids\x04\0\x10component-source\x03\0\x15\x01ks\x01r\x04\x02id\x03\x04name\
+s\x0bdescription\x17\x0bprovided-by\x16\x04\0\x0csession-mode\x03\0\x18\x01p\x19\
+\x01r\x02\x0fcurrent-mode-id\x03\x0favailable-modes\x1a\x04\0\x12session-mode-st\
+ate\x03\0\x1b\x01r\x02\x0asession-id\x01\x07mode-id\x03\x04\0\x18set-session-mod\
+e-request\x03\0\x1d\x01r\x04\x02id\x05\x04names\x0bdescription\x17\x0bprovided-b\
+y\x16\x04\0\x0dsession-model\x03\0\x1f\x01p\x20\x01r\x02\x10current-model-id\x05\
+\x10available-models!\x04\0\x13session-model-state\x03\0\"\x01r\x02\x0asession-i\
+d\x01\x08model-id\x05\x04\0\x14select-model-request\x03\0$\x01s\x04\0\x11session\
+-config-id\x03\0&\x01s\x04\0\x17session-config-value-id\x03\0(\x01s\x04\0\x17ses\
+sion-config-group-id\x03\0*\x01q\x04\x04mode\0\0\x05model\0\0\x0dthought-level\0\
+\0\x05other\x01s\0\x04\0\x1esession-config-option-category\x03\0,\x01r\x03\x05va\
+lue)\x04names\x0bdescription\x17\x04\0\x1csession-config-select-option\x03\0.\x01\
+p/\x01r\x03\x05group+\x04names\x07options0\x04\0\x1bsession-config-select-group\x03\
+\01\x01p2\x01q\x02\x09ungrouped\x010\0\x07grouped\x013\0\x04\0\x1dsession-config\
+-select-options\x03\04\x01k-\x01r\x07\x02id'\x04names\x0bdescription\x17\x08cate\
+gory6\x0dcurrent-value)\x07options5\x0bprovided-by\x16\x04\0\x15session-config-o\
+ption\x03\07\x01p\x14\x01r\x02\x03cwds\x0bmcp-servers9\x04\0\x13new-session-requ\
+est\x03\0:\x01k\x1c\x01k#\x01p8\x01k>\x01r\x04\x0asession-id\x01\x05modes<\x06mo\
+dels=\x0econfig-options?\x04\0\x14new-session-response\x03\0@\x01r\x03\x0asessio\
+n-id\x01\x03cwds\x0bmcp-servers9\x04\0\x14load-session-request\x03\0B\x01r\x03\x05\
+modes<\x06models=\x0econfig-options?\x04\0\x15load-session-response\x03\0D\x01r\x04\
+\x0asession-id\x01\x03cwds\x05title\x17\x0aupdated-at\x17\x04\0\x0csession-info\x03\
+\0F\x01r\x02\x03cwd\x17\x06cursor\x17\x04\0\x15list-sessions-request\x03\0H\x01p\
+\xc7\0\x01r\x02\x08sessions\xca\0\x0bnext-cursor\x17\x04\0\x16list-sessions-resp\
+onse\x03\0K\x01r\x03\x0asession-id\x01\x03cwds\x0bmcp-servers9\x04\0\x16resume-s\
+ession-request\x03\0M\x01r\x03\x05modes<\x06models=\x0econfig-options?\x04\0\x17\
+resume-session-response\x03\0O\x01r\x02\x05title\x17\x0aupdated-at\x17\x04\0\x13\
+session-info-update\x03\0Q\x03\0\x1bwassette:acp/sessions@7.0.0\x05\x02\x01B\x14\
+\x01r\x01\x04texts\x04\0\x0ctext-content\x03\0\0\x01ks\x01r\x03\x04datas\x09mime\
+-types\x03uri\x02\x04\0\x0dimage-content\x03\0\x03\x01r\x02\x04datas\x09mime-typ\
+es\x04\0\x0daudio-content\x03\0\x05\x01kw\x01r\x06\x03uris\x04names\x09mime-type\
+\x02\x05title\x02\x0bdescription\x02\x04size\x07\x04\0\x0dresource-link\x03\0\x08\
+\x01r\x03\x03uris\x09mime-type\x02\x04texts\x04\0\x16text-resource-contents\x03\0\
+\x0a\x01r\x03\x03uris\x09mime-type\x02\x04blobs\x04\0\x16blob-resource-contents\x03\
+\0\x0c\x01q\x02\x04text\x01\x0b\0\x04blob\x01\x0d\0\x04\0\x11resource-contents\x03\
+\0\x0e\x01r\x01\x08resource\x0f\x04\0\x11embedded-resource\x03\0\x10\x01q\x05\x04\
+text\x01\x01\0\x05image\x01\x04\0\x05audio\x01\x06\0\x0dresource-link\x01\x09\0\x08\
+resource\x01\x11\0\x04\0\x0dcontent-block\x03\0\x12\x03\0\x1awassette:acp/conten\
+t@7.0.0\x05\x03\x02\x03\0\x02\x0asession-id\x02\x03\0\x02\x07env-var\x01B\x14\x02\
+\x03\x02\x01\x04\x04\0\x0asession-id\x03\0\0\x02\x03\x02\x01\x05\x04\0\x07env-va\
+r\x03\0\x02\x01s\x04\0\x0bterminal-id\x03\0\x04\x01ps\x01p\x03\x01ks\x01kw\x01r\x06\
+\x0asession-id\x01\x07commands\x04args\x06\x03env\x07\x03cwd\x08\x11output-byte-\
+limit\x09\x04\0\x17create-terminal-request\x03\0\x0a\x01r\x01\x0bterminal-id\x05\
+\x04\0\x18create-terminal-response\x03\0\x0c\x01kz\x01r\x02\x09exit-code\x0e\x06\
+signal\x08\x04\0\x14terminal-exit-status\x03\0\x0f\x01k\x10\x01r\x03\x06outputs\x09\
+truncated\x7f\x0bexit-status\x11\x04\0\x0fterminal-output\x03\0\x12\x03\0\x1cwas\
+sette:acp/terminals@7.0.0\x05\x06\x02\x03\0\x03\x0dcontent-block\x02\x03\0\x04\x0b\
+terminal-id\x01B9\x02\x03\x02\x01\x07\x04\0\x0dcontent-block\x03\0\0\x02\x03\x02\
+\x01\x08\x04\0\x0bterminal-id\x03\0\x02\x01s\x04\0\x0ctool-call-id\x03\0\x04\x04\
+\0\x09tool-call\x03\x01\x01m\x09\x04read\x04edit\x06delete\x04move\x06search\x07\
+execute\x05think\x05fetch\x05other\x04\0\x09tool-kind\x03\0\x07\x01m\x04\x07pend\
+ing\x0bin-progress\x09completed\x06failed\x04\0\x10tool-call-status\x03\0\x09\x01\
+ks\x01r\x03\x04paths\x08old-text\x0b\x08new-texts\x04\0\x04diff\x03\0\x0c\x01q\x03\
+\x07content\x01\x01\0\x04diff\x01\x0d\0\x08terminal\x01\x03\0\x04\0\x11tool-call\
+-content\x03\0\x0e\x01ky\x01r\x02\x04paths\x04line\x10\x04\0\x12tool-call-locati\
+on\x03\0\x11\x01p\x0f\x01p\x12\x01r\x07\x02id\x05\x05titles\x04kind\x08\x06statu\
+s\x0a\x07content\x13\x09locations\x14\x09raw-input\x0b\x04\0\x0etool-call-init\x03\
+\0\x15\x01k\x08\x01k\x0a\x01k\x13\x01k\x14\x01r\x07\x05title\x0b\x04kind\x17\x06\
+status\x18\x07content\x19\x09locations\x1a\x09raw-input\x0b\x0araw-output\x0b\x04\
+\0\x0ftool-call-patch\x03\0\x1b\x01m\x03\x04high\x06medium\x03low\x04\0\x13plan-\
+entry-priority\x03\0\x1d\x01m\x03\x07pending\x0bin-progress\x09completed\x04\0\x11\
+plan-entry-status\x03\0\x1f\x01r\x03\x07contents\x08priority\x1e\x06status\x20\x04\
+\0\x0aplan-entry\x03\0!\x01p\"\x01r\x01\x07entries#\x04\0\x04plan\x03\0$\x01r\x08\
+\x02id\x05\x05titles\x04kind\x08\x06status\x0a\x07content\x13\x09locations\x14\x09\
+raw-input\x0b\x0araw-output\x0b\x04\0\x12tool-call-snapshot\x03\0&\x01m\x04\x0aa\
+llow-once\x0callow-always\x0breject-once\x0dreject-always\x04\0\x16permission-op\
+tion-kind\x03\0(\x01r\x03\x02ids\x04names\x04kind)\x04\0\x11permission-option\x03\
+\0*\x01p+\x01r\x03\x0asession-ids\x09tool-call'\x07options,\x04\0\x1arequest-per\
+mission-request\x03\0-\x01q\x02\x08selected\x01s\0\x09cancelled\0\0\x04\0\x12per\
+mission-outcome\x03\0/\x01r\x01\x07outcome0\x04\0\x1brequest-permission-response\
+\x03\01\x01i\x06\x01@\x01\x07initial\x16\03\x04\0\x16[constructor]tool-call\x014\
+\x01h\x06\x01C\x02\x04self5\x05patch\x1c\x01\0\x04\0\x18[method]tool-call.update\
+\x016\x03\0\x18wassette:acp/tools@7.0.0\x05\x09\x02\x03\0\x02\x0fsession-mode-id\
+\x02\x03\0\x02\x13session-info-update\x02\x03\0\x05\x12tool-call-snapshot\x02\x03\
+\0\x05\x04plan\x01B\x1b\x02\x03\x02\x01\x0a\x04\0\x0fsession-mode-id\x03\0\0\x02\
+\x03\x02\x01\x0b\x04\0\x13session-info-update\x03\0\x02\x02\x03\x02\x01\x07\x04\0\
+\x0dcontent-block\x03\0\x04\x02\x03\x02\x01\x0c\x04\0\x12tool-call-snapshot\x03\0\
+\x06\x02\x03\x02\x01\x0d\x04\0\x04plan\x03\0\x08\x01m\x05\x08end-turn\x0amax-tok\
+ens\x11max-turn-requests\x07refusal\x09cancelled\x04\0\x0bstop-reason\x03\0\x0a\x01\
+r\x01\x0bstop-reason\x0b\x04\0\x0fprompt-response\x03\0\x0c\x01r\x01\x04hints\x04\
+\0\x17available-command-input\x03\0\x0e\x01k\x0f\x01r\x03\x04names\x0bdescriptio\
+ns\x05input\x10\x04\0\x11available-command\x03\0\x11\x01r\x02\x06amountu\x08curr\
+encys\x04\0\x0ausage-cost\x03\0\x13\x01k\x14\x01r\x03\x04usedw\x04sizew\x04cost\x15\
+\x04\0\x0cusage-update\x03\0\x16\x01p\x12\x01q\x0a\x12user-message-chunk\x01\x05\
+\0\x13agent-message-chunk\x01\x05\0\x13agent-thought-chunk\x01\x05\0\x09tool-cal\
+l\x01\x07\0\x10tool-call-update\x01\x07\0\x04plan\x01\x09\0\x13current-mode-upda\
+te\x01\x01\0\x13session-info-update\x01\x03\0\x19available-commands-update\x01\x18\
+\0\x0cusage-update\x01\x17\0\x04\0\x0esession-update\x03\0\x19\x03\0\x1awassette\
+:acp/prompts@7.0.0\x05\x0e\x02\x03\0\0\x05error\x02\x03\0\x01\x12initialize-requ\
+est\x02\x03\0\x01\x13initialize-response\x02\x03\0\x01\x14authenticate-request\x02\
+\x03\0\x02\x10session-model-id\x02\x03\0\x02\x11session-config-id\x02\x03\0\x02\x17\
+session-config-value-id\x02\x03\0\x02\x15session-config-option\x02\x03\0\x02\x13\
+new-session-request\x02\x03\0\x02\x14new-session-response\x02\x03\0\x02\x14load-\
+session-request\x02\x03\0\x02\x15load-session-response\x02\x03\0\x02\x15list-ses\
+sions-request\x02\x03\0\x02\x16list-sessions-response\x02\x03\0\x02\x16resume-se\
+ssion-request\x02\x03\0\x02\x17resume-session-response\x02\x03\0\x06\x0fprompt-r\
+esponse\x01BJ\x02\x03\x02\x01\x0f\x04\0\x05error\x03\0\0\x02\x03\x02\x01\x10\x04\
+\0\x12initialize-request\x03\0\x02\x02\x03\x02\x01\x11\x04\0\x13initialize-respo\
+nse\x03\0\x04\x02\x03\x02\x01\x12\x04\0\x14authenticate-request\x03\0\x06\x02\x03\
+\x02\x01\x0a\x04\0\x0fsession-mode-id\x03\0\x08\x02\x03\x02\x01\x13\x04\0\x10ses\
+sion-model-id\x03\0\x0a\x02\x03\x02\x01\x14\x04\0\x11session-config-id\x03\0\x0c\
+\x02\x03\x02\x01\x15\x04\0\x17session-config-value-id\x03\0\x0e\x02\x03\x02\x01\x16\
+\x04\0\x15session-config-option\x03\0\x10\x02\x03\x02\x01\x17\x04\0\x13new-sessi\
+on-request\x03\0\x12\x02\x03\x02\x01\x18\x04\0\x14new-session-response\x03\0\x14\
+\x02\x03\x02\x01\x19\x04\0\x14load-session-request\x03\0\x16\x02\x03\x02\x01\x1a\
+\x04\0\x15load-session-response\x03\0\x18\x02\x03\x02\x01\x1b\x04\0\x15list-sess\
+ions-request\x03\0\x1a\x02\x03\x02\x01\x1c\x04\0\x16list-sessions-response\x03\0\
+\x1c\x02\x03\x02\x01\x1d\x04\0\x16resume-session-request\x03\0\x1e\x02\x03\x02\x01\
+\x1e\x04\0\x17resume-session-response\x03\0\x20\x02\x03\x02\x01\x07\x04\0\x0dcon\
+tent-block\x03\0\"\x02\x03\x02\x01\x1f\x04\0\x0fprompt-response\x03\0$\x04\0\x07\
+session\x03\x01\x01h&\x01p#\x01j\x01%\x01\x01\x01C\x02\x04self'\x06prompt(\0)\x04\
+\0\x16[method]session.prompt\x01*\x01j\0\x01\x01\x01C\x02\x04self'\x07mode-id\x09\
+\0+\x04\0\x18[method]session.set-mode\x01,\x01C\x02\x04self'\x08model-id\x0b\0+\x04\
+\0\x1c[method]session.select-model\x01-\x01p\x11\x01j\x01.\x01\x01\x01C\x03\x04s\
+elf'\x09config-id\x0d\x05value\x0f\0/\x04\0![method]session.set-config-option\x01\
+0\x01j\x01\x05\x01\x01\x01C\x01\x03req\x03\01\x04\0\x0ainitialize\x012\x01C\x01\x03\
+req\x07\0+\x04\0\x0cauthenticate\x013\x01i&\x01o\x024\x15\x01j\x015\x01\x01\x01C\
+\x01\x03req\x13\06\x04\0\x0bnew-session\x017\x01o\x024\x19\x01j\x018\x01\x01\x01\
+C\x01\x03req\x17\09\x04\0\x0cload-session\x01:\x01j\x01\x1d\x01\x01\x01C\x01\x03\
+req\x1b\0;\x04\0\x0dlist-sessions\x01<\x01o\x024!\x01j\x01=\x01\x01\x01C\x01\x03\
+req\x1f\0>\x04\0\x0eresume-session\x01?\x03\0\x18wassette:acp/agent@7.0.0\x05\x20\
+\x01B\x09\x02\x03\x02\x01\x04\x04\0\x0asession-id\x03\0\0\x01ky\x01r\x04\x0asess\
+ion-id\x01\x04paths\x04line\x02\x05limit\x02\x04\0\x16read-text-file-request\x03\
+\0\x03\x01r\x01\x07contents\x04\0\x17read-text-file-response\x03\0\x05\x01r\x03\x0a\
+session-id\x01\x04paths\x07contents\x04\0\x17write-text-file-request\x03\0\x07\x03\
+\0\x1dwassette:acp/filesystem@7.0.0\x05!\x02\x03\0\x06\x0esession-update\x02\x03\
+\0\x05\x1arequest-permission-request\x02\x03\0\x05\x1brequest-permission-respons\
+e\x02\x03\0\x08\x16read-text-file-request\x02\x03\0\x08\x17read-text-file-respon\
+se\x02\x03\0\x08\x17write-text-file-request\x02\x03\0\x04\x17create-terminal-req\
+uest\x02\x03\0\x04\x14terminal-exit-status\x01B*\x02\x03\x02\x01\x0f\x04\0\x05er\
+ror\x03\0\0\x02\x03\x02\x01\x04\x04\0\x0asession-id\x03\0\x02\x02\x03\x02\x01\"\x04\
+\0\x0esession-update\x03\0\x04\x02\x03\x02\x01#\x04\0\x1arequest-permission-requ\
+est\x03\0\x06\x02\x03\x02\x01$\x04\0\x1brequest-permission-response\x03\0\x08\x02\
+\x03\x02\x01%\x04\0\x16read-text-file-request\x03\0\x0a\x02\x03\x02\x01&\x04\0\x17\
+read-text-file-response\x03\0\x0c\x02\x03\x02\x01'\x04\0\x17write-text-file-requ\
+est\x03\0\x0e\x02\x03\x02\x01(\x04\0\x17create-terminal-request\x03\0\x10\x02\x03\
+\x02\x01)\x04\0\x14terminal-exit-status\x03\0\x12\x04\0\x08terminal\x03\x01\x01i\
+\x14\x01@\x01\x03req\x11\0\x15\x04\0\x15[constructor]terminal\x01\x16\x01h\x14\x01\
+f\x01}\x01C\x01\x04self\x17\0\x18\x04\0\x17[method]terminal.output\x01\x19\x01j\x01\
+\x13\x01\x01\x01C\x01\x04self\x17\0\x1a\x04\0\x1e[method]terminal.wait-for-exit\x01\
+\x1b\x01C\x02\x0asession-id\x03\x06update\x05\x01\0\x04\0\x0enotify-session\x01\x1c\
+\x01j\x01\x09\x01\x01\x01C\x01\x03req\x07\0\x1d\x04\0\x12request-permission\x01\x1e\
+\x01j\x01\x0d\x01\x01\x01C\x01\x03req\x0b\0\x1f\x04\0\x0eread-text-file\x01\x20\x01\
+j\0\x01\x01\x01C\x01\x03req\x0f\0!\x04\0\x0fwrite-text-file\x01\"\x03\0\x19wasse\
+tte:acp/client@7.0.0\x05*\x01B\x0a\x01q\x03\x08upstream\x01s\0\x02io\x01s\0\x09n\
+ot-found\0\0\x04\0\x0dsecrets-error\x03\0\0\x01p}\x01q\x02\x06string\x01s\0\x05b\
+ytes\x01\x02\0\x04\0\x0csecret-value\x03\0\x03\x04\0\x06secret\x03\x01\x01i\x05\x01\
+j\x01\x06\x01\x01\x01@\x01\x03keys\0\x07\x04\0\x03get\x01\x08\x03\0#wasmcloud:se\
+crets/store@0.1.0-draft\x05+\x02\x03\0\x0a\x06secret\x02\x03\0\x0a\x0csecret-val\
+ue\x01B\x07\x02\x03\x02\x01,\x04\0\x06secret\x03\0\0\x02\x03\x02\x01-\x04\0\x0cs\
+ecret-value\x03\0\x02\x01h\x01\x01@\x01\x01s\x04\0\x03\x04\0\x06reveal\x01\x05\x03\
+\0$wasmcloud:secrets/reveal@0.1.0-draft\x05.\x01BJ\x02\x03\x02\x01\x0f\x04\0\x05\
+error\x03\0\0\x02\x03\x02\x01\x10\x04\0\x12initialize-request\x03\0\x02\x02\x03\x02\
+\x01\x11\x04\0\x13initialize-response\x03\0\x04\x02\x03\x02\x01\x12\x04\0\x14aut\
+henticate-request\x03\0\x06\x02\x03\x02\x01\x0a\x04\0\x0fsession-mode-id\x03\0\x08\
+\x02\x03\x02\x01\x13\x04\0\x10session-model-id\x03\0\x0a\x02\x03\x02\x01\x14\x04\
+\0\x11session-config-id\x03\0\x0c\x02\x03\x02\x01\x15\x04\0\x17session-config-va\
+lue-id\x03\0\x0e\x02\x03\x02\x01\x16\x04\0\x15session-config-option\x03\0\x10\x02\
+\x03\x02\x01\x17\x04\0\x13new-session-request\x03\0\x12\x02\x03\x02\x01\x18\x04\0\
+\x14new-session-response\x03\0\x14\x02\x03\x02\x01\x19\x04\0\x14load-session-req\
+uest\x03\0\x16\x02\x03\x02\x01\x1a\x04\0\x15load-session-response\x03\0\x18\x02\x03\
+\x02\x01\x1b\x04\0\x15list-sessions-request\x03\0\x1a\x02\x03\x02\x01\x1c\x04\0\x16\
+list-sessions-response\x03\0\x1c\x02\x03\x02\x01\x1d\x04\0\x16resume-session-req\
+uest\x03\0\x1e\x02\x03\x02\x01\x1e\x04\0\x17resume-session-response\x03\0\x20\x02\
+\x03\x02\x01\x07\x04\0\x0dcontent-block\x03\0\"\x02\x03\x02\x01\x1f\x04\0\x0fpro\
+mpt-response\x03\0$\x04\0\x07session\x03\x01\x01h&\x01p#\x01j\x01%\x01\x01\x01C\x02\
+\x04self'\x06prompt(\0)\x04\0\x16[method]session.prompt\x01*\x01j\0\x01\x01\x01C\
+\x02\x04self'\x07mode-id\x09\0+\x04\0\x18[method]session.set-mode\x01,\x01C\x02\x04\
+self'\x08model-id\x0b\0+\x04\0\x1c[method]session.select-model\x01-\x01p\x11\x01\
+j\x01.\x01\x01\x01C\x03\x04self'\x09config-id\x0d\x05value\x0f\0/\x04\0![method]\
+session.set-config-option\x010\x01j\x01\x05\x01\x01\x01C\x01\x03req\x03\01\x04\0\
+\x0ainitialize\x012\x01C\x01\x03req\x07\0+\x04\0\x0cauthenticate\x013\x01i&\x01o\
+\x024\x15\x01j\x015\x01\x01\x01C\x01\x03req\x13\06\x04\0\x0bnew-session\x017\x01\
+o\x024\x19\x01j\x018\x01\x01\x01C\x01\x03req\x17\09\x04\0\x0cload-session\x01:\x01\
+j\x01\x1d\x01\x01\x01C\x01\x03req\x1b\0;\x04\0\x0dlist-sessions\x01<\x01o\x024!\x01\
+j\x01=\x01\x01\x01C\x01\x03req\x1f\0>\x04\0\x0eresume-session\x01?\x04\0\x18wass\
+ette:acp/agent@7.0.0\x05/\x04\0\x1bwassette:acp/provider@7.0.0\x04\0\x0b\x0e\x01\
+\0\x08provider\x03\0\0\0G\x09producers\x01\x0cprocessed-by\x02\x0dwit-component\x07\
+0.245.1\x10wit-bindgen-rust\x060.54.0";
         };
     };
 }
@@ -25624,191 +25627,192 @@ pub use __export_provider_impl as export;
 #[rustfmt::skip]
 #[cfg(target_arch = "wasm32")]
 #[unsafe(
-    link_section = "component-type:wit-bindgen:0.54.0:yosh:acp@7.0.0:provider-with-all-of-its-exports-removed:encoded world"
+    link_section = "component-type:wit-bindgen:0.54.0:wassette:acp@7.0.0:provider-with-all-of-its-exports-removed:encoded world"
 )]
 #[doc(hidden)]
 #[allow(clippy::octal_escapes)]
-pub static __WIT_BINDGEN_COMPONENT_TYPE: [u8; 8585] = *b"\
-\0asm\x0d\0\x01\0\0\x19\x16wit-component-encoding\x04\0\x07\xeaA\x01A\x02\x01A;\x01\
+pub static __WIT_BINDGEN_COMPONENT_TYPE: [u8; 8629] = *b"\
+\0asm\x0d\0\x01\0\0\x19\x16wit-component-encoding\x04\0\x07\x96B\x01A\x02\x01A;\x01\
 B\x04\x01q\x08\x0bparse-error\0\0\x0finvalid-request\0\0\x10method-not-found\0\0\
 \x0einvalid-params\0\0\x0einternal-error\0\0\x0dauth-required\0\0\x12resource-no\
 t-found\0\0\x05other\x01z\0\x04\0\x0aerror-code\x03\0\0\x01r\x02\x04code\x01\x07\
-messages\x04\0\x05error\x03\0\x02\x03\0\x15yosh:acp/errors@7.0.0\x05\0\x01B\x19\x01\
-ks\x01r\x03\x04names\x05title\0\x07versions\x04\0\x13implementation-info\x03\0\x01\
-\x01r\x02\x0eread-text-file\x7f\x0fwrite-text-file\x7f\x04\0\x0ffs-capabilities\x03\
-\0\x03\x01r\x02\x02fs\x04\x08terminal\x7f\x04\0\x13client-capabilities\x03\0\x05\
-\x01r\x03\x05image\x7f\x05audio\x7f\x10embedded-context\x7f\x04\0\x13prompt-capa\
-bilities\x03\0\x07\x01r\x02\x04http\x7f\x03sse\x7f\x04\0\x10mcp-capabilities\x03\
-\0\x09\x01r\x03\x04list\x7f\x06resume\x7f\x05close\x7f\x04\0\x14session-capabili\
-ties\x03\0\x0b\x01r\x04\x0cload-session\x7f\x13prompt-capabilities\x08\x10mcp-ca\
-pabilities\x0a\x14session-capabilities\x0c\x04\0\x12agent-capabilities\x03\0\x0d\
-\x01r\x03\x02ids\x04names\x0bdescription\0\x04\0\x0bauth-method\x03\0\x0f\x01r\x01\
-\x09method-ids\x04\0\x14authenticate-request\x03\0\x11\x01k\x02\x01r\x03\x10prot\
-ocol-versiony\x13client-capabilities\x06\x0bclient-info\x13\x04\0\x12initialize-\
-request\x03\0\x14\x01p\x10\x01r\x04\x10protocol-versiony\x12agent-capabilities\x0e\
-\x0aagent-info\x13\x0cauth-methods\x16\x04\0\x13initialize-response\x03\0\x17\x03\
-\0\x13yosh:acp/init@7.0.0\x05\x01\x01BS\x01s\x04\0\x0asession-id\x03\0\0\x01s\x04\
-\0\x0fsession-mode-id\x03\0\x02\x01s\x04\0\x10session-model-id\x03\0\x04\x01r\x02\
-\x04names\x05values\x04\0\x07env-var\x03\0\x06\x01r\x02\x04names\x05values\x04\0\
-\x0bhttp-header\x03\0\x08\x01ps\x01p\x07\x01r\x04\x04names\x07commands\x04args\x0a\
-\x03env\x0b\x04\0\x10mcp-server-stdio\x03\0\x0c\x01p\x09\x01r\x03\x04names\x03ur\
-ls\x07headers\x0e\x04\0\x0fmcp-server-http\x03\0\x0f\x01r\x03\x04names\x03urls\x07\
-headers\x0e\x04\0\x0emcp-server-sse\x03\0\x11\x01q\x03\x05stdio\x01\x0d\0\x04htt\
-p\x01\x10\0\x03sse\x01\x12\0\x04\0\x0amcp-server\x03\0\x13\x01r\x01\x0ccomponent\
--ids\x04\0\x10component-source\x03\0\x15\x01ks\x01r\x04\x02id\x03\x04names\x0bde\
-scription\x17\x0bprovided-by\x16\x04\0\x0csession-mode\x03\0\x18\x01p\x19\x01r\x02\
-\x0fcurrent-mode-id\x03\x0favailable-modes\x1a\x04\0\x12session-mode-state\x03\0\
-\x1b\x01r\x02\x0asession-id\x01\x07mode-id\x03\x04\0\x18set-session-mode-request\
-\x03\0\x1d\x01r\x04\x02id\x05\x04names\x0bdescription\x17\x0bprovided-by\x16\x04\
-\0\x0dsession-model\x03\0\x1f\x01p\x20\x01r\x02\x10current-model-id\x05\x10avail\
-able-models!\x04\0\x13session-model-state\x03\0\"\x01r\x02\x0asession-id\x01\x08\
-model-id\x05\x04\0\x14select-model-request\x03\0$\x01s\x04\0\x11session-config-i\
-d\x03\0&\x01s\x04\0\x17session-config-value-id\x03\0(\x01s\x04\0\x17session-conf\
-ig-group-id\x03\0*\x01q\x04\x04mode\0\0\x05model\0\0\x0dthought-level\0\0\x05oth\
-er\x01s\0\x04\0\x1esession-config-option-category\x03\0,\x01r\x03\x05value)\x04n\
-ames\x0bdescription\x17\x04\0\x1csession-config-select-option\x03\0.\x01p/\x01r\x03\
-\x05group+\x04names\x07options0\x04\0\x1bsession-config-select-group\x03\01\x01p\
-2\x01q\x02\x09ungrouped\x010\0\x07grouped\x013\0\x04\0\x1dsession-config-select-\
-options\x03\04\x01k-\x01r\x07\x02id'\x04names\x0bdescription\x17\x08category6\x0d\
-current-value)\x07options5\x0bprovided-by\x16\x04\0\x15session-config-option\x03\
-\07\x01p\x14\x01r\x02\x03cwds\x0bmcp-servers9\x04\0\x13new-session-request\x03\0\
-:\x01k\x1c\x01k#\x01p8\x01k>\x01r\x04\x0asession-id\x01\x05modes<\x06models=\x0e\
-config-options?\x04\0\x14new-session-response\x03\0@\x01r\x03\x0asession-id\x01\x03\
-cwds\x0bmcp-servers9\x04\0\x14load-session-request\x03\0B\x01r\x03\x05modes<\x06\
-models=\x0econfig-options?\x04\0\x15load-session-response\x03\0D\x01r\x04\x0ases\
-sion-id\x01\x03cwds\x05title\x17\x0aupdated-at\x17\x04\0\x0csession-info\x03\0F\x01\
-r\x02\x03cwd\x17\x06cursor\x17\x04\0\x15list-sessions-request\x03\0H\x01p\xc7\0\x01\
-r\x02\x08sessions\xca\0\x0bnext-cursor\x17\x04\0\x16list-sessions-response\x03\0\
-K\x01r\x03\x0asession-id\x01\x03cwds\x0bmcp-servers9\x04\0\x16resume-session-req\
-uest\x03\0M\x01r\x03\x05modes<\x06models=\x0econfig-options?\x04\0\x17resume-ses\
-sion-response\x03\0O\x01r\x02\x05title\x17\x0aupdated-at\x17\x04\0\x13session-in\
-fo-update\x03\0Q\x03\0\x17yosh:acp/sessions@7.0.0\x05\x02\x01B\x14\x01r\x01\x04t\
-exts\x04\0\x0ctext-content\x03\0\0\x01ks\x01r\x03\x04datas\x09mime-types\x03uri\x02\
-\x04\0\x0dimage-content\x03\0\x03\x01r\x02\x04datas\x09mime-types\x04\0\x0daudio\
--content\x03\0\x05\x01kw\x01r\x06\x03uris\x04names\x09mime-type\x02\x05title\x02\
-\x0bdescription\x02\x04size\x07\x04\0\x0dresource-link\x03\0\x08\x01r\x03\x03uri\
-s\x09mime-type\x02\x04texts\x04\0\x16text-resource-contents\x03\0\x0a\x01r\x03\x03\
-uris\x09mime-type\x02\x04blobs\x04\0\x16blob-resource-contents\x03\0\x0c\x01q\x02\
-\x04text\x01\x0b\0\x04blob\x01\x0d\0\x04\0\x11resource-contents\x03\0\x0e\x01r\x01\
-\x08resource\x0f\x04\0\x11embedded-resource\x03\0\x10\x01q\x05\x04text\x01\x01\0\
-\x05image\x01\x04\0\x05audio\x01\x06\0\x0dresource-link\x01\x09\0\x08resource\x01\
-\x11\0\x04\0\x0dcontent-block\x03\0\x12\x03\0\x16yosh:acp/content@7.0.0\x05\x03\x02\
-\x03\0\x02\x0asession-id\x02\x03\0\x02\x07env-var\x01B\x14\x02\x03\x02\x01\x04\x04\
-\0\x0asession-id\x03\0\0\x02\x03\x02\x01\x05\x04\0\x07env-var\x03\0\x02\x01s\x04\
-\0\x0bterminal-id\x03\0\x04\x01ps\x01p\x03\x01ks\x01kw\x01r\x06\x0asession-id\x01\
-\x07commands\x04args\x06\x03env\x07\x03cwd\x08\x11output-byte-limit\x09\x04\0\x17\
-create-terminal-request\x03\0\x0a\x01r\x01\x0bterminal-id\x05\x04\0\x18create-te\
-rminal-response\x03\0\x0c\x01kz\x01r\x02\x09exit-code\x0e\x06signal\x08\x04\0\x14\
-terminal-exit-status\x03\0\x0f\x01k\x10\x01r\x03\x06outputs\x09truncated\x7f\x0b\
-exit-status\x11\x04\0\x0fterminal-output\x03\0\x12\x03\0\x18yosh:acp/terminals@7\
-.0.0\x05\x06\x02\x03\0\x03\x0dcontent-block\x02\x03\0\x04\x0bterminal-id\x01B9\x02\
-\x03\x02\x01\x07\x04\0\x0dcontent-block\x03\0\0\x02\x03\x02\x01\x08\x04\0\x0bter\
-minal-id\x03\0\x02\x01s\x04\0\x0ctool-call-id\x03\0\x04\x04\0\x09tool-call\x03\x01\
-\x01m\x09\x04read\x04edit\x06delete\x04move\x06search\x07execute\x05think\x05fet\
-ch\x05other\x04\0\x09tool-kind\x03\0\x07\x01m\x04\x07pending\x0bin-progress\x09c\
-ompleted\x06failed\x04\0\x10tool-call-status\x03\0\x09\x01ks\x01r\x03\x04paths\x08\
-old-text\x0b\x08new-texts\x04\0\x04diff\x03\0\x0c\x01q\x03\x07content\x01\x01\0\x04\
-diff\x01\x0d\0\x08terminal\x01\x03\0\x04\0\x11tool-call-content\x03\0\x0e\x01ky\x01\
-r\x02\x04paths\x04line\x10\x04\0\x12tool-call-location\x03\0\x11\x01p\x0f\x01p\x12\
-\x01r\x07\x02id\x05\x05titles\x04kind\x08\x06status\x0a\x07content\x13\x09locati\
-ons\x14\x09raw-input\x0b\x04\0\x0etool-call-init\x03\0\x15\x01k\x08\x01k\x0a\x01\
-k\x13\x01k\x14\x01r\x07\x05title\x0b\x04kind\x17\x06status\x18\x07content\x19\x09\
-locations\x1a\x09raw-input\x0b\x0araw-output\x0b\x04\0\x0ftool-call-patch\x03\0\x1b\
-\x01m\x03\x04high\x06medium\x03low\x04\0\x13plan-entry-priority\x03\0\x1d\x01m\x03\
-\x07pending\x0bin-progress\x09completed\x04\0\x11plan-entry-status\x03\0\x1f\x01\
-r\x03\x07contents\x08priority\x1e\x06status\x20\x04\0\x0aplan-entry\x03\0!\x01p\"\
-\x01r\x01\x07entries#\x04\0\x04plan\x03\0$\x01r\x08\x02id\x05\x05titles\x04kind\x08\
-\x06status\x0a\x07content\x13\x09locations\x14\x09raw-input\x0b\x0araw-output\x0b\
-\x04\0\x12tool-call-snapshot\x03\0&\x01m\x04\x0aallow-once\x0callow-always\x0bre\
-ject-once\x0dreject-always\x04\0\x16permission-option-kind\x03\0(\x01r\x03\x02id\
-s\x04names\x04kind)\x04\0\x11permission-option\x03\0*\x01p+\x01r\x03\x0asession-\
-ids\x09tool-call'\x07options,\x04\0\x1arequest-permission-request\x03\0-\x01q\x02\
-\x08selected\x01s\0\x09cancelled\0\0\x04\0\x12permission-outcome\x03\0/\x01r\x01\
-\x07outcome0\x04\0\x1brequest-permission-response\x03\01\x01i\x06\x01@\x01\x07in\
-itial\x16\03\x04\0\x16[constructor]tool-call\x014\x01h\x06\x01C\x02\x04self5\x05\
-patch\x1c\x01\0\x04\0\x18[method]tool-call.update\x016\x03\0\x14yosh:acp/tools@7\
-.0.0\x05\x09\x02\x03\0\x02\x0fsession-mode-id\x02\x03\0\x02\x13session-info-upda\
-te\x02\x03\0\x05\x12tool-call-snapshot\x02\x03\0\x05\x04plan\x01B\x1b\x02\x03\x02\
-\x01\x0a\x04\0\x0fsession-mode-id\x03\0\0\x02\x03\x02\x01\x0b\x04\0\x13session-i\
-nfo-update\x03\0\x02\x02\x03\x02\x01\x07\x04\0\x0dcontent-block\x03\0\x04\x02\x03\
-\x02\x01\x0c\x04\0\x12tool-call-snapshot\x03\0\x06\x02\x03\x02\x01\x0d\x04\0\x04\
-plan\x03\0\x08\x01m\x05\x08end-turn\x0amax-tokens\x11max-turn-requests\x07refusa\
-l\x09cancelled\x04\0\x0bstop-reason\x03\0\x0a\x01r\x01\x0bstop-reason\x0b\x04\0\x0f\
-prompt-response\x03\0\x0c\x01r\x01\x04hints\x04\0\x17available-command-input\x03\
-\0\x0e\x01k\x0f\x01r\x03\x04names\x0bdescriptions\x05input\x10\x04\0\x11availabl\
-e-command\x03\0\x11\x01r\x02\x06amountu\x08currencys\x04\0\x0ausage-cost\x03\0\x13\
-\x01k\x14\x01r\x03\x04usedw\x04sizew\x04cost\x15\x04\0\x0cusage-update\x03\0\x16\
-\x01p\x12\x01q\x0a\x12user-message-chunk\x01\x05\0\x13agent-message-chunk\x01\x05\
-\0\x13agent-thought-chunk\x01\x05\0\x09tool-call\x01\x07\0\x10tool-call-update\x01\
-\x07\0\x04plan\x01\x09\0\x13current-mode-update\x01\x01\0\x13session-info-update\
-\x01\x03\0\x19available-commands-update\x01\x18\0\x0cusage-update\x01\x17\0\x04\0\
-\x0esession-update\x03\0\x19\x03\0\x16yosh:acp/prompts@7.0.0\x05\x0e\x02\x03\0\0\
-\x05error\x02\x03\0\x01\x12initialize-request\x02\x03\0\x01\x13initialize-respon\
-se\x02\x03\0\x01\x14authenticate-request\x02\x03\0\x02\x10session-model-id\x02\x03\
-\0\x02\x11session-config-id\x02\x03\0\x02\x17session-config-value-id\x02\x03\0\x02\
-\x15session-config-option\x02\x03\0\x02\x13new-session-request\x02\x03\0\x02\x14\
-new-session-response\x02\x03\0\x02\x14load-session-request\x02\x03\0\x02\x15load\
--session-response\x02\x03\0\x02\x15list-sessions-request\x02\x03\0\x02\x16list-s\
-essions-response\x02\x03\0\x02\x16resume-session-request\x02\x03\0\x02\x17resume\
--session-response\x02\x03\0\x06\x0fprompt-response\x01BJ\x02\x03\x02\x01\x0f\x04\
-\0\x05error\x03\0\0\x02\x03\x02\x01\x10\x04\0\x12initialize-request\x03\0\x02\x02\
-\x03\x02\x01\x11\x04\0\x13initialize-response\x03\0\x04\x02\x03\x02\x01\x12\x04\0\
-\x14authenticate-request\x03\0\x06\x02\x03\x02\x01\x0a\x04\0\x0fsession-mode-id\x03\
-\0\x08\x02\x03\x02\x01\x13\x04\0\x10session-model-id\x03\0\x0a\x02\x03\x02\x01\x14\
-\x04\0\x11session-config-id\x03\0\x0c\x02\x03\x02\x01\x15\x04\0\x17session-confi\
-g-value-id\x03\0\x0e\x02\x03\x02\x01\x16\x04\0\x15session-config-option\x03\0\x10\
-\x02\x03\x02\x01\x17\x04\0\x13new-session-request\x03\0\x12\x02\x03\x02\x01\x18\x04\
-\0\x14new-session-response\x03\0\x14\x02\x03\x02\x01\x19\x04\0\x14load-session-r\
-equest\x03\0\x16\x02\x03\x02\x01\x1a\x04\0\x15load-session-response\x03\0\x18\x02\
-\x03\x02\x01\x1b\x04\0\x15list-sessions-request\x03\0\x1a\x02\x03\x02\x01\x1c\x04\
-\0\x16list-sessions-response\x03\0\x1c\x02\x03\x02\x01\x1d\x04\0\x16resume-sessi\
-on-request\x03\0\x1e\x02\x03\x02\x01\x1e\x04\0\x17resume-session-response\x03\0\x20\
-\x02\x03\x02\x01\x07\x04\0\x0dcontent-block\x03\0\"\x02\x03\x02\x01\x1f\x04\0\x0f\
-prompt-response\x03\0$\x04\0\x07session\x03\x01\x01h&\x01p#\x01j\x01%\x01\x01\x01\
-C\x02\x04self'\x06prompt(\0)\x04\0\x16[method]session.prompt\x01*\x01j\0\x01\x01\
-\x01C\x02\x04self'\x07mode-id\x09\0+\x04\0\x18[method]session.set-mode\x01,\x01C\
-\x02\x04self'\x08model-id\x0b\0+\x04\0\x1c[method]session.select-model\x01-\x01p\
-\x11\x01j\x01.\x01\x01\x01C\x03\x04self'\x09config-id\x0d\x05value\x0f\0/\x04\0!\
-[method]session.set-config-option\x010\x01j\x01\x05\x01\x01\x01C\x01\x03req\x03\0\
-1\x04\0\x0ainitialize\x012\x01C\x01\x03req\x07\0+\x04\0\x0cauthenticate\x013\x01\
-i&\x01o\x024\x15\x01j\x015\x01\x01\x01C\x01\x03req\x13\06\x04\0\x0bnew-session\x01\
-7\x01o\x024\x19\x01j\x018\x01\x01\x01C\x01\x03req\x17\09\x04\0\x0cload-session\x01\
-:\x01j\x01\x1d\x01\x01\x01C\x01\x03req\x1b\0;\x04\0\x0dlist-sessions\x01<\x01o\x02\
-4!\x01j\x01=\x01\x01\x01C\x01\x03req\x1f\0>\x04\0\x0eresume-session\x01?\x03\0\x14\
-yosh:acp/agent@7.0.0\x05\x20\x01B\x09\x02\x03\x02\x01\x04\x04\0\x0asession-id\x03\
-\0\0\x01ky\x01r\x04\x0asession-id\x01\x04paths\x04line\x02\x05limit\x02\x04\0\x16\
-read-text-file-request\x03\0\x03\x01r\x01\x07contents\x04\0\x17read-text-file-re\
-sponse\x03\0\x05\x01r\x03\x0asession-id\x01\x04paths\x07contents\x04\0\x17write-\
-text-file-request\x03\0\x07\x03\0\x19yosh:acp/filesystem@7.0.0\x05!\x02\x03\0\x06\
-\x0esession-update\x02\x03\0\x05\x1arequest-permission-request\x02\x03\0\x05\x1b\
-request-permission-response\x02\x03\0\x08\x16read-text-file-request\x02\x03\0\x08\
-\x17read-text-file-response\x02\x03\0\x08\x17write-text-file-request\x02\x03\0\x04\
-\x17create-terminal-request\x02\x03\0\x04\x14terminal-exit-status\x01B*\x02\x03\x02\
-\x01\x0f\x04\0\x05error\x03\0\0\x02\x03\x02\x01\x04\x04\0\x0asession-id\x03\0\x02\
-\x02\x03\x02\x01\"\x04\0\x0esession-update\x03\0\x04\x02\x03\x02\x01#\x04\0\x1ar\
-equest-permission-request\x03\0\x06\x02\x03\x02\x01$\x04\0\x1brequest-permission\
--response\x03\0\x08\x02\x03\x02\x01%\x04\0\x16read-text-file-request\x03\0\x0a\x02\
-\x03\x02\x01&\x04\0\x17read-text-file-response\x03\0\x0c\x02\x03\x02\x01'\x04\0\x17\
-write-text-file-request\x03\0\x0e\x02\x03\x02\x01(\x04\0\x17create-terminal-requ\
-est\x03\0\x10\x02\x03\x02\x01)\x04\0\x14terminal-exit-status\x03\0\x12\x04\0\x08\
-terminal\x03\x01\x01i\x14\x01@\x01\x03req\x11\0\x15\x04\0\x15[constructor]termin\
-al\x01\x16\x01h\x14\x01f\x01}\x01C\x01\x04self\x17\0\x18\x04\0\x17[method]termin\
-al.output\x01\x19\x01j\x01\x13\x01\x01\x01C\x01\x04self\x17\0\x1a\x04\0\x1e[meth\
-od]terminal.wait-for-exit\x01\x1b\x01C\x02\x0asession-id\x03\x06update\x05\x01\0\
-\x04\0\x0enotify-session\x01\x1c\x01j\x01\x09\x01\x01\x01C\x01\x03req\x07\0\x1d\x04\
-\0\x12request-permission\x01\x1e\x01j\x01\x0d\x01\x01\x01C\x01\x03req\x0b\0\x1f\x04\
-\0\x0eread-text-file\x01\x20\x01j\0\x01\x01\x01C\x01\x03req\x0f\0!\x04\0\x0fwrit\
-e-text-file\x01\"\x03\0\x15yosh:acp/client@7.0.0\x05*\x01B\x0a\x01q\x03\x08upstr\
-eam\x01s\0\x02io\x01s\0\x09not-found\0\0\x04\0\x0dsecrets-error\x03\0\0\x01p}\x01\
-q\x02\x06string\x01s\0\x05bytes\x01\x02\0\x04\0\x0csecret-value\x03\0\x03\x04\0\x06\
-secret\x03\x01\x01i\x05\x01j\x01\x06\x01\x01\x01@\x01\x03keys\0\x07\x04\0\x03get\
-\x01\x08\x03\0#wasmcloud:secrets/store@0.1.0-draft\x05+\x02\x03\0\x0a\x06secret\x02\
-\x03\0\x0a\x0csecret-value\x01B\x07\x02\x03\x02\x01,\x04\0\x06secret\x03\0\0\x02\
-\x03\x02\x01-\x04\0\x0csecret-value\x03\0\x02\x01h\x01\x01@\x01\x01s\x04\0\x03\x04\
-\0\x06reveal\x01\x05\x03\0$wasmcloud:secrets/reveal@0.1.0-draft\x05.\x04\07yosh:\
-acp/provider-with-all-of-its-exports-removed@7.0.0\x04\0\x0b.\x01\0(provider-wit\
-h-all-of-its-exports-removed\x03\0\0\0G\x09producers\x01\x0cprocessed-by\x02\x0d\
-wit-component\x070.245.1\x10wit-bindgen-rust\x060.54.0";
+messages\x04\0\x05error\x03\0\x02\x03\0\x19wassette:acp/errors@7.0.0\x05\0\x01B\x19\
+\x01ks\x01r\x03\x04names\x05title\0\x07versions\x04\0\x13implementation-info\x03\
+\0\x01\x01r\x02\x0eread-text-file\x7f\x0fwrite-text-file\x7f\x04\0\x0ffs-capabil\
+ities\x03\0\x03\x01r\x02\x02fs\x04\x08terminal\x7f\x04\0\x13client-capabilities\x03\
+\0\x05\x01r\x03\x05image\x7f\x05audio\x7f\x10embedded-context\x7f\x04\0\x13promp\
+t-capabilities\x03\0\x07\x01r\x02\x04http\x7f\x03sse\x7f\x04\0\x10mcp-capabiliti\
+es\x03\0\x09\x01r\x03\x04list\x7f\x06resume\x7f\x05close\x7f\x04\0\x14session-ca\
+pabilities\x03\0\x0b\x01r\x04\x0cload-session\x7f\x13prompt-capabilities\x08\x10\
+mcp-capabilities\x0a\x14session-capabilities\x0c\x04\0\x12agent-capabilities\x03\
+\0\x0d\x01r\x03\x02ids\x04names\x0bdescription\0\x04\0\x0bauth-method\x03\0\x0f\x01\
+r\x01\x09method-ids\x04\0\x14authenticate-request\x03\0\x11\x01k\x02\x01r\x03\x10\
+protocol-versiony\x13client-capabilities\x06\x0bclient-info\x13\x04\0\x12initial\
+ize-request\x03\0\x14\x01p\x10\x01r\x04\x10protocol-versiony\x12agent-capabiliti\
+es\x0e\x0aagent-info\x13\x0cauth-methods\x16\x04\0\x13initialize-response\x03\0\x17\
+\x03\0\x17wassette:acp/init@7.0.0\x05\x01\x01BS\x01s\x04\0\x0asession-id\x03\0\0\
+\x01s\x04\0\x0fsession-mode-id\x03\0\x02\x01s\x04\0\x10session-model-id\x03\0\x04\
+\x01r\x02\x04names\x05values\x04\0\x07env-var\x03\0\x06\x01r\x02\x04names\x05val\
+ues\x04\0\x0bhttp-header\x03\0\x08\x01ps\x01p\x07\x01r\x04\x04names\x07commands\x04\
+args\x0a\x03env\x0b\x04\0\x10mcp-server-stdio\x03\0\x0c\x01p\x09\x01r\x03\x04nam\
+es\x03urls\x07headers\x0e\x04\0\x0fmcp-server-http\x03\0\x0f\x01r\x03\x04names\x03\
+urls\x07headers\x0e\x04\0\x0emcp-server-sse\x03\0\x11\x01q\x03\x05stdio\x01\x0d\0\
+\x04http\x01\x10\0\x03sse\x01\x12\0\x04\0\x0amcp-server\x03\0\x13\x01r\x01\x0cco\
+mponent-ids\x04\0\x10component-source\x03\0\x15\x01ks\x01r\x04\x02id\x03\x04name\
+s\x0bdescription\x17\x0bprovided-by\x16\x04\0\x0csession-mode\x03\0\x18\x01p\x19\
+\x01r\x02\x0fcurrent-mode-id\x03\x0favailable-modes\x1a\x04\0\x12session-mode-st\
+ate\x03\0\x1b\x01r\x02\x0asession-id\x01\x07mode-id\x03\x04\0\x18set-session-mod\
+e-request\x03\0\x1d\x01r\x04\x02id\x05\x04names\x0bdescription\x17\x0bprovided-b\
+y\x16\x04\0\x0dsession-model\x03\0\x1f\x01p\x20\x01r\x02\x10current-model-id\x05\
+\x10available-models!\x04\0\x13session-model-state\x03\0\"\x01r\x02\x0asession-i\
+d\x01\x08model-id\x05\x04\0\x14select-model-request\x03\0$\x01s\x04\0\x11session\
+-config-id\x03\0&\x01s\x04\0\x17session-config-value-id\x03\0(\x01s\x04\0\x17ses\
+sion-config-group-id\x03\0*\x01q\x04\x04mode\0\0\x05model\0\0\x0dthought-level\0\
+\0\x05other\x01s\0\x04\0\x1esession-config-option-category\x03\0,\x01r\x03\x05va\
+lue)\x04names\x0bdescription\x17\x04\0\x1csession-config-select-option\x03\0.\x01\
+p/\x01r\x03\x05group+\x04names\x07options0\x04\0\x1bsession-config-select-group\x03\
+\01\x01p2\x01q\x02\x09ungrouped\x010\0\x07grouped\x013\0\x04\0\x1dsession-config\
+-select-options\x03\04\x01k-\x01r\x07\x02id'\x04names\x0bdescription\x17\x08cate\
+gory6\x0dcurrent-value)\x07options5\x0bprovided-by\x16\x04\0\x15session-config-o\
+ption\x03\07\x01p\x14\x01r\x02\x03cwds\x0bmcp-servers9\x04\0\x13new-session-requ\
+est\x03\0:\x01k\x1c\x01k#\x01p8\x01k>\x01r\x04\x0asession-id\x01\x05modes<\x06mo\
+dels=\x0econfig-options?\x04\0\x14new-session-response\x03\0@\x01r\x03\x0asessio\
+n-id\x01\x03cwds\x0bmcp-servers9\x04\0\x14load-session-request\x03\0B\x01r\x03\x05\
+modes<\x06models=\x0econfig-options?\x04\0\x15load-session-response\x03\0D\x01r\x04\
+\x0asession-id\x01\x03cwds\x05title\x17\x0aupdated-at\x17\x04\0\x0csession-info\x03\
+\0F\x01r\x02\x03cwd\x17\x06cursor\x17\x04\0\x15list-sessions-request\x03\0H\x01p\
+\xc7\0\x01r\x02\x08sessions\xca\0\x0bnext-cursor\x17\x04\0\x16list-sessions-resp\
+onse\x03\0K\x01r\x03\x0asession-id\x01\x03cwds\x0bmcp-servers9\x04\0\x16resume-s\
+ession-request\x03\0M\x01r\x03\x05modes<\x06models=\x0econfig-options?\x04\0\x17\
+resume-session-response\x03\0O\x01r\x02\x05title\x17\x0aupdated-at\x17\x04\0\x13\
+session-info-update\x03\0Q\x03\0\x1bwassette:acp/sessions@7.0.0\x05\x02\x01B\x14\
+\x01r\x01\x04texts\x04\0\x0ctext-content\x03\0\0\x01ks\x01r\x03\x04datas\x09mime\
+-types\x03uri\x02\x04\0\x0dimage-content\x03\0\x03\x01r\x02\x04datas\x09mime-typ\
+es\x04\0\x0daudio-content\x03\0\x05\x01kw\x01r\x06\x03uris\x04names\x09mime-type\
+\x02\x05title\x02\x0bdescription\x02\x04size\x07\x04\0\x0dresource-link\x03\0\x08\
+\x01r\x03\x03uris\x09mime-type\x02\x04texts\x04\0\x16text-resource-contents\x03\0\
+\x0a\x01r\x03\x03uris\x09mime-type\x02\x04blobs\x04\0\x16blob-resource-contents\x03\
+\0\x0c\x01q\x02\x04text\x01\x0b\0\x04blob\x01\x0d\0\x04\0\x11resource-contents\x03\
+\0\x0e\x01r\x01\x08resource\x0f\x04\0\x11embedded-resource\x03\0\x10\x01q\x05\x04\
+text\x01\x01\0\x05image\x01\x04\0\x05audio\x01\x06\0\x0dresource-link\x01\x09\0\x08\
+resource\x01\x11\0\x04\0\x0dcontent-block\x03\0\x12\x03\0\x1awassette:acp/conten\
+t@7.0.0\x05\x03\x02\x03\0\x02\x0asession-id\x02\x03\0\x02\x07env-var\x01B\x14\x02\
+\x03\x02\x01\x04\x04\0\x0asession-id\x03\0\0\x02\x03\x02\x01\x05\x04\0\x07env-va\
+r\x03\0\x02\x01s\x04\0\x0bterminal-id\x03\0\x04\x01ps\x01p\x03\x01ks\x01kw\x01r\x06\
+\x0asession-id\x01\x07commands\x04args\x06\x03env\x07\x03cwd\x08\x11output-byte-\
+limit\x09\x04\0\x17create-terminal-request\x03\0\x0a\x01r\x01\x0bterminal-id\x05\
+\x04\0\x18create-terminal-response\x03\0\x0c\x01kz\x01r\x02\x09exit-code\x0e\x06\
+signal\x08\x04\0\x14terminal-exit-status\x03\0\x0f\x01k\x10\x01r\x03\x06outputs\x09\
+truncated\x7f\x0bexit-status\x11\x04\0\x0fterminal-output\x03\0\x12\x03\0\x1cwas\
+sette:acp/terminals@7.0.0\x05\x06\x02\x03\0\x03\x0dcontent-block\x02\x03\0\x04\x0b\
+terminal-id\x01B9\x02\x03\x02\x01\x07\x04\0\x0dcontent-block\x03\0\0\x02\x03\x02\
+\x01\x08\x04\0\x0bterminal-id\x03\0\x02\x01s\x04\0\x0ctool-call-id\x03\0\x04\x04\
+\0\x09tool-call\x03\x01\x01m\x09\x04read\x04edit\x06delete\x04move\x06search\x07\
+execute\x05think\x05fetch\x05other\x04\0\x09tool-kind\x03\0\x07\x01m\x04\x07pend\
+ing\x0bin-progress\x09completed\x06failed\x04\0\x10tool-call-status\x03\0\x09\x01\
+ks\x01r\x03\x04paths\x08old-text\x0b\x08new-texts\x04\0\x04diff\x03\0\x0c\x01q\x03\
+\x07content\x01\x01\0\x04diff\x01\x0d\0\x08terminal\x01\x03\0\x04\0\x11tool-call\
+-content\x03\0\x0e\x01ky\x01r\x02\x04paths\x04line\x10\x04\0\x12tool-call-locati\
+on\x03\0\x11\x01p\x0f\x01p\x12\x01r\x07\x02id\x05\x05titles\x04kind\x08\x06statu\
+s\x0a\x07content\x13\x09locations\x14\x09raw-input\x0b\x04\0\x0etool-call-init\x03\
+\0\x15\x01k\x08\x01k\x0a\x01k\x13\x01k\x14\x01r\x07\x05title\x0b\x04kind\x17\x06\
+status\x18\x07content\x19\x09locations\x1a\x09raw-input\x0b\x0araw-output\x0b\x04\
+\0\x0ftool-call-patch\x03\0\x1b\x01m\x03\x04high\x06medium\x03low\x04\0\x13plan-\
+entry-priority\x03\0\x1d\x01m\x03\x07pending\x0bin-progress\x09completed\x04\0\x11\
+plan-entry-status\x03\0\x1f\x01r\x03\x07contents\x08priority\x1e\x06status\x20\x04\
+\0\x0aplan-entry\x03\0!\x01p\"\x01r\x01\x07entries#\x04\0\x04plan\x03\0$\x01r\x08\
+\x02id\x05\x05titles\x04kind\x08\x06status\x0a\x07content\x13\x09locations\x14\x09\
+raw-input\x0b\x0araw-output\x0b\x04\0\x12tool-call-snapshot\x03\0&\x01m\x04\x0aa\
+llow-once\x0callow-always\x0breject-once\x0dreject-always\x04\0\x16permission-op\
+tion-kind\x03\0(\x01r\x03\x02ids\x04names\x04kind)\x04\0\x11permission-option\x03\
+\0*\x01p+\x01r\x03\x0asession-ids\x09tool-call'\x07options,\x04\0\x1arequest-per\
+mission-request\x03\0-\x01q\x02\x08selected\x01s\0\x09cancelled\0\0\x04\0\x12per\
+mission-outcome\x03\0/\x01r\x01\x07outcome0\x04\0\x1brequest-permission-response\
+\x03\01\x01i\x06\x01@\x01\x07initial\x16\03\x04\0\x16[constructor]tool-call\x014\
+\x01h\x06\x01C\x02\x04self5\x05patch\x1c\x01\0\x04\0\x18[method]tool-call.update\
+\x016\x03\0\x18wassette:acp/tools@7.0.0\x05\x09\x02\x03\0\x02\x0fsession-mode-id\
+\x02\x03\0\x02\x13session-info-update\x02\x03\0\x05\x12tool-call-snapshot\x02\x03\
+\0\x05\x04plan\x01B\x1b\x02\x03\x02\x01\x0a\x04\0\x0fsession-mode-id\x03\0\0\x02\
+\x03\x02\x01\x0b\x04\0\x13session-info-update\x03\0\x02\x02\x03\x02\x01\x07\x04\0\
+\x0dcontent-block\x03\0\x04\x02\x03\x02\x01\x0c\x04\0\x12tool-call-snapshot\x03\0\
+\x06\x02\x03\x02\x01\x0d\x04\0\x04plan\x03\0\x08\x01m\x05\x08end-turn\x0amax-tok\
+ens\x11max-turn-requests\x07refusal\x09cancelled\x04\0\x0bstop-reason\x03\0\x0a\x01\
+r\x01\x0bstop-reason\x0b\x04\0\x0fprompt-response\x03\0\x0c\x01r\x01\x04hints\x04\
+\0\x17available-command-input\x03\0\x0e\x01k\x0f\x01r\x03\x04names\x0bdescriptio\
+ns\x05input\x10\x04\0\x11available-command\x03\0\x11\x01r\x02\x06amountu\x08curr\
+encys\x04\0\x0ausage-cost\x03\0\x13\x01k\x14\x01r\x03\x04usedw\x04sizew\x04cost\x15\
+\x04\0\x0cusage-update\x03\0\x16\x01p\x12\x01q\x0a\x12user-message-chunk\x01\x05\
+\0\x13agent-message-chunk\x01\x05\0\x13agent-thought-chunk\x01\x05\0\x09tool-cal\
+l\x01\x07\0\x10tool-call-update\x01\x07\0\x04plan\x01\x09\0\x13current-mode-upda\
+te\x01\x01\0\x13session-info-update\x01\x03\0\x19available-commands-update\x01\x18\
+\0\x0cusage-update\x01\x17\0\x04\0\x0esession-update\x03\0\x19\x03\0\x1awassette\
+:acp/prompts@7.0.0\x05\x0e\x02\x03\0\0\x05error\x02\x03\0\x01\x12initialize-requ\
+est\x02\x03\0\x01\x13initialize-response\x02\x03\0\x01\x14authenticate-request\x02\
+\x03\0\x02\x10session-model-id\x02\x03\0\x02\x11session-config-id\x02\x03\0\x02\x17\
+session-config-value-id\x02\x03\0\x02\x15session-config-option\x02\x03\0\x02\x13\
+new-session-request\x02\x03\0\x02\x14new-session-response\x02\x03\0\x02\x14load-\
+session-request\x02\x03\0\x02\x15load-session-response\x02\x03\0\x02\x15list-ses\
+sions-request\x02\x03\0\x02\x16list-sessions-response\x02\x03\0\x02\x16resume-se\
+ssion-request\x02\x03\0\x02\x17resume-session-response\x02\x03\0\x06\x0fprompt-r\
+esponse\x01BJ\x02\x03\x02\x01\x0f\x04\0\x05error\x03\0\0\x02\x03\x02\x01\x10\x04\
+\0\x12initialize-request\x03\0\x02\x02\x03\x02\x01\x11\x04\0\x13initialize-respo\
+nse\x03\0\x04\x02\x03\x02\x01\x12\x04\0\x14authenticate-request\x03\0\x06\x02\x03\
+\x02\x01\x0a\x04\0\x0fsession-mode-id\x03\0\x08\x02\x03\x02\x01\x13\x04\0\x10ses\
+sion-model-id\x03\0\x0a\x02\x03\x02\x01\x14\x04\0\x11session-config-id\x03\0\x0c\
+\x02\x03\x02\x01\x15\x04\0\x17session-config-value-id\x03\0\x0e\x02\x03\x02\x01\x16\
+\x04\0\x15session-config-option\x03\0\x10\x02\x03\x02\x01\x17\x04\0\x13new-sessi\
+on-request\x03\0\x12\x02\x03\x02\x01\x18\x04\0\x14new-session-response\x03\0\x14\
+\x02\x03\x02\x01\x19\x04\0\x14load-session-request\x03\0\x16\x02\x03\x02\x01\x1a\
+\x04\0\x15load-session-response\x03\0\x18\x02\x03\x02\x01\x1b\x04\0\x15list-sess\
+ions-request\x03\0\x1a\x02\x03\x02\x01\x1c\x04\0\x16list-sessions-response\x03\0\
+\x1c\x02\x03\x02\x01\x1d\x04\0\x16resume-session-request\x03\0\x1e\x02\x03\x02\x01\
+\x1e\x04\0\x17resume-session-response\x03\0\x20\x02\x03\x02\x01\x07\x04\0\x0dcon\
+tent-block\x03\0\"\x02\x03\x02\x01\x1f\x04\0\x0fprompt-response\x03\0$\x04\0\x07\
+session\x03\x01\x01h&\x01p#\x01j\x01%\x01\x01\x01C\x02\x04self'\x06prompt(\0)\x04\
+\0\x16[method]session.prompt\x01*\x01j\0\x01\x01\x01C\x02\x04self'\x07mode-id\x09\
+\0+\x04\0\x18[method]session.set-mode\x01,\x01C\x02\x04self'\x08model-id\x0b\0+\x04\
+\0\x1c[method]session.select-model\x01-\x01p\x11\x01j\x01.\x01\x01\x01C\x03\x04s\
+elf'\x09config-id\x0d\x05value\x0f\0/\x04\0![method]session.set-config-option\x01\
+0\x01j\x01\x05\x01\x01\x01C\x01\x03req\x03\01\x04\0\x0ainitialize\x012\x01C\x01\x03\
+req\x07\0+\x04\0\x0cauthenticate\x013\x01i&\x01o\x024\x15\x01j\x015\x01\x01\x01C\
+\x01\x03req\x13\06\x04\0\x0bnew-session\x017\x01o\x024\x19\x01j\x018\x01\x01\x01\
+C\x01\x03req\x17\09\x04\0\x0cload-session\x01:\x01j\x01\x1d\x01\x01\x01C\x01\x03\
+req\x1b\0;\x04\0\x0dlist-sessions\x01<\x01o\x024!\x01j\x01=\x01\x01\x01C\x01\x03\
+req\x1f\0>\x04\0\x0eresume-session\x01?\x03\0\x18wassette:acp/agent@7.0.0\x05\x20\
+\x01B\x09\x02\x03\x02\x01\x04\x04\0\x0asession-id\x03\0\0\x01ky\x01r\x04\x0asess\
+ion-id\x01\x04paths\x04line\x02\x05limit\x02\x04\0\x16read-text-file-request\x03\
+\0\x03\x01r\x01\x07contents\x04\0\x17read-text-file-response\x03\0\x05\x01r\x03\x0a\
+session-id\x01\x04paths\x07contents\x04\0\x17write-text-file-request\x03\0\x07\x03\
+\0\x1dwassette:acp/filesystem@7.0.0\x05!\x02\x03\0\x06\x0esession-update\x02\x03\
+\0\x05\x1arequest-permission-request\x02\x03\0\x05\x1brequest-permission-respons\
+e\x02\x03\0\x08\x16read-text-file-request\x02\x03\0\x08\x17read-text-file-respon\
+se\x02\x03\0\x08\x17write-text-file-request\x02\x03\0\x04\x17create-terminal-req\
+uest\x02\x03\0\x04\x14terminal-exit-status\x01B*\x02\x03\x02\x01\x0f\x04\0\x05er\
+ror\x03\0\0\x02\x03\x02\x01\x04\x04\0\x0asession-id\x03\0\x02\x02\x03\x02\x01\"\x04\
+\0\x0esession-update\x03\0\x04\x02\x03\x02\x01#\x04\0\x1arequest-permission-requ\
+est\x03\0\x06\x02\x03\x02\x01$\x04\0\x1brequest-permission-response\x03\0\x08\x02\
+\x03\x02\x01%\x04\0\x16read-text-file-request\x03\0\x0a\x02\x03\x02\x01&\x04\0\x17\
+read-text-file-response\x03\0\x0c\x02\x03\x02\x01'\x04\0\x17write-text-file-requ\
+est\x03\0\x0e\x02\x03\x02\x01(\x04\0\x17create-terminal-request\x03\0\x10\x02\x03\
+\x02\x01)\x04\0\x14terminal-exit-status\x03\0\x12\x04\0\x08terminal\x03\x01\x01i\
+\x14\x01@\x01\x03req\x11\0\x15\x04\0\x15[constructor]terminal\x01\x16\x01h\x14\x01\
+f\x01}\x01C\x01\x04self\x17\0\x18\x04\0\x17[method]terminal.output\x01\x19\x01j\x01\
+\x13\x01\x01\x01C\x01\x04self\x17\0\x1a\x04\0\x1e[method]terminal.wait-for-exit\x01\
+\x1b\x01C\x02\x0asession-id\x03\x06update\x05\x01\0\x04\0\x0enotify-session\x01\x1c\
+\x01j\x01\x09\x01\x01\x01C\x01\x03req\x07\0\x1d\x04\0\x12request-permission\x01\x1e\
+\x01j\x01\x0d\x01\x01\x01C\x01\x03req\x0b\0\x1f\x04\0\x0eread-text-file\x01\x20\x01\
+j\0\x01\x01\x01C\x01\x03req\x0f\0!\x04\0\x0fwrite-text-file\x01\"\x03\0\x19wasse\
+tte:acp/client@7.0.0\x05*\x01B\x0a\x01q\x03\x08upstream\x01s\0\x02io\x01s\0\x09n\
+ot-found\0\0\x04\0\x0dsecrets-error\x03\0\0\x01p}\x01q\x02\x06string\x01s\0\x05b\
+ytes\x01\x02\0\x04\0\x0csecret-value\x03\0\x03\x04\0\x06secret\x03\x01\x01i\x05\x01\
+j\x01\x06\x01\x01\x01@\x01\x03keys\0\x07\x04\0\x03get\x01\x08\x03\0#wasmcloud:se\
+crets/store@0.1.0-draft\x05+\x02\x03\0\x0a\x06secret\x02\x03\0\x0a\x0csecret-val\
+ue\x01B\x07\x02\x03\x02\x01,\x04\0\x06secret\x03\0\0\x02\x03\x02\x01-\x04\0\x0cs\
+ecret-value\x03\0\x02\x01h\x01\x01@\x01\x01s\x04\0\x03\x04\0\x06reveal\x01\x05\x03\
+\0$wasmcloud:secrets/reveal@0.1.0-draft\x05.\x04\0;wassette:acp/provider-with-al\
+l-of-its-exports-removed@7.0.0\x04\0\x0b.\x01\0(provider-with-all-of-its-exports\
+-removed\x03\0\0\0G\x09producers\x01\x0cprocessed-by\x02\x0dwit-component\x070.2\
+45.1\x10wit-bindgen-rust\x060.54.0";
 #[inline(never)]
 #[doc(hidden)]
 pub fn __link_custom_section_describing_imports() {

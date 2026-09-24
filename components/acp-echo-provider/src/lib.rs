@@ -16,15 +16,15 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use crate::bindings::exports::yosh::acp::agent::{Guest, GuestSession, Session};
-use crate::bindings::yosh::acp::content::{ContentBlock, TextContent};
-use crate::bindings::yosh::acp::errors::{Error, ErrorCode};
-use crate::bindings::yosh::acp::init::{
+use crate::bindings::exports::wassette::acp::agent::{Guest, GuestSession, Session};
+use crate::bindings::wassette::acp::content::{ContentBlock, TextContent};
+use crate::bindings::wassette::acp::errors::{Error, ErrorCode};
+use crate::bindings::wassette::acp::init::{
     AgentCapabilities, AuthenticateRequest, ImplementationInfo, InitializeRequest,
     InitializeResponse, McpCapabilities, PromptCapabilities, SessionCapabilities,
 };
-use crate::bindings::yosh::acp::prompts::{PromptResponse, SessionUpdate, StopReason};
-use crate::bindings::yosh::acp::sessions::{
+use crate::bindings::wassette::acp::prompts::{PromptResponse, SessionUpdate, StopReason};
+use crate::bindings::wassette::acp::sessions::{
     ListSessionsRequest, ListSessionsResponse, LoadSessionRequest, LoadSessionResponse,
     NewSessionRequest, NewSessionResponse, ResumeSessionRequest, ResumeSessionResponse,
     SessionConfigId, SessionConfigValueId, SessionConfigOption, SessionModeId, SessionModelId,
@@ -74,7 +74,7 @@ fn err(code: ErrorCode, message: &str) -> Error {
 /// Push a `session-update` upstream. The agent direction only carries the
 /// eventual `prompt-response`; everything streamed goes this way.
 async fn emit(session_id: &str, update: SessionUpdate) {
-    crate::bindings::yosh::acp::client::notify_session(session_id.to_string(), update).await;
+    crate::bindings::wassette::acp::client::notify_session(session_id.to_string(), update).await;
 }
 
 fn text_chunk(text: impl Into<String>) -> ContentBlock {

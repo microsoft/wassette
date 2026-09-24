@@ -1,4 +1,4 @@
-package yosh:acp@7.0.0;
+package wassette:acp@7.0.0;
 
 /// Displayable content blocks. Mirrors MCP's `ContentBlock` so that MCP tool
 /// output can be forwarded without transformation.

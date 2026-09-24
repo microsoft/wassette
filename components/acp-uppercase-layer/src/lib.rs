@@ -19,31 +19,31 @@ mod bindings;
 
 use std::sync::atomic::{AtomicBool, Ordering};
 
-use crate::bindings::exports::yosh::acp::agent::{Guest as AgentGuest, GuestSession, Session};
-use crate::bindings::exports::yosh::acp::client::{
+use crate::bindings::exports::wassette::acp::agent::{Guest as AgentGuest, GuestSession, Session};
+use crate::bindings::exports::wassette::acp::client::{
     Guest as ClientGuest, GuestTerminal,
 };
-use crate::bindings::yosh::acp::content::{ContentBlock, TextContent};
-use crate::bindings::yosh::acp::errors::Error;
-use crate::bindings::yosh::acp::filesystem::{
+use crate::bindings::wassette::acp::content::{ContentBlock, TextContent};
+use crate::bindings::wassette::acp::errors::Error;
+use crate::bindings::wassette::acp::filesystem::{
     ReadTextFileRequest, ReadTextFileResponse, WriteTextFileRequest,
 };
-use crate::bindings::yosh::acp::init::{
+use crate::bindings::wassette::acp::init::{
     AuthenticateRequest, InitializeRequest, InitializeResponse,
 };
-use crate::bindings::yosh::acp::prompts::{
+use crate::bindings::wassette::acp::prompts::{
     AvailableCommand, PromptResponse, SessionUpdate, StopReason,
 };
 #[allow(unused_imports)]
 use wit_bindgen::rt::async_support::StreamReader;
-use crate::bindings::yosh::acp::sessions::{
+use crate::bindings::wassette::acp::sessions::{
     ListSessionsRequest, ListSessionsResponse, LoadSessionRequest, LoadSessionResponse,
     NewSessionRequest, NewSessionResponse, ResumeSessionRequest, ResumeSessionResponse,
     SessionConfigId, SessionConfigOption, SessionConfigValueId, SessionId, SessionModeId,
     SessionModelId,
 };
-use crate::bindings::yosh::acp::tools::{RequestPermissionRequest, RequestPermissionResponse};
-use crate::bindings::yosh::acp::{agent, client};
+use crate::bindings::wassette::acp::tools::{RequestPermissionRequest, RequestPermissionResponse};
+use crate::bindings::wassette::acp::{agent, client};
 struct Layer;
 
 /// Layer-side session resource. Wraps the downstream stage's owned
@@ -221,7 +221,7 @@ impl AgentGuest for Layer {
 pub struct LayerTerminal;
 
 impl GuestTerminal for LayerTerminal {
-    fn new(_req: crate::bindings::yosh::acp::terminals::CreateTerminalRequest) -> Self {
+    fn new(_req: crate::bindings::wassette::acp::terminals::CreateTerminalRequest) -> Self {
         unimplemented!("phase 2: LayerTerminal::new")
     }
 
@@ -233,7 +233,7 @@ impl GuestTerminal for LayerTerminal {
 
     async fn wait_for_exit(
         &self,
-    ) -> Result<crate::bindings::yosh::acp::terminals::TerminalExitStatus, Error> {
+    ) -> Result<crate::bindings::wassette::acp::terminals::TerminalExitStatus, Error> {
         unimplemented!("phase 2: LayerTerminal::wait_for_exit")
     }
 }

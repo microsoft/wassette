@@ -13,7 +13,7 @@
 //! Bindgen's `add_to_linker` takes a `fn` pointer host getter — it
 //! cannot capture — so we route per-stage context through a stack:
 //! [`HostState::stage_stack`] is pushed before invoking a stage's
-//! `bindings.yosh_acp_*().call_*(accessor, ...)` and popped after.
+//! `bindings.wassette_acp_*().call_*(accessor, ...)` and popped after.
 //! Host imports read the top of the stack to know which stage is
 //! currently executing.
 
@@ -68,8 +68,8 @@ pub enum StageKind {
     Layer,
 }
 
-/// Wrapper over the two world bindings. Both expose `yosh_acp_agent`;
-/// only `Layer` exposes `yosh_acp_client`.
+/// Wrapper over the two world bindings. Both expose `wassette_acp_agent`;
+/// only `Layer` exposes `wassette_acp_client`.
 pub enum Bindings {
     Provider(Provider),
     Layer(Layer),
@@ -211,11 +211,11 @@ impl wasmtime_wasi_http::p3::WasiHttpView for HostState {
     }
 }
 
-impl crate::yosh::acp::errors::Host for HostState {}
-impl crate::yosh::acp::sessions::Host for HostState {}
-impl crate::yosh::acp::content::Host for HostState {}
-impl crate::yosh::acp::terminals::Host for HostState {}
-impl crate::yosh::acp::tools::Host for HostState {}
-impl crate::yosh::acp::prompts::Host for HostState {}
-impl crate::yosh::acp::filesystem::Host for HostState {}
-impl crate::yosh::acp::init::Host for HostState {}
+impl crate::wassette::acp::errors::Host for HostState {}
+impl crate::wassette::acp::sessions::Host for HostState {}
+impl crate::wassette::acp::content::Host for HostState {}
+impl crate::wassette::acp::terminals::Host for HostState {}
+impl crate::wassette::acp::tools::Host for HostState {}
+impl crate::wassette::acp::prompts::Host for HostState {}
+impl crate::wassette::acp::filesystem::Host for HostState {}
+impl crate::wassette::acp::init::Host for HostState {}

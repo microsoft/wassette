@@ -1,4 +1,4 @@
-package yosh:acp@7.0.0;
+package wassette:acp@7.0.0;
 
 /// Host-capability callbacks invoked by the agent on the client side:
 /// permission prompts, file system access, and terminal control.

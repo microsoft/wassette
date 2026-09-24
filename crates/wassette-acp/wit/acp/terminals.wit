@@ -1,4 +1,4 @@
-package yosh:acp@7.0.0;
+package wassette:acp@7.0.0;
 
 /// Client-side terminal execution (agent → client).
 ///

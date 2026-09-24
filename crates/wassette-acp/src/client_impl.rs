@@ -29,14 +29,14 @@ use wasmtime::component::{Accessor, AccessorTask, HasSelf};
 
 use crate::state::{Bindings, ClientSink, HostState, OutboundEvent};
 use crate::translate;
-use crate::yosh::acp::client;
-use crate::yosh::acp::errors::Error;
-use crate::yosh::acp::filesystem::{
+use crate::wassette::acp::client;
+use crate::wassette::acp::errors::Error;
+use crate::wassette::acp::filesystem::{
     ReadTextFileRequest, ReadTextFileResponse, WriteTextFileRequest,
 };
-use crate::yosh::acp::prompts::SessionUpdate;
-use crate::yosh::acp::sessions::SessionId;
-use crate::yosh::acp::tools::{RequestPermissionRequest, RequestPermissionResponse};
+use crate::wassette::acp::prompts::SessionUpdate;
+use crate::wassette::acp::sessions::SessionId;
+use crate::wassette::acp::tools::{RequestPermissionRequest, RequestPermissionResponse};
 
 const OUTBOUND_REQUEST_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
 
@@ -133,7 +133,7 @@ where
 // -----------------------------------------------------------------------------
 // AccessorTask per upstream client method.
 //
-// Each one runs `b.yosh_acp_client().call_X(accessor, req).await` and
+// Each one runs `b.wassette_acp_client().call_X(accessor, req).await` and
 // forwards the result through the oneshot. The accessor here is the
 // *same* one feeding the upstream's host imports, so nested calls (e.g.
 // the upstream layer's `client.update-session` impl re-entering an even
@@ -159,7 +159,7 @@ impl<T: Send + 'static> AccessorTask<T, HasSelf<HostState>> for NotifySessionTas
     async fn run(self, accessor: &Accessor<T, HasSelf<HostState>>) -> wasmtime::Result<()> {
         let res = match &*self.bindings {
             Bindings::Layer(b) => {
-                b.yosh_acp_client()
+                b.wassette_acp_client()
                     .call_notify_session(accessor, self.session_id, self.update)
                     .await
             }
@@ -183,7 +183,7 @@ impl<T: Send + 'static> AccessorTask<T, HasSelf<HostState>> for RequestPermissio
     async fn run(self, accessor: &Accessor<T, HasSelf<HostState>>) -> wasmtime::Result<()> {
         let res = match &*self.bindings {
             Bindings::Layer(b) => {
-                b.yosh_acp_client()
+                b.wassette_acp_client()
                     .call_request_permission(accessor, self.req)
                     .await
             }
@@ -207,7 +207,7 @@ impl<T: Send + 'static> AccessorTask<T, HasSelf<HostState>> for ReadTextFileTask
     async fn run(self, accessor: &Accessor<T, HasSelf<HostState>>) -> wasmtime::Result<()> {
         let res = match &*self.bindings {
             Bindings::Layer(b) => {
-                b.yosh_acp_client()
+                b.wassette_acp_client()
                     .call_read_text_file(accessor, self.req)
                     .await
             }
@@ -231,7 +231,7 @@ impl<T: Send + 'static> AccessorTask<T, HasSelf<HostState>> for WriteTextFileTas
     async fn run(self, accessor: &Accessor<T, HasSelf<HostState>>) -> wasmtime::Result<()> {
         let res = match &*self.bindings {
             Bindings::Layer(b) => {
-                b.yosh_acp_client()
+                b.wassette_acp_client()
                     .call_write_text_file(accessor, self.req)
                     .await
             }

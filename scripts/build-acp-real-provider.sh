@@ -12,6 +12,9 @@
 # It also enables wit-bindgen 0.57's async-spawn feature for wasip3 (the
 # workspace's wit-bindgen 0.54 cannot unify features with it). See
 # real-providers/wstd-p3-wasmtime47.patch and docs/design/acp.md.
+# The external providers still export yosh:acp; rename their WIT package to
+# wassette:acp and regenerate bindings in that checkout before loading them.
+# This script does not rewrite the providers' WIT or bindings.
 #
 # Usage:
 #   scripts/build-acp-real-provider.sh <path-to-playground-wasm-acp> [provider]

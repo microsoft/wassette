@@ -47,7 +47,7 @@ mod wasm;
 // the rest of the host can statically distinguish a terminal stage from
 // an intermediate one. The `with:` clause on the layer makes it reuse
 // the provider's interface types verbatim — every WIT record/variant is
-// defined exactly once under `crate::yosh::acp::*`, and a single
+// defined exactly once under `crate::wassette::acp::*`, and a single
 // set of `Host` trait impls on `HostState` satisfies both linkers.
 //
 // Bindgen flips imports/exports from the host's perspective: imported
@@ -74,16 +74,16 @@ mod layer_bindings {
         imports: { default: async },
         exports: { default: async },
         with: {
-            "yosh:acp/errors": crate::yosh::acp::errors,
-            "yosh:acp/content": crate::yosh::acp::content,
-            "yosh:acp/init": crate::yosh::acp::init,
-            "yosh:acp/sessions": crate::yosh::acp::sessions,
-            "yosh:acp/prompts": crate::yosh::acp::prompts,
-            "yosh:acp/tools": crate::yosh::acp::tools,
-            "yosh:acp/terminals": crate::yosh::acp::terminals,
-            "yosh:acp/filesystem": crate::yosh::acp::filesystem,
-            "yosh:acp/agent": crate::yosh::acp::agent,
-            "yosh:acp/client": crate::yosh::acp::client,
+            "wassette:acp/errors": crate::wassette::acp::errors,
+            "wassette:acp/content": crate::wassette::acp::content,
+            "wassette:acp/init": crate::wassette::acp::init,
+            "wassette:acp/sessions": crate::wassette::acp::sessions,
+            "wassette:acp/prompts": crate::wassette::acp::prompts,
+            "wassette:acp/tools": crate::wassette::acp::tools,
+            "wassette:acp/terminals": crate::wassette::acp::terminals,
+            "wassette:acp/filesystem": crate::wassette::acp::filesystem,
+            "wassette:acp/agent": crate::wassette::acp::agent,
+            "wassette:acp/client": crate::wassette::acp::client,
             "wasmcloud:secrets/store@0.1.0-draft": crate::wasmcloud::secrets::store,
             "wasmcloud:secrets/reveal@0.1.0-draft": crate::wasmcloud::secrets::reveal,
         },
@@ -100,10 +100,10 @@ use crate::wasm::{SessionFactory, SessionRegistry, Stage};
 /// `with:` clause on the layer bindgen shares this interface with the
 /// provider's top-level bindgen (both worlds import `agent` for the
 /// `session` resource's destructor), `crate::layer_agent` and
-/// `crate::yosh::acp::agent` point to the same module. A single
+/// `crate::wassette::acp::agent` point to the same module. A single
 /// `HostWithStore` impl on `HasSelf<HostState>` therefore satisfies
 /// both worlds' linkers.
-pub use crate::yosh::acp::agent as layer_agent;
+pub use crate::wassette::acp::agent as layer_agent;
 
 /// Arguments for `wassette acp`: run Wassette as an ACP agent whose brain
 /// is a WebAssembly component.
@@ -403,10 +403,10 @@ fn load_stage(
     })
 }
 
-/// Semver range of `yosh:acp` this host can speak. Components whose
-/// `yosh:acp/*` exports carry a version outside this range are rejected
+/// Semver range of `wassette:acp` this host can speak. Components whose
+/// `wassette:acp/*` exports carry a version outside this range are rejected
 /// up front. The version itself comes from the in-tree WIT
-/// (`package yosh:acp@<v>;`); bump both together.
+/// (`package wassette:acp@<v>;`); bump both together.
 pub(crate) const EXPECTED_ACP_REQ: &str = "^7.0.0";
 
 /// Concrete version the host's bindgen was generated against. Used for
@@ -414,11 +414,11 @@ pub(crate) const EXPECTED_ACP_REQ: &str = "^7.0.0";
 /// version the host ships, not just the range.
 pub(crate) const HOST_ACP_VERSION: &str = "7.0.0";
 
-/// Inspect a component's exports and decide which `yosh:acp` world it
+/// Inspect a component's exports and decide which `wassette:acp` world it
 /// implements:
 ///
-/// - `yosh:acp/provider`: exports `yosh:acp/agent` only.
-/// - `yosh:acp/layer`:    exports `yosh:acp/agent` *and* `yosh:acp/client`.
+/// - `wassette:acp/provider`: exports `wassette:acp/agent` only.
+/// - `wassette:acp/layer`:    exports `wassette:acp/agent` *and* `wassette:acp/client`.
 ///
 /// Any other export shape — wrong package namespace, missing `agent`,
 /// or a version incompatible with [`EXPECTED_ACP_REQ`] — is rejected up
@@ -430,7 +430,7 @@ pub(crate) fn classify_acp_component(engine: &Engine, component: &Component) -> 
     let mut exports_agent = false;
     let mut exports_client = false;
     for (name, _) in ty.exports(engine) {
-        let Some(rest) = name.strip_prefix("yosh:acp/") else {
+        let Some(rest) = name.strip_prefix("wassette:acp/") else {
             continue;
         };
         // Split `<iface>` from optional `@<version>`.
@@ -444,7 +444,7 @@ pub(crate) fn classify_acp_component(engine: &Engine, component: &Component) -> 
             .transpose()
             .map_err(|e| {
                 anyhow::anyhow!(
-                    "component exports `yosh:acp/{iface}{version_label}` but the version is \
+                    "component exports `wassette:acp/{iface}{version_label}` but the version is \
                      not valid semver: {e}",
                 )
             })?;
@@ -456,8 +456,8 @@ pub(crate) fn classify_acp_component(engine: &Engine, component: &Component) -> 
         };
         if !compatible {
             anyhow::bail!(
-                "component exports `yosh:acp/{iface}{version_label}` but this host requires \
-                 `yosh:acp@{EXPECTED_ACP_REQ}` (built against `yosh:acp@{HOST_ACP_VERSION}`); \
+                "component exports `wassette:acp/{iface}{version_label}` but this host requires \
+                 `wassette:acp@{EXPECTED_ACP_REQ}` (built against `wassette:acp@{HOST_ACP_VERSION}`); \
                  rebuild the component against the matching WIT definition"
             );
         }
@@ -469,8 +469,8 @@ pub(crate) fn classify_acp_component(engine: &Engine, component: &Component) -> 
     }
     if !exports_agent {
         anyhow::bail!(
-            "component does not implement the `yosh:acp/provider` or \
-             `yosh:acp/layer` world (host expects `yosh:acp@{EXPECTED_ACP_REQ}`)"
+            "component does not implement the `wassette:acp/provider` or \
+             `wassette:acp/layer` world (host expects `wassette:acp@{EXPECTED_ACP_REQ}`)"
         );
     }
     Ok(if exports_client {
@@ -488,11 +488,11 @@ fn validate_imports(engine: &Engine, component: &Component, kind: StageKind) -> 
     let detected = classify_acp_component(engine, component)?;
     match (kind, detected) {
         (StageKind::Provider, StageKind::Layer) => anyhow::bail!(
-            "component implements the `yosh:acp/layer` world; \
+            "component implements the `wassette:acp/layer` world; \
              pass it via `--layer` rather than `--provider`",
         ),
         (StageKind::Layer, StageKind::Provider) => anyhow::bail!(
-            "component implements the `yosh:acp/provider` world; \
+            "component implements the `wassette:acp/provider` world; \
              pass it via `--provider` rather than `--layer`",
         ),
         _ => Ok(()),

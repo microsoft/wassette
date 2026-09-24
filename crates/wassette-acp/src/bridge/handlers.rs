@@ -25,7 +25,7 @@ use super::require_session;
 use crate::wasm::{
     PromptOutcome, SessionFactory, SessionRegistry, SetConfigOptionOutcome, SetModeOutcome,
 };
-use crate::yosh::acp::sessions::{LoadSessionResponse, NewSessionResponse};
+use crate::wassette::acp::sessions::{LoadSessionResponse, NewSessionResponse};
 use crate::{install, translate};
 
 pub(super) async fn handle_initialize(
@@ -704,7 +704,7 @@ fn handle_install_command(
 }
 
 /// Install a component and validate that it implements the host's
-/// currently supported `yosh:acp` world. On validation failure the
+/// currently supported `wassette:acp` world. On validation failure the
 /// just-fetched `.wasm` file is removed from the component directory so a
 /// subsequent `/install` of the same reference re-fetches it (in case the
 /// package gets rebuilt upstream against the right WIT version). A

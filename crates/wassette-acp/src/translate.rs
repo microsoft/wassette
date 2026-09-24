@@ -2,7 +2,7 @@
 // Licensed under the MIT license.
 
 //! Type translation between the wasmtime-generated WIT types
-//! (`yosh::acp` interfaces) and the `agent_client_protocol::schema` types.
+//! (`wassette::acp` interfaces) and the `agent_client_protocol::schema` types.
 //!
 //! Only covers the variants the MVP exercises (text content, end-turn,
 //! agent-message-chunk, etc.). Anything we can't translate yields an error
@@ -14,24 +14,24 @@ use agent_client_protocol::schema::v1 as schema;
 use agent_client_protocol::{Error as AcpError, ErrorCode as AcpErrorCode};
 use tracing::debug;
 
-use crate::yosh::acp::content::{ContentBlock, TextContent};
-use crate::yosh::acp::errors::{Error, ErrorCode};
-use crate::yosh::acp::filesystem::{
+use crate::wassette::acp::content::{ContentBlock, TextContent};
+use crate::wassette::acp::errors::{Error, ErrorCode};
+use crate::wassette::acp::filesystem::{
     ReadTextFileRequest, ReadTextFileResponse, WriteTextFileRequest,
 };
-use crate::yosh::acp::init::{
+use crate::wassette::acp::init::{
     AuthenticateRequest, ClientCapabilities, FsCapabilities, ImplementationInfo, InitializeRequest,
     InitializeResponse,
 };
-use crate::yosh::acp::prompts::{PromptResponse, SessionUpdate, StopReason};
-use crate::yosh::acp::sessions::{
+use crate::wassette::acp::prompts::{PromptResponse, SessionUpdate, StopReason};
+use crate::wassette::acp::sessions::{
     ComponentSource, EnvVar, HttpHeader, LoadSessionRequest, LoadSessionResponse, McpServer,
     McpServerHttp, McpServerSse, McpServerStdio, NewSessionRequest, NewSessionResponse,
     SessionConfigOption, SessionConfigOptionCategory, SessionConfigSelectGroup,
     SessionConfigSelectOption, SessionConfigSelectOptions, SessionId, SessionMode, SessionModeId,
     SessionModeState,
 };
-use crate::yosh::acp::tools::{
+use crate::wassette::acp::tools::{
     PermissionOption, PermissionOptionKind, PermissionOutcome, RequestPermissionRequest,
     RequestPermissionResponse, ToolCallContent, ToolCallSnapshot, ToolCallStatus, ToolKind,
 };
@@ -1096,8 +1096,8 @@ fn _dead_tool_call_update_to_schema_update(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::yosh::acp::content::ImageContent;
-    use crate::yosh::acp::init::{
+    use crate::wassette::acp::content::ImageContent;
+    use crate::wassette::acp::init::{
         AgentCapabilities, McpCapabilities, PromptCapabilities, SessionCapabilities,
     };
 
@@ -1143,7 +1143,7 @@ mod tests {
 
     #[test]
     fn usage_update_with_cost_serializes_to_wire() {
-        use crate::yosh::acp::prompts::{UsageCost, UsageUpdate};
+        use crate::wassette::acp::prompts::{UsageCost, UsageUpdate};
         let note = session_update_wit_to_schema(
             "sess-1".to_string(),
             SessionUpdate::UsageUpdate(UsageUpdate {
@@ -1182,7 +1182,7 @@ mod tests {
 
     #[test]
     fn usage_update_without_cost_omits_cost() {
-        use crate::yosh::acp::prompts::UsageUpdate;
+        use crate::wassette::acp::prompts::UsageUpdate;
         let note = session_update_wit_to_schema(
             "sess-2".to_string(),
             SessionUpdate::UsageUpdate(UsageUpdate {
@@ -1310,7 +1310,7 @@ mod tests {
 
     #[test]
     fn tool_call_announce_vs_update_discriminator() {
-        use crate::yosh::acp::tools::ToolCallSnapshot;
+        use crate::wassette::acp::tools::ToolCallSnapshot;
         let snap = |status| ToolCallSnapshot {
             id: "tc1".into(),
             title: "Read /tmp/x".into(),
@@ -1348,7 +1348,7 @@ mod tests {
 
     #[test]
     fn tool_call_diff_content_is_wired() {
-        use crate::yosh::acp::tools::{Diff, ToolCallSnapshot};
+        use crate::wassette::acp::tools::{Diff, ToolCallSnapshot};
         let snap = ToolCallSnapshot {
             id: "tc2".into(),
             title: "Write /tmp/y".into(),

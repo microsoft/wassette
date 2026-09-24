@@ -42,8 +42,8 @@ upstream's terminology from
 
 | Term | WIT world | Role |
 | --- | --- | --- |
-| **provider** | `yosh:acp/provider` | Terminal stage: exports `yosh:acp/agent`. The thing that actually talks to a model. |
-| **layer** | `yosh:acp/layer` | Middleware: exports *and* imports both `yosh:acp/agent` and `yosh:acp/client`, so it sees traffic in both directions. |
+| **provider** | `wassette:acp/provider` | Terminal stage: exports `wassette:acp/agent`. The thing that actually talks to a model. |
+| **layer** | `wassette:acp/layer` | Middleware: exports *and* imports both `wassette:acp/agent` and `wassette:acp/client`, so it sees traffic in both directions. |
 
 Requests flow editor → outermost layer → … → provider; session updates
 flow back the other way. A layer can rewrite a prompt on the way down,
@@ -157,8 +157,12 @@ just test-acp
 
 The `ollama` and `copilot` providers build against the `p3` branch of
 `bytecodealliance/wstd` (PR #129) — the `wasip3` feature is not on crates.io
-or on `main`. Two further adjustments are needed to target this crate's
-wasmtime 47 rather than upstream's 44:
+or on `main`. Those external providers in
+`yoshuawuyts/playground-wasm-acp` still export `yosh:acp@7.0.0`; they must
+rename their WIT package and regenerate their bindings as
+`wassette:acp@7.0.0` before they can load in this host. The build script does
+not perform that rename. Two further adjustments are needed to target this
+workspace's Wasmtime 47 rather than upstream's 44:
 
 * Bump wstd's `wasip3` pin from `0.5` to `0.7.1`. Wasmtime 44 ships
   `wasi:http@0.3.0-rc-2026-03-15`; wasmtime 47 ships final `wasi:http@0.3.0`.
@@ -176,12 +180,12 @@ Both steps are captured as a temporary patch in
 branch, patches it, and builds the component. Keep it until wstd publishes a
 `wasip3` release compatible with Wasmtime 47.
 
-This was verified end to end from a clean checkout: `ollama_provider.wasm`
+Before the package rename, `ollama_provider.wasm` was verified end to end
 streaming a chat completion over real `wasi:http`, and refused without a
-network grant. Because
-those are local patches over an unmerged branch, the in-tree demo and the
-end-to-end tests deliberately use the echo provider instead, so they never
-depend on a model or on a moving upstream.
+network grant. The external providers need the WIT rename described above
+to load again. Because these are local patches over an unmerged branch, the
+in-tree demo and end-to-end tests deliberately use the echo provider instead,
+so they never depend on a model or on a moving upstream.
 
 GHCR is not anonymously reachable from this sandbox, so prebuilt components
 cannot be pulled either.
