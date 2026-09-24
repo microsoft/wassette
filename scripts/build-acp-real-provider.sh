@@ -2,15 +2,16 @@
 # Copyright (c) Microsoft Corporation.
 # Licensed under the MIT license.
 #
-# Build a real (model-backed) ACP provider component against the wasmtime
-# version this workspace uses.
+# Build a model-backed playground ACP provider until wstd releases a
+# wasip3 implementation compatible with this workspace's Wasmtime 47.
 #
 # The providers live in yoshuawuyts/playground-wasm-acp and depend on `wstd`
 # with a `wasip3` feature that is only on the `p3` branch of
-# bytecodealliance/wstd. That branch targets the WASI rc wasmtime 44 ships;
-# this workspace is on wasmtime 47, which ships final wasi:http@0.3.0. See
-# real-providers/wstd-p3-wasmtime47.patch for the two-line delta that bridges
-# the gap, and docs/design/acp.md for the reasoning.
+# bytecodealliance/wstd. The patch bumps wasip3 0.5 to 0.7.1 so guests
+# import final wasi:http@0.3.0 rather than Wasmtime 44's release candidate.
+# It also enables wit-bindgen 0.57's async-spawn feature for wasip3 (the
+# workspace's wit-bindgen 0.54 cannot unify features with it). See
+# real-providers/wstd-p3-wasmtime47.patch and docs/design/acp.md.
 #
 # Usage:
 #   scripts/build-acp-real-provider.sh <path-to-playground-wasm-acp> [provider]
