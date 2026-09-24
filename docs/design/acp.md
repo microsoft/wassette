@@ -164,14 +164,17 @@ wasmtime 47 rather than upstream's 44:
   `wasi:http@0.3.0-rc-2026-03-15`; wasmtime 47 ships final `wasi:http@0.3.0`.
   A guest built against the older pin fails to link, and the error names the
   mismatched import directly.
-* Add a renamed `wit-bindgen` 0.57 dep to wstd with `async-spawn` enabled.
-  `wasip3` 0.7.1 pulls its own 0.57 copy that does not unify features with the
-  0.54 used elsewhere, leaving `async_support::spawn` a private module.
+* Add an optional, renamed `wit-bindgen` 0.57 dependency to wstd's `wasip3`
+  feature, enabling `async`, `async-spawn` and `inter-task-wakeup`. The
+  `wasip3` 0.7.1 dependency uses the same 0.57 version, so Cargo unifies
+  these features. Wstd's existing 0.54 dependency cannot enable them on
+  0.57, leaving `async_support::spawn` private without this hunk.
 
-Both steps are captured as a patch in
+Both steps are captured as a temporary patch in
 `crates/wassette-acp/real-providers/wstd-p3-wasmtime47.patch` and applied by
 `just build-acp-real-provider <path-to-playground-wasm-acp>`, which clones the
-branch, patches it, and builds the component.
+branch, patches it, and builds the component. Keep it until wstd publishes a
+`wasip3` release compatible with Wasmtime 47.
 
 This was verified end to end from a clean checkout: `ollama_provider.wasm`
 streaming a chat completion over real `wasi:http`, and refused without a
