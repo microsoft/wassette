@@ -5371,6 +5371,7 @@ dependencies = [
  "tokio-util",
  "tracing",
  "tracing-subscriber",
+ "tracing-test",
  "wasmtime",
  "wasmtime-wasi",
  "wasmtime-wasi-http",

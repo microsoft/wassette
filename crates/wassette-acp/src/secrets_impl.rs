@@ -80,3 +80,52 @@ impl reveal::Host for HostState {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::secrets::SecretsRegistry;
+
+    #[tokio::test]
+    async fn failed_lookup_does_not_expose_other_secret_in_error() {
+        const VALUE: &str = "never-include-this-secret-in-errors";
+        let dir = tempfile::tempdir().unwrap();
+        let registry = SecretsRegistry::new(dir.path());
+        let manager = wassette::SecretsManager::new(dir.path().to_path_buf());
+        manager
+            .set_component_secrets("comp-error", &[("api_key".into(), VALUE.into())])
+            .await
+            .unwrap();
+
+        let error = registry.resolve("comp-error", "missing").await.unwrap_err();
+        assert!(matches!(error, SecretsError::NotFound));
+        assert!(!format!("{error:?}").contains(VALUE));
+        let guest_error = map_error(error);
+        assert!(!format!("{guest_error:?}").contains(VALUE));
+        assert!(!guest_error.to_string().contains(VALUE));
+    }
+
+    #[tokio::test]
+    async fn invalid_secrets_file_does_not_expose_values_in_error() {
+        const VALUE: &str = "never-include-this-secret-in-parse-errors";
+        let dir = tempfile::tempdir().unwrap();
+        let manager = wassette::SecretsManager::new(dir.path().to_path_buf());
+        tokio::fs::write(
+            manager.get_component_secrets_path("comp-invalid"),
+            format!("api_key: {VALUE}\ninvalid: [\n"),
+        )
+        .await
+        .unwrap();
+
+        let registry = SecretsRegistry::new(dir.path());
+        let error = registry
+            .resolve("comp-invalid", "api_key")
+            .await
+            .unwrap_err();
+        assert!(matches!(error, SecretsError::Io(_)));
+        assert!(!format!("{error:?}").contains(VALUE));
+        let guest_error = map_error(error);
+        assert!(!format!("{guest_error:?}").contains(VALUE));
+        assert!(!guest_error.to_string().contains(VALUE));
+    }
+}

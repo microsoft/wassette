@@ -199,5 +199,28 @@ mod tests {
     async fn value_debug_is_redacted() {
         let v = SecretValue::String("hunter2".into());
         assert!(!format!("{v:?}").contains("hunter2"));
+
+        let v = SecretValue::Bytes(b"hunter2".to_vec());
+        let debug = format!("{v:?}");
+        assert!(!debug.contains("hunter2"));
+        assert!(!debug.contains("[104, 117, 110, 116, 101, 114, 50]"));
+    }
+
+    #[tracing_test::traced_test]
+    #[tokio::test]
+    async fn resolving_secret_does_not_log_its_value() {
+        const VALUE: &str = "never-log-this-secret-value";
+        let dir = tempfile::tempdir().unwrap();
+        seed(dir.path(), "comp-log", &[("api_key", VALUE)]).await;
+        let registry = SecretsRegistry::new(dir.path());
+
+        assert!(matches!(
+            registry.resolve("comp-log", "api_key").await,
+            Ok(SecretValue::String(value)) if value == VALUE
+        ));
+        assert!(logs_contain(
+            "Loading secrets from file for component: comp-log"
+        ));
+        assert!(!logs_contain(VALUE));
     }
 }
