@@ -1165,7 +1165,7 @@ impl crate::wassette::acp::client::HostTerminal for HostState {
                 Ok(proc) => {
                     tracing::info!(
                         command = %req.command,
-                        args = ?req.args,
+                        arg_count = req.args.len(),
                         cwd = ?req.cwd,
                         "spawned terminal command",
                     );
@@ -1847,6 +1847,31 @@ mod terminal_tests {
         assert_eq!(group.terminal_option(), Some(false));
         assert!(!primary.inner.store.lock().await.data().terminal_enabled);
         assert!(!secondary.inner.store.lock().await.data().terminal_enabled);
+    }
+
+    #[tokio::test]
+    async fn terminal_spawn_log_excludes_arguments() {
+        let log = tempfile::NamedTempFile::new().unwrap();
+        let writer = log.reopen().unwrap();
+        let subscriber = tracing_subscriber::fmt()
+            .with_ansi(false)
+            .with_writer(move || writer.try_clone().unwrap())
+            .finish();
+        let _guard = tracing::subscriber::set_default(subscriber);
+        let mut state = test_host_state();
+        state.terminal_enabled = true;
+        let terminal = <HostState as crate::wassette::acp::client::HostTerminal>::new(
+            &mut state,
+            make_request("echo", &["credential-from-argv"]),
+        )
+        .await;
+        <HostState as crate::wassette::acp::client::HostTerminal>::drop(&mut state, terminal)
+            .await
+            .unwrap();
+        let output = std::fs::read_to_string(log.path()).unwrap();
+        assert!(output.contains("spawned terminal command"), "{output}");
+        assert!(output.contains("arg_count=1"), "{output}");
+        assert!(!output.contains("credential-from-argv"), "{output}");
     }
 
     #[tokio::test]
