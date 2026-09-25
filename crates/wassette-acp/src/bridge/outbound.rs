@@ -32,9 +32,9 @@ pub(super) async fn run_outbound_drain(
     while let Some(event) = outbound_rx.recv().await {
         match event {
             OutboundEvent::SessionUpdate(notif, ack) => {
-                // Hold only registered pending session IDs. Unknown IDs
-                // are dropped so guest-supplied IDs cannot grow an
-                // unbounded queue while a new session is being created.
+                // Hold registered IDs and bounded updates while a new
+                // session's guest-selected ID is still unknown. All other
+                // unknown IDs are dropped.
                 //
                 // Fire the ack only AFTER the notification is either
                 // forwarded (`cx.send_notification` enqueued) or held

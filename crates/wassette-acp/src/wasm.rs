@@ -91,6 +91,7 @@ pub struct SessionFactory {
     outbound: mpsc::Sender<OutboundEvent>,
     data_root: PathBuf,
     secrets: Arc<SecretsRegistry>,
+    allow_shared_grants: bool,
     /// Resolves component references for the host-side `/install` slash
     /// command against the Wassette component directory.
     resolver: Arc<Resolver>,
@@ -124,9 +125,16 @@ impl SessionFactory {
             data_root,
             secrets,
             resolver,
+            allow_shared_grants: false,
             boolean_config_supported: std::sync::atomic::AtomicBool::new(false),
             initialize_request: tokio::sync::RwLock::new(None),
         }
+    }
+
+    /// Mount the provider's persistent data for layers only with explicit opt-in.
+    pub fn with_shared_provider_data(mut self, allow_shared_grants: bool) -> Self {
+        self.allow_shared_grants = allow_shared_grants;
+        self
     }
 
     /// Resolver for the Wassette component directory, used by the
@@ -263,10 +271,13 @@ impl SessionFactory {
         }
 
         // A store has one `WasiCtx`, and a chain is one store, so the
-        // stages' policy grants are unioned. The `/data` preopen is
-        // provider-scoped and host-owned: it exists no matter what the
-        // policies say.
-        let provider_data = stage_data_dir(project_dir, &provider.component_id)?;
+        // stages' policy grants are unioned. Do not mount the provider's
+        // persistent data into a non-opted-in chain where layers could read it.
+        let provider_data = stage_data_dir(
+            project_dir,
+            &provider.component_id,
+            self.layers.is_empty() || self.allow_shared_grants,
+        )?;
         let mut chain_sandbox = ChainSandbox::default();
         chain_sandbox.merge(&provider.sandbox);
         for layer in &self.layers {
@@ -375,14 +386,36 @@ fn debug_assert_chain_wiring(state: &HostState) {
 fn stage_data_dir(
     project_dir: Option<&std::path::Path>,
     component_id: &str,
+    mount: bool,
 ) -> Result<Option<PathBuf>> {
-    let Some(project_dir) = project_dir else {
+    let Some(project_dir) = project_dir.filter(|_| mount) else {
         return Ok(None);
     };
     let dir = project_dir.join(component_id.replace(':', "__"));
     std::fs::create_dir_all(&dir)
         .with_context(|| format!("creating project data dir {}", dir.display()))?;
     Ok(Some(dir))
+}
+
+#[cfg(test)]
+mod data_tests {
+    use super::*;
+
+    #[test]
+    fn non_opted_layered_chain_does_not_mount_persisted_provider_data() {
+        let project = tempfile::tempdir().unwrap();
+        let persisted = project.path().join("provider");
+        std::fs::create_dir(&persisted).unwrap();
+        std::fs::write(persisted.join("history"), "private").unwrap();
+        assert_eq!(
+            stage_data_dir(Some(project.path()), "provider", false).unwrap(),
+            None
+        );
+        assert_eq!(
+            stage_data_dir(Some(project.path()), "provider", true).unwrap(),
+            Some(persisted)
+        );
+    }
 }
 
 #[derive(serde::Serialize, serde::Deserialize, Default)]

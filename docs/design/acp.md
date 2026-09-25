@@ -71,7 +71,8 @@ then next to the `.wasm` file — through
 MCP server uses.
 
 * No policy means **no network and no filesystem** beyond the
-  per-session `/data` directory the host preopens (host-owned, scoped by
+  per-session `/data` directory the host preopens for a provider running
+  alone or in a chain with `--allow-shared-grants` (host-owned, scoped by
   project and component).
 * `permissions.network.allow` registers hosts in the outbound-HTTP allow-list;
   `wasi:http` requests to anything else are refused with `http-request-denied`.
@@ -86,13 +87,15 @@ MCP server uses.
 
 Because a chain is one store and a store is one `WasiCtx`, the stages'
 grants are **unioned** across the chain. A layer can access a provider's
-`/data` directory, storage, network and policy-injected secret environment
-variables. Every layered chain requires `--allow-shared-grants`, even when
-no stage has a policy or stored secrets: the host's provider `/data` preopen
-is shared with every layer. Concurrent callbacks may be attributed to
-the wrong stage, including `wasmcloud:secrets/store.get` lookups. That flag
-acknowledges both risks; it does not fix stage routing or isolate stages.
-The policy-free, secret-free echo + uppercase demo also needs this opt-in.
+storage, network and policy-injected secret environment variables, so
+layered chains with policy grants, stored secrets or `--allow-all` require
+`--allow-shared-grants`. Without the flag, a policy-free, secret-free
+layered chain does not mount the provider's persistent `/data` directory;
+the echo + uppercase demo therefore works without opt-in. With the flag,
+`/data` is shared with every layer. Concurrent callbacks may be attributed
+to the wrong stage, including `wasmcloud:secrets/store.get` lookups. The
+flag acknowledges both risks; it does not fix stage routing or isolate
+stages. Do not run untrusted layers.
 
 `wasmcloud:secrets/store.get` normally resolves against the executing
 stage's component id. This is **not an isolation guarantee** for layered
@@ -145,8 +148,7 @@ Add the layer to see chaining:
 ```sh
 cargo run -p wassette-mcp-server -- acp \
   --provider components/acp-echo-provider/target/wasm32-wasip2/release/acp_echo_provider.wasm \
-  --layer    components/acp-uppercase-layer/target/wasm32-wasip2/release/acp_uppercase_layer.wasm \
-  --allow-shared-grants
+  --layer    components/acp-uppercase-layer/target/wasm32-wasip2/release/acp_uppercase_layer.wasm
 ```
 
 Prompt `/shout` and the layer answers it itself, toggling on uppercase
@@ -188,9 +190,9 @@ just test-acp
 Concurrent callbacks in a layered chain still share one store-wide stage
 stack. Overlapping Wasmtime subtasks can misroute stage-specific imports,
 including secret lookups, and cancellation can leave stale entries. Layered
-chains always require `--allow-shared-grants` because the provider's `/data`
-preopen is shared with layers;
-this is an explicit risk acknowledgement, not a routing fix. A
+chains with policy grants or stored secrets require `--allow-shared-grants`;
+the provider's persistent `/data` is only mounted in an opted-in chain.
+This is an explicit risk acknowledgement, not a routing fix. A
 drop-safe, subtask-scoped stage identity is required before layered chains
 can safely handle concurrent callbacks; avoid untrusted layers. Per-stage
 WASI isolation is also a follow-up. Multi-provider sessions require unique
@@ -253,11 +255,11 @@ cannot be pulled either.
   Wassette's shared runtime is typed to `WassetteWasiState<WasiState>`
   and does not enable the async component model, which ACP requires
   (`CM_ASYNC`, `CM_MORE_ASYNC_BUILTINS`, `CM_ASYNC_STACKFUL`).
-* The notification gate only buffers registered pending session IDs,
-  with per-session and global queue limits. A guest chooses its ID during
-  `session/new`, so updates emitted before it returns cannot yet be
-  registered; those early updates are dropped. Layers should announce
-  commands again after the response. The host still advertises `/install`
-  after `session/new`, and `session/load` can buffer updates because its
-  ID is known in advance. The flush runs on a 200ms timer, but an
-  inbound request naming the session opens the gate immediately.
+* The notification gate buffers updates for registered pending session IDs.
+  During `session/new`, it also holds bounded early updates until the guest
+  returns its ID, then discards updates for other IDs and flushes the
+  matching ones after the response. Per-session and global limits still
+  apply. The host also advertises `/install` after `session/new`, and
+  `session/load` can buffer updates because its ID is known in advance.
+  The flush runs on a 200ms timer, but an inbound request naming the
+  session opens the gate immediately.

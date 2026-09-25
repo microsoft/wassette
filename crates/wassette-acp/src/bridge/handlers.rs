@@ -118,6 +118,7 @@ pub(super) async fn handle_new_session(
     );
     resolve_workspace_cwd(&mut req.cwd);
     warn_if_unlikely_workspace(&req.cwd);
+    let creating = gate.begin_new_session();
     let sessions = factory
         .instantiate_group_for_project(&req.cwd)
         .await
@@ -181,13 +182,13 @@ pub(super) async fn handle_new_session(
         )?
     };
     let pending = gate.register_pending(&session_id);
+    drop(creating);
     registry.insert(session_id.clone(), group);
     tracing::info!(session = %session_id, "→ wire: session/new response");
     responder.respond(schema_resp)?;
     pending.keep();
-    // The guest mints its ID during this call; earlier notifications had
-    // no registered ID and were dropped. Open the now-known session for
-    // later notifications and advertise the host's /install command.
+    // Release the matching updates held during `session/new`, after the
+    // editor has learned the guest-selected ID; also advertise `/install`.
     flush_held_notifications(gate, &session_id, &cx);
     Ok(())
 }

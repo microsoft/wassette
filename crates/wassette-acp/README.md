@@ -8,7 +8,7 @@ one terminal **provider** (`--provider`) wrapped by zero or more bidirectional
 **layers** (`--layer`). See [the ACP design](../../docs/design/acp.md).
 
 ```sh
-wassette acp --provider ./my_agent.wasm --layer ./uppercase_layer.wasm --allow-shared-grants
+wassette acp --provider ./my_agent.wasm --layer ./uppercase_layer.wasm
 ```
 
 Components resolve exactly like `wassette component load` does — a filesystem
@@ -27,14 +27,16 @@ Each stage is sandboxed from its Wassette policy
 beside the `.wasm`) via `wassette::create_wasi_state_template_from_policy` —
 the same function the MCP server uses. A stage with no policy gets no network
 and no filesystem beyond the per-session `/data` directory the host preopens
-for it. `--allow-all` restores the permissive upstream behaviour for demos.
+for a provider running alone or in an opted-in chain. `--allow-all` restores
+the permissive upstream behaviour for demos.
 
 Because one ACP session is one `Store`, and a store has one `WasiCtx`, the
-grants of a chain's stages are unioned: a layer can access the provider's
-host-provided `/data` directory even when both stages have no policy. Every
-layered chain therefore requires `--allow-shared-grants`. Concurrent callbacks
-can be attributed to the wrong stage, including secret lookups. This flag
-acknowledges both risks; it does not fix routing or isolate stages.
+grants of a chain's stages are unioned. Layered chains with policy grants,
+stored secrets or `--allow-all` require `--allow-shared-grants`, which also
+mounts the provider's persistent `/data` directory into the shared context.
+Without the flag, policy-free, secret-free layers run without `/data`. Concurrent
+callbacks can be attributed to the wrong stage, including secret lookups.
+This flag acknowledges the risks; it does not fix routing or isolate stages.
 
 ## Provenance
 

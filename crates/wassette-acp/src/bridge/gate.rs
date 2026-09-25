@@ -4,9 +4,9 @@
 //! Notification gate for held-back `session/update` events.
 //!
 //! Updates for registered pending session IDs are held until the bridge
-//! sends the response. The guest chooses the ID for `session/new`, so
-//! updates emitted before it returns cannot be matched to a known ID and
-//! are dropped rather than buffered without a bound.
+//! sends the response. During `session/new`, the guest chooses its ID;
+//! bounded updates for as-yet-unknown IDs are held only while a new session
+//! is in flight, then only those matching its returned ID are kept.
 //!
 //! Once a session is opened, future notifications bypass the gate and
 //! are forwarded immediately. Opening happens on a short timer *or* on
@@ -33,6 +33,8 @@ struct Inner {
     /// straight through.
     opened: HashSet<String>,
     pending: HashSet<String>,
+    creating: usize,
+    unmatched: HashMap<String, Vec<schema::SessionNotification>>,
     /// Notifications received before the session was opened.
     held: HashMap<String, Vec<schema::SessionNotification>>,
     held_total: usize,
@@ -44,13 +46,30 @@ impl NotificationGate {
         Self::default()
     }
 
+    pub fn begin_new_session(self: &std::sync::Arc<Self>) -> NewSessionRegistration {
+        self.inner.lock().unwrap().creating += 1;
+        NewSessionRegistration { gate: self.clone() }
+    }
+
+    fn finish_new_session(&self) {
+        let mut g = self.inner.lock().unwrap();
+        g.creating -= 1;
+        if g.creating == 0 {
+            g.held_total -= g.unmatched.values().map(Vec::len).sum::<usize>();
+            g.unmatched.clear();
+        }
+    }
+
     /// Only known session IDs may hold notifications before their response.
     pub fn register_pending(self: &std::sync::Arc<Self>, session_id: &str) -> PendingRegistration {
-        self.inner
-            .lock()
-            .unwrap()
-            .pending
-            .insert(session_id.to_string());
+        let mut g = self.inner.lock().unwrap();
+        g.pending.insert(session_id.to_string());
+        if let Some(early) = g.unmatched.remove(session_id) {
+            g.held
+                .entry(session_id.to_string())
+                .or_default()
+                .extend(early);
+        }
         PendingRegistration {
             gate: self.clone(),
             session_id: session_id.to_string(),
@@ -75,8 +94,9 @@ impl NotificationGate {
             tracing::info!(session = %session_id, "gate: forwarding notification (session opened)");
             return Some(notif);
         }
-        if !g.pending.contains(&session_id)
-            || g.held
+        let pending = g.pending.contains(&session_id);
+        if (!pending && g.creating == 0)
+            || (if pending { &g.held } else { &g.unmatched })
                 .get(&session_id)
                 .is_some_and(|v| v.len() >= MAX_HELD_PER_SESSION)
             || g.held_total >= MAX_HELD_TOTAL
@@ -88,7 +108,11 @@ impl NotificationGate {
             return None;
         }
         tracing::info!(session = %session_id, "gate: holding notification until session opens");
-        g.held.entry(session_id).or_default().push(notif);
+        if pending {
+            g.held.entry(session_id).or_default().push(notif);
+        } else {
+            g.unmatched.entry(session_id).or_default().push(notif);
+        }
         g.held_total += 1;
         None
     }
@@ -114,6 +138,16 @@ impl NotificationGate {
         g.held_total -= held.len();
         tracing::info!(session = %session_id, held = held.len(), "gate: opening session, flushing held notifications");
         Some(held)
+    }
+}
+
+pub struct NewSessionRegistration {
+    gate: std::sync::Arc<NotificationGate>,
+}
+
+impl Drop for NewSessionRegistration {
+    fn drop(&mut self) {
+        self.gate.finish_new_session();
     }
 }
 
@@ -247,5 +281,35 @@ mod tests {
         drop(pending);
         assert_eq!(gate.inner.lock().unwrap().held_total, 0);
         assert!(gate.open_session("failed").is_none());
+    }
+
+    #[test]
+    fn new_session_replays_only_its_early_updates_after_registration() {
+        let gate = std::sync::Arc::new(NotificationGate::new());
+        let creating = gate.begin_new_session();
+        gate.admit(notification("new"));
+        gate.admit(notification("unrelated"));
+        let pending = gate.register_pending("new");
+        drop(creating);
+        assert!(gate.inner.lock().unwrap().unmatched.is_empty());
+        assert_eq!(gate.inner.lock().unwrap().held_total, 1);
+        pending.keep();
+        assert_eq!(gate.open_session("new").unwrap().len(), 1);
+        assert!(gate.open_session("unrelated").is_none());
+    }
+
+    #[test]
+    fn failed_new_session_discards_unknown_updates_with_a_global_limit() {
+        let gate = std::sync::Arc::new(NotificationGate::new());
+        let creating = gate.begin_new_session();
+        for index in 0..(MAX_HELD_TOTAL + 10) {
+            gate.admit(notification(&format!("unknown-{index}")));
+        }
+        assert_eq!(gate.inner.lock().unwrap().held_total, MAX_HELD_TOTAL);
+        drop(creating);
+        let g = gate.inner.lock().unwrap();
+        assert!(g.unmatched.is_empty());
+        assert_eq!(g.held_total, 0);
+        assert_eq!(g.dropped, 10);
     }
 }

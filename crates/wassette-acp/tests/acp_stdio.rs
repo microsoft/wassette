@@ -33,11 +33,10 @@ use serde_json::{Value, json};
 /// response includes compiling the provider component.
 const LINE_TIMEOUT: Duration = Duration::from_secs(60);
 
-/// The host holds `session/update` notifications emitted during
-/// `session/new` until just after the `session/new` response goes out,
-/// then flushes them (see `bridge/gate.rs`). Waiting the flush out keeps
-/// `session/new`'s own updates from landing in the middle of a later
-/// assertion. A client that does *not* wait is still served correctly —
+/// The host holds bounded updates emitted during `session/new` until the
+/// guest's session ID is known. Waiting for the gate to open keeps those
+/// updates and the host's `/install` advertisement out of later assertions. A client
+/// that does *not* wait is still served correctly —
 /// `a_prompt_before_the_gate_flush_still_streams_first` covers that.
 const GATE_FLUSH_GRACE: Duration = Duration::from_millis(500);
 
@@ -236,8 +235,8 @@ impl Harness {
     }
 
     /// `initialize` → `session/new`, returning the new session id, then
-    /// wait out the gate flush so `session/new`'s own updates don't land
-    /// in the middle of what a later assertion is reading.
+    /// wait out the gate flush so `session/new` updates don't land in
+    /// the middle of what a later assertion is reading.
     fn open_session(&mut self) -> String {
         let session_id = self.open_session_without_grace();
         std::thread::sleep(GATE_FLUSH_GRACE);
@@ -685,23 +684,35 @@ fn multiple_providers_fail_with_a_clear_cli_error() {
 }
 
 #[test]
-fn policy_free_layer_chain_requires_shared_data_opt_in() {
+fn policy_free_layer_chain_runs_without_shared_grants_flag() {
     let Some((bin, wasm)) = artifacts() else {
         return;
     };
     let layer = uppercase_layer().expect("build the uppercase layer with just build-acp-examples");
-    let output = Command::new(bin)
-        .arg("acp")
-        .arg("--provider")
-        .arg(&wasm)
-        .arg("--layer")
-        .arg(&layer)
-        .output()
-        .expect("run CLI");
-    assert!(!output.status.success(), "shared /data was exposed");
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(stderr.contains("provider's /data"), "{stderr}");
-    assert!(stderr.contains("--allow-shared-grants"), "{stderr}");
+    let mut h = Harness::start(&bin, &wasm, &["--layer", layer.to_str().unwrap()]);
+    let session_id = h.open_session_without_grace();
+    std::thread::sleep(GATE_FLUSH_GRACE);
+    let updates = h.drain_pending();
+    assert!(
+        updates.iter().any(|update| {
+            update["method"] == "session/update"
+                && update["params"]["sessionId"] == session_id
+                && update["params"]["update"]["sessionUpdate"] == "available_commands_update"
+                && update["params"]["update"]["availableCommands"][0]["name"] == "shout"
+        }),
+        "layer did not advertise /shout after session/new: {updates:#?}"
+    );
+    let id = h.request(
+        "session/prompt",
+        json!({"sessionId": session_id, "prompt": [{"type": "text", "text": "layered demo"}]}),
+    );
+    let (updates, result) = h.await_response(id);
+    assert_eq!(result["stopReason"], "end_turn");
+    let echoed: String = updates
+        .iter()
+        .filter_map(agent_message_chunk_text)
+        .collect();
+    assert!(echoed.contains("layered demo"), "{updates:#?}");
 }
 
 #[test]
