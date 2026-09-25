@@ -465,14 +465,18 @@ pub async fn fetch_component_with_config(
     uri: &str,
     config: &crate::LifecycleConfig,
 ) -> Result<(String, PathBuf)> {
+    fetch_component_with_config_into(uri, config, config.component_dir()).await
+}
+
+/// Fetch with configured clients into a staging directory instead of the
+/// lifecycle manager's live component directory.
+pub async fn fetch_component_with_config_into(
+    uri: &str,
+    config: &crate::LifecycleConfig,
+    dest_dir: &Path,
+) -> Result<(String, PathBuf)> {
     let oci_client = oci_wasm::WasmClient::from(config.oci_client().clone());
-    fetch_component_with_clients(
-        uri,
-        config.component_dir(),
-        &oci_client,
-        config.http_client(),
-    )
-    .await
+    fetch_component_with_clients(uri, dest_dir, &oci_client, config.http_client()).await
 }
 
 /// Fetch a component using the clients supplied by a [`LifecycleConfig`](crate::LifecycleConfig).

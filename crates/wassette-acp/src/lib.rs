@@ -259,7 +259,9 @@ pub async fn run(args: AcpArgs) -> Result<()> {
     );
 
     let data_root = init_data_root()?;
-    let resolver = Arc::new(Resolver::new(component_dir));
+    let resolver = Arc::new(Resolver::with_config(
+        ::wassette::LifecycleManager::builder(component_dir).build_config()?,
+    ));
 
     // Each component gets a private secret store keyed by its Wassette
     // component id: `store.get(key)` reads that component's secrets file

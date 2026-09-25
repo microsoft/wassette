@@ -5362,6 +5362,7 @@ dependencies = [
  "http",
  "http-body-util",
  "policy",
+ "reqwest",
  "rustls",
  "semver",
  "serde",

@@ -96,6 +96,7 @@ fn validate_component_id(id: &str) -> Result<()> {
 /// Resolves component references against a Wassette component directory.
 pub struct Resolver {
     component_dir: PathBuf,
+    config: Option<wassette::LifecycleConfig>,
 }
 
 impl Resolver {
@@ -103,7 +104,15 @@ impl Resolver {
     pub fn new(component_dir: impl Into<PathBuf>) -> Self {
         Self {
             component_dir: component_dir.into(),
+            config: None,
         }
+    }
+
+    /// Resolve using the lifecycle manager's configured HTTP and OCI clients.
+    pub fn with_config(config: wassette::LifecycleConfig) -> Self {
+        let mut resolver = Self::new(config.component_dir());
+        resolver.config = Some(config);
+        resolver
     }
 
     /// The component directory this resolver reads from and downloads into.
@@ -142,10 +151,13 @@ impl Resolver {
         } else {
             None
         };
-        let staged_resolver = staging
-            .as_ref()
-            .map(|dir| Resolver::new(dir.path()))
-            .unwrap_or_else(|| Resolver::new(&self.component_dir));
+        let staged_resolver = Resolver {
+            component_dir: staging
+                .as_ref()
+                .map(|dir| dir.path().to_path_buf())
+                .unwrap_or_else(|| self.component_dir.clone()),
+            config: self.config.clone(),
+        };
         let resolved = staged_resolver
             .resolve_with_progress(arg, progress.clone())
             .await?;
@@ -241,9 +253,14 @@ impl Resolver {
     /// Hand `uri` to [`wassette::loader`]. Remote artifacts land in the
     /// component directory; local files are used where they are.
     async fn fetch(&self, uri: &str) -> Result<ResolvedComponent> {
-        let (component_id, path) = wassette::loader::fetch_component(uri, &self.component_dir)
-            .await
-            .with_context(|| format!("fetching component `{uri}`"))?;
+        let (component_id, path) = match &self.config {
+            Some(config) => {
+                wassette::loader::fetch_component_with_config_into(uri, config, &self.component_dir)
+                    .await
+            }
+            None => wassette::loader::fetch_component(uri, &self.component_dir).await,
+        }
+        .with_context(|| format!("fetching component `{uri}`"))?;
         validate_component_id(&component_id)
             .with_context(|| format!("deriving a component id from `{uri}`"))?;
         Ok(ResolvedComponent { component_id, path })
@@ -388,5 +405,49 @@ mod tests {
             b"new wasm"
         );
         assert!(!dir.path().join("agent.policy.yaml").exists());
+    }
+
+    #[tokio::test]
+    async fn resolver_preserves_configured_http_client_during_staging() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+        let dir = tempfile::tempdir().unwrap();
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let proxy =
+            reqwest::Proxy::all(format!("http://{}", listener.local_addr().unwrap())).unwrap();
+        let config = wassette::LifecycleManager::builder(dir.path())
+            .with_http_client(reqwest::Client::builder().proxy(proxy).build().unwrap())
+            .build_config()
+            .unwrap();
+        let resolver = Resolver::with_config(config);
+        let request = tokio::spawn(async move {
+            let (mut stream, _) = listener.accept().await.unwrap();
+            let mut bytes = [0; 512];
+            let n = stream.read(&mut bytes).await.unwrap();
+            stream
+                .write_all(b"HTTP/1.1 403 Forbidden\r\nContent-Length: 0\r\n\r\n")
+                .await
+                .unwrap();
+            String::from_utf8_lossy(&bytes[..n]).into_owned()
+        });
+        let error = tokio::time::timeout(
+            std::time::Duration::from_secs(10),
+            resolver.resolve_validated(
+                "https://example.invalid/agent.wasm",
+                None,
+                &Engine::default(),
+                None,
+            ),
+        )
+        .await
+        .unwrap()
+        .unwrap_err();
+        assert!(error.to_string().contains("fetching"), "{error:#}");
+        assert!(
+            request
+                .await
+                .unwrap()
+                .starts_with("CONNECT example.invalid:443")
+        );
     }
 }

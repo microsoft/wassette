@@ -31,4 +31,5 @@ wasmtime-wasi = { workspace = true }
 wasmtime-wasi-http = { workspace = true }
 
 [dev-dependencies]
+reqwest = { workspace = true }
 tracing-test = { workspace = true, features = ["no-env-filter"] }
