@@ -111,11 +111,6 @@ impl Resolver {
         &self.component_dir
     }
 
-    /// Resolve `arg` to a component on disk, downloading it if needed.
-    pub async fn resolve(&self, arg: &str) -> Result<ResolvedComponent> {
-        self.resolve_with_progress(arg, None).await
-    }
-
     /// Validate a component before adding any fetched artifact to the store.
     /// Local paths and existing IDs are never owned by this invocation.
     pub async fn install_validated(
@@ -123,6 +118,17 @@ impl Resolver {
         arg: &str,
         progress: Option<Sender<String>>,
         engine: &Engine,
+    ) -> Result<ResolvedComponent> {
+        self.resolve_validated(arg, progress, engine, None).await
+    }
+
+    /// Validate a remote artifact before publishing it to the shared component store.
+    pub async fn resolve_validated(
+        &self,
+        arg: &str,
+        progress: Option<Sender<String>>,
+        engine: &Engine,
+        expected_kind: Option<crate::state::StageKind>,
     ) -> Result<ResolvedComponent> {
         let remote = matches!(classify(arg)?, Reference::Uri(uri) if uri.starts_with("oci://") || uri.starts_with("https://"));
         let staging = if remote {
@@ -149,51 +155,33 @@ impl Resolver {
         let component = Component::from_file(engine, &resolved.path)
             .map_err(anyhow::Error::from)
             .context("loading installed component")?;
-        crate::classify_acp_component(engine, &component)?;
+        match expected_kind {
+            Some(kind) => crate::validate_imports(engine, &component, kind)?,
+            None => {
+                crate::classify_acp_component(engine, &component)?;
+            }
+        }
 
         if staging.is_some() {
-            return self.promote_staged(resolved);
+            let policy_path = resolved
+                .path
+                .with_file_name(format!("{}.policy.yaml", resolved.component_id));
+            if policy_path.is_file() {
+                let content = std::fs::read_to_string(&policy_path)
+                    .with_context(|| format!("reading {}", policy_path.display()))?;
+                policy::PolicyParser::parse_str(&content)
+                    .with_context(|| format!("validating {}", policy_path.display()))?;
+            }
+            return self.promote_staged(resolved).await;
         }
         Ok(resolved)
     }
 
-    fn promote_staged(&self, resolved: ResolvedComponent) -> Result<ResolvedComponent> {
-        let destination = self
-            .component_dir
-            .join(format!("{}.wasm", resolved.component_id));
-        let staged_policy = resolved
-            .path
-            .with_file_name(format!("{}.policy.yaml", resolved.component_id));
-        let destination_policy = self
-            .component_dir
-            .join(format!("{}.policy.yaml", resolved.component_id));
-        // Refuse replacement of either half of a pre-existing pair.
-        if destination.exists() || destination_policy.exists() {
-            anyhow::bail!(
-                "component `{}` already exists in {}; remove it explicitly before installing a replacement",
-                resolved.component_id,
-                self.component_dir.display()
-            );
-        }
-        let installed_policy = if staged_policy.exists() {
-            std::fs::hard_link(&staged_policy, &destination_policy)
-                .with_context(|| format!("installing {}", destination_policy.display()))?;
-            true
-        } else {
-            false
-        };
-        if let Err(error) = std::fs::hard_link(&resolved.path, &destination) {
-            if installed_policy {
-                std::fs::remove_file(&destination_policy).with_context(|| {
-                    format!(
-                        "installing {} failed ({error}); removing newly installed policy {}",
-                        destination.display(),
-                        destination_policy.display()
-                    )
-                })?;
-            }
-            return Err(error).with_context(|| format!("installing {}", destination.display()));
-        }
+    async fn promote_staged(&self, resolved: ResolvedComponent) -> Result<ResolvedComponent> {
+        let destination =
+            wassette::loader::promote_component_artifact(&resolved.path, &self.component_dir)
+                .await
+                .with_context(|| format!("installing `{}`", resolved.component_id))?;
         Ok(ResolvedComponent {
             component_id: resolved.component_id,
             path: destination,
@@ -318,7 +306,11 @@ mod tests {
     async fn missing_id_reports_the_component_dir() {
         let dir = tempfile::tempdir().unwrap();
         let resolver = Resolver::new(dir.path());
-        let err = resolver.resolve("nope").await.unwrap_err().to_string();
+        let err = resolver
+            .resolve_with_progress("nope", None)
+            .await
+            .unwrap_err()
+            .to_string();
         assert!(err.contains("no component `nope`"), "{err}");
         assert!(err.contains(&dir.path().display().to_string()), "{err}");
     }
@@ -329,7 +321,7 @@ mod tests {
         let path = dir.path().join("agent.wasm");
         tokio::fs::write(&path, b"\0asm").await.unwrap();
         let resolver = Resolver::new(dir.path());
-        let resolved = resolver.resolve("agent").await.unwrap();
+        let resolved = resolver.resolve_with_progress("agent", None).await.unwrap();
         assert_eq!(resolved.component_id, "agent");
         assert_eq!(resolved.path, path);
     }
@@ -351,47 +343,50 @@ mod tests {
         );
         assert_eq!(tokio::fs::read(&path).await.unwrap(), b"old wasm");
         assert_eq!(tokio::fs::read(&policy).await.unwrap(), b"old policy");
-
-        let stage = tempfile::tempdir_in(dir.path()).unwrap();
-        let staged_path = stage.path().join("agent.wasm");
-        tokio::fs::write(&staged_path, b"replacement")
-            .await
-            .unwrap();
-        tokio::fs::write(
-            stage.path().join("agent.policy.yaml"),
-            b"replacement policy",
-        )
-        .await
-        .unwrap();
-        assert!(
-            resolver
-                .promote_staged(ResolvedComponent {
-                    component_id: "agent".to_string(),
-                    path: staged_path
-                })
-                .is_err()
-        );
-        assert_eq!(tokio::fs::read(&path).await.unwrap(), b"old wasm");
-        assert_eq!(tokio::fs::read(&policy).await.unwrap(), b"old policy");
     }
 
-    #[test]
-    fn newly_staged_wasm_and_policy_are_installed_together() {
+    #[tokio::test]
+    async fn staged_replacement_updates_wasm_and_policy_together() {
         let dir = tempfile::tempdir().unwrap();
         let stage = tempfile::tempdir_in(dir.path()).unwrap();
         let staged_path = stage.path().join("agent.wasm");
         std::fs::write(&staged_path, b"new wasm").unwrap();
         std::fs::write(stage.path().join("agent.policy.yaml"), b"new policy").unwrap();
+        std::fs::write(dir.path().join("agent.wasm"), b"old wasm").unwrap();
+        std::fs::write(dir.path().join("agent.policy.yaml"), b"old policy").unwrap();
         let installed = Resolver::new(dir.path())
             .promote_staged(ResolvedComponent {
                 component_id: "agent".to_string(),
                 path: staged_path,
             })
+            .await
             .unwrap();
         assert_eq!(std::fs::read(installed.path).unwrap(), b"new wasm");
         assert_eq!(
             std::fs::read(dir.path().join("agent.policy.yaml")).unwrap(),
             b"new policy"
         );
+    }
+
+    #[tokio::test]
+    async fn staged_replacement_without_policy_removes_old_policy() {
+        let dir = tempfile::tempdir().unwrap();
+        let stage = tempfile::tempdir_in(dir.path()).unwrap();
+        let staged_path = stage.path().join("agent.wasm");
+        std::fs::write(&staged_path, b"new wasm").unwrap();
+        std::fs::write(dir.path().join("agent.wasm"), b"old wasm").unwrap();
+        std::fs::write(dir.path().join("agent.policy.yaml"), b"old policy").unwrap();
+        Resolver::new(dir.path())
+            .promote_staged(ResolvedComponent {
+                component_id: "agent".to_string(),
+                path: staged_path,
+            })
+            .await
+            .unwrap();
+        assert_eq!(
+            std::fs::read(dir.path().join("agent.wasm")).unwrap(),
+            b"new wasm"
+        );
+        assert!(!dir.path().join("agent.policy.yaml").exists());
     }
 }

@@ -278,7 +278,7 @@ pub async fn run(args: AcpArgs) -> Result<()> {
             let mut providers: Vec<Stage> = Vec::with_capacity(args.providers.len());
             for arg in &args.providers {
                 let resolved = resolver
-                    .resolve(arg)
+                    .resolve_validated(arg, None, &engine, Some(StageKind::Provider))
                     .await
                     .with_context(|| format!("resolving provider `{arg}`"))?;
                 let sandbox = Sandbox::load(
@@ -314,7 +314,7 @@ pub async fn run(args: AcpArgs) -> Result<()> {
             let mut layers: Vec<Stage> = Vec::with_capacity(args.layers.len());
             for arg in &args.layers {
                 let resolved = resolver
-                    .resolve(arg)
+                    .resolve_validated(arg, None, &engine, Some(StageKind::Layer))
                     .await
                     .with_context(|| format!("resolving layer `{arg}`"))?;
                 let sandbox = Sandbox::load(
@@ -509,7 +509,11 @@ pub(crate) fn classify_acp_component(engine: &Engine, component: &Component) -> 
 /// match the CLI flag they were passed under. The classification itself
 /// also catches non-ACP components and ACP version mismatches; see
 /// [`classify_acp_component`].
-fn validate_imports(engine: &Engine, component: &Component, kind: StageKind) -> Result<()> {
+pub(crate) fn validate_imports(
+    engine: &Engine,
+    component: &Component,
+    kind: StageKind,
+) -> Result<()> {
     let detected = classify_acp_component(engine, component)?;
     match (kind, detected) {
         (StageKind::Provider, StageKind::Layer) => anyhow::bail!(

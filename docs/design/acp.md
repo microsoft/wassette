@@ -173,6 +173,11 @@ just test-acp
   methods or stateful authentication; advertising them would mislead editors.
 * Sessions stay registered until the host exits; there is no eviction or
   session-close path.
+* Remote components and their policies are staged and validated before
+  replacement. Publishing the two files requires separate filesystem
+  operations; a concurrent reader outside the ACP host can briefly see a
+  mixed pair. Do not modify the shared component store from another process
+  while ACP is loading a component.
 * Terminal output limits currently forward the first bytes (a prefix),
   not the latest bytes as described in WIT, and cannot report truncation
   through the current streaming API. The host also caps each command at
