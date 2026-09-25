@@ -180,14 +180,14 @@ pub(super) async fn handle_new_session(
             group.terminal_option(),
         )?
     };
+    let pending = gate.register_pending(&session_id);
     registry.insert(session_id.clone(), group);
     tracing::info!(session = %session_id, "→ wire: session/new response");
     responder.respond(schema_resp)?;
-    // Now that the session/new response has been sent, release any
-    // notifications the chain emitted *during* the call (e.g. a layer
-    // advertising slash commands). Sending them earlier would race the
-    // response and the editor would drop them as referring to an
-    // unknown session id.
+    pending.keep();
+    // The guest mints its ID during this call; earlier notifications had
+    // no registered ID and were dropped. Open the now-known session for
+    // later notifications and advertise the host's /install command.
     flush_held_notifications(gate, &session_id, &cx);
     Ok(())
 }
@@ -202,6 +202,7 @@ pub(super) async fn handle_load_session(
 ) -> Result<(), AcpError> {
     let session_key = req.session_id.0.to_string();
     debug!(session = %session_key, "session/load");
+    let pending = gate.register_pending(&session_key);
     resolve_workspace_cwd(&mut req.cwd);
     warn_if_unlikely_workspace(&req.cwd);
     let sessions = factory
@@ -253,13 +254,14 @@ pub(super) async fn handle_load_session(
     };
     registry.insert(session_key.clone(), group);
     responder.respond(schema_resp)?;
+    pending.keep();
     flush_held_notifications(gate, &session_key, &cx);
     Ok(())
 }
 
 /// After responding to `session/new` or `session/load`, mark the
 /// session as opened in the gate and forward any notifications that
-/// were buffered while the wasm chain processed the call.
+/// were buffered for a previously registered session ID (session/load).
 ///
 /// We deliberately delay the flush by a few hundred milliseconds. The
 /// editor reads our `session/new` response and any `session/update`

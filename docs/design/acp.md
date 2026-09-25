@@ -253,13 +253,11 @@ cannot be pulled either.
   Wassette's shared runtime is typed to `WassetteWasiState<WasiState>`
   and does not enable the async component model, which ACP requires
   (`CM_ASYNC`, `CM_MORE_ASYNC_BUILTINS`, `CM_ASYNC_STACKFUL`).
-* Session updates emitted *during* `session/new` are held by a
-  notification gate and flushed just after the response, because an
-  editor cannot route an update for a session id it has not been told
-  about yet. The flush runs on a 200ms timer (editors need a beat to
-  register the session before the notification task is polled), but any
-  inbound request naming the session opens the gate immediately — the
-  request is itself proof the editor knows the id. Without that, a client
-  prompting inside the window has its turn's chunks queued behind the
-  held ones and delivered *after* `end_turn`, which reads as an empty
-  turn.
+* The notification gate only buffers registered pending session IDs,
+  with per-session and global queue limits. A guest chooses its ID during
+  `session/new`, so updates emitted before it returns cannot yet be
+  registered; those early updates are dropped. Layers should announce
+  commands again after the response. The host still advertises `/install`
+  after `session/new`, and `session/load` can buffer updates because its
+  ID is known in advance. The flush runs on a 200ms timer, but an
+  inbound request naming the session opens the gate immediately.
