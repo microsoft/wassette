@@ -42,6 +42,7 @@ Wassette uses a hierarchical command structure organized around functional areas
 wassette
 ├── run            # Start MCP server with stdio transport (local development)
 ├── serve          # Start MCP server with HTTP transports (remote access)
+├── acp            # [EXPERIMENTAL] Host an ACP agent on stdio
 ├── component      # Component lifecycle management
 │   ├── load       # Load components
 │   ├── unload     # Remove components
@@ -63,6 +64,12 @@ wassette
 ```
 
 ## Server Commands
+
+### `wassette acp` (experimental)
+
+Host an ACP agent from a WebAssembly provider on stdio. This command may
+change or be removed; see the [ACP design](../design/acp.md) for usage and
+limitations.
 
 ### `wassette run`
 
