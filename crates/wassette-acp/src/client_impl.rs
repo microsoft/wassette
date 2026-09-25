@@ -44,21 +44,35 @@ async fn send_and_await<T>(
     outbound: &mpsc::Sender<OutboundEvent>,
     make_event: impl FnOnce(oneshot::Sender<Result<T, AcpError>>) -> OutboundEvent,
     context: &'static str,
+    timeout: Option<std::time::Duration>,
 ) -> Result<T, Error> {
     let (tx, rx) = oneshot::channel();
     outbound
         .send(make_event(tx))
         .await
         .map_err(|_| translate::internal_error(&format!("{context}: bridge task gone")))?;
-    match tokio::time::timeout(OUTBOUND_REQUEST_TIMEOUT, rx).await {
-        Ok(Ok(Ok(resp))) => Ok(resp),
-        Ok(Ok(Err(acp_err))) => Err(translate::acp_error_to_wit(acp_err)),
-        Ok(Err(_)) => Err(translate::internal_error(&format!(
-            "{context}: bridge dropped reply"
-        ))),
+    await_reply(rx, context, timeout).await
+}
+
+async fn await_reply<T>(
+    rx: oneshot::Receiver<Result<T, AcpError>>,
+    context: &str,
+    timeout: Option<std::time::Duration>,
+) -> Result<T, Error> {
+    let result = match timeout {
+        Some(duration) => tokio::time::timeout(duration, rx).await.map_err(|_| {
+            translate::internal_error(&format!(
+                "{context}: editor did not respond within {}s",
+                duration.as_secs()
+            ))
+        })?,
+        None => rx.await,
+    };
+    match result {
+        Ok(Ok(resp)) => Ok(resp),
+        Ok(Err(acp_err)) => Err(translate::acp_error_to_wit(acp_err)),
         Err(_) => Err(translate::internal_error(&format!(
-            "{context}: editor did not respond within {}s",
-            OUTBOUND_REQUEST_TIMEOUT.as_secs()
+            "{context}: bridge dropped reply"
         ))),
     }
 }
@@ -274,6 +288,7 @@ impl<T: Send> client::HostWithStore<T> for HasSelf<HostState> {
                     {
                         return;
                     }
+
                     let _ = ack_rx.await;
                 }
                 Routing::Upstream { idx, bindings } => {
@@ -313,6 +328,9 @@ impl<T: Send> client::HostWithStore<T> for HasSelf<HostState> {
                         &outbound,
                         |tx| OutboundEvent::RequestPermission(schema_req, tx),
                         "session/request_permission",
+                        // Human approval has no fixed deadline; the reply channel
+                        // closes if the outbound bridge drops the request.
+                        None,
                     )
                     .await?;
                     Ok(translate::request_permission_response_schema_to_wit(resp))
@@ -352,6 +370,7 @@ impl<T: Send> client::HostWithStore<T> for HasSelf<HostState> {
                         &outbound,
                         |tx| OutboundEvent::ReadTextFile(schema_req, tx),
                         "fs/read",
+                        Some(OUTBOUND_REQUEST_TIMEOUT),
                     )
                     .await?;
                     Ok(translate::read_text_file_response_schema_to_wit(resp))
@@ -384,6 +403,7 @@ impl<T: Send> client::HostWithStore<T> for HasSelf<HostState> {
                         &outbound,
                         |tx| OutboundEvent::WriteTextFile(schema_req, tx),
                         "fs/write",
+                        Some(OUTBOUND_REQUEST_TIMEOUT),
                     )
                     .await?;
                     Ok(())
@@ -409,4 +429,35 @@ impl<T: Send> client::HostWithStore<T> for HasSelf<HostState> {
     // ([`HostPromptTurnWithStore::response`] + its updates), and the
     // five terminal funcs collapsed into a `client.terminal` resource
     // whose host impl lives in [`crate::wasm`] for now (phase 2 stub).
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn permission_reply_can_arrive_after_file_request_timeout() {
+        let (tx, rx) = oneshot::channel();
+        let waiter =
+            tokio::spawn(async move { await_reply(rx, "session/request_permission", None).await });
+        tokio::time::sleep(OUTBOUND_REQUEST_TIMEOUT + std::time::Duration::from_secs(1)).await;
+        tx.send(Ok(42)).unwrap();
+        assert_eq!(waiter.await.unwrap().unwrap(), 42);
+
+        let (tx, rx) = oneshot::channel::<Result<(), AcpError>>();
+        drop(tx);
+        let err = await_reply(rx, "session/request_permission", None)
+            .await
+            .unwrap_err();
+        assert!(err.message.contains("bridge dropped reply"));
+    }
+
+    #[tokio::test]
+    async fn file_request_still_times_out() {
+        let (_tx, rx) = oneshot::channel::<Result<(), AcpError>>();
+        let err = await_reply(rx, "fs/read", Some(std::time::Duration::from_millis(10)))
+            .await
+            .unwrap_err();
+        assert!(err.message.contains("editor did not respond"));
+    }
 }
