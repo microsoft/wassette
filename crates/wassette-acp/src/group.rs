@@ -279,6 +279,31 @@ mod tests {
         commit_active_on_success(&active, 1, &SetConfigOptionOutcome::Done(vec![]));
         assert_eq!(*active.lock().unwrap(), 1);
     }
+
+    #[test]
+    fn model_less_options_keep_other_selectors() {
+        let opts = vec![SessionConfigOption {
+            id: "mode".to_string(),
+            name: "Mode".to_string(),
+            description: None,
+            category: None,
+            current_value: "default".to_string(),
+            options: SessionConfigSelectOptions::Ungrouped(vec![]),
+            provided_by: ComponentSource {
+                component_id: "local:provider".to_string(),
+            },
+        }];
+        let mut empty_model = opts[0].clone();
+        empty_model.id = "model".to_string();
+        empty_model.category = Some(SessionConfigOptionCategory::Model);
+        let kept = without_model_options(vec![empty_model, opts[0].clone()]);
+        assert_eq!(kept.len(), 1);
+        assert_eq!(kept[0].id, "mode");
+    }
+}
+
+fn without_model_options(options: Vec<SessionConfigOption>) -> Vec<SessionConfigOption> {
+    options.into_iter().filter(|o| !is_model(o)).collect()
 }
 
 impl GroupInner {
@@ -359,6 +384,9 @@ impl GroupInner {
             current_value = first.value.clone();
         }
         *self.model_map.lock().unwrap() = map;
+        if groups.is_empty() {
+            return without_model_options(active_opts);
+        }
 
         let merged_model = SessionConfigOption {
             id: HOST_MODEL_CONFIG_ID.to_string(),
