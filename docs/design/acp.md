@@ -120,7 +120,7 @@ wassette acp --provider <PATH|URI|COMPONENT_ID>
   `--log-file` mirrors them into a file for editors that hide stderr.
 
 Point an ACP-speaking editor at it the same way you would point one at
-`wassette serve --stdio`.
+`wassette run`.
 
 ## Demo
 
