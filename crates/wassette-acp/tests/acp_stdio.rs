@@ -66,6 +66,17 @@ fn echo_provider() -> Option<PathBuf> {
     path.is_file().then_some(path)
 }
 
+fn uppercase_layer() -> Option<PathBuf> {
+    let target_dir = std::env::var_os("CARGO_TARGET_DIR")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| {
+            PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                .join("../../components/acp-uppercase-layer/target")
+        });
+    let path = target_dir.join("wasm32-wasip2/release/acp_uppercase_layer.wasm");
+    path.is_file().then_some(path)
+}
+
 /// Both artifacts, or `None` with an explanation of what to build.
 fn artifacts() -> Option<(PathBuf, PathBuf)> {
     let Some(bin) = wassette_binary() else {
@@ -531,6 +542,53 @@ fn multiple_providers_fail_with_a_clear_cli_error() {
     assert!(!output.status.success(), "multiple providers were accepted");
     assert!(
         String::from_utf8_lossy(&output.stderr).contains("exactly one --provider"),
+        "unexpected error: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
+fn policy_free_layer_chain_runs_without_shared_grants_flag() {
+    let Some((bin, wasm)) = artifacts() else {
+        return;
+    };
+    let layer = uppercase_layer().expect("build the uppercase layer with just build-acp-examples");
+    let mut h = Harness::start(&bin, &wasm, &["--layer", layer.to_str().unwrap()]);
+    let session_id = h.open_session();
+    let id = h.request(
+        "session/prompt",
+        json!({"sessionId": session_id, "prompt": [{"type": "text", "text": "layered demo"}]}),
+    );
+    let (updates, result) = h.await_response(id);
+    assert_eq!(result["stopReason"], "end_turn");
+    let echoed: String = updates
+        .iter()
+        .filter_map(agent_message_chunk_text)
+        .collect();
+    assert!(echoed.contains("layered demo"), "{updates:#?}");
+}
+
+#[test]
+fn privileged_layer_chain_requires_shared_grants_flag() {
+    let Some((bin, wasm)) = artifacts() else {
+        return;
+    };
+    let layer = uppercase_layer().expect("build the uppercase layer with just build-acp-examples");
+    let output = Command::new(bin)
+        .arg("acp")
+        .arg("--provider")
+        .arg(wasm)
+        .arg("--layer")
+        .arg(layer)
+        .arg("--allow-all")
+        .output()
+        .expect("run CLI");
+    assert!(
+        !output.status.success(),
+        "privileged layer chain was accepted"
+    );
+    assert!(
+        String::from_utf8_lossy(&output.stderr).contains("--allow-shared-grants"),
         "unexpected error: {}",
         String::from_utf8_lossy(&output.stderr)
     );
