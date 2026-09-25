@@ -71,9 +71,7 @@ pub(super) async fn run_outbound_drain(
 /// Forward a `session/update` notification. Returns `false` if the
 /// connection has shut down and the drain loop should exit.
 fn forward_session_update(cx: &ConnectionTo<Client>, notif: schema::SessionNotification) -> bool {
-    if let Ok(json) = serde_json::to_string(&notif) {
-        tracing::info!(payload = %json, "→ wire: session/update");
-    }
+    tracing::info!(session = %notif.session_id.0, "→ wire: session/update");
     if let Err(e) = cx.send_notification(notif) {
         warn!("failed to send session/update: {e:?}");
         return false;

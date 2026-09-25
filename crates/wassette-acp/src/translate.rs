@@ -735,11 +735,12 @@ pub fn session_update_wit_to_schema(
             {
                 cmds_json.push(install_command_json());
             }
+            let command_count = cmds_json.len();
             let json = serde_json::json!({
                 "sessionUpdate": "available_commands_update",
                 "availableCommands": cmds_json,
             });
-            tracing::info!(session = %session_id, payload = %json, "available-commands-update outbound");
+            tracing::info!(session = %session_id, command_count, "available-commands-update outbound");
             let upd: schema::SessionUpdate = match serde_json::from_value(json) {
                 Ok(u) => u,
                 Err(e) => {

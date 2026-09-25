@@ -110,9 +110,10 @@ pub(super) async fn handle_new_session(
     // to the one group id (see `bind_editor_session_ids` below) — otherwise a
     // switched provider's updates would reach the editor tagged with an id it
     // never saw.
-    if let Ok(payload) = serde_json::to_string(&req) {
-        tracing::info!(payload = %payload, "← wire: session/new");
-    }
+    tracing::info!(
+        mcp_server_count = req.mcp_servers.len(),
+        "← wire: session/new"
+    );
     resolve_workspace_cwd(&mut req.cwd);
     warn_if_unlikely_workspace(&req.cwd);
     let sessions = factory
@@ -178,9 +179,7 @@ pub(super) async fn handle_new_session(
         )?
     };
     registry.insert(session_id.clone(), group);
-    if let Ok(payload) = serde_json::to_string(&schema_resp) {
-        tracing::info!(payload = %payload, "→ wire: session/new response");
-    }
+    tracing::info!(session = %session_id, "→ wire: session/new response");
     responder.respond(schema_resp)?;
     // Now that the session/new response has been sent, release any
     // notifications the chain emitted *during* the call (e.g. a layer
@@ -326,17 +325,13 @@ fn advertise_and_flush(gate: &Arc<NotificationGate>, session_id: &str, cx: &Conn
     // `/install` appended in `translate::session_update_wit_to_schema`,
     // so a later chain update won't drop it.
     if let Some(notif) = translate::synthetic_install_command_update(session_id) {
-        if let Ok(json) = serde_json::to_string(&notif) {
-            tracing::info!(payload = %json, "→ wire: synthetic /install advertisement");
-        }
+        tracing::info!(session = %session_id, "→ wire: synthetic /install advertisement");
         if let Err(e) = cx.send_notification(notif) {
             tracing::warn!(error = ?e, "failed to send /install advertisement");
         }
     }
     for notif in held {
-        if let Ok(json) = serde_json::to_string(&notif) {
-            tracing::info!(payload = %json, "→ wire: flushed session/update");
-        }
+        tracing::info!(session = %session_id, "→ wire: flushed session/update");
         if let Err(e) = cx.send_notification(notif) {
             tracing::warn!(error = ?e, "failed to flush held session/update");
             break;
@@ -481,9 +476,7 @@ pub(super) fn handle_prompt(
 ) -> Result<(), AcpError> {
     let session_key = req.session_id.0.to_string();
     debug!(session = %session_key, "session/prompt");
-    if let Ok(payload) = serde_json::to_string(&req) {
-        tracing::info!(session = %session_key, payload = %payload, "← wire: session/prompt");
-    }
+    tracing::info!(session = %session_key, block_count = req.prompt.len(), "← wire: session/prompt");
     // Drain the gate before this turn emits anything, so the turn's own
     // chunks can't queue behind notifications held from `session/new`.
     open_gate_now(gate, &session_key, &cx);

@@ -24,6 +24,7 @@ use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Child, ChildStdin, Command, Stdio};
 use std::sync::mpsc::{Receiver, RecvTimeoutError, channel};
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use serde_json::{Value, json};
@@ -91,6 +92,7 @@ struct Harness {
     /// Every line stdout has produced, in order. Used to assert the
     /// channel stayed pure JSON-RPC.
     seen: Vec<String>,
+    stderr: Arc<Mutex<String>>,
     /// Kept alive for the process's lifetime: the XDG roots the host
     /// reads and writes, redirected away from the developer's real
     /// component store.
@@ -140,17 +142,21 @@ impl Harness {
         // content is logging; these tests only care that it is not
         // stdout.
         let stderr = child.stderr.take().expect("stderr");
-        std::thread::spawn(
-            move || {
-                for _ in BufReader::new(stderr).lines().map_while(Result::ok) {}
-            },
-        );
+        let stderr_output = Arc::new(Mutex::new(String::new()));
+        let captured = stderr_output.clone();
+        std::thread::spawn(move || {
+            for line in BufReader::new(stderr).lines().map_while(Result::ok) {
+                captured.lock().unwrap().push_str(&line);
+                captured.lock().unwrap().push('\n');
+            }
+        });
 
         Harness {
             child,
             stdin,
             lines: rx,
             seen: Vec::new(),
+            stderr: stderr_output,
             _xdg: xdg,
             next_id: 0,
         }
@@ -420,5 +426,63 @@ fn stdout_carries_only_jsonrpc() {
             msg.get("method").is_some() || msg.get("id").is_some(),
             "stdout line is neither a request/notification nor a response: {line}"
         );
+    }
+
+    #[test]
+    fn default_logs_omit_request_and_notification_contents() {
+        let Some((bin, wasm)) = artifacts() else {
+            return;
+        };
+        let logs = tempfile::tempdir().expect("log dir");
+        let log_path = logs.path().join("host.log");
+        let mut h = Harness::start(&bin, &wasm, &["--log-file", log_path.to_str().unwrap()]);
+
+        let id = h.request(
+            "initialize",
+            json!({"protocolVersion": 1, "clientCapabilities": {}}),
+        );
+        h.await_response(id);
+        let id = h.request(
+            "session/new",
+            json!({
+                "cwd": std::env::temp_dir(),
+                "mcpServers": [
+                    {"name": "private-stdio", "command": "echo",
+                     "env": [{"name": "TOKEN", "value": "sensitive-env-770"}]},
+                    {"name": "private-http", "url": "https://example.com",
+                     "headers": [{"name": "Authorization", "value": "sensitive-header-770"}]}
+                ]
+            }),
+        );
+        let (_, session) = h.await_response(id);
+        let id = h.request(
+            "session/prompt",
+            json!({"sessionId": session["sessionId"], "prompt": [
+                {"type": "text", "text": "sensitive-prompt-770"}
+            ]}),
+        );
+        h.await_response(id);
+        h.drain_pending();
+
+        let stderr = h.stderr.lock().unwrap().clone();
+        let file = std::fs::read_to_string(
+            std::fs::read_dir(logs.path())
+                .unwrap()
+                .next()
+                .expect("log file")
+                .unwrap()
+                .path(),
+        )
+        .unwrap();
+        for output in [&stderr, &file] {
+            assert!(output.contains("session/prompt"), "no host logs: {output}");
+            for secret in [
+                "sensitive-env-770",
+                "sensitive-header-770",
+                "sensitive-prompt-770",
+            ] {
+                assert!(!output.contains(secret), "secret in logs: {output}");
+            }
+        }
     }
 }
