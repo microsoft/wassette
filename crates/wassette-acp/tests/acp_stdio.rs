@@ -483,6 +483,33 @@ fn stdout_carries_only_jsonrpc() {
             ] {
                 assert!(!output.contains(secret), "secret in logs: {output}");
             }
+
+            #[test]
+            fn unsupported_prompt_content_is_rejected_without_running_the_turn() {
+                let Some((bin, wasm)) = artifacts() else {
+                    return;
+                };
+                let mut h = Harness::start(&bin, &wasm, &[]);
+                let session_id = h.open_session();
+                let id = h.request(
+                    "session/prompt",
+                    json!({"sessionId": session_id, "prompt": [
+                        {"type": "text", "text": "do not echo"},
+                        {"type": "resource_link", "uri": "file:///tmp/example", "name": "example"}
+                    ]}),
+                );
+                loop {
+                    let message: Value = serde_json::from_str(&h.next_line()).unwrap();
+                    if message["id"] == id {
+                        assert_eq!(message["error"]["code"], -32602, "{message}");
+                        break;
+                    }
+                    assert!(
+                        agent_message_chunk_text(&message).is_none(),
+                        "rejected prompt emitted agent text: {message}"
+                    );
+                }
+            }
         }
     }
 }

@@ -142,12 +142,7 @@ pub fn init_request_schema_to_wit(req: schema::InitializeRequest) -> InitializeR
 pub fn init_response_wit_to_schema(resp: InitializeResponse) -> schema::InitializeResponse {
     let agent_caps = schema::AgentCapabilities::new()
         .load_session(resp.agent_capabilities.load_session)
-        .prompt_capabilities(
-            schema::PromptCapabilities::new()
-                .image(resp.agent_capabilities.prompt_capabilities.image)
-                .audio(resp.agent_capabilities.prompt_capabilities.audio)
-                .embedded_context(resp.agent_capabilities.prompt_capabilities.embedded_context),
-        )
+        .prompt_capabilities(schema::PromptCapabilities::new())
         .mcp_capabilities(
             schema::McpCapabilities::new()
                 .http(resp.agent_capabilities.mcp_capabilities.http)
@@ -770,21 +765,18 @@ pub fn session_update_wit_to_schema(
 }
 
 // -----------------------------------------------------------------------------
-// Content blocks (text-only for MVP; non-text variants are dropped)
+// Content blocks (text-only for MVP)
 // -----------------------------------------------------------------------------
 
-pub fn content_block_schema_to_wit(block: schema::ContentBlock) -> Option<ContentBlock> {
-    Some(match block {
-        schema::ContentBlock::Text(t) => ContentBlock::Text(TextContent { text: t.text }),
-        // Non-text variants ignored for MVP; the wasm guest only handles text.
-        other => {
-            debug!(
-                variant = ?std::mem::discriminant(&other),
-                "dropped inbound content block: non-text variant not yet supported"
-            );
-            return None;
+pub fn content_block_schema_to_wit(block: schema::ContentBlock) -> Result<ContentBlock, AcpError> {
+    match block {
+        schema::ContentBlock::Text(t) => Ok(ContentBlock::Text(TextContent { text: t.text })),
+        _ => {
+            let mut error = AcpError::invalid_params();
+            error.message = "only text prompt content is supported".to_string();
+            Err(error)
         }
-    })
+    }
 }
 
 fn content_block_wit_to_schema(
@@ -1246,7 +1238,14 @@ mod tests {
         let schema_resp = init_response_wit_to_schema(resp);
         assert_eq!(pv_to_u32(&schema_resp.protocol_version), 1);
         assert!(schema_resp.agent_capabilities.load_session);
-        assert!(schema_resp.agent_capabilities.prompt_capabilities.image);
+        assert!(!schema_resp.agent_capabilities.prompt_capabilities.image);
+        assert!(!schema_resp.agent_capabilities.prompt_capabilities.audio);
+        assert!(
+            !schema_resp
+                .agent_capabilities
+                .prompt_capabilities
+                .embedded_context
+        );
         assert!(schema_resp.agent_capabilities.mcp_capabilities.http);
         let info = schema_resp.agent_info.unwrap();
         assert_eq!(info.name, "ag");
@@ -1255,13 +1254,19 @@ mod tests {
 
     #[test]
     fn prompt_request_text_only() {
-        // Phase 1 streams: `prompt_request_schema_to_wit` was deleted
-        // along with the top-level `PromptRequest` record. Prompts now
-        // arrive as `list<content-block>` directly on `session.prompt`.
-        // Keep the test name + comment so the missing coverage is
-        // visible; phase 3 will reintroduce an equivalent translator
-        // (schema content-block -> wit content-block) and replace this
-        // body.
+        let text = schema::ContentBlock::Text(schema::TextContent::new("hello"));
+        assert!(matches!(
+            content_block_schema_to_wit(text),
+            Ok(ContentBlock::Text(TextContent { text })) if text == "hello"
+        ));
+        let link: schema::ContentBlock = serde_json::from_value(serde_json::json!({
+            "type": "resource_link", "uri": "file:///tmp/example", "name": "example"
+        }))
+        .unwrap();
+        assert_eq!(
+            content_block_schema_to_wit(link).unwrap_err().code,
+            AcpErrorCode::InvalidParams
+        );
     }
 
     #[test]

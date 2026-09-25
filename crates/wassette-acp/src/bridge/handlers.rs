@@ -481,6 +481,13 @@ pub(super) fn handle_prompt(
     // chunks can't queue behind notifications held from `session/new`.
     open_gate_now(gate, &session_key, &cx);
 
+    let wit_prompt: Vec<_> = req
+        .prompt
+        .iter()
+        .cloned()
+        .map(translate::content_block_schema_to_wit)
+        .collect::<Result<_, _>>()?;
+
     // Host-side `/install <wit-name>` interception. Runs entirely in
     // the host (not in the wasm chain) because the package manager
     // can't reach the OCI registry from inside the sandbox in this
@@ -491,12 +498,6 @@ pub(super) fn handle_prompt(
     }
 
     let handle = require_session(registry, &session_key)?;
-    let wit_prompt: Vec<_> = req
-        .prompt
-        .into_iter()
-        .filter_map(translate::content_block_schema_to_wit)
-        .collect();
-
     cx.spawn(async move {
         let outcome = handle.prompt(wit_prompt).await;
         let resp = match outcome {
