@@ -595,6 +595,39 @@ fn unsupported_prompt_content_is_rejected_without_running_the_turn() {
 }
 
 #[test]
+fn install_command_rejects_unknown_session_without_installing() {
+    let Some((bin, wasm)) = artifacts() else {
+        return;
+    };
+    let mut h = Harness::start(&bin, &wasm, &[]);
+    let id = h.request(
+        "initialize",
+        json!({"protocolVersion": 1, "clientCapabilities": {}}),
+    );
+    h.await_response(id);
+    let id = h.request(
+        "session/prompt",
+        json!({"sessionId": "not-a-session", "prompt": [
+            {"type": "text", "text": "/install"}
+        ]}),
+    );
+    let response: Value = serde_json::from_str(&h.next_line()).unwrap();
+    assert_eq!(response["id"], id, "{response}");
+    assert_eq!(response["error"]["code"], -32602, "{response}");
+    assert!(
+        response["error"]["message"]
+            .as_str()
+            .unwrap()
+            .contains("unknown session id"),
+        "{response}"
+    );
+    assert!(
+        h.drain_pending().is_empty(),
+        "invalid session emitted updates"
+    );
+}
+
+#[test]
 fn multiple_providers_fail_with_a_clear_cli_error() {
     let Some((bin, wasm)) = artifacts() else {
         return;

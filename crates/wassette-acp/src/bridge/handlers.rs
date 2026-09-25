@@ -480,6 +480,7 @@ pub(super) fn handle_prompt(
     let session_key = req.session_id.0.to_string();
     debug!(session = %session_key, "session/prompt");
     tracing::info!(session = %session_key, block_count = req.prompt.len(), "← wire: session/prompt");
+    let handle = require_session(registry, &session_key)?;
     // Drain the gate before this turn emits anything, so the turn's own
     // chunks can't queue behind notifications held from `session/new`.
     open_gate_now(gate, &session_key, &cx);
@@ -500,7 +501,6 @@ pub(super) fn handle_prompt(
         return handle_install_command(factory.clone(), session_key, arg, responder, cx);
     }
 
-    let handle = require_session(registry, &session_key)?;
     cx.spawn(async move {
         let outcome = handle.prompt(wit_prompt).await;
         let resp = match outcome {
