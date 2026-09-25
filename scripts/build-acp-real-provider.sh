@@ -31,6 +31,7 @@ set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 PATCH="$REPO_ROOT/crates/wassette-acp/real-providers/wstd-p3-wasmtime47.patch"
 WSTD_BRANCH="p3"
+WSTD_COMMIT="c3bac234b01774b95ff3510351ec6fc674fd81e2"
 WSTD_URL="https://github.com/bytecodealliance/wstd"
 
 PLAYGROUND="${1:-}"
@@ -53,16 +54,25 @@ WORK="${ACP_PROVIDER_WORKDIR:-$REPO_ROOT/target/acp-real-providers}"
 mkdir -p "$WORK"
 WSTD_DIR="$WORK/wstd-$WSTD_BRANCH"
 
-# Clone once, then keep it pinned. Re-running must not silently pick up new
-# upstream commits: the patch is written against a known tree and a moving
-# branch is exactly what would break it.
+# Clone once and explicitly check out the tested commit, even if p3 moves.
 if [ ! -d "$WSTD_DIR/.git" ]; then
-    echo "==> cloning $WSTD_URL ($WSTD_BRANCH)" >&2
+    echo "==> fetching $WSTD_URL ($WSTD_COMMIT)" >&2
     git clone --quiet --depth 1 --branch "$WSTD_BRANCH" "$WSTD_URL" "$WSTD_DIR"
+    git -C "$WSTD_DIR" fetch --quiet --depth 1 origin "$WSTD_COMMIT"
+    git -C "$WSTD_DIR" checkout --quiet --detach "$WSTD_COMMIT"
     echo "==> applying $(basename "$PATCH")" >&2
+    git -C "$WSTD_DIR" apply --check "$PATCH"
     git -C "$WSTD_DIR" apply "$PATCH"
 else
-    echo "==> reusing $WSTD_DIR (delete it to re-clone)" >&2
+    if [ "$(git -C "$WSTD_DIR" rev-parse HEAD)" != "$WSTD_COMMIT" ]; then
+        echo "error: $WSTD_DIR is not at pinned wstd commit $WSTD_COMMIT; use a new ACP_PROVIDER_WORKDIR" >&2
+        exit 1
+    fi
+    if ! git -C "$WSTD_DIR" apply --reverse --check "$PATCH"; then
+        echo "error: $WSTD_DIR is missing the compatibility patch; use a new ACP_PROVIDER_WORKDIR" >&2
+        exit 1
+    fi
+    echo "==> reusing pinned $WSTD_DIR" >&2
 fi
 echo "    wstd at $(git -C "$WSTD_DIR" rev-parse --short HEAD)" >&2
 

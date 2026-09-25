@@ -213,9 +213,10 @@ workspace's Wasmtime 47 rather than upstream's 44:
 
 Both steps are captured as a temporary patch in
 `crates/wassette-acp/real-providers/wstd-p3-wasmtime47.patch` and applied by
-`just build-acp-real-provider <path-to-playground-wasm-acp>`, which clones the
-branch, patches it, and builds the component. Keep it until wstd publishes a
-`wasip3` release compatible with Wasmtime 47.
+`just build-acp-real-provider <path-to-playground-wasm-acp>`, which fetches
+the tested `p3` commit `c3bac234b01774b95ff3510351ec6fc674fd81e2`,
+checks it out, patches it, and builds the component. Keep it until wstd
+publishes a `wasip3` release compatible with Wasmtime 47.
 
 As of September 2026, the
 [wstd WASIp3 port](https://github.com/bytecodealliance/wstd/issues/141)
