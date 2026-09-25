@@ -40,7 +40,8 @@ secret-free chains need no flag.
 
 ## Provenance
 
-`src/` (except `install.rs` and `secrets.rs`) and `wit/acp/` are vendored from
+`src/` (except `install.rs`, `secrets.rs`, `sandbox.rs` and `http_policy.rs`)
+and `wit/acp/` are vendored from
 [`yoshuawuyts/playground-wasm-acp`](https://github.com/yoshuawuyts/playground-wasm-acp)
 (Apache-2.0), ported to Wasmtime 47. The repository's copyright check
 (`./scripts/copyright.sh`, enforced in CI) stamps a Microsoft header onto every
