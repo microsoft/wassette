@@ -73,9 +73,10 @@ MCP server uses.
 * No policy means **no network and no filesystem** beyond the
   per-session `/data` directory the host preopens (host-owned, scoped by
   project and component).
-* `permissions.network.allow` grants sockets *and* registers the host in
-  the outbound-HTTP allow-list; `wasi:http` requests to anything else are
-  refused with `http-request-denied`.
+* `permissions.network.allow` registers hosts in the outbound-HTTP allow-list;
+  `wasi:http` requests to anything else are refused with `http-request-denied`.
+  Raw `wasi:sockets` TCP, UDP and DNS remain disabled for host-scoped grants
+  because their address checks cannot enforce the HTTP host allow-list.
 * `permissions.storage.allow` becomes preopened directories.
 * `permissions.environment.allow` forwards the named variables, and the
   component's secrets (`wassette secret set <id> KEY=value`) are injected

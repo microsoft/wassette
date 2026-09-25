@@ -8,8 +8,8 @@
 //! reach. Wassette already knows how to turn a policy document into a
 //! capability set — [`wassette::create_wasi_state_template_from_policy`],
 //! the same function the MCP server uses — so ACP stages go through it
-//! too. An ACP agent component therefore reaches exactly the hosts,
-//! paths and environment variables its policy grants and nothing else.
+//! too. Host-scoped network grants allow filtered `wasi:http` requests,
+//! not raw sockets (which cannot enforce host-name restrictions).
 //!
 //! # Where a stage's policy comes from
 //!
@@ -212,9 +212,6 @@ fn find_policy(component_id: &str, wasm_path: &Path, component_dir: &Path) -> Op
 #[derive(Default, Clone)]
 pub struct ChainSandbox {
     allow_all: bool,
-    allow_tcp: bool,
-    allow_udp: bool,
-    allow_ip_name_lookup: bool,
     env: BTreeMap<String, String>,
     preopens: Vec<Preopen>,
     allowed_hosts: BTreeSet<String>,
@@ -229,16 +226,16 @@ struct Preopen {
 }
 
 impl ChainSandbox {
+    fn raw_sockets_allowed(&self) -> bool {
+        self.allow_all
+    }
+
     /// Union `sandbox` into this chain's grants.
     pub fn merge(&mut self, sandbox: &Sandbox) {
         match sandbox {
             Sandbox::AllowAll => self.allow_all = true,
             Sandbox::Policy(grants) => {
                 let t = &grants.template;
-                self.allow_tcp |= t.network_perms.allow_tcp || !t.allowed_hosts.is_empty();
-                self.allow_udp |= t.network_perms.allow_udp;
-                self.allow_ip_name_lookup |=
-                    t.network_perms.allow_ip_name_lookup || !t.allowed_hosts.is_empty();
                 for (k, v) in &t.config_vars {
                     self.env.insert(k.clone(), v.clone());
                 }
@@ -277,15 +274,15 @@ impl ChainSandbox {
         wasi.stderr(crate::wasi_log::TracingStream::new("stderr"))
             .stdout(crate::wasi_log::TracingStream::new("stdout"));
 
-        if self.allow_all {
+        if self.raw_sockets_allowed() {
             wasi.inherit_network().inherit_env();
         } else {
-            // `WasiCtxBuilder` denies all three by default; being
-            // explicit documents that this is a decision, not an
-            // omission.
-            wasi.allow_tcp(self.allow_tcp);
-            wasi.allow_udp(self.allow_udp);
-            wasi.allow_ip_name_lookup(self.allow_ip_name_lookup);
+            // The HTTP hook checks host grants, but raw TCP/DNS/UDP
+            // would bypass it. Keep WASI sockets denied for every
+            // policy-scoped chain; `--allow-all` is the explicit escape.
+            wasi.allow_tcp(false);
+            wasi.allow_udp(false);
+            wasi.allow_ip_name_lookup(false);
             for (key, value) in &self.env {
                 wasi.env(key, value);
             }
@@ -353,15 +350,13 @@ mod tests {
             has_policy_grants: false,
             template: WasiStateTemplate::default(),
         })));
-        assert!(!chain.allow_tcp);
-        assert!(!chain.allow_udp);
         assert!(chain.preopens.is_empty());
         assert!(chain.env.is_empty());
         assert_eq!(chain.http_allowlist().map(|h| h.len()), Some(0));
     }
 
     #[test]
-    fn network_policy_grants_hosts() {
+    fn network_policy_grants_http_hosts_without_raw_sockets() {
         let dir = tempfile::tempdir().unwrap();
         let mut chain = ChainSandbox::default();
         let granted = grants_from(
@@ -377,9 +372,9 @@ permissions:
         );
         assert!(granted.has_shared_grants());
         chain.merge(&granted);
-        assert!(chain.allow_tcp);
-        assert!(chain.allow_ip_name_lookup);
         assert!(chain.http_allowlist().unwrap().contains("api.example.com"));
+        assert!(!chain.raw_sockets_allowed());
+        chain.build_ctx(None).unwrap();
     }
 
     #[test]
@@ -388,6 +383,7 @@ permissions:
         let mut chain = ChainSandbox::default();
         chain.merge(&Sandbox::AllowAll);
         assert!(chain.http_allowlist().is_none());
+        assert!(chain.raw_sockets_allowed());
     }
 
     #[test]
@@ -428,7 +424,6 @@ permissions:
 "#,
             dir.path(),
         ));
-        assert!(chain.allow_tcp);
         assert!(
             chain
                 .http_allowlist()
@@ -555,7 +550,7 @@ permissions:
         assert_eq!(sandbox.describe(), "no policy (deny-all)");
         let mut chain = ChainSandbox::default();
         chain.merge(&sandbox);
-        assert!(!chain.allow_tcp);
+        assert!(chain.http_allowlist().unwrap().is_empty());
     }
 
     #[tokio::test]
