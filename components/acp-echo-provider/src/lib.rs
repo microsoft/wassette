@@ -169,7 +169,7 @@ impl Guest for Agent {
         Ok(InitializeResponse {
             protocol_version: 1,
             agent_capabilities: AgentCapabilities {
-                load_session: true,
+                load_session: false,
                 prompt_capabilities: PromptCapabilities {
                     image: false,
                     audio: false,

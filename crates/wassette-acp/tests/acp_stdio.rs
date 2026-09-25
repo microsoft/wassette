@@ -311,6 +311,10 @@ fn initialize_advertises_the_echo_provider() {
         result["agentInfo"]["name"], "acp-echo-provider",
         "agentInfo should name the wasm component that answered: {result}"
     );
+    assert_eq!(
+        result["agentCapabilities"]["loadSession"], false,
+        "{result}"
+    );
 }
 
 #[test]
