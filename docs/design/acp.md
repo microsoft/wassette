@@ -90,9 +90,10 @@ with layers and any privileged grants (or `--allow-all`) is refused unless
 `--allow-shared-grants` is set. That flag acknowledges shared access; it
 does not isolate stages. Policy-free demo chains need no opt-in.
 
-Secrets are per component and structural rather than declared: a stage's
-`wasmcloud:secrets/store.get` resolves against *its own* component id, so
-no stage can read another's.
+`wasmcloud:secrets/store.get` normally resolves against the executing
+stage's component id. This is **not an isolation guarantee** for layered
+chains: policy-injected environment secrets are shared, and overlapping
+callbacks can select the wrong stage's identity (see Known limitations).
 
 ## CLI
 
