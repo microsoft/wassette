@@ -3,8 +3,8 @@
 > **Experimental:** `wassette acp` may change or be removed.
 
 The Agent Client Protocol (ACP) host for Wassette. `wassette acp` speaks ACP
-JSON-RPC on stdio and routes it into a chain of WebAssembly components: one or
-more terminal **providers** (`--provider`) wrapped by zero or more bidirectional
+JSON-RPC on stdio and routes it into a chain of WebAssembly components: exactly
+one terminal **provider** (`--provider`) wrapped by zero or more bidirectional
 **layers** (`--layer`). See [the ACP design](../../docs/design/acp.md).
 
 ```sh
@@ -17,6 +17,8 @@ in the Wassette component directory — and each stage's secrets come from
 `wassette secret set <component-id> KEY=value`.
 
 Logs go to **stderr only**; stdout is the protocol channel.
+Multiple `--provider` flags are rejected until multi-provider session IDs
+and outbound callbacks can be mapped safely.
 
 ## Sandboxing
 

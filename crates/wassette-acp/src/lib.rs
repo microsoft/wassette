@@ -110,15 +110,8 @@ pub use crate::wassette::acp::agent as layer_agent;
 #[derive(clap::Args, Debug)]
 pub struct AcpArgs {
     /// Path, URI, or component id of a terminal ACP **provider** wasm
-    /// component (the bottom of a chain). At least one is required.
-    ///
-    /// May be passed multiple times to load several providers at once.
-    /// Every provider is instantiated for each session and its models
-    /// are merged into a single **model** selector, labelled by
-    /// provider, so the user can pick which model from which provider
-    /// backs the session (the rest of the selectors — mode, thinking,
-    /// … — follow the provider owning the active model). The same set
-    /// of `--layer`s wraps every provider.
+    /// component (the bottom of a chain). Exactly one is required.
+    /// Multi-provider sessions are not yet supported.
     ///
     /// Accepts anything `wassette component load` does — a filesystem
     /// path (`./my-agent.wasm`), an `oci://` reference, or an `https://`
@@ -129,7 +122,7 @@ pub struct AcpArgs {
     pub providers: Vec<String>,
 
     /// Path, URI, or component id of a **layer** wasm component to wrap
-    /// the providers. May be passed multiple times; layers are applied
+    /// the provider. May be passed multiple times; layers are applied
     /// editor-side → provider-side in the order given (the first
     /// `--layer` is the outermost stage closest to the host).
     /// Same syntax as `--provider`.
@@ -225,6 +218,11 @@ impl LogLevel {
 /// *current* runtime — no nested runtime is created.
 pub async fn run(args: AcpArgs) -> Result<()> {
     eprintln!("Notice: wassette acp is experimental and may change or be removed.");
+    if args.providers.len() != 1 {
+        anyhow::bail!(
+            "wassette acp requires exactly one --provider (multi-provider sessions are not yet supported)"
+        );
+    }
     // rustls 0.23 links both crypto backends in this dependency graph
     // (wasmtime-wasi-http + oci-client pull `aws-lc-rs`; reqwest/hyper-rustls
     // pull `ring`), so it cannot auto-select a process-level CryptoProvider
@@ -244,13 +242,6 @@ pub async fn run(args: AcpArgs) -> Result<()> {
     config.wasm_features(wasmtime::WasmFeatures::CM_MORE_ASYNC_BUILTINS, true);
     config.wasm_features(wasmtime::WasmFeatures::CM_ASYNC_STACKFUL, true);
     let engine = Engine::new(&config)?;
-
-    if args.providers.is_empty() {
-        anyhow::bail!(
-            "missing provider wasm component: pass `--provider <path|uri|component-id>` \
-             (repeatable)"
-        );
-    }
 
     let component_dir = match args.component_dir.clone() {
         Some(dir) => dir,

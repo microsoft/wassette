@@ -97,17 +97,15 @@ no stage can read another's.
 ## CLI
 
 ```text
-wassette acp [--provider <PATH|URI|COMPONENT_ID>]...
+wassette acp --provider <PATH|URI|COMPONENT_ID>
              [--layer    <PATH|URI|COMPONENT_ID>]...
              [--component-dir <DIR>] [--secrets-dir <DIR>]
              [--allow-all] [--allow-shared-grants]
              [--log-file <PATH>] [--log-level <LEVEL>] [--log-filter <DIRECTIVE>]
 ```
 
-* At least one `--provider` is required. Several may be given: every
-  provider is instantiated per session and their models merge into one
-  selector, so the user picks which model from which provider backs the
-  session.
+* Exactly one `--provider` is required. Multiple providers are rejected
+  until session IDs and outbound callbacks can be mapped safely.
 * `--layer` is repeatable and ordered editor-side → provider-side; the
   first `--layer` is the outermost stage. The same layer stack wraps
   every provider.

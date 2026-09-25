@@ -504,6 +504,28 @@ fn stdout_carries_only_jsonrpc() {
                         assert_eq!(message["error"]["code"], -32602, "{message}");
                         break;
                     }
+
+                    #[test]
+                    fn multiple_providers_fail_with_a_clear_cli_error() {
+                        let Some((bin, wasm)) = artifacts() else {
+                            return;
+                        };
+                        let output = Command::new(bin)
+                            .arg("acp")
+                            .arg("--provider")
+                            .arg(&wasm)
+                            .arg("--provider")
+                            .arg(&wasm)
+                            .output()
+                            .expect("run CLI");
+                        assert!(!output.status.success(), "multiple providers were accepted");
+                        assert!(
+                            String::from_utf8_lossy(&output.stderr)
+                                .contains("exactly one --provider"),
+                            "unexpected error: {}",
+                            String::from_utf8_lossy(&output.stderr)
+                        );
+                    }
                     assert!(
                         agent_message_chunk_text(&message).is_none(),
                         "rejected prompt emitted agent text: {message}"
