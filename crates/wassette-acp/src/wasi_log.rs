@@ -129,7 +129,10 @@ mod tests {
             Poll::Ready(Ok(n)) if n == input.len()
         ));
         assert_eq!(stream.buf.lock().unwrap().len(), 5);
-        Pin::new(&mut stream).poll_shutdown(cx);
+        assert!(matches!(
+            Pin::new(&mut stream).poll_shutdown(cx),
+            Poll::Ready(Ok(()))
+        ));
         let output = std::fs::read_to_string(log.path()).unwrap();
         let lines: Vec<_> = output.lines().collect();
         assert_eq!(lines.len(), 4);

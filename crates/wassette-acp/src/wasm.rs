@@ -949,7 +949,7 @@ pub enum HostTerminalEntry {
 pub struct TerminalProcess {
     /// Combined stdout+stderr byte stream, chunked. Taken by the first
     /// `output()` call (the stream is consumed once).
-    output_rx: Option<mpsc::UnboundedReceiver<Vec<u8>>>,
+    output_rx: Option<mpsc::Receiver<Vec<u8>>>,
     /// Resolves to `Some(_)` once the process has exited. `None` until
     /// then.
     exit_rx: watch::Receiver<Option<ExitInfo>>,
@@ -978,8 +978,11 @@ struct ExitInfo {
 /// [`StreamProducer`] that forwards chunks pumped from a child process's
 /// combined output channel to the guest's `stream<u8>` read end.
 struct TerminalOutputProducer {
-    rx: mpsc::UnboundedReceiver<Vec<u8>>,
+    rx: mpsc::Receiver<Vec<u8>>,
 }
+
+const TERMINAL_OUTPUT_CHANNEL_CHUNKS: usize = 8;
+const MAX_TERMINAL_OUTPUT_BYTES: u64 = 1024 * 1024;
 
 impl<D: 'static> StreamProducer<D> for TerminalOutputProducer {
     type Item = u8;
@@ -1043,9 +1046,12 @@ fn spawn_terminal(
     let stdout = child.stdout.take();
     let stderr = child.stderr.take();
 
-    let (out_tx, out_rx) = mpsc::unbounded_channel::<Vec<u8>>();
+    let (out_tx, out_rx) = mpsc::channel::<Vec<u8>>(TERMINAL_OUTPUT_CHANNEL_CHUNKS);
     let (exit_tx, exit_rx) = watch::channel::<Option<ExitInfo>>(None);
-    let limit = req.output_byte_limit;
+    let limit = req
+        .output_byte_limit
+        .unwrap_or(MAX_TERMINAL_OUTPUT_BYTES)
+        .min(MAX_TERMINAL_OUTPUT_BYTES);
 
     let handle = tokio::spawn(pump_terminal(child, stdout, stderr, out_tx, exit_tx, limit));
 
@@ -1062,9 +1068,9 @@ async fn pump_terminal(
     mut child: tokio::process::Child,
     stdout: Option<tokio::process::ChildStdout>,
     stderr: Option<tokio::process::ChildStderr>,
-    out_tx: mpsc::UnboundedSender<Vec<u8>>,
+    out_tx: mpsc::Sender<Vec<u8>>,
     exit_tx: watch::Sender<Option<ExitInfo>>,
-    limit: Option<u64>,
+    limit: u64,
 ) {
     use std::sync::atomic::AtomicU64;
 
@@ -1093,8 +1099,8 @@ async fn pump_terminal(
 /// WIT's start-truncation semantics).
 fn spawn_reader<R>(
     reader: Option<R>,
-    tx: mpsc::UnboundedSender<Vec<u8>>,
-    limit: Option<u64>,
+    tx: mpsc::Sender<Vec<u8>>,
+    limit: u64,
     counter: Arc<std::sync::atomic::AtomicU64>,
 ) -> tokio::task::JoinHandle<()>
 where
@@ -1112,18 +1118,12 @@ where
                 Ok(0) | Err(_) => break,
                 Ok(n) => n,
             };
-            let mut end = n;
-            if let Some(limit) = limit {
-                let prev = counter.fetch_add(n as u64, Ordering::Relaxed);
-                if prev >= limit {
-                    continue;
-                }
-                let remaining = (limit - prev) as usize;
-                if remaining < n {
-                    end = remaining;
-                }
+            let prev = counter.fetch_add(n as u64, Ordering::Relaxed);
+            if prev >= limit {
+                continue;
             }
-            if tx.send(buf[..end].to_vec()).is_err() {
+            let end = n.min((limit - prev) as usize);
+            if tx.send(buf[..end].to_vec()).await.is_err() {
                 break;
             }
         }
@@ -1924,6 +1924,42 @@ mod terminal_tests {
         req.output_byte_limit = Some(4);
         let (out, _info) = run(&req).await;
         assert!(out.len() <= 4, "expected <= 4 bytes, got {}", out.len());
+    }
+
+    #[tokio::test]
+    async fn host_output_cap_applies_without_guest_limit() {
+        let (out, info) = run(&make_request("sh", &["-c", "head -c 2097152 /dev/zero"])).await;
+        assert_eq!(out.len() as u64, MAX_TERMINAL_OUTPUT_BYTES);
+        assert_eq!(info.code, Some(0));
+    }
+
+    #[tokio::test]
+    async fn output_channel_applies_backpressure_to_reader() {
+        use tokio::io::AsyncReadExt;
+
+        let (tx, mut rx) = mpsc::channel(1);
+        let task = spawn_reader(
+            Some(tokio::io::repeat(b'x').take(8192 * 3)),
+            tx,
+            8192 * 3,
+            Arc::new(std::sync::atomic::AtomicU64::new(0)),
+        );
+        tokio::time::timeout(std::time::Duration::from_secs(1), async {
+            while rx.is_empty() {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .unwrap();
+        tokio::task::yield_now().await;
+        assert_eq!(rx.len(), 1);
+        assert!(!task.is_finished(), "reader must wait for channel capacity");
+        let mut received = 0;
+        while let Some(chunk) = rx.recv().await {
+            received += chunk.len();
+        }
+        task.await.unwrap();
+        assert_eq!(received, 8192 * 3);
     }
 
     #[cfg(unix)]

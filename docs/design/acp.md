@@ -174,7 +174,10 @@ just test-acp
   session-close path.
 * Terminal output limits currently forward the first bytes (a prefix),
   not the latest bytes as described in WIT, and cannot report truncation
-  through the current streaming API.
+  through the current streaming API. The host also caps each command at
+  1 MiB of forwarded output, regardless of the guest's requested limit;
+  commands producing more output are drained but their excess is discarded.
+  A command can pause on output backpressure until its stream is consumed.
 
 Concurrent callbacks in a layered chain still share one store-wide stage
 stack. Overlapping Wasmtime subtasks can misroute stage-specific imports,
