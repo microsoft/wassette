@@ -68,7 +68,13 @@ impl AllowedHost {
     }
 
     fn matches(&self, host: &str, scheme: Option<&str>) -> bool {
-        if self.host != host {
+        let host_matches = if let Some(domain) = self.host.strip_prefix("*.") {
+            host.strip_suffix(domain)
+                .is_some_and(|prefix| prefix.ends_with('.') && prefix.len() > 1)
+        } else {
+            self.host == host
+        };
+        if !host_matches {
             return false;
         }
         match (&self.scheme, scheme) {
@@ -193,6 +199,30 @@ mod tests {
         let h = hooks(&["https://api.example.com"]);
         assert!(h.is_allowed(&"https://api.example.com/v1".parse().unwrap()));
         assert!(!h.is_allowed(&"http://api.example.com/v1".parse().unwrap()));
+    }
+
+    #[test]
+    fn wildcard_matches_subdomains_but_not_apex_or_other_suffixes() {
+        let h = hooks(&["*.example.com"]);
+        for host in ["api.example.com", "deep.api.example.com", "API.EXAMPLE.COM"] {
+            assert!(h.is_allowed(&format!("https://{host}/v1").parse().unwrap()));
+        }
+        for host in [
+            "example.com",
+            "badexample.com",
+            "api.example.com.evil",
+            "evil-example.com",
+        ] {
+            assert!(!h.is_allowed(&format!("https://{host}/v1").parse().unwrap()));
+        }
+    }
+
+    #[test]
+    fn wildcard_respects_scheme_pin() {
+        let h = hooks(&["https://*.example.com"]);
+        assert!(h.is_allowed(&"https://api.example.com/v1".parse().unwrap()));
+        assert!(!h.is_allowed(&"http://api.example.com/v1".parse().unwrap()));
+        assert!(!h.is_allowed(&"https://example.com/v1".parse().unwrap()));
     }
 
     #[test]
