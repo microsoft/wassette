@@ -27,9 +27,9 @@
 //! [`layer_agent::HostWithStore`] below). Same for client-direction
 //! upstream forwarding (see [`crate::client_impl`]).
 //!
-//! Stateless calls (`initialize`, `authenticate`) build a throwaway
-//! `Session` via [`SessionFactory::instantiate`], use it once, and drop
-//! it.
+//! `initialize` first uses a throwaway instance for the wire response;
+//! each session's fresh chain receives the same request before any
+//! session call. `authenticate` uses a throwaway instance.
 
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -102,6 +102,7 @@ pub struct SessionFactory {
     /// options to clients that didn't opt in). Defaults to `false` until
     /// `initialize` runs.
     boolean_config_supported: std::sync::atomic::AtomicBool,
+    initialize_request: tokio::sync::RwLock<Option<InitializeRequest>>,
 }
 
 impl SessionFactory {
@@ -124,6 +125,7 @@ impl SessionFactory {
             secrets,
             resolver,
             boolean_config_supported: std::sync::atomic::AtomicBool::new(false),
+            initialize_request: tokio::sync::RwLock::new(None),
         }
     }
 
@@ -147,6 +149,11 @@ impl SessionFactory {
     pub fn set_boolean_config_supported(&self, supported: bool) {
         self.boolean_config_supported
             .store(supported, std::sync::atomic::Ordering::Relaxed);
+    }
+
+    /// Remember the successful connection initialization for fresh session chains.
+    pub async fn set_initialize_request(&self, req: InitializeRequest) {
+        *self.initialize_request.write().await = Some(req);
     }
 
     /// Build a session with no `/data` preopen, on the first provider.
@@ -178,12 +185,27 @@ impl SessionFactory {
         let project_id = project_id_from_cwd(cwd);
         let project_dir = self.data_root.join(&project_id);
         update_project_meta(&project_dir, cwd);
+        let initialize_request = self
+            .initialize_request
+            .read()
+            .await
+            .clone()
+            .context("session requested before initialize")?;
         let mut out = Vec::with_capacity(self.providers.len());
         for provider in &self.providers {
             let session = self
                 .instantiate_chain(provider, Some(&project_dir))
                 .await
                 .with_context(|| format!("instantiating provider `{}`", provider.component_id))?;
+            session
+                .call_initialize(initialize_request.clone())
+                .await
+                .map_err(|e| {
+                    anyhow::anyhow!("initializing provider `{}`: {e:#}", provider.component_id)
+                })?
+                .map_err(|e| {
+                    anyhow::anyhow!("initializing provider `{}`: {e:?}", provider.component_id)
+                })?;
             out.push((provider.component_id.clone(), session));
         }
         Ok(out)

@@ -314,6 +314,25 @@ fn initialize_advertises_the_echo_provider() {
 }
 
 #[test]
+fn fresh_provider_instance_receives_initialize_before_new_session() {
+    let Some((bin, wasm)) = artifacts() else {
+        return;
+    };
+    let mut h = Harness::start(&bin, &wasm, &[]);
+    let id = h.request(
+        "initialize",
+        json!({"protocolVersion": 1, "clientCapabilities": {}}),
+    );
+    h.await_response(id);
+    let id = h.request(
+        "session/new",
+        json!({"cwd": std::env::temp_dir(), "mcpServers": []}),
+    );
+    let (_, result) = h.await_response(id);
+    assert!(result["sessionId"].is_string(), "{result}");
+}
+
+#[test]
 fn echo_provider_advertises_host_terminal_option_to_boolean_clients() {
     let Some((bin, wasm)) = artifacts() else {
         return;

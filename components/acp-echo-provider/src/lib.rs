@@ -56,6 +56,7 @@ struct SessionState {
 // interior mutability with no synchronization.
 thread_local! {
     static SESSIONS: RefCell<HashMap<String, SessionState>> = RefCell::new(HashMap::new());
+    static INITIALIZED: RefCell<bool> = const { RefCell::new(false) };
 }
 
 static SESSION_COUNTER: AtomicU64 = AtomicU64::new(0);
@@ -164,6 +165,7 @@ impl Guest for Agent {
     type Session = EchoSession;
 
     async fn initialize(_req: InitializeRequest) -> Result<InitializeResponse, Error> {
+        INITIALIZED.with(|ready| *ready.borrow_mut() = true);
         Ok(InitializeResponse {
             protocol_version: 1,
             agent_capabilities: AgentCapabilities {
@@ -200,6 +202,9 @@ impl Guest for Agent {
     }
 
     async fn new_session(_req: NewSessionRequest) -> Result<(Session, NewSessionResponse), Error> {
+        if !INITIALIZED.with(|ready| *ready.borrow()) {
+            return Err(err(ErrorCode::InvalidRequest, "initialize must precede session/new"));
+        }
         let id = next_session_id();
         SESSIONS.with(|s| {
             s.borrow_mut().insert(
@@ -223,6 +228,9 @@ impl Guest for Agent {
     async fn load_session(
         req: LoadSessionRequest,
     ) -> Result<(Session, LoadSessionResponse), Error> {
+        if !INITIALIZED.with(|ready| *ready.borrow()) {
+            return Err(err(ErrorCode::InvalidRequest, "initialize must precede session/load"));
+        }
         let id = req.session_id.clone();
 
         // State lives only in this instance's memory, so a reload after a

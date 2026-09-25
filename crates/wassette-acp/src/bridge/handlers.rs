@@ -33,7 +33,8 @@ pub(super) async fn handle_initialize(
     req: schema::InitializeRequest,
     responder: Responder<schema::InitializeResponse>,
 ) -> Result<(), AcpError> {
-    // Throwaway instance: `initialize` carries no session state.
+    // The wire response uses a throwaway instance; fresh session chains
+    // receive this request again before any session method.
     let session = factory
         .instantiate()
         .await
@@ -63,10 +64,11 @@ pub(super) async fn handle_initialize(
     factory.set_boolean_config_supported(boolean_config_supported);
     let wit_req = translate::init_request_schema_to_wit(req);
     let result = session
-        .call_initialize(wit_req)
+        .call_initialize(wit_req.clone())
         .await
         .map_err(|e| translate::trap_to_acp("initialize", e))?;
     let resp = result.map_err(translate::wit_error_to_acp)?;
+    factory.set_initialize_request(wit_req).await;
     responder.respond(translate::init_response_wit_to_schema(resp))
 }
 
