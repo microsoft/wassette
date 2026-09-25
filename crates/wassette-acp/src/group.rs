@@ -250,6 +250,12 @@ impl SessionGroup {
             .await
     }
 
+    /// Reset before the prompt task is spawned, so a later cancel is not lost.
+    pub fn prepare_prompt(&self) {
+        let active = self.inner.active_idx();
+        self.inner.providers[active].session.prepare_prompt();
+    }
+
     /// Cancel any in-flight prompt. Signals every provider's cancel watch
     /// (idle providers ignore it) so a mid-turn provider switch can't
     /// leave a prompt running.

@@ -483,7 +483,12 @@ impl Session {
     }
 
     pub fn cancel(&self) {
-        let _ = self.inner.cancel.send(true);
+        self.inner.cancel.send_replace(true);
+    }
+
+    /// Clear cancellation when the bridge accepts a new prompt, before it spawns the call.
+    pub fn prepare_prompt(&self) {
+        self.inner.cancel.send_replace(false);
     }
 
     /// Stamp this chain's outbound `notify-session` updates with `id`
@@ -717,9 +722,10 @@ impl Session {
         _session_id: String,
         prompt: Vec<crate::wassette::acp::content::ContentBlock>,
     ) -> PromptOutcome {
-        let _ = self.inner.cancel.send_replace(false);
         let mut cancel_rx = self.inner.cancel.subscribe();
-        cancel_rx.mark_unchanged();
+        if *cancel_rx.borrow() {
+            return PromptOutcome::Cancelled;
+        }
 
         let head_idx = self.inner.head_idx;
         let head_session = match *self.inner.head_session.lock().unwrap() {
@@ -1733,6 +1739,22 @@ mod terminal_tests {
             editor_session_id: None,
             terminal_enabled: false,
         }
+    }
+
+    #[tokio::test]
+    async fn cancellation_after_prompt_acceptance_survives_until_poll() {
+        let engine = Engine::default();
+        let (cancel, _) = watch::channel(false);
+        let session = Session::new(Store::new(&engine, test_host_state()), 0, cancel);
+        session.prepare_prompt();
+        let prompt = session.prompt("test-session".to_string(), Vec::new());
+        session.cancel();
+        assert!(matches!(prompt.await, PromptOutcome::Cancelled));
+        session.prepare_prompt();
+        assert!(
+            !*session.inner.cancel.borrow(),
+            "next turn must start uncancelled"
+        );
     }
 
     /// Spawn `req`, drain its combined output to EOF, then wait for and

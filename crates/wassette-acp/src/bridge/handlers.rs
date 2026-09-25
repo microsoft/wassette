@@ -499,6 +499,7 @@ pub(super) fn handle_prompt(
         return handle_install_command(factory.clone(), session_key, arg, responder, cx);
     }
 
+    handle.prepare_prompt();
     cx.spawn(async move {
         let outcome = handle.prompt(wit_prompt).await;
         let resp = match outcome {
