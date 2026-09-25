@@ -380,24 +380,6 @@ fn require_shared_grants_opt_in<'a>(
     Ok(())
 }
 
-#[cfg(test)]
-mod shared_grants_tests {
-    use super::*;
-
-    #[test]
-    fn policy_free_chains_work_but_privileged_chains_require_opt_in() {
-        let denied = Sandbox::Policy(Box::new(crate::sandbox::PolicyGrants {
-            policy_path: None,
-            template: ::wassette::WasiStateTemplate::default(),
-        }));
-        let stages = [&denied, &denied];
-        assert!(require_shared_grants_opt_in(true, false, stages).is_ok());
-        assert!(require_shared_grants_opt_in(true, false, [&Sandbox::AllowAll, &denied]).is_err());
-        assert!(require_shared_grants_opt_in(true, true, [&Sandbox::AllowAll, &denied]).is_ok());
-        assert!(require_shared_grants_opt_in(false, false, [&Sandbox::AllowAll]).is_ok());
-    }
-}
-
 /// `$XDG_DATA_HOME/wassette/components` — the same component store
 /// `wassette component load` and `wassette run` use.
 fn default_component_dir() -> Result<PathBuf> {
@@ -654,6 +636,7 @@ fn resolve_data_root() -> Result<PathBuf> {
     if let Some(base) = std::env::var_os("XDG_STATE_HOME").filter(|v| !v.is_empty()) {
         return Ok(PathBuf::from(base).join(APP).join(SUBDIR));
     }
+
     let home = std::env::var_os("HOME")
         .filter(|v| !v.is_empty())
         .ok_or_else(|| anyhow::anyhow!("neither XDG_STATE_HOME nor HOME is set"))?;
@@ -662,4 +645,22 @@ fn resolve_data_root() -> Result<PathBuf> {
         .join("state")
         .join(APP)
         .join(SUBDIR))
+}
+
+#[cfg(test)]
+mod shared_grants_tests {
+    use super::*;
+
+    #[test]
+    fn policy_free_chains_work_but_privileged_chains_require_opt_in() {
+        let denied = Sandbox::Policy(Box::new(crate::sandbox::PolicyGrants {
+            policy_path: None,
+            template: ::wassette::WasiStateTemplate::default(),
+        }));
+        let stages = [&denied, &denied];
+        assert!(require_shared_grants_opt_in(true, false, stages).is_ok());
+        assert!(require_shared_grants_opt_in(true, false, [&Sandbox::AllowAll, &denied]).is_err());
+        assert!(require_shared_grants_opt_in(true, true, [&Sandbox::AllowAll, &denied]).is_ok());
+        assert!(require_shared_grants_opt_in(false, false, [&Sandbox::AllowAll]).is_ok());
+    }
 }
