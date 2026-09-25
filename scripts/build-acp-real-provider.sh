@@ -89,18 +89,24 @@ lines = open(manifest).read().split("\n")
 # Rewrite `wstd` only inside [patch.crates-io]. The same key also appears under
 # [workspace.dependencies] with `default-features = false`, and replacing that
 # one breaks every member crate that inherits it.
-out, section, patched = [], None, False
+out, section, patched, patch_table = [], None, False, False
 for line in lines:
     header = re.match(r"^\[([^\]]+)\]", line)
     if header:
+        if section == "patch.crates-io" and not patched:
+            out.append('wstd = { path = "%s" }' % wstd)
+            patched = True
         section = header.group(1)
+        patch_table |= section == "patch.crates-io"
     if section == "patch.crates-io" and re.match(r"^\s*wstd\s*=", line):
         out.append('wstd = { path = "%s" }' % wstd)
         patched = True
         continue
     out.append(line)
 
-if not patched:
+if section == "patch.crates-io" and not patched:
+    out.append('wstd = { path = "%s" }' % wstd)
+elif not patch_table:
     out += ["", "[patch.crates-io]", 'wstd = { path = "%s" }' % wstd, ""]
 
 open(manifest, "w").write("\n".join(out))
