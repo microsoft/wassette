@@ -153,6 +153,30 @@ The tests drive exactly this flow over real stdio:
 just test-acp
 ```
 
+## Known limitations
+
+* Provider terminal requests go directly to the host; layers cannot intercept
+  or deny them. The example layer's terminal exports are unfinished.
+* `authenticate` uses a throwaway component instance. Authentication stored
+  only in guest memory does not persist into a session.
+* Guest-created tool-call resources are not implemented and can trap.
+  The host's `/install` notifications do not provide guest tool-call
+  lifecycle support or let ACP agents call Wassette Wasm tools.
+* `initialize` omits the provider's session list/resume/close capabilities
+  and authentication methods. The bridge does not support those lifecycle
+  methods or stateful authentication; advertising them would mislead editors.
+* Sessions stay registered until the host exits; there is no eviction or
+  session-close path.
+* Terminal output limits currently forward the first bytes (a prefix),
+  not the latest bytes as described in WIT, and cannot report truncation
+  through the current streaming API.
+
+Stage identity is guarded per callback poll, including when a prompt is
+cancelled, but a proper subtask-scoped identity and per-stage WASI contexts
+remain follow-ups. Multi-provider sessions require unique editor IDs and
+consistent outbound request remapping before the single-provider restriction
+can be removed.
+
 ## Building the real providers
 
 The `ollama` and `copilot` providers build against the `p3` branch of
