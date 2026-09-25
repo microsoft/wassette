@@ -180,8 +180,9 @@ impl Harness {
                 line
             }
             Err(RecvTimeoutError::Timeout) => panic!(
-                "timed out after {LINE_TIMEOUT:?} waiting for output; saw so far:\n{}",
-                self.seen.join("\n")
+                "timed out after {LINE_TIMEOUT:?} waiting for output; saw so far:\n{}\nstderr:\n{}",
+                self.seen.join("\n"),
+                self.stderr.lock().unwrap()
             ),
             Err(RecvTimeoutError::Disconnected) => panic!(
                 "the agent closed stdout; saw so far:\n{}",
@@ -427,111 +428,110 @@ fn stdout_carries_only_jsonrpc() {
             "stdout line is neither a request/notification nor a response: {line}"
         );
     }
+}
 
-    #[test]
-    fn default_logs_omit_request_and_notification_contents() {
-        let Some((bin, wasm)) = artifacts() else {
-            return;
-        };
-        let logs = tempfile::tempdir().expect("log dir");
-        let log_path = logs.path().join("host.log");
-        let mut h = Harness::start(&bin, &wasm, &["--log-file", log_path.to_str().unwrap()]);
+#[test]
+fn default_logs_omit_request_and_notification_contents() {
+    let Some((bin, wasm)) = artifacts() else {
+        return;
+    };
+    let logs = tempfile::tempdir().expect("log dir");
+    let log_path = logs.path().join("host.log");
+    let mut h = Harness::start(&bin, &wasm, &["--log-file", log_path.to_str().unwrap()]);
 
-        let id = h.request(
-            "initialize",
-            json!({"protocolVersion": 1, "clientCapabilities": {}}),
-        );
-        h.await_response(id);
-        let id = h.request(
-            "session/new",
-            json!({
-                "cwd": std::env::temp_dir(),
-                "mcpServers": [
-                    {"name": "private-stdio", "command": "echo",
-                     "env": [{"name": "TOKEN", "value": "sensitive-env-770"}]},
-                    {"name": "private-http", "url": "https://example.com",
-                     "headers": [{"name": "Authorization", "value": "sensitive-header-770"}]}
-                ]
-            }),
-        );
-        let (_, session) = h.await_response(id);
-        let id = h.request(
-            "session/prompt",
-            json!({"sessionId": session["sessionId"], "prompt": [
-                {"type": "text", "text": "sensitive-prompt-770"}
-            ]}),
-        );
-        h.await_response(id);
-        h.drain_pending();
+    let id = h.request(
+        "initialize",
+        json!({"protocolVersion": 1, "clientCapabilities": {}}),
+    );
+    h.await_response(id);
+    let id = h.request(
+        "session/new",
+        json!({
+            "cwd": std::env::temp_dir(),
+            "mcpServers": [
+                {"name": "private-stdio", "command": "echo",
+                 "env": [{"name": "TOKEN", "value": "sensitive-env-770"}]},
+                {"name": "private-http", "url": "https://example.com",
+                 "headers": [{"name": "Authorization", "value": "sensitive-header-770"}]}
+            ]
+        }),
+    );
+    let (_, session) = h.await_response(id);
+    let id = h.request(
+        "session/prompt",
+        json!({"sessionId": session["sessionId"], "prompt": [
+            {"type": "text", "text": "sensitive-prompt-770"}
+        ]}),
+    );
+    h.await_response(id);
+    h.drain_pending();
 
-        let stderr = h.stderr.lock().unwrap().clone();
-        let file = std::fs::read_to_string(
-            std::fs::read_dir(logs.path())
-                .unwrap()
-                .next()
-                .expect("log file")
-                .unwrap()
-                .path(),
-        )
-        .unwrap();
-        for output in [&stderr, &file] {
-            assert!(output.contains("session/prompt"), "no host logs: {output}");
-            for secret in [
-                "sensitive-env-770",
-                "sensitive-header-770",
-                "sensitive-prompt-770",
-            ] {
-                assert!(!output.contains(secret), "secret in logs: {output}");
-            }
-
-            #[test]
-            fn unsupported_prompt_content_is_rejected_without_running_the_turn() {
-                let Some((bin, wasm)) = artifacts() else {
-                    return;
-                };
-                let mut h = Harness::start(&bin, &wasm, &[]);
-                let session_id = h.open_session();
-                let id = h.request(
-                    "session/prompt",
-                    json!({"sessionId": session_id, "prompt": [
-                        {"type": "text", "text": "do not echo"},
-                        {"type": "resource_link", "uri": "file:///tmp/example", "name": "example"}
-                    ]}),
-                );
-                loop {
-                    let message: Value = serde_json::from_str(&h.next_line()).unwrap();
-                    if message["id"] == id {
-                        assert_eq!(message["error"]["code"], -32602, "{message}");
-                        break;
-                    }
-
-                    #[test]
-                    fn multiple_providers_fail_with_a_clear_cli_error() {
-                        let Some((bin, wasm)) = artifacts() else {
-                            return;
-                        };
-                        let output = Command::new(bin)
-                            .arg("acp")
-                            .arg("--provider")
-                            .arg(&wasm)
-                            .arg("--provider")
-                            .arg(&wasm)
-                            .output()
-                            .expect("run CLI");
-                        assert!(!output.status.success(), "multiple providers were accepted");
-                        assert!(
-                            String::from_utf8_lossy(&output.stderr)
-                                .contains("exactly one --provider"),
-                            "unexpected error: {}",
-                            String::from_utf8_lossy(&output.stderr)
-                        );
-                    }
-                    assert!(
-                        agent_message_chunk_text(&message).is_none(),
-                        "rejected prompt emitted agent text: {message}"
-                    );
-                }
-            }
+    let stderr = h.stderr.lock().unwrap().clone();
+    let file = std::fs::read_to_string(
+        std::fs::read_dir(logs.path())
+            .unwrap()
+            .next()
+            .expect("log file")
+            .unwrap()
+            .path(),
+    )
+    .unwrap();
+    for output in [&stderr, &file] {
+        assert!(output.contains("session/prompt"), "no host logs: {output}");
+        for secret in [
+            "sensitive-env-770",
+            "sensitive-header-770",
+            "sensitive-prompt-770",
+        ] {
+            assert!(!output.contains(secret), "secret in logs: {output}");
         }
     }
+}
+
+#[test]
+fn unsupported_prompt_content_is_rejected_without_running_the_turn() {
+    let Some((bin, wasm)) = artifacts() else {
+        return;
+    };
+    let mut h = Harness::start(&bin, &wasm, &[]);
+    let session_id = h.open_session();
+    let id = h.request(
+        "session/prompt",
+        json!({"sessionId": session_id, "prompt": [
+            {"type": "text", "text": "do not echo"},
+            {"type": "resource_link", "uri": "file:///tmp/example", "name": "example"}
+        ]}),
+    );
+    loop {
+        let message: Value = serde_json::from_str(&h.next_line()).unwrap();
+        if message["id"] == id {
+            assert_eq!(message["error"]["code"], -32602, "{message}");
+            break;
+        }
+        assert!(
+            agent_message_chunk_text(&message).is_none(),
+            "rejected prompt emitted agent text: {message}"
+        );
+    }
+}
+
+#[test]
+fn multiple_providers_fail_with_a_clear_cli_error() {
+    let Some((bin, wasm)) = artifacts() else {
+        return;
+    };
+    let output = Command::new(bin)
+        .arg("acp")
+        .arg("--provider")
+        .arg(&wasm)
+        .arg("--provider")
+        .arg(&wasm)
+        .output()
+        .expect("run CLI");
+    assert!(!output.status.success(), "multiple providers were accepted");
+    assert!(
+        String::from_utf8_lossy(&output.stderr).contains("exactly one --provider"),
+        "unexpected error: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
 }

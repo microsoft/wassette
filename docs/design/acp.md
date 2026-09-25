@@ -171,11 +171,14 @@ just test-acp
   not the latest bytes as described in WIT, and cannot report truncation
   through the current streaming API.
 
-Stage identity is guarded per callback poll, including when a prompt is
-cancelled, but a proper subtask-scoped identity and per-stage WASI contexts
-remain follow-ups. Multi-provider sessions require unique editor IDs and
-consistent outbound request remapping before the single-provider restriction
-can be removed.
+Concurrent callbacks in a layered chain still share one store-wide stage
+stack. Overlapping Wasmtime subtasks can misroute stage-specific imports,
+including secret lookups, and cancellation can leave stale entries. A
+drop-safe, subtask-scoped stage identity is required before layered chains
+can safely handle concurrent callbacks; avoid untrusted layers. Per-stage
+WASI isolation is also a follow-up. Multi-provider sessions require unique
+editor IDs and consistent outbound request remapping before the
+single-provider restriction can be removed.
 
 ## Building the real providers
 
