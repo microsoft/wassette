@@ -192,7 +192,7 @@ pub fn new_session_response_wit_to_schema(
     // the host-injected default mode to avoid advertising a phantom selector.
     if resp.config_options.is_some() || terminal.is_some() {
         json["configOptions"] =
-            config_options_json(resp.config_options.unwrap_or_default(), terminal);
+            config_options_json(resp.config_options.unwrap_or_default(), terminal)?;
     } else if let Some(modes) = ensure_host_default_mode(resp.modes) {
         json["modes"] = session_mode_state_to_json(modes, component_id);
     }
@@ -209,7 +209,7 @@ pub fn new_session_response_with_config_options(
 ) -> Result<schema::NewSessionResponse, AcpError> {
     let json = serde_json::json!({
         "sessionId": session_id,
-        "configOptions": config_options_json(config_options, terminal),
+        "configOptions": config_options_json(config_options, terminal)?,
     });
     synth("new-session response", json)
 }
@@ -221,7 +221,7 @@ pub fn load_session_response_with_config_options(
     terminal: Option<bool>,
 ) -> Result<schema::LoadSessionResponse, AcpError> {
     let json = serde_json::json!({
-        "configOptions": config_options_json(config_options, terminal),
+        "configOptions": config_options_json(config_options, terminal)?,
     });
     synth("load-session response", json)
 }
@@ -249,7 +249,7 @@ pub fn load_session_response_wit_to_schema(
     let mut json = serde_json::json!({});
     if resp.config_options.is_some() || terminal.is_some() {
         json["configOptions"] =
-            config_options_json(resp.config_options.unwrap_or_default(), terminal);
+            config_options_json(resp.config_options.unwrap_or_default(), terminal)?;
     } else if let Some(modes) = ensure_host_default_mode(resp.modes) {
         json["modes"] = session_mode_state_to_json(modes, component_id);
     }
@@ -373,14 +373,24 @@ pub fn set_config_option_response(
     options: Vec<SessionConfigOption>,
     terminal: Option<bool>,
 ) -> Result<schema::SetSessionConfigOptionResponse, AcpError> {
-    let json = serde_json::json!({ "configOptions": config_options_json(options, terminal) });
+    let json = serde_json::json!({ "configOptions": config_options_json(options, terminal)? });
     synth("set-config-option response", json)
 }
 
 fn config_options_json(
     options: Vec<SessionConfigOption>,
     terminal: Option<bool>,
-) -> serde_json::Value {
+) -> Result<serde_json::Value, AcpError> {
+    if options
+        .iter()
+        .any(|option| option.id == crate::group::TERMINAL_CONFIG_ID)
+    {
+        let mut error = AcpError::internal_error();
+        error.message =
+            "provider config option `terminal` conflicts with the host-reserved terminal toggle"
+                .to_string();
+        return Err(error);
+    }
     let mut arr: Vec<serde_json::Value> = options
         .into_iter()
         .map(session_config_option_to_json)
@@ -392,7 +402,7 @@ fn config_options_json(
     if let Some(current) = terminal {
         arr.push(terminal_config_option_json(current));
     }
-    serde_json::Value::Array(arr)
+    Ok(serde_json::Value::Array(arr))
 }
 
 /// The host-owned `terminal` boolean config option, serialized per the
@@ -1145,6 +1155,37 @@ mod tests {
         ] {
             assert!(response.get("configOptions").is_none(), "{response}");
             assert_eq!(response["modes"]["currentModeId"], HOST_DEFAULT_MODE_ID);
+        }
+    }
+
+    #[test]
+    fn provider_cannot_advertise_reserved_terminal_option() {
+        let option = SessionConfigOption {
+            id: "terminal".to_string(),
+            name: "Provider terminal".to_string(),
+            description: None,
+            category: None,
+            current_value: "off".to_string(),
+            options: SessionConfigSelectOptions::Ungrouped(Vec::new()),
+            provided_by: crate::wassette::acp::sessions::ComponentSource {
+                component_id: "local:provider".to_string(),
+            },
+        };
+        for enabled in [None, Some(false)] {
+            let error = set_config_option_response(vec![option.clone()], enabled).unwrap_err();
+            assert!(error.message.contains("host-reserved"), "{error:?}");
+            let error = new_session_response_wit_to_schema(
+                NewSessionResponse {
+                    session_id: "session".to_string(),
+                    modes: None,
+                    models: None,
+                    config_options: Some(vec![option.clone()]),
+                },
+                "provider",
+                enabled,
+            )
+            .unwrap_err();
+            assert!(error.message.contains("host-reserved"), "{error:?}");
         }
     }
 
