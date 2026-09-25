@@ -86,9 +86,12 @@ MCP server uses.
 Because a chain is one store and a store is one `WasiCtx`, the stages'
 grants are **unioned** across the chain. A layer can access a provider's
 storage, network and policy-injected secret environment variables. A chain
-with layers and any privileged grants (or `--allow-all`) is refused unless
-`--allow-shared-grants` is set. That flag acknowledges shared access; it
-does not isolate stages. Policy-free demo chains need no opt-in.
+with layers and any network, storage or environment grant, any stored secrets
+for any stage (even without a policy), or `--allow-all` is refused unless
+`--allow-shared-grants` is set. Concurrent callbacks may be attributed to
+the wrong stage, including `wasmcloud:secrets/store.get` lookups. That flag
+acknowledges both risks; it does not fix stage routing or isolate stages.
+The policy-free, secret-free echo + uppercase demo needs no opt-in.
 
 `wasmcloud:secrets/store.get` normally resolves against the executing
 stage's component id. This is **not an isolation guarantee** for layered
@@ -174,7 +177,9 @@ just test-acp
 
 Concurrent callbacks in a layered chain still share one store-wide stage
 stack. Overlapping Wasmtime subtasks can misroute stage-specific imports,
-including secret lookups, and cancellation can leave stale entries. A
+including secret lookups, and cancellation can leave stale entries. Layered
+chains with stored secrets or policy grants require `--allow-shared-grants`;
+this is an explicit risk acknowledgement, not a routing fix. A
 drop-safe, subtask-scoped stage identity is required before layered chains
 can safely handle concurrent callbacks; avoid untrusted layers. Per-stage
 WASI isolation is also a follow-up. Multi-provider sessions require unique

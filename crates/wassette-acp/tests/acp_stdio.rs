@@ -566,6 +566,101 @@ fn policy_free_layer_chain_runs_without_shared_grants_flag() {
         .filter_map(agent_message_chunk_text)
         .collect();
     assert!(echoed.contains("layered demo"), "{updates:#?}");
+
+    let id = h.request(
+        "session/prompt",
+        json!({"sessionId": session_id, "prompt": [{"type": "text", "text": "/shout"}]}),
+    );
+    let (_, result) = h.await_response(id);
+    assert_eq!(result["stopReason"], "end_turn");
+    let id = h.request(
+        "session/prompt",
+        json!({"sessionId": session_id, "prompt": [{"type": "text", "text": "layered demo"}]}),
+    );
+    let (updates, result) = h.await_response(id);
+    assert_eq!(result["stopReason"], "end_turn");
+    let shouted: String = updates
+        .iter()
+        .filter_map(agent_message_chunk_text)
+        .collect();
+    assert!(shouted.contains("LAYERED DEMO"), "{updates:#?}");
+}
+
+#[test]
+fn stored_secrets_in_a_policy_free_layer_chain_require_opt_in() {
+    let Some((bin, wasm)) = artifacts() else {
+        return;
+    };
+    let layer = uppercase_layer().expect("build the uppercase layer with just build-acp-examples");
+    let secrets = tempfile::tempdir().unwrap();
+    let component_id = layer.file_stem().unwrap().to_str().unwrap();
+    std::fs::write(
+        secrets.path().join(format!("{component_id}.yaml")),
+        "TOKEN: hidden\n",
+    )
+    .unwrap();
+    let output = Command::new(bin)
+        .arg("acp")
+        .arg("--provider")
+        .arg(wasm)
+        .arg("--layer")
+        .arg(layer)
+        .arg("--secrets-dir")
+        .arg(secrets.path())
+        .output()
+        .expect("run CLI");
+    assert!(
+        !output.status.success(),
+        "layer secrets were accepted without opt-in"
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("concurrent callbacks may be attributed to the wrong stage"),
+        "{stderr}"
+    );
+    assert!(stderr.contains("--allow-shared-grants"), "{stderr}");
+    assert!(
+        !stderr.contains("hidden"),
+        "secret value in error: {stderr}"
+    );
+}
+
+#[test]
+fn stored_secrets_in_a_layer_chain_run_with_opt_in() {
+    let Some((bin, wasm)) = artifacts() else {
+        return;
+    };
+    let layer = uppercase_layer().expect("build the uppercase layer with just build-acp-examples");
+    let secrets = tempfile::tempdir().unwrap();
+    let component_id = wasm.file_stem().unwrap().to_str().unwrap();
+    std::fs::write(
+        secrets.path().join(format!("{component_id}.yaml")),
+        "TOKEN: hidden\n",
+    )
+    .unwrap();
+    let mut h = Harness::start(
+        &bin,
+        &wasm,
+        &[
+            "--layer",
+            layer.to_str().unwrap(),
+            "--secrets-dir",
+            secrets.path().to_str().unwrap(),
+            "--allow-shared-grants",
+        ],
+    );
+    let session_id = h.open_session();
+    let id = h.request(
+        "session/prompt",
+        json!({"sessionId": session_id, "prompt": [{"type": "text", "text": "opted in"}]}),
+    );
+    let (updates, result) = h.await_response(id);
+    assert_eq!(result["stopReason"], "end_turn");
+    let echoed: String = updates
+        .iter()
+        .filter_map(agent_message_chunk_text)
+        .collect();
+    assert!(echoed.contains("opted in"), "{updates:#?}");
 }
 
 #[test]

@@ -72,6 +72,8 @@ pub struct PolicyGrants {
     /// The policy file the grants came from; `None` when the stage has
     /// no policy and is therefore fully denied.
     pub policy_path: Option<PathBuf>,
+    /// Include declared grants even when an environment variable is unset.
+    pub has_policy_grants: bool,
     pub template: WasiStateTemplate,
 }
 
@@ -82,7 +84,8 @@ impl Sandbox {
             Sandbox::AllowAll => true,
             Sandbox::Policy(grants) => {
                 let t = &grants.template;
-                t.network_perms.allow_tcp
+                grants.has_policy_grants
+                    || t.network_perms.allow_tcp
                     || t.network_perms.allow_udp
                     || t.network_perms.allow_ip_name_lookup
                     || !t.allowed_hosts.is_empty()
@@ -121,6 +124,7 @@ impl Sandbox {
             );
             return Ok(Sandbox::Policy(Box::new(PolicyGrants {
                 policy_path: None,
+                has_policy_grants: false,
                 template: WasiStateTemplate::default(),
             })));
         };
@@ -130,6 +134,24 @@ impl Sandbox {
             .with_context(|| format!("reading policy {}", policy_path.display()))?;
         let policy = PolicyParser::parse_str(&content)
             .with_context(|| format!("parsing policy {}", policy_path.display()))?;
+        let has_policy_grants = policy
+            .permissions
+            .network
+            .as_ref()
+            .and_then(|p| p.allow.as_ref())
+            .is_some_and(|allow| !allow.is_empty())
+            || policy
+                .permissions
+                .storage
+                .as_ref()
+                .and_then(|p| p.allow.as_ref())
+                .is_some_and(|allow| !allow.is_empty())
+            || policy
+                .permissions
+                .environment
+                .as_ref()
+                .and_then(|p| p.allow.as_ref())
+                .is_some_and(|allow| !allow.is_empty());
 
         // Secrets are injected as environment variables the same way the
         // MCP path does it, so `wassette secret set <id> KEY=…` reaches
@@ -153,6 +175,7 @@ impl Sandbox {
         );
         Ok(Sandbox::Policy(Box::new(PolicyGrants {
             policy_path: Some(policy_path),
+            has_policy_grants,
             template,
         })))
     }
@@ -309,6 +332,7 @@ mod tests {
         .unwrap();
         Sandbox::Policy(Box::new(PolicyGrants {
             policy_path: None,
+            has_policy_grants: false,
             template,
         }))
     }
@@ -318,6 +342,7 @@ mod tests {
         assert!(
             !Sandbox::Policy(Box::new(PolicyGrants {
                 policy_path: None,
+                has_policy_grants: false,
                 template: WasiStateTemplate::default(),
             }))
             .has_shared_grants()
@@ -325,6 +350,7 @@ mod tests {
         let mut chain = ChainSandbox::default();
         chain.merge(&Sandbox::Policy(Box::new(PolicyGrants {
             policy_path: None,
+            has_policy_grants: false,
             template: WasiStateTemplate::default(),
         })));
         assert!(!chain.allow_tcp);
@@ -373,6 +399,7 @@ permissions:
         assert!(
             Sandbox::Policy(Box::new(PolicyGrants {
                 policy_path: None,
+                has_policy_grants: false,
                 template,
             }))
             .has_shared_grants()
@@ -386,6 +413,7 @@ permissions:
         // Layer: nothing.
         chain.merge(&Sandbox::Policy(Box::new(PolicyGrants {
             policy_path: None,
+            has_policy_grants: false,
             template: WasiStateTemplate::default(),
         })));
         // Provider: one host.
@@ -414,7 +442,7 @@ permissions:
         let dir = tempfile::tempdir().unwrap();
         std::fs::create_dir_all(dir.path().join("workspace")).unwrap();
         let mut chain = ChainSandbox::default();
-        chain.merge(&grants_from(
+        let granted = grants_from(
             r#"
 version: "1.0"
 description: "test"
@@ -425,7 +453,9 @@ permissions:
         access: ["read"]
 "#,
             dir.path(),
-        ));
+        );
+        assert!(granted.has_shared_grants());
+        chain.merge(&granted);
         assert_eq!(chain.preopens.len(), 1);
         assert_eq!(chain.preopens[0].guest_path, "workspace");
         // Read-only: no write bit.
@@ -526,5 +556,22 @@ permissions:
         let mut chain = ChainSandbox::default();
         chain.merge(&sandbox);
         assert!(!chain.allow_tcp);
+    }
+
+    #[tokio::test]
+    async fn an_unset_environment_grant_still_requires_opt_in() {
+        let store = tempfile::tempdir().unwrap();
+        let wasm = store.path().join("agent.wasm");
+        std::fs::write(&wasm, b"\0asm").unwrap();
+        std::fs::write(
+            store.path().join("agent.policy.yaml"),
+            "version: '1.0'\npermissions:\n  environment:\n    allow:\n      - key: WASSETTE_TEST_MISSING_ENV_770\n",
+        )
+        .unwrap();
+        let secrets = SecretsRegistry::new(store.path());
+        let sandbox = Sandbox::load(false, "agent", &wasm, store.path(), &secrets)
+            .await
+            .unwrap();
+        assert!(sandbox.has_shared_grants());
     }
 }

@@ -29,6 +29,7 @@
 
 use std::path::PathBuf;
 
+use anyhow::{Context, Result};
 use wassette::SecretsManager;
 
 /// Spec-aligned error type. Mirrors `wasmcloud:secrets/store.secrets-error`.
@@ -98,6 +99,17 @@ impl SecretsRegistry {
         component_id: &str,
     ) -> Option<std::collections::HashMap<String, String>> {
         self.manager.load_component_secrets(component_id).await.ok()
+    }
+
+    /// Check for stored secrets even when no policy injects them into WASI.
+    /// A malformed or unreadable store must not make a layered chain appear safe.
+    pub async fn has_secrets(&self, component_id: &str) -> Result<bool> {
+        Ok(!self
+            .manager
+            .load_component_secrets(component_id)
+            .await
+            .with_context(|| format!("checking secrets for component `{component_id}`"))?
+            .is_empty())
     }
 
     /// Resolve `key` from `component_id`'s private store. Returns
