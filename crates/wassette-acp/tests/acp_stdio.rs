@@ -685,12 +685,36 @@ fn multiple_providers_fail_with_a_clear_cli_error() {
 }
 
 #[test]
-fn policy_free_layer_chain_runs_without_shared_grants_flag() {
+fn policy_free_layer_chain_requires_shared_data_opt_in() {
     let Some((bin, wasm)) = artifacts() else {
         return;
     };
     let layer = uppercase_layer().expect("build the uppercase layer with just build-acp-examples");
-    let mut h = Harness::start(&bin, &wasm, &["--layer", layer.to_str().unwrap()]);
+    let output = Command::new(bin)
+        .arg("acp")
+        .arg("--provider")
+        .arg(&wasm)
+        .arg("--layer")
+        .arg(&layer)
+        .output()
+        .expect("run CLI");
+    assert!(!output.status.success(), "shared /data was exposed");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("provider's /data"), "{stderr}");
+    assert!(stderr.contains("--allow-shared-grants"), "{stderr}");
+}
+
+#[test]
+fn policy_free_layer_chain_runs_with_shared_grants_flag() {
+    let Some((bin, wasm)) = artifacts() else {
+        return;
+    };
+    let layer = uppercase_layer().expect("build the uppercase layer with just build-acp-examples");
+    let mut h = Harness::start(
+        &bin,
+        &wasm,
+        &["--layer", layer.to_str().unwrap(), "--allow-shared-grants"],
+    );
     let session_id = h.open_session();
     let id = h.request(
         "session/prompt",

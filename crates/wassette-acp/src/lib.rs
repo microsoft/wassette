@@ -345,13 +345,8 @@ pub async fn run(args: AcpArgs) -> Result<()> {
             require_shared_grants_opt_in(
                 !layers.is_empty(),
                 args.allow_shared_grants,
-                providers
-                    .iter()
-                    .chain(&layers)
-                    .map(|stage| (stage.component_id.as_str(), &stage.sandbox)),
-                &secrets,
-            )
-            .await?;
+                providers.iter().chain(&layers).map(|stage| &stage.sandbox),
+            )?;
 
             let (outbound_tx, outbound_rx) = mpsc::channel(64);
             let factory = Arc::new(SessionFactory::new(
@@ -372,23 +367,23 @@ pub async fn run(args: AcpArgs) -> Result<()> {
         .await
 }
 
-async fn require_shared_grants_opt_in<'a>(
+fn require_shared_grants_opt_in<'a>(
     has_layers: bool,
     allow_shared_grants: bool,
-    stages: impl IntoIterator<Item = (&'a str, &'a Sandbox)>,
-    secrets: &secrets::SecretsRegistry,
+    stages: impl IntoIterator<Item = &'a Sandbox>,
 ) -> Result<()> {
-    if !has_layers || allow_shared_grants {
-        return Ok(());
-    }
-    for (component_id, sandbox) in stages {
-        if sandbox.has_shared_grants() || secrets.has_secrets(component_id).await? {
-            anyhow::bail!(
-                "layered chains with policy grants or stored secrets share one WASI context, \
-                 and concurrent callbacks may be attributed to the wrong stage (including secret lookups); \
-                 pass --allow-shared-grants only if all stages are mutually trusted"
-            );
-        }
+    if has_layers && !allow_shared_grants {
+        let additional_grants = stages.into_iter().any(Sandbox::has_shared_grants);
+        tracing::debug!(
+            additional_grants,
+            "layered chain requires shared grants opt-in"
+        );
+        anyhow::bail!(
+            "layered chains share the provider's /data directory and any policy grants or stored \
+             secrets in one WASI context; concurrent callbacks may be attributed to the wrong \
+             stage (including secret lookups); pass --allow-shared-grants only if all stages \
+             are mutually trusted"
+        );
     }
     Ok(())
 }
@@ -664,61 +659,16 @@ fn resolve_data_root() -> Result<PathBuf> {
 mod shared_grants_tests {
     use super::*;
 
-    #[tokio::test]
-    async fn policy_free_chains_work_but_privileged_chains_require_opt_in() {
-        let dir = tempfile::tempdir().unwrap();
-        let secrets = secrets::SecretsRegistry::new(dir.path());
+    #[test]
+    fn any_layer_requires_opt_in_for_the_shared_data_preopen() {
         let denied = Sandbox::Policy(Box::new(crate::sandbox::PolicyGrants {
             policy_path: None,
             has_policy_grants: false,
             template: ::wassette::WasiStateTemplate::default(),
         }));
-        let stages = [("provider", &denied), ("layer", &denied)];
-        assert!(
-            require_shared_grants_opt_in(true, false, stages, &secrets)
-                .await
-                .is_ok()
-        );
-        for (has_layers, opt_in, expected_ok) in [
-            (true, false, false),
-            (true, true, true),
-            (false, false, true),
-        ] {
-            assert_eq!(
-                require_shared_grants_opt_in(
-                    has_layers,
-                    opt_in,
-                    [("provider", &Sandbox::AllowAll), ("layer", &denied)],
-                    &secrets
-                )
-                .await
-                .is_ok(),
-                expected_ok
-            );
-        }
-    }
-
-    #[tokio::test]
-    async fn invalid_secrets_store_cannot_bypass_layer_opt_in() {
-        let dir = tempfile::tempdir().unwrap();
-        std::fs::write(dir.path().join("layer.yaml"), "not: [valid").unwrap();
-        let secrets = secrets::SecretsRegistry::new(dir.path());
-        let denied = Sandbox::Policy(Box::new(crate::sandbox::PolicyGrants {
-            policy_path: None,
-            has_policy_grants: false,
-            template: ::wassette::WasiStateTemplate::default(),
-        }));
-        let err = require_shared_grants_opt_in(
-            true,
-            false,
-            [("provider", &denied), ("layer", &denied)],
-            &secrets,
-        )
-        .await
-        .unwrap_err();
-        assert!(
-            err.to_string()
-                .contains("checking secrets for component `layer`")
-        );
+        let err = require_shared_grants_opt_in(true, false, [&denied]).unwrap_err();
+        assert!(err.to_string().contains("provider's /data"), "{err}");
+        assert!(require_shared_grants_opt_in(true, true, [&denied]).is_ok());
+        assert!(require_shared_grants_opt_in(false, false, [&denied]).is_ok());
     }
 }

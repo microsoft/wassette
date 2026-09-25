@@ -86,13 +86,13 @@ MCP server uses.
 
 Because a chain is one store and a store is one `WasiCtx`, the stages'
 grants are **unioned** across the chain. A layer can access a provider's
-storage, network and policy-injected secret environment variables. A chain
-with layers and any network, storage or environment grant, any stored secrets
-for any stage (even without a policy), or `--allow-all` is refused unless
-`--allow-shared-grants` is set. Concurrent callbacks may be attributed to
+`/data` directory, storage, network and policy-injected secret environment
+variables. Every layered chain requires `--allow-shared-grants`, even when
+no stage has a policy or stored secrets: the host's provider `/data` preopen
+is shared with every layer. Concurrent callbacks may be attributed to
 the wrong stage, including `wasmcloud:secrets/store.get` lookups. That flag
 acknowledges both risks; it does not fix stage routing or isolate stages.
-The policy-free, secret-free echo + uppercase demo needs no opt-in.
+The policy-free, secret-free echo + uppercase demo also needs this opt-in.
 
 `wasmcloud:secrets/store.get` normally resolves against the executing
 stage's component id. This is **not an isolation guarantee** for layered
@@ -145,7 +145,8 @@ Add the layer to see chaining:
 ```sh
 cargo run -p wassette-mcp-server -- acp \
   --provider components/acp-echo-provider/target/wasm32-wasip2/release/acp_echo_provider.wasm \
-  --layer    components/acp-uppercase-layer/target/wasm32-wasip2/release/acp_uppercase_layer.wasm
+  --layer    components/acp-uppercase-layer/target/wasm32-wasip2/release/acp_uppercase_layer.wasm \
+  --allow-shared-grants
 ```
 
 Prompt `/shout` and the layer answers it itself, toggling on uppercase
@@ -182,7 +183,8 @@ just test-acp
 Concurrent callbacks in a layered chain still share one store-wide stage
 stack. Overlapping Wasmtime subtasks can misroute stage-specific imports,
 including secret lookups, and cancellation can leave stale entries. Layered
-chains with stored secrets or policy grants require `--allow-shared-grants`;
+chains always require `--allow-shared-grants` because the provider's `/data`
+preopen is shared with layers;
 this is an explicit risk acknowledgement, not a routing fix. A
 drop-safe, subtask-scoped stage identity is required before layered chains
 can safely handle concurrent callbacks; avoid untrusted layers. Per-stage
