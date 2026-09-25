@@ -216,11 +216,11 @@ impl SessionGroup {
                     "target provider advertises no model selector",
                 ));
             };
-            *inner.active.lock().unwrap() = idx;
             let outcome = inner.providers[idx]
                 .session
                 .set_config_option(target_model_id, native)
                 .await;
+            commit_active_on_success(&inner.active, idx, &outcome);
             return inner.absorb(idx, outcome);
         }
 
@@ -257,6 +257,27 @@ impl SessionGroup {
         for p in &self.inner.providers {
             p.session.cancel();
         }
+    }
+}
+
+fn commit_active_on_success(active: &Mutex<usize>, idx: usize, outcome: &SetConfigOptionOutcome) {
+    if matches!(outcome, SetConfigOptionOutcome::Done(_)) {
+        *active.lock().unwrap() = idx;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn failed_model_selection_keeps_the_previous_provider() {
+        let active = Mutex::new(0);
+        let failure = SetConfigOptionOutcome::Wit(translate::internal_error("model rejected"));
+        commit_active_on_success(&active, 1, &failure);
+        assert_eq!(*active.lock().unwrap(), 0);
+        commit_active_on_success(&active, 1, &SetConfigOptionOutcome::Done(vec![]));
+        assert_eq!(*active.lock().unwrap(), 1);
     }
 }
 
