@@ -76,6 +76,22 @@ pub struct PolicyGrants {
 }
 
 impl Sandbox {
+    /// A shared WASI context would expose these grants to every chain stage.
+    pub fn has_shared_grants(&self) -> bool {
+        match self {
+            Sandbox::AllowAll => true,
+            Sandbox::Policy(grants) => {
+                let t = &grants.template;
+                t.network_perms.allow_tcp
+                    || t.network_perms.allow_udp
+                    || t.network_perms.allow_ip_name_lookup
+                    || !t.allowed_hosts.is_empty()
+                    || !t.preopened_dirs.is_empty()
+                    || !t.config_vars.is_empty()
+            }
+        }
+    }
+
     /// Resolve the sandbox for one stage.
     ///
     /// `component_dir` is the Wassette component directory: it is both
@@ -299,6 +315,13 @@ mod tests {
 
     #[test]
     fn no_policy_denies_network() {
+        assert!(
+            !Sandbox::Policy(Box::new(PolicyGrants {
+                policy_path: None,
+                template: WasiStateTemplate::default(),
+            }))
+            .has_shared_grants()
+        );
         let mut chain = ChainSandbox::default();
         chain.merge(&Sandbox::Policy(Box::new(PolicyGrants {
             policy_path: None,
@@ -315,7 +338,7 @@ mod tests {
     fn network_policy_grants_hosts() {
         let dir = tempfile::tempdir().unwrap();
         let mut chain = ChainSandbox::default();
-        chain.merge(&grants_from(
+        let granted = grants_from(
             r#"
 version: "1.0"
 description: "test"
@@ -325,7 +348,9 @@ permissions:
       - host: "api.example.com"
 "#,
             dir.path(),
-        ));
+        );
+        assert!(granted.has_shared_grants());
+        chain.merge(&granted);
         assert!(chain.allow_tcp);
         assert!(chain.allow_ip_name_lookup);
         assert!(chain.http_allowlist().unwrap().contains("api.example.com"));
@@ -333,9 +358,25 @@ permissions:
 
     #[test]
     fn allow_all_disables_filtering() {
+        assert!(Sandbox::AllowAll.has_shared_grants());
         let mut chain = ChainSandbox::default();
         chain.merge(&Sandbox::AllowAll);
         assert!(chain.http_allowlist().is_none());
+    }
+
+    #[test]
+    fn injected_environment_secrets_require_shared_grants_opt_in() {
+        let mut template = WasiStateTemplate::default();
+        template
+            .config_vars
+            .insert("API_KEY".to_string(), "secret".to_string());
+        assert!(
+            Sandbox::Policy(Box::new(PolicyGrants {
+                policy_path: None,
+                template,
+            }))
+            .has_shared_grants()
+        );
     }
 
     #[test]

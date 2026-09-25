@@ -164,6 +164,12 @@ pub struct AcpArgs {
     #[arg(long)]
     pub allow_all: bool,
 
+    /// Permit privileged grants (including policy-injected environment
+    /// secrets) to be shared by a provider and its layers in one WASI context.
+    /// Does not isolate stages; use only with mutually trusted components.
+    #[arg(long)]
+    pub allow_shared_grants: bool,
+
     /// Optional path to a file to mirror logs into. The same events that
     /// go to stderr are appended to this file (no ANSI colors). Useful
     /// when running under an editor that swallows or hides the host's
@@ -344,6 +350,11 @@ pub async fn run(args: AcpArgs) -> Result<()> {
                     "loaded layer",
                 );
             }
+            require_shared_grants_opt_in(
+                !layers.is_empty(),
+                args.allow_shared_grants,
+                providers.iter().chain(&layers).map(|stage| &stage.sandbox),
+            )?;
 
             let (outbound_tx, outbound_rx) = mpsc::channel(64);
             let factory = Arc::new(SessionFactory::new(
@@ -362,6 +373,38 @@ pub async fn run(args: AcpArgs) -> Result<()> {
             bridge::run(factory, registry, outbound_rx).await
         })
         .await
+}
+
+fn require_shared_grants_opt_in<'a>(
+    has_layers: bool,
+    allow_shared_grants: bool,
+    sandboxes: impl IntoIterator<Item = &'a Sandbox>,
+) -> Result<()> {
+    if has_layers && !allow_shared_grants && sandboxes.into_iter().any(Sandbox::has_shared_grants) {
+        anyhow::bail!(
+            "provider and layers share one WASI context with privileged grants; \
+             pass --allow-shared-grants only if all stages are mutually trusted"
+        );
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod shared_grants_tests {
+    use super::*;
+
+    #[test]
+    fn policy_free_chains_work_but_privileged_chains_require_opt_in() {
+        let denied = Sandbox::Policy(Box::new(crate::sandbox::PolicyGrants {
+            policy_path: None,
+            template: ::wassette::WasiStateTemplate::default(),
+        }));
+        let stages = [&denied, &denied];
+        assert!(require_shared_grants_opt_in(true, false, stages).is_ok());
+        assert!(require_shared_grants_opt_in(true, false, [&Sandbox::AllowAll, &denied]).is_err());
+        assert!(require_shared_grants_opt_in(true, true, [&Sandbox::AllowAll, &denied]).is_ok());
+        assert!(require_shared_grants_opt_in(false, false, [&Sandbox::AllowAll]).is_ok());
+    }
 }
 
 /// `$XDG_DATA_HOME/wassette/components` — the same component store

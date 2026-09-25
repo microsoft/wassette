@@ -29,7 +29,10 @@ for it. `--allow-all` restores the permissive upstream behaviour for demos.
 
 Because one ACP session is one `Store`, and a store has one `WasiCtx`, the
 grants of a chain's stages are unioned: a layer runs with its own policy plus
-those of the stages it wraps.
+those of the stages it wraps. If a chain has any privileged policy grant
+(including injected environment secrets), or uses `--allow-all`, multiple
+stages require `--allow-shared-grants`. This flag acknowledges shared access;
+it does not isolate mutually untrusted stages. Policy-free chains need no flag.
 
 ## Provenance
 

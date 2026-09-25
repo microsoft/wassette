@@ -84,9 +84,11 @@ MCP server uses.
   environment, no HTTP filtering. It is for demos and debugging.
 
 Because a chain is one store and a store is one `WasiCtx`, the stages'
-grants are **unioned** across the chain. A layer therefore runs with its
-own policy plus the policies of the stages it wraps — worth knowing
-before putting an untrusted layer in front of a network-granted provider.
+grants are **unioned** across the chain. A layer can access a provider's
+storage, network and policy-injected secret environment variables. A chain
+with layers and any privileged grants (or `--allow-all`) is refused unless
+`--allow-shared-grants` is set. That flag acknowledges shared access; it
+does not isolate stages. Policy-free demo chains need no opt-in.
 
 Secrets are per component and structural rather than declared: a stage's
 `wasmcloud:secrets/store.get` resolves against *its own* component id, so
@@ -98,7 +100,7 @@ no stage can read another's.
 wassette acp [--provider <PATH|URI|COMPONENT_ID>]...
              [--layer    <PATH|URI|COMPONENT_ID>]...
              [--component-dir <DIR>] [--secrets-dir <DIR>]
-             [--allow-all]
+             [--allow-all] [--allow-shared-grants]
              [--log-file <PATH>] [--log-level <LEVEL>] [--log-filter <DIRECTIVE>]
 ```
 
