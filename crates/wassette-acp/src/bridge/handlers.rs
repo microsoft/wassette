@@ -356,9 +356,8 @@ pub(super) fn handle_set_session_mode(
 ) -> Result<(), AcpError> {
     let session_key = req.session_id.0.to_string();
     debug!(session = %session_key, "session/set_mode");
-    open_gate_now(gate, &session_key, &cx);
-
     let handle = require_session(registry, &session_key)?;
+    open_gate_now(gate, &session_key, &cx);
     let mode_id = req.mode_id.0.to_string();
 
     cx.spawn(async move {
@@ -393,9 +392,8 @@ pub(super) fn handle_set_session_config_option(
 ) -> Result<(), AcpError> {
     let session_key = req.session_id.0.to_string();
     debug!(session = %session_key, "session/set_config_option");
-    open_gate_now(gate, &session_key, &cx);
-
     let handle = require_session(registry, &session_key)?;
+    open_gate_now(gate, &session_key, &cx);
     let config_id = req.config_id.0.to_string();
 
     // The `terminal` option is host-owned: the host enforces terminal
