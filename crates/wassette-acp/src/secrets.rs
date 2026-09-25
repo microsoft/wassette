@@ -4,14 +4,13 @@
 //! Per-component secret store: host-side `wasmcloud:secrets@0.1.0-draft`
 //! backend, over Wassette's [`SecretsManager`].
 //!
-//! Every component that imports `wasmcloud:secrets` transparently gets
-//! its own private, persistent secret store, indexed by the component's
-//! Wassette component id. A `store.get(key)` resolves against *that
-//! component's* secrets file only, so a component can never read another
-//! component's secrets. There is no config file: the host derives the
-//! calling component's identity itself (the currently executing stage's
-//! `component_id`), so the isolation is *structural* rather than a
-//! declared grant.
+//! Secrets are stored persistently by Wassette component id. A
+//! `store.get(key)` normally uses the current stage's component id to
+//! select its secrets file, without a guest-supplied config file. In
+//! layered chains, concurrent callbacks share a store-wide stage stack
+//! and can be attributed to the wrong stage; this is not an isolation
+//! guarantee. Layered chains with stored secrets require
+//! `--allow-shared-grants`, which acknowledges but does not fix this risk.
 //!
 //! Secrets are the same ones the rest of Wassette uses — the YAML files
 //! under `$XDG_CONFIG_HOME/wassette/secrets/<component-id>.yaml`, managed
