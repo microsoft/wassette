@@ -337,6 +337,25 @@ fn fresh_provider_instance_receives_initialize_before_new_session() {
 }
 
 #[test]
+fn load_session_normalizes_relative_cwd_before_guest_call() {
+    let Some((bin, wasm)) = artifacts() else {
+        return;
+    };
+    let mut h = Harness::start(&bin, &wasm, &[]);
+    let id = h.request(
+        "initialize",
+        json!({"protocolVersion": 1, "clientCapabilities": {}}),
+    );
+    h.await_response(id);
+    let id = h.request(
+        "session/load",
+        json!({"sessionId": "echo-load", "cwd": ".", "mcpServers": []}),
+    );
+    let (_, result) = h.await_response(id);
+    assert!(result.is_object(), "{result}");
+}
+
+#[test]
 fn echo_provider_advertises_host_terminal_option_to_boolean_clients() {
     let Some((bin, wasm)) = artifacts() else {
         return;

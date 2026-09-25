@@ -231,6 +231,9 @@ impl Guest for Agent {
         if !INITIALIZED.with(|ready| *ready.borrow()) {
             return Err(err(ErrorCode::InvalidRequest, "initialize must precede session/load"));
         }
+        if !std::path::Path::new(&req.cwd).is_absolute() {
+            return Err(err(ErrorCode::InvalidParams, "session/load cwd must be absolute"));
+        }
         let id = req.session_id.clone();
 
         // State lives only in this instance's memory, so a reload after a

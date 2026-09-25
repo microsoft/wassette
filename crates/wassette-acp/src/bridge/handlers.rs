@@ -196,12 +196,13 @@ pub(super) async fn handle_load_session(
     factory: &SessionFactory,
     registry: &Arc<SessionRegistry>,
     gate: &Arc<NotificationGate>,
-    req: schema::LoadSessionRequest,
+    mut req: schema::LoadSessionRequest,
     responder: Responder<schema::LoadSessionResponse>,
     cx: ConnectionTo<Client>,
 ) -> Result<(), AcpError> {
     let session_key = req.session_id.0.to_string();
     debug!(session = %session_key, "session/load");
+    resolve_workspace_cwd(&mut req.cwd);
     warn_if_unlikely_workspace(&req.cwd);
     let sessions = factory
         .instantiate_group_for_project(&req.cwd)
