@@ -944,7 +944,7 @@ impl Drop for TerminalProcess {
     }
 }
 
-/// Owned, clonable snapshot of a process exit status. Kept separate from
+/// Owned, cloneable snapshot of a process exit status. Kept separate from
 /// the generated `TerminalExitStatus` so it can be stored in a `watch`
 /// channel without depending on the WIT type deriving `Clone`.
 #[derive(Clone)]
