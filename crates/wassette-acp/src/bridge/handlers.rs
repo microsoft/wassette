@@ -698,45 +698,16 @@ fn handle_install_command(
 }
 
 /// Install a component and validate that it implements the host's
-/// currently supported `wassette:acp` world. On validation failure the
-/// just-fetched `.wasm` file is removed from the component directory so a
-/// subsequent `/install` of the same reference re-fetches it (in case the
-/// package gets rebuilt upstream against the right WIT version). A
-/// component resolved from a path the user already had on disk is left
-/// alone.
+/// currently supported `wassette:acp` world without changing existing artifacts.
 async fn run_install(
     factory: &SessionFactory,
     arg: &str,
     progress: Option<tokio::sync::mpsc::Sender<String>>,
 ) -> anyhow::Result<install::ResolvedComponent> {
-    let resolver = factory.resolver();
-    let installed = resolver
-        .resolve_with_progress(arg, progress.clone())
-        .await?;
-    // Only files that live in the component directory were fetched by us
-    // and are ours to roll back.
-    let owned = installed.path.starts_with(resolver.component_dir());
-    let discard = |path: std::path::PathBuf| async move {
-        if owned {
-            let _ = tokio::fs::remove_file(path).await;
-        }
-    };
-    if let Some(tx) = progress.as_ref() {
-        let _ = tx.try_send("Validating component…".to_string());
-    }
-    let component =
-        match wasmtime::component::Component::from_file(factory.engine(), &installed.path) {
-            Ok(c) => c,
-            Err(e) => {
-                discard(installed.path.clone()).await;
-                return Err(anyhow::Error::from(e).context("loading installed component"));
-            }
-        };
-    if let Err(e) = crate::classify_acp_component(factory.engine(), &component) {
-        discard(installed.path.clone()).await;
-        return Err(e);
-    }
-    Ok(installed)
+    factory
+        .resolver()
+        .install_validated(arg, progress, factory.engine())
+        .await
 }
 
 /// Send the initial `tool_call` notification for an install.
