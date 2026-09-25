@@ -314,6 +314,32 @@ fn initialize_advertises_the_echo_provider() {
 }
 
 #[test]
+fn echo_provider_advertises_host_terminal_option_to_boolean_clients() {
+    let Some((bin, wasm)) = artifacts() else {
+        return;
+    };
+    let mut h = Harness::start(&bin, &wasm, &[]);
+    let id = h.request(
+        "initialize",
+        json!({"protocolVersion": 1, "clientCapabilities": {
+            "session": {"configOptions": {"boolean": {}}}
+        }}),
+    );
+    h.await_response(id);
+    let id = h.request(
+        "session/new",
+        json!({"cwd": std::env::temp_dir(), "mcpServers": []}),
+    );
+    let (_, session) = h.await_response(id);
+    assert_eq!(session["configOptions"][0]["id"], "terminal", "{session}");
+    assert_eq!(session["configOptions"][0]["type"], "boolean", "{session}");
+    assert_eq!(
+        session["configOptions"][0]["currentValue"], false,
+        "{session}"
+    );
+}
+
+#[test]
 fn a_prompt_streams_chunks_and_ends_the_turn() {
     let Some((bin, wasm)) = artifacts() else {
         return;

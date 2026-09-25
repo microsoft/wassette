@@ -190,8 +190,9 @@ pub fn new_session_response_wit_to_schema(
     // `config_options` (the unified selector mechanism) is XOR with the legacy
     // `modes` field client-side: when present it fully replaces modes, so skip
     // the host-injected default mode to avoid advertising a phantom selector.
-    if let Some(config_options) = resp.config_options {
-        json["configOptions"] = config_options_json(config_options, terminal);
+    if resp.config_options.is_some() || terminal.is_some() {
+        json["configOptions"] =
+            config_options_json(resp.config_options.unwrap_or_default(), terminal);
     } else if let Some(modes) = ensure_host_default_mode(resp.modes) {
         json["modes"] = session_mode_state_to_json(modes, component_id);
     }
@@ -246,8 +247,9 @@ pub fn load_session_response_wit_to_schema(
     terminal: Option<bool>,
 ) -> Result<schema::LoadSessionResponse, AcpError> {
     let mut json = serde_json::json!({});
-    if let Some(config_options) = resp.config_options {
-        json["configOptions"] = config_options_json(config_options, terminal);
+    if resp.config_options.is_some() || terminal.is_some() {
+        json["configOptions"] =
+            config_options_json(resp.config_options.unwrap_or_default(), terminal);
     } else if let Some(modes) = ensure_host_default_mode(resp.modes) {
         json["modes"] = session_mode_state_to_json(modes, component_id);
     }
@@ -1093,6 +1095,58 @@ mod tests {
     use crate::wassette::acp::init::{
         AgentCapabilities, McpCapabilities, PromptCapabilities, SessionCapabilities,
     };
+
+    #[test]
+    fn host_terminal_option_is_present_without_provider_options() {
+        let new = || NewSessionResponse {
+            session_id: "echo-0".into(),
+            modes: None,
+            models: None,
+            config_options: None,
+        };
+        let load = || LoadSessionResponse {
+            modes: None,
+            models: None,
+            config_options: None,
+        };
+        let check = |json: serde_json::Value, enabled| {
+            let options = json["configOptions"].as_array().expect("configOptions");
+            assert_eq!(options.len(), 1, "{json}");
+            assert_eq!(options[0]["id"], "terminal");
+            assert_eq!(options[0]["type"], "boolean");
+            assert_eq!(options[0]["currentValue"], enabled);
+            assert!(json.get("modes").is_none(), "{json}");
+        };
+        check(
+            serde_json::to_value(
+                new_session_response_wit_to_schema(new(), "echo", Some(false)).unwrap(),
+            )
+            .unwrap(),
+            false,
+        );
+        check(
+            serde_json::to_value(
+                load_session_response_wit_to_schema(load(), "echo", Some(true)).unwrap(),
+            )
+            .unwrap(),
+            true,
+        );
+        check(
+            serde_json::to_value(set_config_option_response(vec![], Some(true)).unwrap()).unwrap(),
+            true,
+        );
+        for response in [
+            serde_json::to_value(new_session_response_wit_to_schema(new(), "echo", None).unwrap())
+                .unwrap(),
+            serde_json::to_value(
+                load_session_response_wit_to_schema(load(), "echo", None).unwrap(),
+            )
+            .unwrap(),
+        ] {
+            assert!(response.get("configOptions").is_none(), "{response}");
+            assert_eq!(response["modes"]["currentModeId"], HOST_DEFAULT_MODE_ID);
+        }
+    }
 
     #[test]
     fn error_code_roundtrip() {
