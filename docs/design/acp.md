@@ -156,8 +156,8 @@ just test-acp
 ## Building the real providers
 
 The `ollama` and `copilot` providers build against the `p3` branch of
-`bytecodealliance/wstd` (PR #129) — the `wasip3` feature is not on crates.io
-or on `main`. Those external providers in
+`bytecodealliance/wstd` (PR #129) — the `wasip3` feature is not on crates.io.
+Those external providers in
 `yoshuawuyts/playground-wasm-acp` still export `yosh:acp@7.0.0`; they must
 rename their WIT package and regenerate their bindings as
 `wassette:acp@7.0.0` before they can load in this host. The build script does
@@ -179,6 +179,12 @@ Both steps are captured as a temporary patch in
 `just build-acp-real-provider <path-to-playground-wasm-acp>`, which clones the
 branch, patches it, and builds the component. Keep it until wstd publishes a
 `wasip3` release compatible with Wasmtime 47.
+
+As of September 2026, the
+[wstd WASIp3 port](https://github.com/bytecodealliance/wstd/issues/141)
+on `main` has superseded the older `p3` branch used here. The bridge can be
+removed once wstd releases compatible WASIp3 HTTP support
+([HTTP tracking issue](https://github.com/bytecodealliance/wstd/issues/164)).
 
 Before the package rename, `ollama_provider.wasm` was verified end to end
 streaming a chat completion over real `wasi:http`, and refused without a

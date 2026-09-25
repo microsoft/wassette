@@ -6,8 +6,12 @@
 # wasip3 implementation compatible with this workspace's Wasmtime 47.
 #
 # The providers live in yoshuawuyts/playground-wasm-acp and depend on `wstd`
-# with a `wasip3` feature that is only on the `p3` branch of
-# bytecodealliance/wstd. The patch bumps wasip3 0.5 to 0.7.1 so guests
+# with a `wasip3` feature from the `p3` branch of
+# bytecodealliance/wstd. Remove this bridge once wstd releases WASIp3 HTTP
+# support (https://github.com/bytecodealliance/wstd/issues/141; HTTP:
+# https://github.com/bytecodealliance/wstd/issues/164).
+# This still targets the older p3 branch, superseded by the port on wstd main.
+# The patch bumps wasip3 0.5 to 0.7.1 so guests
 # import final wasi:http@0.3.0 rather than Wasmtime 44's release candidate.
 # It also enables wit-bindgen 0.57's async-spawn feature for wasip3 (the
 # workspace's wit-bindgen 0.54 cannot unify features with it). See
