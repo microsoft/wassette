@@ -51,7 +51,7 @@ pub enum Commands {
     Run(Run),
     /// Serve remotely over Streamable HTTP.
     Serve(Serve),
-    /// Run as an Agent Client Protocol (ACP) agent over stdio.
+    /// [EXPERIMENTAL] Run as an ACP agent over stdio; may change or be removed.
     Acp(wassette_acp::AcpArgs),
     /// Manage WebAssembly components.
     Component {

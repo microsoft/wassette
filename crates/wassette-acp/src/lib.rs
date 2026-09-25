@@ -218,6 +218,7 @@ impl LogLevel {
 /// work happens inside a [`LocalSet`] pinned to the calling thread of the
 /// *current* runtime — no nested runtime is created.
 pub async fn run(args: AcpArgs) -> Result<()> {
+    eprintln!("Notice: wassette acp is experimental and may change or be removed.");
     // rustls 0.23 links both crypto backends in this dependency graph
     // (wasmtime-wasi-http + oci-client pull `aws-lc-rs`; reqwest/hyper-rustls
     // pull `ring`), so it cannot auto-select a process-level CryptoProvider

@@ -3,7 +3,7 @@ name = "wassette-acp"
 version.workspace = true
 edition = "2024"
 license.workspace = true
-description = "Agent Client Protocol host for Wassette: runs ACP agents as WebAssembly components"
+description = "Experimental Agent Client Protocol host for Wassette: runs ACP agents as WebAssembly components"
 readme = "README.md"
 
 [dependencies]

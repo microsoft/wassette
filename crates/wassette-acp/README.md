@@ -1,5 +1,7 @@
 # `wassette-acp`
 
+> **Experimental:** `wassette acp` may change or be removed.
+
 The Agent Client Protocol (ACP) host for Wassette. `wassette acp` speaks ACP
 JSON-RPC on stdio and routes it into a chain of WebAssembly components: one or
 more terminal **providers** (`--provider`) wrapped by zero or more bidirectional

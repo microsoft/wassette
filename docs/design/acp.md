@@ -1,7 +1,7 @@
 # `wassette acp` — running agents as components
 
 > **Status: experimental.** `wassette acp` is a prototype. Its CLI, its WIT
-> world, and the layer chain model are all expected to change.
+> world, and the layer chain model may change or be removed.
 
 ## What ACP is
 
