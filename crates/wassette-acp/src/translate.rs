@@ -506,7 +506,7 @@ pub fn empty_authenticate_response() -> Result<schema::AuthenticateResponse, Acp
 fn install_command_json() -> serde_json::Value {
     serde_json::json!({
         "name": "install",
-        "description": "Install a wasm component into the Wassette component directory (path, `oci://…`, or `https://…`).",
+        "description": "Validate an ACP component. Local paths are used in place; OCI and HTTPS references are installed in the Wassette component directory.",
         "input": { "hint": "<path|oci://…|https://…|component-id>" },
     })
 }

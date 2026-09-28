@@ -635,6 +635,38 @@ fn unadvertised_load_does_not_replace_the_active_session() {
     );
 }
 
+#[test]
+fn install_local_path_reports_use_in_place() {
+    let Some((bin, wasm)) = artifacts() else {
+        return;
+    };
+    let mut h = Harness::start(&bin, &wasm, &[]);
+    let sid = h.open_session();
+    let id = h.request(
+        "session/prompt",
+        json!({"sessionId": sid, "prompt": [{"type": "text", "text": format!("/install {}", wasm.display())}]}),
+    );
+    let (updates, response) = h.await_response(id);
+    assert_eq!(response["stopReason"], "end_turn");
+    let finish = updates.iter().find(|m| {
+        m["params"]["update"]["sessionUpdate"] == "tool_call_update"
+            && m["params"]["update"]["status"] == "completed"
+    });
+    let finish = finish.expect("completed install tool-call update");
+    let text = finish["params"]["update"]["content"][0]["content"]["text"]
+        .as_str()
+        .expect("install result text");
+    assert!(text.contains("Ready to use"), "{text}");
+    assert!(text.contains(&wasm.display().to_string()), "{text}");
+    assert!(
+        !h._xdg
+            .path()
+            .join("data/wassette/components/acp_echo_provider.wasm")
+            .exists(),
+        "local path was unexpectedly copied to the component store"
+    );
+}
+
 /// Prompting the instant `session/new` returns — inside the gate's flush
 /// delay — must still stream the answer *before* the turn's response.
 ///

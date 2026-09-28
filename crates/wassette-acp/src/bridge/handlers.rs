@@ -724,7 +724,11 @@ fn handle_install_command(
 
         match &result {
             Ok(installed) => {
-                let text = format!("Installed `{}`.", installed.component_id);
+                let text = format!(
+                    "Ready to use `{}` at `{}`.",
+                    installed.component_id,
+                    installed.path.display()
+                );
                 send_tool_call_finish(&cx, &session_key, &tool_call_id, "completed", &text);
             }
             Err(e) => {
