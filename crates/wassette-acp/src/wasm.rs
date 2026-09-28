@@ -103,6 +103,7 @@ pub struct SessionFactory {
     /// options to clients that didn't opt in). Defaults to `false` until
     /// `initialize` runs.
     boolean_config_supported: std::sync::atomic::AtomicBool,
+    load_session_supported: std::sync::atomic::AtomicBool,
     initialize_request: tokio::sync::RwLock<Option<InitializeRequest>>,
 }
 
@@ -127,6 +128,7 @@ impl SessionFactory {
             resolver,
             allow_shared_grants: false,
             boolean_config_supported: std::sync::atomic::AtomicBool::new(false),
+            load_session_supported: std::sync::atomic::AtomicBool::new(false),
             initialize_request: tokio::sync::RwLock::new(None),
         }
     }
@@ -156,6 +158,16 @@ impl SessionFactory {
     /// afterwards read it back via [`Self::boolean_config_supported`].
     pub fn set_boolean_config_supported(&self, supported: bool) {
         self.boolean_config_supported
+            .store(supported, std::sync::atomic::Ordering::Relaxed);
+    }
+
+    pub fn load_session_supported(&self) -> bool {
+        self.load_session_supported
+            .load(std::sync::atomic::Ordering::Relaxed)
+    }
+
+    pub fn set_load_session_supported(&self, supported: bool) {
+        self.load_session_supported
             .store(supported, std::sync::atomic::Ordering::Relaxed);
     }
 

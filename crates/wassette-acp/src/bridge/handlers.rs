@@ -68,6 +68,7 @@ pub(super) async fn handle_initialize(
         .await
         .map_err(|e| translate::trap_to_acp("initialize", e))?;
     let resp = result.map_err(translate::wit_error_to_acp)?;
+    factory.set_load_session_supported(resp.agent_capabilities.load_session);
     factory.set_initialize_request(wit_req).await;
     responder.respond(translate::init_response_wit_to_schema(resp))
 }
@@ -203,6 +204,11 @@ pub(super) async fn handle_load_session(
 ) -> Result<(), AcpError> {
     let session_key = req.session_id.0.to_string();
     debug!(session = %session_key, "session/load");
+    if !factory.load_session_supported() {
+        let mut error = AcpError::invalid_params();
+        error.message = "session/load is unavailable: loadSession was not advertised".to_string();
+        return Err(error);
+    }
     if registry.get(&session_key).is_some() {
         return Err(duplicate_session_error(&session_key));
     }

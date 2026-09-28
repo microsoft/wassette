@@ -457,7 +457,7 @@ fn fresh_provider_instance_receives_initialize_before_new_session() {
 }
 
 #[test]
-fn load_session_normalizes_relative_cwd_before_guest_call() {
+fn load_session_is_rejected_when_not_advertised() {
     let Some((bin, wasm)) = artifacts() else {
         return;
     };
@@ -471,8 +471,15 @@ fn load_session_normalizes_relative_cwd_before_guest_call() {
         "session/load",
         json!({"sessionId": "echo-load", "cwd": ".", "mcpServers": []}),
     );
-    let (_, result) = h.await_response(id);
-    assert!(result.is_object(), "{result}");
+    let response: Value = serde_json::from_str(&h.next_line()).expect("JSON-RPC output");
+    assert_eq!(response["id"], id);
+    assert_eq!(response["error"]["code"], -32602, "{response}");
+    assert!(
+        response["error"]["message"]
+            .as_str()
+            .is_some_and(|message| message.contains("loadSession was not advertised")),
+        "{response}"
+    );
 }
 
 #[test]
@@ -594,7 +601,7 @@ fn two_layered_sessions_keep_independent_shout_state() {
 }
 
 #[test]
-fn duplicate_load_does_not_replace_the_active_session() {
+fn unadvertised_load_does_not_replace_the_active_session() {
     let Some((bin, wasm)) = artifacts() else {
         return;
     };
@@ -610,7 +617,7 @@ fn duplicate_load_does_not_replace_the_active_session() {
     assert!(
         line["error"]["message"]
             .as_str()
-            .is_some_and(|msg| msg.contains("already active")),
+            .is_some_and(|msg| msg.contains("loadSession was not advertised")),
         "{line}"
     );
     let id = h.request(
