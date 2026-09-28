@@ -167,7 +167,8 @@ pub struct AcpArgs {
     pub allow_shared_grants: bool,
 
     /// Optional path to a file to mirror logs into. The same events that
-    /// go to stderr are appended to this file (no ANSI colors). Useful
+    /// go to stderr are written to a timestamped file (created or
+    /// truncated for each run, no ANSI colors). Useful
     /// when running under an editor that swallows or hides the host's
     /// stderr.
     #[arg(long)]
@@ -189,7 +190,7 @@ pub struct AcpArgs {
 /// Coarse verbosity for the host's own logs.
 #[derive(Copy, Clone, Debug, clap::ValueEnum)]
 pub enum LogLevel {
-    /// Everything, including per-message wire traces.
+    /// Verbose host diagnostics (does not enable JSON-RPC wire payload logs).
     Trace,
     /// Debugging detail.
     Debug,

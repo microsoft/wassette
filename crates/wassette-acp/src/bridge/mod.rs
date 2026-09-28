@@ -91,7 +91,7 @@ pub async fn run(
 
     AgentRole
         .builder()
-        .name("ollama-wasm-host")
+        .name("wassette-acp")
         .on_close(async move |_cx| {
             registry_close.clear();
             Ok(())

@@ -121,7 +121,10 @@ wassette acp --provider <PATH|URI|COMPONENT_ID>
   path, `oci://…`, `https://…` — or the id of a component already in the
   component directory.
 * Logs go to **stderr**, never stdout: stdout is the protocol channel.
-  `--log-file` mirrors them into a file for editors that hide stderr.
+  `--log-file` mirrors them into a timestamped file for editors that hide stderr.
+* `/install` validates local paths in place; OCI and HTTPS references are
+  downloaded into the component directory.
+* `RUST_LOG=debug` or `RUST_LOG=trace` logs full JSON-RPC payloads, including prompt text and any secrets a guest emits; enable it only when appropriate.
 
 Point an ACP-speaking editor at it the same way you would point one at
 `wassette run`.
