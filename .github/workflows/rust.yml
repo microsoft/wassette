@@ -135,7 +135,9 @@ jobs:
       run: |
         # --no-report keeps the artifacts a plain run would have cleaned, so clean explicitly
         cargo llvm-cov clean --workspace
-        cargo llvm-cov --all-features --workspace --ignore-run-fail --no-report
+        just build-acp-examples
+        cargo build -p wassette-mcp-server
+        WASSETTE_ACP_TEST_BINARY="$PWD/target/debug/wassette" cargo llvm-cov --all-features --workspace --ignore-run-fail --no-report
         cargo llvm-cov report --lcov --output-path lcov.info
         cargo llvm-cov report --json --output-path coverage.json
     - name: Upload coverage to Codecov

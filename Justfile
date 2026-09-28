@@ -15,6 +15,8 @@ build-test-components:
 
 test:
     just build-test-components
+    just build-acp-examples
+    cargo build -p wassette-mcp-server
     cargo test --workspace -- --nocapture
     cargo test --doc --workspace -- --nocapture
 

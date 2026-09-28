@@ -16,9 +16,9 @@
 //! (cd components/acp-echo-provider && cargo build --release --target wasm32-wasip2)
 //! ```
 //!
-//! When either is missing the tests print why and pass, so a plain
-//! `cargo test --workspace` on a machine without the `wasm32-wasip2`
-//! target stays green.
+//! Outside CI, missing artifacts skip the tests so a plain `cargo test
+//! --workspace` on a machine without the `wasm32-wasip2` target stays green.
+//! In CI, missing artifacts fail the tests rather than silently reducing coverage.
 
 use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
@@ -43,6 +43,10 @@ const GATE_FLUSH_GRACE: Duration = Duration::from_millis(500);
 /// The `wassette` binary under test: a sibling of the test executable's
 /// directory (`target/<profile>/deps/<test>` → `target/<profile>`).
 fn wassette_binary() -> Option<PathBuf> {
+    if let Some(bin) = std::env::var_os("WASSETTE_ACP_TEST_BINARY") {
+        let bin = PathBuf::from(bin);
+        return bin.is_file().then_some(bin);
+    }
     let exe = std::env::current_exe().ok()?;
     let profile_dir = exe.parent()?.parent()?;
     let bin = profile_dir.join(if cfg!(windows) {
@@ -79,12 +83,20 @@ fn uppercase_layer() -> Option<PathBuf> {
 /// Both artifacts, or `None` with an explanation of what to build.
 fn artifacts() -> Option<(PathBuf, PathBuf)> {
     let Some(bin) = wassette_binary() else {
+        assert!(
+            std::env::var_os("CI").is_none(),
+            "CI requires the `wassette` binary; run `cargo build -p wassette-mcp-server`"
+        );
         eprintln!(
             "skipping: `wassette` binary not found; run `cargo build -p wassette-mcp-server`"
         );
         return None;
     };
     let Some(wasm) = echo_provider() else {
+        assert!(
+            std::env::var_os("CI").is_none(),
+            "CI requires the ACP echo provider; run `just build-acp-examples`"
+        );
         eprintln!(
             "skipping: ACP echo provider not found in its component target directory \
              (or CARGO_TARGET_DIR); run `just build-acp-examples`"
