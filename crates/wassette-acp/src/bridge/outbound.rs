@@ -31,6 +31,9 @@ pub(super) async fn run_outbound_drain(
 ) -> Result<(), AcpError> {
     while let Some(event) = outbound_rx.recv().await {
         match event {
+            OutboundEvent::Barrier(ack) => {
+                let _ = ack.send(());
+            }
             OutboundEvent::SessionUpdate(notif, guest_install, ack) => {
                 // Hold registered IDs and bounded updates while a new
                 // session's guest-selected ID is still unknown. All other

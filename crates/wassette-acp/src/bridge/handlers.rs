@@ -501,8 +501,13 @@ pub(super) fn handle_prompt(
     }
 
     handle.prepare_prompt();
+    let factory = factory.clone();
     cx.spawn(async move {
         let outcome = handle.prompt(wit_prompt).await;
+        if let Err(e) = factory.flush_outbound().await {
+            return responder
+                .respond_with_error(translate::anyhow_to_acp("prompt: flush updates", e));
+        }
         let resp = match outcome {
             PromptOutcome::Done(r) => match translate::prompt_response_wit_to_schema(r) {
                 Ok(r) => r,

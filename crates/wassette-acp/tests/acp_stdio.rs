@@ -195,6 +195,13 @@ impl Harness {
         id
     }
 
+    fn notify(&mut self, method: &str, params: Value) {
+        let msg = json!({"jsonrpc": "2.0", "method": method, "params": params});
+        let stdin = self.stdin.as_mut().expect("stdin is open");
+        writeln!(stdin, "{msg}").expect("write notification");
+        stdin.flush().expect("flush notification");
+    }
+
     fn close_stdin_and_wait(&mut self) {
         drop(self.stdin.take());
         let deadline = std::time::Instant::now() + Duration::from_secs(5);
@@ -347,6 +354,41 @@ fn exits_on_stdin_eof_during_prompt() {
         }
     }
     h.close_stdin_and_wait();
+}
+
+#[test]
+fn cancelled_prompts_flush_all_chunks_before_the_response() {
+    let Some((bin, wasm)) = artifacts() else {
+        return;
+    };
+    let layer =
+        uppercase_layer().expect("build ACP uppercase layer with `just build-acp-examples`");
+    for extra in [&[][..], &["--layer", layer.to_str().unwrap()][..]] {
+        let mut h = Harness::start(&bin, &wasm, extra);
+        let sid = h.open_session();
+        let prompt = "hello ".repeat(5000);
+        for turn in 0..20 {
+            let id = h.request(
+                "session/prompt",
+                json!({"sessionId": sid, "prompt": [{"type": "text", "text": prompt}]}),
+            );
+            loop {
+                let msg: Value = serde_json::from_str(&h.next_line()).expect("JSON-RPC output");
+                if agent_message_chunk_text(&msg).is_some() {
+                    break;
+                }
+                assert_ne!(msg["id"], id, "turn {turn} ended before its first chunk");
+            }
+            h.notify("session/cancel", json!({"sessionId": sid}));
+            let (_, result) = h.await_response(id);
+            assert_eq!(result["stopReason"], "cancelled", "turn {turn}: {result}");
+            let late = h.drain_pending();
+            assert!(
+                late.iter().all(|m| agent_message_chunk_text(m).is_none()),
+                "turn {turn} delivered chunks after cancellation: {late:?}"
+            );
+        }
+    }
 }
 
 #[test]

@@ -48,6 +48,8 @@ pub enum OutboundEvent {
         Option<bool>,
         oneshot::Sender<()>,
     ),
+    /// Acknowledged after all preceding outbound events have been forwarded.
+    Barrier(oneshot::Sender<()>),
     /// `fs/read_text_file` request that expects a response.
     ReadTextFile(
         schema::ReadTextFileRequest,

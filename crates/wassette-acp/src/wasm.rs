@@ -182,6 +182,16 @@ impl SessionFactory {
         &self.engine
     }
 
+    pub async fn flush_outbound(&self) -> Result<()> {
+        let (ack, wait) = tokio::sync::oneshot::channel();
+        self.outbound
+            .send(crate::state::OutboundEvent::Barrier(ack))
+            .await
+            .context("sending outbound barrier")?;
+        wait.await.context("waiting for outbound barrier")?;
+        Ok(())
+    }
+
     /// Build one chain per loaded provider, each with `/data` preopened
     /// to a project-scoped subdir, returning them paired with their
     /// provider component id (load order preserved). The caller groups
