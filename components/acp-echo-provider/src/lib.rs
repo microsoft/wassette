@@ -14,6 +14,7 @@ mod bindings;
 
 use std::cell::RefCell;
 use std::collections::HashMap;
+use std::hash::{BuildHasher, Hasher};
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use crate::bindings::exports::wassette::acp::agent::{Guest, GuestSession, Session};
@@ -62,7 +63,13 @@ thread_local! {
 static SESSION_COUNTER: AtomicU64 = AtomicU64::new(0);
 
 fn next_session_id() -> String {
-    format!("echo-{}", SESSION_COUNTER.fetch_add(1, Ordering::Relaxed))
+    let nonce = std::collections::hash_map::RandomState::new()
+        .build_hasher()
+        .finish();
+    format!(
+        "echo-{nonce:016x}-{}",
+        SESSION_COUNTER.fetch_add(1, Ordering::Relaxed)
+    )
 }
 
 fn err(code: ErrorCode, message: &str) -> Error {

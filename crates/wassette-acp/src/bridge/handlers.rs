@@ -181,9 +181,9 @@ pub(super) async fn handle_new_session(
             group.terminal_option(),
         )?
     };
+    insert_session(registry, session_id.clone(), group)?;
     let pending = gate.register_pending(&session_id);
     drop(creating);
-    registry.insert(session_id.clone(), group);
     tracing::info!(session = %session_id, "→ wire: session/new response");
     responder.respond(schema_resp)?;
     pending.keep();
@@ -203,6 +203,9 @@ pub(super) async fn handle_load_session(
 ) -> Result<(), AcpError> {
     let session_key = req.session_id.0.to_string();
     debug!(session = %session_key, "session/load");
+    if registry.get(&session_key).is_some() {
+        return Err(duplicate_session_error(&session_key));
+    }
     let pending = gate.register_pending(&session_key);
     resolve_workspace_cwd(&mut req.cwd);
     warn_if_unlikely_workspace(&req.cwd);
@@ -253,11 +256,29 @@ pub(super) async fn handle_load_session(
             group.terminal_option(),
         )?
     };
-    registry.insert(session_key.clone(), group);
+    insert_session(registry, session_key.clone(), group)?;
     responder.respond(schema_resp)?;
     pending.keep();
     flush_held_notifications(gate, &session_key, &cx);
     Ok(())
+}
+
+fn duplicate_session_error(session_id: &str) -> AcpError {
+    let mut error = AcpError::invalid_params();
+    error.message = format!("session id `{session_id}` is already active");
+    error
+}
+
+fn insert_session(
+    registry: &SessionRegistry,
+    session_id: String,
+    group: crate::group::SessionGroup,
+) -> Result<(), AcpError> {
+    registry.insert(session_id, group).map_err(|message| {
+        let mut error = AcpError::invalid_params();
+        error.message = message;
+        error
+    })
 }
 
 /// After responding to `session/new` or `session/load`, mark the

@@ -852,8 +852,21 @@ impl SessionRegistry {
         self.sessions.lock().unwrap_or_else(|e| e.into_inner())
     }
 
-    pub fn insert(&self, id: String, group: crate::group::SessionGroup) {
-        self.lock().insert(id, group);
+    pub fn insert(
+        &self,
+        id: String,
+        group: crate::group::SessionGroup,
+    ) -> std::result::Result<(), String> {
+        let mut sessions = self.lock();
+        match sessions.entry(id) {
+            std::collections::hash_map::Entry::Occupied(entry) => {
+                Err(format!("session id `{}` is already active", entry.key()))
+            }
+            std::collections::hash_map::Entry::Vacant(entry) => {
+                entry.insert(group);
+                Ok(())
+            }
+        }
     }
 
     pub fn get(&self, id: &str) -> Option<crate::group::SessionGroup> {
@@ -1942,6 +1955,29 @@ mod terminal_tests {
         assert_eq!(group.terminal_option(), Some(false));
         assert!(!primary.inner.store.lock().await.data().terminal_enabled);
         assert!(!secondary.inner.store.lock().await.data().terminal_enabled);
+    }
+
+    #[tokio::test]
+    async fn registry_rejects_duplicate_ids_without_replacing_a_session() {
+        let engine = Engine::default();
+        let (cancel, _) = watch::channel(false);
+        let session = Session::new(Store::new(&engine, test_host_state()), 0, cancel);
+        let group = crate::group::SessionGroup::new(
+            "same-id".into(),
+            vec![("local:echo".into(), session, Vec::new())],
+            true,
+        );
+        group.set_terminal_enabled(true).await;
+        let registry = SessionRegistry::new();
+        registry.insert("same-id".into(), group.clone()).unwrap();
+        assert_eq!(
+            registry.insert("same-id".into(), group).unwrap_err(),
+            "session id `same-id` is already active"
+        );
+        assert_eq!(
+            registry.get("same-id").unwrap().terminal_option(),
+            Some(true)
+        );
     }
 
     #[tokio::test]

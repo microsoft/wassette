@@ -531,6 +531,84 @@ fn a_prompt_streams_chunks_and_ends_the_turn() {
     }
 }
 
+#[test]
+fn two_layered_sessions_keep_independent_shout_state() {
+    let Some((bin, wasm)) = artifacts() else {
+        return;
+    };
+    let layer =
+        uppercase_layer().expect("build ACP uppercase layer with `just build-acp-examples`");
+    let mut h = Harness::start(&bin, &wasm, &["--layer", layer.to_str().unwrap()]);
+    let a = h.open_session();
+    let id = h.request(
+        "session/prompt",
+        json!({"sessionId": a, "prompt": [{"type": "text", "text": "/shout"}]}),
+    );
+    h.await_response(id);
+    let id = h.request(
+        "session/new",
+        json!({"cwd": std::env::temp_dir(), "mcpServers": []}),
+    );
+    let (_, session) = h.await_response(id);
+    let b = session["sessionId"].as_str().expect("second session id");
+    assert_ne!(a, b, "guest sessions must have unique IDs");
+    let b = b.to_string();
+
+    for (sid, expected) in [(&a, "HELLO FROM A"), (&b, "hello from b")] {
+        let text = if sid == &a {
+            "hello from a"
+        } else {
+            "hello from b"
+        };
+        let id = h.request(
+            "session/prompt",
+            json!({"sessionId": sid, "prompt": [{"type": "text", "text": text}]}),
+        );
+        let (updates, result) = h.await_response(id);
+        assert_eq!(result["stopReason"], "end_turn");
+        let echoed: String = updates
+            .iter()
+            .filter_map(agent_message_chunk_text)
+            .collect();
+        assert_eq!(echoed, expected, "session {sid} lost its independent state");
+    }
+}
+
+#[test]
+fn duplicate_load_does_not_replace_the_active_session() {
+    let Some((bin, wasm)) = artifacts() else {
+        return;
+    };
+    let mut h = Harness::start(&bin, &wasm, &[]);
+    let sid = h.open_session();
+    let id = h.request(
+        "session/load",
+        json!({"sessionId": sid, "cwd": std::env::temp_dir(), "mcpServers": []}),
+    );
+    let line: Value = serde_json::from_str(&h.next_line()).expect("JSON-RPC output");
+    assert_eq!(line["id"], id);
+    assert_eq!(line["error"]["code"], -32602, "{line}");
+    assert!(
+        line["error"]["message"]
+            .as_str()
+            .is_some_and(|msg| msg.contains("already active")),
+        "{line}"
+    );
+    let id = h.request(
+        "session/prompt",
+        json!({"sessionId": sid, "prompt": [{"type": "text", "text": "still here"}]}),
+    );
+    let (updates, result) = h.await_response(id);
+    assert_eq!(result["stopReason"], "end_turn");
+    assert_eq!(
+        updates
+            .iter()
+            .filter_map(agent_message_chunk_text)
+            .collect::<String>(),
+        "still here"
+    );
+}
+
 /// Prompting the instant `session/new` returns — inside the gate's flush
 /// delay — must still stream the answer *before* the turn's response.
 ///
