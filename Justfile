@@ -7,8 +7,8 @@ clean-test-components:
 build-test-components:
     just clean-test-components
     just ensure-wit-docs-inject
-    (cd examples/fetch-rs && cargo build --release --target wasm32-wasip2)
-    (cd examples/filesystem-rs && cargo build --release --target wasm32-wasip2)
+    (cd examples/fetch-rs && CARGO_TARGET_DIR=target cargo build --release --target wasm32-wasip2)
+    (cd examples/filesystem-rs && CARGO_TARGET_DIR=target cargo build --release --target wasm32-wasip2)
     # Inject docs for test components
     just inject-docs examples/fetch-rs/target/wasm32-wasip2/release/fetch_rs.wasm examples/fetch-rs/wit
     just inject-docs examples/filesystem-rs/target/wasm32-wasip2/release/filesystem.wasm examples/filesystem-rs/wit
