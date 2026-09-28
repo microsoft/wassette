@@ -87,10 +87,15 @@ pub async fn run(
     let gate_set_config_option = gate.clone();
     let gate_prompt = gate.clone();
     let gate_drain = gate.clone();
+    let registry_close = registry.clone();
 
     AgentRole
         .builder()
         .name("ollama-wasm-host")
+        .on_close(async move |_cx| {
+            registry_close.clear();
+            Ok(())
+        })
         .on_receive_request(
             async move |req, responder, _cx| {
                 handlers::handle_initialize(&factory_init, req, responder).await
@@ -173,7 +178,13 @@ pub async fn run(
             agent_client_protocol::on_receive_notification!(),
         )
         .connect_with(transport, async move |cx| {
-            outbound::run_outbound_drain(cx, &mut outbound_rx, &gate_drain).await
+            tokio::select! {
+                result = outbound::run_outbound_drain(cx.clone(), &mut outbound_rx, &gate_drain) => result,
+                _ = cx.incoming_closed() => {
+                    outbound_rx.close();
+                    Ok(())
+                }
+            }
         })
         .await
         .map_err(|e| anyhow::anyhow!("acp connection error: {e:?}"))?;

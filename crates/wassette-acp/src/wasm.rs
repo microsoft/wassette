@@ -850,6 +850,14 @@ impl SessionRegistry {
         self.lock().get(id).cloned()
     }
 
+    pub fn clear(&self) {
+        let mut sessions = self.lock();
+        for group in sessions.values() {
+            group.cancel();
+        }
+        sessions.clear();
+    }
+
     #[allow(dead_code)]
     pub fn remove(&self, id: &str) -> Option<crate::group::SessionGroup> {
         self.lock().remove(id)

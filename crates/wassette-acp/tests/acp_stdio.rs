@@ -109,7 +109,7 @@ fn artifacts() -> Option<(PathBuf, PathBuf)> {
 /// A running `wassette acp` process plus its stdout line stream.
 struct Harness {
     child: Child,
-    stdin: ChildStdin,
+    stdin: Option<ChildStdin>,
     lines: Receiver<String>,
     /// Every line stdout has produced, in order. Used to assert the
     /// channel stayed pure JSON-RPC.
@@ -175,7 +175,7 @@ impl Harness {
 
         Harness {
             child,
-            stdin,
+            stdin: Some(stdin),
             lines: rx,
             seen: Vec::new(),
             stderr: stderr_output,
@@ -189,9 +189,26 @@ impl Harness {
         self.next_id += 1;
         let id = self.next_id;
         let msg = json!({"jsonrpc": "2.0", "id": id, "method": method, "params": params});
-        writeln!(self.stdin, "{msg}").expect("write request");
-        self.stdin.flush().expect("flush request");
+        let stdin = self.stdin.as_mut().expect("stdin is open");
+        writeln!(stdin, "{msg}").expect("write request");
+        stdin.flush().expect("flush request");
         id
+    }
+
+    fn close_stdin_and_wait(&mut self) {
+        drop(self.stdin.take());
+        let deadline = std::time::Instant::now() + Duration::from_secs(5);
+        loop {
+            if let Some(status) = self.child.try_wait().expect("wait for wassette") {
+                assert!(status.success(), "wassette exited with {status}");
+                return;
+            }
+            assert!(
+                std::time::Instant::now() < deadline,
+                "wassette did not exit within five seconds of stdin EOF"
+            );
+            std::thread::sleep(Duration::from_millis(25));
+        }
     }
 
     /// Read one line of stdout, recording it.
@@ -299,6 +316,37 @@ fn agent_message_chunk_text(msg: &Value) -> Option<&str> {
         return None;
     }
     update.get("content")?.get("text")?.as_str()
+}
+
+#[test]
+fn exits_on_idle_stdin_eof() {
+    let Some((bin, wasm)) = artifacts() else {
+        return;
+    };
+    let mut h = Harness::start(&bin, &wasm, &[]);
+    h.open_session();
+    h.close_stdin_and_wait();
+}
+
+#[test]
+fn exits_on_stdin_eof_during_prompt() {
+    let Some((bin, wasm)) = artifacts() else {
+        return;
+    };
+    let mut h = Harness::start(&bin, &wasm, &[]);
+    let sid = h.open_session();
+    let prompt = "hello ".repeat(5000);
+    h.request(
+        "session/prompt",
+        json!({"sessionId": sid, "prompt": [{"type": "text", "text": prompt}]}),
+    );
+    loop {
+        let msg: Value = serde_json::from_str(&h.next_line()).expect("JSON-RPC output");
+        if agent_message_chunk_text(&msg).is_some() {
+            break;
+        }
+    }
+    h.close_stdin_and_wait();
 }
 
 #[test]
