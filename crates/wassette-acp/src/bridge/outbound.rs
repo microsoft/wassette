@@ -31,7 +31,7 @@ pub(super) async fn run_outbound_drain(
 ) -> Result<(), AcpError> {
     while let Some(event) = outbound_rx.recv().await {
         match event {
-            OutboundEvent::SessionUpdate(notif, ack) => {
+            OutboundEvent::SessionUpdate(notif, guest_install, ack) => {
                 // Hold registered IDs and bounded updates while a new
                 // session's guest-selected ID is still unknown. All other
                 // unknown IDs are dropped.
@@ -44,7 +44,7 @@ pub(super) async fn run_outbound_drain(
                 // preserves the notification-before-response ordering
                 // that callers rely on when an import is awaited just
                 // before a method return.
-                if let Some(notif) = gate.admit(notif)
+                if let Some(notif) = gate.admit(notif, guest_install)
                     && !forward_session_update(&cx, notif)
                 {
                     let _ = ack.send(());

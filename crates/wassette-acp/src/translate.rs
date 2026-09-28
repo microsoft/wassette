@@ -576,6 +576,17 @@ pub fn synthetic_install_command_update(session_id: &str) -> Option<schema::Sess
     Some(schema::SessionNotification::new(sid, upd))
 }
 
+/// `Some` when the guest has replaced its command list, with whether that
+/// list claims `/install`. Other updates leave the current owner unchanged.
+pub fn guest_advertises_install(update: &SessionUpdate) -> Option<bool> {
+    match update {
+        SessionUpdate::AvailableCommandsUpdate(commands) => {
+            Some(commands.iter().any(|command| command.name == "install"))
+        }
+        _ => None,
+    }
+}
+
 /// `PromptResponse` returned by the host-side `/install` command:
 /// always `end_turn` regardless of success (the outcome is reported as
 /// a streamed agent chunk).
@@ -732,10 +743,8 @@ pub fn session_update_wit_to_schema(
                     v
                 })
                 .collect();
-            // Inject the host-side `/install` command if the chain
-            // didn't already advertise one. The host intercepts
-            // `/install <wit-name>` in `handle_prompt` before
-            // forwarding into the chain.
+            // Inject the host command only when the guest does not own its
+            // name. The gate tracks that ownership for prompt dispatch.
             if !cmds_json
                 .iter()
                 .any(|c| c.get("name").and_then(|n| n.as_str()) == Some("install"))

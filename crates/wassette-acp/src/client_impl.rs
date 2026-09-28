@@ -276,13 +276,14 @@ impl<T: Send> client::HostWithStore<T> for HasSelf<HostState> {
                     let session_id = accessor
                         .with(|mut a| a.get().editor_session_id.clone())
                         .unwrap_or(session_id);
+                    let guest_install = translate::guest_advertises_install(&update);
                     let Some(notif) = translate::session_update_wit_to_schema(session_id, update)
                     else {
                         return;
                     };
                     let (ack_tx, ack_rx) = tokio::sync::oneshot::channel();
                     if outbound
-                        .send(OutboundEvent::SessionUpdate(notif, ack_tx))
+                        .send(OutboundEvent::SessionUpdate(notif, guest_install, ack_tx))
                         .await
                         .is_err()
                     {

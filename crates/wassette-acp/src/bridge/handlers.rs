@@ -325,12 +325,10 @@ fn advertise_and_flush(gate: &Arc<NotificationGate>, session_id: &str, cx: &Conn
     let Some(held) = gate.open_session(session_id) else {
         return;
     };
-    // Advertise the host-side `/install` command. Sent unconditionally
-    // so it shows up even when no layer ever emits an
-    // `available-commands-update`. Chain-emitted updates have
-    // `/install` appended in `translate::session_update_wit_to_schema`,
-    // so a later chain update won't drop it.
-    if let Some(notif) = translate::synthetic_install_command_update(session_id) {
+    // Only advertise the host command if no guest command owns its name.
+    if gate.host_install_available(session_id)
+        && let Some(notif) = translate::synthetic_install_command_update(session_id)
+    {
         tracing::info!(session = %session_id, "→ wire: synthetic /install advertisement");
         if let Err(e) = cx.send_notification(notif) {
             tracing::warn!(error = ?e, "failed to send /install advertisement");
@@ -498,7 +496,7 @@ pub(super) fn handle_prompt(
     // can't reach the OCI registry from inside the sandbox in this
     // design. On match we stream progress as agent message chunks and
     // resolve the prompt with `stop_reason = end_turn`.
-    if let Some(arg) = parse_install_command(&req.prompt) {
+    if let Some(arg) = host_install_arg(gate, &session_key, &req.prompt) {
         return handle_install_command(factory.clone(), session_key, arg, responder, cx);
     }
 
@@ -623,6 +621,16 @@ fn parse_install_command(prompt: &[schema::ContentBlock]) -> Option<String> {
         return None;
     }
     Some(arg.to_string())
+}
+
+fn host_install_arg(
+    gate: &NotificationGate,
+    session_id: &str,
+    prompt: &[schema::ContentBlock],
+) -> Option<String> {
+    gate.host_install_available(session_id)
+        .then(|| parse_install_command(prompt))
+        .flatten()
 }
 
 /// Run a `/install <arg>` command host-side. Reports progress as an
@@ -768,5 +776,45 @@ fn send_tool_call_finish(
     };
     if let Err(e) = cx.send_notification(notif) {
         tracing::warn!(error = ?e, "failed to send /install tool_call finish update");
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::wassette::acp::prompts::{AvailableCommand, SessionUpdate};
+
+    #[test]
+    fn guest_install_command_is_forwarded_instead_of_intercepted() {
+        let gate = Arc::new(NotificationGate::new());
+        gate.register_pending("s").keep();
+        let prompt = [schema::ContentBlock::Text(schema::TextContent::new(
+            "/install guest".to_string(),
+        ))];
+        assert_eq!(
+            host_install_arg(&gate, "s", &prompt).as_deref(),
+            Some("guest")
+        );
+
+        let guest = SessionUpdate::AvailableCommandsUpdate(vec![AvailableCommand {
+            name: "install".to_string(),
+            description: "Guest install".to_string(),
+            input: None,
+        }]);
+        let owner = translate::guest_advertises_install(&guest);
+        let notif = translate::session_update_wit_to_schema("s".into(), guest).unwrap();
+        gate.admit(notif, owner);
+        assert!(host_install_arg(&gate, "s", &prompt).is_none());
+        gate.open_session("s").unwrap();
+        assert!(host_install_arg(&gate, "s", &prompt).is_none());
+
+        let guest = SessionUpdate::AvailableCommandsUpdate(vec![]);
+        let owner = translate::guest_advertises_install(&guest);
+        let notif = translate::session_update_wit_to_schema("s".into(), guest).unwrap();
+        gate.admit(notif, owner);
+        assert_eq!(
+            host_install_arg(&gate, "s", &prompt).as_deref(),
+            Some("guest")
+        );
     }
 }

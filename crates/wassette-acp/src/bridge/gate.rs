@@ -32,6 +32,7 @@ struct Inner {
     /// already been sent to the editor. Notifications for these flow
     /// straight through.
     opened: HashSet<String>,
+    guest_install: HashSet<String>,
     pending: HashSet<String>,
     creating: usize,
     unmatched: HashMap<String, Vec<schema::SessionNotification>>,
@@ -57,6 +58,8 @@ impl NotificationGate {
         if g.creating == 0 {
             g.held_total -= g.unmatched.values().map(Vec::len).sum::<usize>();
             g.unmatched.clear();
+            let active: HashSet<_> = g.pending.union(&g.opened).cloned().collect();
+            g.guest_install.retain(|session| active.contains(session));
         }
     }
 
@@ -80,6 +83,7 @@ impl NotificationGate {
     fn abandon(&self, session_id: &str) {
         let mut g = self.inner.lock().unwrap();
         g.pending.remove(session_id);
+        g.guest_install.remove(session_id);
         if let Some(held) = g.held.remove(session_id) {
             g.held_total -= held.len();
         }
@@ -87,10 +91,15 @@ impl NotificationGate {
 
     /// Returns `Some(notif)` to forward immediately, or `None` if the
     /// notification was held for later replay.
-    pub fn admit(&self, notif: schema::SessionNotification) -> Option<schema::SessionNotification> {
+    pub fn admit(
+        &self,
+        notif: schema::SessionNotification,
+        guest_install: Option<bool>,
+    ) -> Option<schema::SessionNotification> {
         let session_id = notif.session_id.0.to_string();
         let mut g = self.inner.lock().unwrap();
         if g.opened.contains(&session_id) {
+            g.set_guest_install(&session_id, guest_install);
             tracing::info!(session = %session_id, "gate: forwarding notification (session opened)");
             return Some(notif);
         }
@@ -107,6 +116,7 @@ impl NotificationGate {
             }
             return None;
         }
+        g.set_guest_install(&session_id, guest_install);
         tracing::info!(session = %session_id, "gate: holding notification until session opens");
         if pending {
             g.held.entry(session_id).or_default().push(notif);
@@ -115,6 +125,17 @@ impl NotificationGate {
         }
         g.held_total += 1;
         None
+    }
+
+    /// The host owns `/install` unless the most recent guest command list
+    /// advertises its own command with that name.
+    pub fn host_install_available(&self, session_id: &str) -> bool {
+        !self
+            .inner
+            .lock()
+            .unwrap()
+            .guest_install
+            .contains(session_id)
     }
 
     /// Mark a session as opened and return any notifications that were
@@ -138,6 +159,20 @@ impl NotificationGate {
         g.held_total -= held.len();
         tracing::info!(session = %session_id, held = held.len(), "gate: opening session, flushing held notifications");
         Some(held)
+    }
+}
+
+impl Inner {
+    fn set_guest_install(&mut self, session_id: &str, advertised: Option<bool>) {
+        match advertised {
+            Some(true) => {
+                self.guest_install.insert(session_id.to_string());
+            }
+            Some(false) => {
+                self.guest_install.remove(session_id);
+            }
+            None => {}
+        }
     }
 }
 
@@ -190,14 +225,17 @@ mod tests {
     fn updates_before_the_open_are_held_and_replayed_once() {
         let gate = std::sync::Arc::new(NotificationGate::new());
         let pending = gate.register_pending("s");
-        assert!(gate.admit(notification("s")).is_none(), "should be held");
+        assert!(
+            gate.admit(notification("s"), None).is_none(),
+            "should be held"
+        );
 
         pending.keep();
         let held = gate.open_session("s").expect("first open owns the flush");
         assert_eq!(held.len(), 1, "the held update should come back");
 
         assert!(
-            gate.admit(notification("s")).is_some(),
+            gate.admit(notification("s"), None).is_some(),
             "after opening, updates flow straight through"
         );
     }
@@ -206,7 +244,7 @@ mod tests {
     fn only_the_first_open_flushes() {
         let gate = std::sync::Arc::new(NotificationGate::new());
         gate.register_pending("s").keep();
-        gate.admit(notification("s"));
+        gate.admit(notification("s"), None);
 
         assert!(gate.open_session("s").is_some(), "first open");
         assert!(
@@ -221,8 +259,8 @@ mod tests {
         let gate = std::sync::Arc::new(NotificationGate::new());
         gate.register_pending("a").keep();
         gate.register_pending("b").keep();
-        gate.admit(notification("a"));
-        gate.admit(notification("b"));
+        gate.admit(notification("a"), None);
+        gate.admit(notification("b"), None);
 
         assert_eq!(gate.open_session("a").expect("open a").len(), 1);
         assert_eq!(
@@ -237,7 +275,7 @@ mod tests {
         let gate = std::sync::Arc::new(NotificationGate::new());
         for index in 0..1024 {
             assert!(
-                gate.admit(notification(&format!("unknown-{index}")))
+                gate.admit(notification(&format!("unknown-{index}")), None)
                     .is_none()
             );
         }
@@ -256,7 +294,7 @@ mod tests {
         }
         for id in 0..10 {
             for _ in 0..(MAX_HELD_PER_SESSION + 10) {
-                gate.admit(notification(&format!("session-{id}")));
+                gate.admit(notification(&format!("session-{id}")), None);
             }
         }
         let g = gate.inner.lock().unwrap();
@@ -277,7 +315,7 @@ mod tests {
     fn failed_pending_session_discards_held_notifications() {
         let gate = std::sync::Arc::new(NotificationGate::new());
         let pending = gate.register_pending("failed");
-        gate.admit(notification("failed"));
+        gate.admit(notification("failed"), None);
         drop(pending);
         assert_eq!(gate.inner.lock().unwrap().held_total, 0);
         assert!(gate.open_session("failed").is_none());
@@ -287,8 +325,8 @@ mod tests {
     fn new_session_replays_only_its_early_updates_after_registration() {
         let gate = std::sync::Arc::new(NotificationGate::new());
         let creating = gate.begin_new_session();
-        gate.admit(notification("new"));
-        gate.admit(notification("unrelated"));
+        gate.admit(notification("new"), None);
+        gate.admit(notification("unrelated"), None);
         let pending = gate.register_pending("new");
         drop(creating);
         assert!(gate.inner.lock().unwrap().unmatched.is_empty());
@@ -303,7 +341,7 @@ mod tests {
         let gate = std::sync::Arc::new(NotificationGate::new());
         let creating = gate.begin_new_session();
         for index in 0..(MAX_HELD_TOTAL + 10) {
-            gate.admit(notification(&format!("unknown-{index}")));
+            gate.admit(notification(&format!("unknown-{index}")), None);
         }
         assert_eq!(gate.inner.lock().unwrap().held_total, MAX_HELD_TOTAL);
         drop(creating);

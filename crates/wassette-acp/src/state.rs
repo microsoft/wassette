@@ -43,7 +43,11 @@ pub enum OutboundEvent {
     /// notification before the function returns — preserving the
     /// notification-before-response ordering callers expect when the
     /// import is awaited just before a method return.
-    SessionUpdate(schema::SessionNotification, oneshot::Sender<()>),
+    SessionUpdate(
+        schema::SessionNotification,
+        Option<bool>,
+        oneshot::Sender<()>,
+    ),
     /// `fs/read_text_file` request that expects a response.
     ReadTextFile(
         schema::ReadTextFileRequest,
