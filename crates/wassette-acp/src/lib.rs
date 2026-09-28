@@ -651,24 +651,70 @@ fn init_data_root() -> Result<PathBuf> {
     Ok(data_root)
 }
 
-/// `$XDG_STATE_HOME/wassette/acp`, falling back to
-/// `$HOME/.local/state/wassette/acp`. This is the *root*; per-session
-/// data dirs are subpaths underneath.
+/// Use the platform's state directory (or its data directory where no
+/// state directory exists). This is the *root*; per-session data dirs
+/// are subpaths underneath.
 fn resolve_data_root() -> Result<PathBuf> {
-    const APP: &str = "wassette";
-    const SUBDIR: &str = "acp";
-    if let Some(base) = std::env::var_os("XDG_STATE_HOME").filter(|v| !v.is_empty()) {
-        return Ok(PathBuf::from(base).join(APP).join(SUBDIR));
+    data_root_from_strategy(etcetera::choose_base_strategy())
+}
+
+fn data_root_from_strategy(
+    strategy: std::result::Result<impl BaseStrategy, etcetera::HomeDirError>,
+) -> Result<PathBuf> {
+    let strategy =
+        strategy.context("unable to determine ACP data root: no home directory found")?;
+    let base = strategy.state_dir().unwrap_or_else(|| strategy.data_dir());
+    Ok(base.join("wassette").join("acp"))
+}
+
+#[cfg(test)]
+mod data_root_tests {
+    use super::*;
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn no_home_uses_etcetera_state_directory() {
+        const CHILD: &str = "WASSETTE_ACP_TEST_NO_HOME";
+        if std::env::var_os(CHILD).is_some() {
+            assert!(std::env::var_os("HOME").is_none());
+            assert!(std::env::var_os("XDG_STATE_HOME").is_none());
+            let state_dir = etcetera::choose_base_strategy()
+                .unwrap()
+                .state_dir()
+                .unwrap();
+            assert_eq!(resolve_data_root().unwrap(), state_dir.join("wassette/acp"));
+            return;
+        }
+
+        let output = std::process::Command::new(std::env::current_exe().unwrap())
+            .arg("--exact")
+            .arg("data_root_tests::no_home_uses_etcetera_state_directory")
+            .arg("--nocapture")
+            .env_remove("HOME")
+            .env_remove("XDG_STATE_HOME")
+            .env(CHILD, "1")
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "child test failed:\n{}\n{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
     }
 
-    let home = std::env::var_os("HOME")
-        .filter(|v| !v.is_empty())
-        .ok_or_else(|| anyhow::anyhow!("neither XDG_STATE_HOME nor HOME is set"))?;
-    Ok(PathBuf::from(home)
-        .join(".local")
-        .join("state")
-        .join(APP)
-        .join(SUBDIR))
+    #[test]
+    fn strategy_failure_has_clear_error() {
+        let error = data_root_from_strategy(Err::<etcetera::base_strategy::Xdg, _>(
+            etcetera::HomeDirError,
+        ))
+        .unwrap_err();
+        assert!(
+            error
+                .to_string()
+                .contains("unable to determine ACP data root: no home directory found")
+        );
+    }
 }
 
 #[cfg(test)]
