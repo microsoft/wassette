@@ -4,9 +4,8 @@
 //! Type translation between the wasmtime-generated WIT types
 //! (`wassette::acp` interfaces) and the `agent_client_protocol::schema` types.
 //!
-//! Only covers the variants the MVP exercises (text content, end-turn,
-//! agent-message-chunk, etc.). Anything we can't translate yields an error
-//! that surfaces back to the editor as a JSON-RPC error.
+//! Translates WIT updates and content into ACP schema values. Unsupported
+//! inbound prompt blocks fail with a JSON-RPC error.
 
 use std::path::PathBuf;
 
@@ -14,7 +13,7 @@ use agent_client_protocol::schema::v1 as schema;
 use agent_client_protocol::{Error as AcpError, ErrorCode as AcpErrorCode};
 use tracing::debug;
 
-use crate::wassette::acp::content::{ContentBlock, TextContent};
+use crate::wassette::acp::content::{ContentBlock, ResourceContents, TextContent};
 use crate::wassette::acp::errors::{Error, ErrorCode};
 use crate::wassette::acp::filesystem::{
     ReadTextFileRequest, ReadTextFileResponse, WriteTextFileRequest,
@@ -792,7 +791,11 @@ pub fn session_update_wit_to_schema(
         }
     }?;
     let (kind, b) = block;
-    let schema_block = content_block_wit_to_schema(&session_id, b)?;
+    let schema_block = content_block_wit_to_schema(b)
+        .map_err(|error| {
+            tracing::error!(session = %session_id, error = %error.message, "failed to translate outbound content block");
+        })
+        .ok()?;
     let chunk = schema::ContentChunk::new(schema_block);
     let upd = match kind {
         "agent" => schema::SessionUpdate::AgentMessageChunk(chunk),
@@ -807,7 +810,7 @@ pub fn session_update_wit_to_schema(
 }
 
 // -----------------------------------------------------------------------------
-// Content blocks (text-only for MVP)
+// Content blocks
 // -----------------------------------------------------------------------------
 
 pub fn content_block_schema_to_wit(block: schema::ContentBlock) -> Result<ContentBlock, AcpError> {
@@ -821,18 +824,50 @@ pub fn content_block_schema_to_wit(block: schema::ContentBlock) -> Result<Conten
     }
 }
 
-fn content_block_wit_to_schema(
-    session_id: &str,
-    block: ContentBlock,
-) -> Option<schema::ContentBlock> {
-    Some(match block {
+fn content_block_wit_to_schema(block: ContentBlock) -> Result<schema::ContentBlock, AcpError> {
+    Ok(match block {
         ContentBlock::Text(t) => schema::ContentBlock::Text(schema::TextContent::new(t.text)),
-        _ => {
-            debug!(
-                session = %session_id,
-                "dropped outbound content block: non-text variant not yet supported"
-            );
-            return None;
+        ContentBlock::Image(image) => schema::ContentBlock::Image(
+            schema::ImageContent::new(image.data, image.mime_type).uri(image.uri),
+        ),
+        ContentBlock::Audio(audio) => {
+            schema::ContentBlock::Audio(schema::AudioContent::new(audio.data, audio.mime_type))
+        }
+        ContentBlock::ResourceLink(link) => {
+            let size = link
+                .size
+                .map(|size| {
+                    i64::try_from(size).map_err(|_| {
+                        let mut error = AcpError::invalid_params();
+                        error.message = "resource link size exceeds ACP's i64 range".to_string();
+                        error
+                    })
+                })
+                .transpose()?;
+            schema::ContentBlock::ResourceLink(
+                schema::ResourceLink::new(link.name, link.uri)
+                    .mime_type(link.mime_type)
+                    .title(link.title)
+                    .description(link.description)
+                    .size(size),
+            )
+        }
+        ContentBlock::Resource(embedded) => {
+            let resource = match embedded.resource {
+                ResourceContents::Text(text) => {
+                    schema::EmbeddedResourceResource::TextResourceContents(
+                        schema::TextResourceContents::new(text.text, text.uri)
+                            .mime_type(text.mime_type),
+                    )
+                }
+                ResourceContents::Blob(blob) => {
+                    schema::EmbeddedResourceResource::BlobResourceContents(
+                        schema::BlobResourceContents::new(blob.blob, blob.uri)
+                            .mime_type(blob.mime_type),
+                    )
+                }
+            };
+            schema::ContentBlock::Resource(schema::EmbeddedResource::new(resource))
         }
     })
 }
@@ -996,7 +1031,11 @@ fn tool_call_content_to_json(
 ) -> Option<serde_json::Value> {
     match content {
         ToolCallContent::Content(block) => {
-            let schema_block = content_block_wit_to_schema(session_id, block)?;
+            let schema_block = content_block_wit_to_schema(block)
+                .map_err(|error| {
+                    tracing::error!(session = %session_id, error = %error.message, "failed to translate tool-call content block");
+                })
+                .ok()?;
             let inner = serde_json::to_value(schema_block).ok()?;
             Some(serde_json::json!({ "type": "content", "content": inner }))
         }
@@ -1131,7 +1170,10 @@ fn _dead_tool_call_update_to_schema_update(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::wassette::acp::content::ImageContent;
+    use crate::wassette::acp::content::{
+        AudioContent, BlobResourceContents, EmbeddedResource, ImageContent, ResourceContents,
+        ResourceLink, TextResourceContents,
+    };
     use crate::wassette::acp::init::{
         AgentCapabilities, McpCapabilities, PromptCapabilities, SessionCapabilities,
     };
@@ -1465,18 +1507,106 @@ mod tests {
     }
 
     #[test]
-    fn session_update_unsupported_drops() {
-        // Non-text content blocks aren't translated yet, so the update is
-        // dropped rather than panicking or sending malformed data.
-        let dropped = session_update_wit_to_schema(
-            "s".into(),
-            SessionUpdate::AgentMessageChunk(ContentBlock::Image(ImageContent {
-                data: "x".into(),
-                mime_type: "image/png".into(),
-                uri: None,
-            })),
-        );
-        assert!(dropped.is_none());
+    fn outbound_content_blocks_reach_the_wire() {
+        let blocks = [
+            (
+                ContentBlock::Image(ImageContent {
+                    data: "aGVsbG8=".into(),
+                    mime_type: "image/png".into(),
+                    uri: Some("file:///image".into()),
+                }),
+                serde_json::json!({"type": "image", "data": "aGVsbG8=", "mimeType": "image/png", "uri": "file:///image"}),
+            ),
+            (
+                ContentBlock::Audio(AudioContent {
+                    data: "YXVkaW8=".into(),
+                    mime_type: "audio/wav".into(),
+                }),
+                serde_json::json!({"type": "audio", "data": "YXVkaW8=", "mimeType": "audio/wav"}),
+            ),
+            (
+                ContentBlock::ResourceLink(ResourceLink {
+                    uri: "file:///resource".into(),
+                    name: "resource".into(),
+                    mime_type: Some("text/plain".into()),
+                    title: Some("Title".into()),
+                    description: Some("Description".into()),
+                    size: Some(42),
+                }),
+                serde_json::json!({"type": "resource_link", "uri": "file:///resource", "name": "resource", "mimeType": "text/plain", "title": "Title", "description": "Description", "size": 42}),
+            ),
+            (
+                ContentBlock::Resource(EmbeddedResource {
+                    resource: ResourceContents::Text(TextResourceContents {
+                        uri: "file:///text".into(),
+                        mime_type: Some("text/plain".into()),
+                        text: "hello".into(),
+                    }),
+                }),
+                serde_json::json!({"type": "resource", "resource": {"uri": "file:///text", "mimeType": "text/plain", "text": "hello"}}),
+            ),
+            (
+                ContentBlock::Resource(EmbeddedResource {
+                    resource: ResourceContents::Blob(BlobResourceContents {
+                        uri: "file:///blob".into(),
+                        mime_type: None,
+                        blob: "YmluYXJ5".into(),
+                    }),
+                }),
+                serde_json::json!({"type": "resource", "resource": {"uri": "file:///blob", "blob": "YmluYXJ5"}}),
+            ),
+        ];
+        for (block, expected) in blocks {
+            let note =
+                session_update_wit_to_schema("s".into(), SessionUpdate::AgentMessageChunk(block))
+                    .expect("outbound content is supported");
+            let json = serde_json::to_value(note).unwrap();
+            assert_eq!(json["update"]["sessionUpdate"], "agent_message_chunk");
+            assert_eq!(json["update"]["content"], expected);
+        }
+    }
+
+    #[test]
+    fn oversized_resource_link_is_rejected_instead_of_truncated() {
+        let error = content_block_wit_to_schema(ContentBlock::ResourceLink(ResourceLink {
+            uri: "file:///huge".into(),
+            name: "huge".into(),
+            mime_type: None,
+            title: None,
+            description: None,
+            size: Some(i64::MAX as u64 + 1),
+        }))
+        .unwrap_err();
+        assert_eq!(error.code, AcpErrorCode::InvalidParams);
+        assert!(error.message.contains("i64 range"));
+    }
+
+    #[test]
+    fn tool_call_content_forwards_image_blocks() {
+        use crate::wassette::acp::tools::ToolCallSnapshot;
+
+        let snapshot = ToolCallSnapshot {
+            id: "image-call".into(),
+            title: "Generate image".into(),
+            kind: ToolKind::Other,
+            status: ToolCallStatus::Completed,
+            content: vec![ToolCallContent::Content(ContentBlock::Image(
+                ImageContent {
+                    data: "aGVsbG8=".into(),
+                    mime_type: "image/png".into(),
+                    uri: None,
+                },
+            ))],
+            locations: vec![],
+            raw_input: None,
+            raw_output: None,
+        };
+        let note =
+            session_update_wit_to_schema("s".into(), SessionUpdate::ToolCall(snapshot)).unwrap();
+        let json = serde_json::to_value(note).unwrap();
+        assert_eq!(json["update"]["content"][0]["type"], "content");
+        assert_eq!(json["update"]["content"][0]["content"]["type"], "image");
+        assert_eq!(json["update"]["content"][0]["content"]["data"], "aGVsbG8=");
     }
 
     #[test]
