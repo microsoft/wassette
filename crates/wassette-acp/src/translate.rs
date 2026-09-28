@@ -24,11 +24,10 @@ use crate::wassette::acp::init::{
 };
 use crate::wassette::acp::prompts::{PromptResponse, SessionUpdate, StopReason};
 use crate::wassette::acp::sessions::{
-    ComponentSource, EnvVar, HttpHeader, LoadSessionRequest, LoadSessionResponse, McpServer,
-    McpServerHttp, McpServerSse, McpServerStdio, NewSessionRequest, NewSessionResponse,
-    SessionConfigOption, SessionConfigOptionCategory, SessionConfigSelectGroup,
-    SessionConfigSelectOption, SessionConfigSelectOptions, SessionId, SessionMode, SessionModeId,
-    SessionModeState,
+    EnvVar, HttpHeader, LoadSessionRequest, LoadSessionResponse, McpServer, McpServerHttp,
+    McpServerSse, McpServerStdio, NewSessionRequest, NewSessionResponse, SessionConfigOption,
+    SessionConfigOptionCategory, SessionConfigSelectGroup, SessionConfigSelectOption,
+    SessionConfigSelectOptions, SessionId, SessionMode, SessionModeId, SessionModeState,
 };
 use crate::wassette::acp::tools::{
     PermissionOption, PermissionOptionKind, PermissionOutcome, PlanEntryPriority, PlanEntryStatus,
@@ -188,12 +187,11 @@ pub fn new_session_response_wit_to_schema(
     // construct it without depending on the (unstable) field set.
     let mut json = serde_json::json!({ "sessionId": resp.session_id });
     // `config_options` (the unified selector mechanism) is XOR with the legacy
-    // `modes` field client-side: when present it fully replaces modes, so skip
-    // the host-injected default mode to avoid advertising a phantom selector.
+    // `modes` field client-side: when present it fully replaces modes.
     if resp.config_options.is_some() || terminal.is_some() {
         json["configOptions"] =
             config_options_json(resp.config_options.unwrap_or_default(), terminal)?;
-    } else if let Some(modes) = ensure_host_default_mode(resp.modes) {
+    } else if let Some(modes) = resp.modes {
         json["modes"] = session_mode_state_to_json(modes, component_id);
     }
     synth("new-session response", json)
@@ -250,7 +248,7 @@ pub fn load_session_response_wit_to_schema(
     if resp.config_options.is_some() || terminal.is_some() {
         json["configOptions"] =
             config_options_json(resp.config_options.unwrap_or_default(), terminal)?;
-    } else if let Some(modes) = ensure_host_default_mode(resp.modes) {
+    } else if let Some(modes) = resp.modes {
         json["modes"] = session_mode_state_to_json(modes, component_id);
     }
     synth("load-session response", json)
@@ -282,55 +280,6 @@ fn session_mode_state_to_json(state: SessionModeState, component_id: &str) -> se
             .map(|m| session_mode_to_json(m, component_id))
             .collect::<Vec<_>>(),
     })
-}
-
-/// Stable id for the host-injected "default" mode. Always present in
-/// every session so the user has something to switch back to when a
-/// layer-injected mode (e.g. `plan`) needs to be toggled off.
-pub const HOST_DEFAULT_MODE_ID: &str = "default";
-
-/// Ensure the outbound mode state contains a host-owned `default`
-/// mode and uses it as the current mode if the chain didn't pick
-/// one. Layers (e.g. `plan-layer`) deliberately don't synthesize a
-/// "not-me" mode; this is where it comes from instead.
-fn ensure_host_default_mode(modes: Option<SessionModeState>) -> Option<SessionModeState> {
-    let mut state = modes.unwrap_or(SessionModeState {
-        current_mode_id: HOST_DEFAULT_MODE_ID.to_string(),
-        available_modes: Vec::new(),
-    });
-    let has_default = state
-        .available_modes
-        .iter()
-        .any(|m| m.id == HOST_DEFAULT_MODE_ID);
-    if !has_default {
-        state.available_modes.insert(
-            0,
-            SessionMode {
-                id: HOST_DEFAULT_MODE_ID.to_string(),
-                name: "Default".to_string(),
-                description: Some(
-                    "Normal execution. Selectable to disengage any layer-injected mode such as \
-                     plan."
-                        .to_string(),
-                ),
-                provided_by: ComponentSource {
-                    component_id: "local:host".to_string(),
-                },
-            },
-        );
-    }
-    // If the chain picked a current mode that nothing advertises,
-    // fall back to the host default. This happens e.g. when the
-    // plan-layer was the only contributor and used the plan id as
-    // its placeholder current mode.
-    let current_exists = state
-        .available_modes
-        .iter()
-        .any(|m| m.id == state.current_mode_id);
-    if !current_exists {
-        state.current_mode_id = HOST_DEFAULT_MODE_ID.to_string();
-    }
-    Some(state)
 }
 
 fn session_mode_to_json(mode: SessionMode, _component_id: &str) -> serde_json::Value {
@@ -1226,7 +1175,7 @@ mod tests {
             .unwrap(),
         ] {
             assert!(response.get("configOptions").is_none(), "{response}");
-            assert_eq!(response["modes"]["currentModeId"], HOST_DEFAULT_MODE_ID);
+            assert!(response.get("modes").is_none(), "{response}");
         }
     }
 

@@ -419,6 +419,25 @@ fn initialize_advertises_the_echo_provider() {
 }
 
 #[test]
+fn echo_does_not_advertise_an_unselectable_default_mode() {
+    let Some((bin, wasm)) = artifacts() else {
+        return;
+    };
+    let mut h = Harness::start(&bin, &wasm, &[]);
+    let id = h.request(
+        "initialize",
+        json!({"protocolVersion": 1, "clientCapabilities": {}}),
+    );
+    h.await_response(id);
+    let id = h.request(
+        "session/new",
+        json!({"cwd": std::env::temp_dir(), "mcpServers": []}),
+    );
+    let (_, result) = h.await_response(id);
+    assert!(result.get("modes").is_none(), "{result}");
+}
+
+#[test]
 fn fresh_provider_instance_receives_initialize_before_new_session() {
     let Some((bin, wasm)) = artifacts() else {
         return;
