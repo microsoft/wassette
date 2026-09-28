@@ -32,8 +32,9 @@ use crate::wassette::acp::sessions::{
     SessionModeState,
 };
 use crate::wassette::acp::tools::{
-    PermissionOption, PermissionOptionKind, PermissionOutcome, RequestPermissionRequest,
-    RequestPermissionResponse, ToolCallContent, ToolCallSnapshot, ToolCallStatus, ToolKind,
+    PermissionOption, PermissionOptionKind, PermissionOutcome, PlanEntryPriority, PlanEntryStatus,
+    RequestPermissionRequest, RequestPermissionResponse, ToolCallContent, ToolCallSnapshot,
+    ToolCallStatus, ToolKind,
 };
 
 // -----------------------------------------------------------------------------
@@ -694,9 +695,29 @@ pub fn session_update_wit_to_schema(
                 upd,
             ));
         }
-        SessionUpdate::Plan(_) => {
-            debug!(session = %session_id, "dropped session update: plan (not yet wired)");
-            None
+        SessionUpdate::Plan(plan) => {
+            let entries = plan
+                .entries
+                .into_iter()
+                .map(|entry| {
+                    let priority = match entry.priority {
+                        PlanEntryPriority::High => schema::PlanEntryPriority::High,
+                        PlanEntryPriority::Medium => schema::PlanEntryPriority::Medium,
+                        PlanEntryPriority::Low => schema::PlanEntryPriority::Low,
+                    };
+                    let status = match entry.status {
+                        PlanEntryStatus::Pending => schema::PlanEntryStatus::Pending,
+                        PlanEntryStatus::InProgress => schema::PlanEntryStatus::InProgress,
+                        PlanEntryStatus::Completed => schema::PlanEntryStatus::Completed,
+                    };
+                    schema::PlanEntry::new(entry.content, priority, status)
+                })
+                .collect();
+            let upd = schema::SessionUpdate::Plan(schema::Plan::new(entries));
+            return Some(schema::SessionNotification::new(
+                schema::SessionId::from(session_id),
+                upd,
+            ));
         }
         SessionUpdate::CurrentModeUpdate(mode_id) => {
             // The guest reports a mode switch (e.g. user picked a
@@ -1295,6 +1316,46 @@ mod tests {
             json.pointer("/update/cost"),
             None,
             "cost should be absent when None: {json}"
+        );
+    }
+
+    #[test]
+    fn plan_entries_translate_to_wire_update() {
+        use crate::wassette::acp::tools::{Plan, PlanEntry};
+
+        let note = session_update_wit_to_schema(
+            "plan-session".into(),
+            SessionUpdate::Plan(Plan {
+                entries: vec![
+                    PlanEntry {
+                        content: "Investigate".into(),
+                        priority: PlanEntryPriority::High,
+                        status: PlanEntryStatus::InProgress,
+                    },
+                    PlanEntry {
+                        content: "Implement".into(),
+                        priority: PlanEntryPriority::Medium,
+                        status: PlanEntryStatus::Pending,
+                    },
+                    PlanEntry {
+                        content: "Verify".into(),
+                        priority: PlanEntryPriority::Low,
+                        status: PlanEntryStatus::Completed,
+                    },
+                ],
+            }),
+        )
+        .expect("plan notification");
+        let json = serde_json::to_value(note).unwrap();
+        assert_eq!(json["sessionId"], "plan-session");
+        assert_eq!(json["update"]["sessionUpdate"], "plan");
+        assert_eq!(
+            json["update"]["entries"],
+            serde_json::json!([
+                {"content": "Investigate", "priority": "high", "status": "in_progress"},
+                {"content": "Implement", "priority": "medium", "status": "pending"},
+                {"content": "Verify", "priority": "low", "status": "completed"}
+            ])
         );
     }
 
