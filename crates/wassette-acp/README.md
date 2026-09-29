@@ -50,5 +50,6 @@ provenance, which this section records. The same applies to
 `components/acp-ollama-provider` and `components/acp-copilot-provider`, which
 are ported from the playground's `ollama-provider` and `copilot-provider`
 crates.
-`wit/acp/deps/wasmcloud-secrets/secrets.wit` is hand-authored — upstream's copy
-lives behind a registry this tree cannot reach.
+`wit/acp/deps/wasmcloud-secrets/secrets.wit` is `wasmcloud:secrets@2.1.0`,
+copied from [`wit/secrets/wit/world.wit`](https://github.com/wasmCloud/wasmCloud/blob/e598479/wit/secrets/wit/world.wit)
+in the wasmCloud repository.

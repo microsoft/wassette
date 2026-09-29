@@ -97,8 +97,18 @@ to the wrong stage, including `wasmcloud:secrets/store.get` lookups. The
 flag acknowledges both risks; it does not fix stage routing or isolate
 stages. Do not run untrusted layers.
 
-`wasmcloud:secrets/store.get` normally resolves against the executing
-stage's component id. This is **not an isolation guarantee** for layered
+Components read secrets through `wasmcloud:secrets@2.1.0`. `store.get(key)`
+looks up a key at runtime. A component that knows its secrets up front can
+instead import one labeled `secret` per key, and the label is the key:
+
+```wit
+import api-key: wasmcloud:secrets/secret@2.1.0;
+```
+
+Wassette checks every labeled secret before instantiating a chain, so a
+missing one fails with a `wassette secret set <component> <label>=<value>`
+hint instead of at first use. Both kinds of lookup normally resolve against
+the executing stage's component id. This is **not an isolation guarantee** for layered
 chains: policy-injected environment secrets are shared, and overlapping
 callbacks can select the wrong stage's identity (see Known limitations).
 

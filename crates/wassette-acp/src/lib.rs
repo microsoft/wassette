@@ -84,8 +84,8 @@ mod layer_bindings {
             "wassette:acp/filesystem": crate::wassette::acp::filesystem,
             "wassette:acp/agent": crate::wassette::acp::agent,
             "wassette:acp/client": crate::wassette::acp::client,
-            "wasmcloud:secrets/store@0.1.0-draft": crate::wasmcloud::secrets::store,
-            "wasmcloud:secrets/reveal@0.1.0-draft": crate::wasmcloud::secrets::reveal,
+            "wasmcloud:secrets/store@2.1.0": crate::wasmcloud::secrets::store,
+            "wasmcloud:secrets/reveal@2.1.0": crate::wasmcloud::secrets::reveal,
         },
     });
 }
@@ -242,6 +242,7 @@ pub async fn run(args: AcpArgs) -> Result<()> {
     config.wasm_component_model_async(true);
     config.wasm_component_model_more_async_builtins(true);
     config.wasm_component_model_async_stackful(true);
+    config.wasm_component_model_implements(true);
     config.wasm_features(wasmtime::WasmFeatures::CM_ASYNC, true);
     config.wasm_features(wasmtime::WasmFeatures::CM_MORE_ASYNC_BUILTINS, true);
     config.wasm_features(wasmtime::WasmFeatures::CM_ASYNC_STACKFUL, true);
