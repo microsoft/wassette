@@ -17,10 +17,10 @@
 //! | `https://example.com/agent.wasm` | downloaded into the component dir |
 //! | `agent` | a component already in the component dir (`agent.wasm`) |
 //!
-//! The **component id** is the Wassette component id — the `.wasm` file
-//! stem — and is what scopes a stage's `/data` directory and its secrets,
-//! so `wassette secret set <id> KEY=…` and `wassette acp --provider <id>`
-//! agree on the name.
+//! Existing selectors still use the `.wasm` storage key, including for
+//! `/data` and secrets. This is separate from the semantic [`wassette::ComponentId`]
+//! inspected from the root component name; semantic lookup needs a persisted
+//! identity-to-key binding and is not enabled here.
 
 use std::path::{Path, PathBuf};
 
@@ -76,21 +76,6 @@ fn classify(arg: &str) -> Result<Reference<'_>> {
     } else {
         Ok(Reference::Id(arg))
     }
-}
-
-/// Reject ids that would escape the component directory or collide with
-/// the secret store's per-component file naming.
-fn validate_component_id(id: &str) -> Result<()> {
-    let ok = !id.is_empty()
-        && id
-            .chars()
-            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '-' | '.'))
-        && id != "."
-        && id != "..";
-    if !ok {
-        anyhow::bail!("`{id}` is not a valid component id (allowed characters: [A-Za-z0-9._-])");
-    }
-    Ok(())
 }
 
 /// Resolves component references against a Wassette component directory.
@@ -164,15 +149,20 @@ impl Resolver {
         if let Some(tx) = progress.as_ref() {
             let _ = tx.try_send("Validating component…".to_string());
         }
-        let component = Component::from_file(engine, &resolved.path)
-            .map_err(anyhow::Error::from)
-            .context("loading installed component")?;
+        let bytes = tokio::fs::read(&resolved.path)
+            .await
+            .context("reading installed component")?;
+        let inspection =
+            wassette::inspect_artifact(&bytes).context("inspecting installed component")?;
         match expected_kind {
-            Some(kind) => crate::validate_imports(engine, &component, kind)?,
+            Some(kind) => crate::validate_stage(&inspection, kind)?,
             None => {
-                crate::classify_acp_component(engine, &component)?;
+                crate::classify_acp_component(&inspection)?;
             }
         }
+        Component::new(engine, &bytes)
+            .map_err(anyhow::Error::from)
+            .context("loading installed component")?;
 
         if staging.is_some() {
             let policy_path = resolved
@@ -217,7 +207,7 @@ impl Resolver {
 
         match classify(arg)? {
             Reference::Id(id) => {
-                validate_component_id(id)?;
+                wassette::StorageKey::parse(id).context("Invalid component storage key")?;
                 let path = self.component_dir.join(format!("{id}.wasm"));
                 if !tokio::fs::try_exists(&path).await.unwrap_or(false) {
                     anyhow::bail!(
@@ -261,8 +251,8 @@ impl Resolver {
             None => wassette::loader::fetch_component(uri, &self.component_dir).await,
         }
         .with_context(|| format!("fetching component `{uri}`"))?;
-        validate_component_id(&component_id)
-            .with_context(|| format!("deriving a component id from `{uri}`"))?;
+        wassette::StorageKey::parse(&component_id)
+            .with_context(|| format!("deriving a component storage key from `{uri}`"))?;
         Ok(ResolvedComponent { component_id, path })
     }
 }
@@ -314,9 +304,17 @@ mod tests {
 
     #[test]
     fn traversal_ids_are_rejected() {
-        assert!(validate_component_id("../etc/passwd").is_err());
-        assert!(validate_component_id("..").is_err());
-        assert!(validate_component_id("").is_err());
+        for id in [
+            "../etc/passwd",
+            "..",
+            "",
+            "NUL.txt",
+            "COM1",
+            "trailing.",
+            "NUL_",
+        ] {
+            assert!(wassette::StorageKey::parse(id).is_err(), "{id}");
+        }
     }
 
     #[tokio::test]
@@ -360,6 +358,28 @@ mod tests {
         );
         assert_eq!(tokio::fs::read(&path).await.unwrap(), b"old wasm");
         assert_eq!(tokio::fs::read(&policy).await.unwrap(), b"old policy");
+    }
+
+    #[tokio::test]
+    async fn wrong_stage_is_rejected_before_compiling_async_component() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../components/acp-echo-provider/target/wasm32-wasip2/release/acp_echo_provider.wasm");
+        assert!(path.exists(), "run `just build-acp-examples` first");
+        let error = Resolver::new(dir.path())
+            .resolve_validated(
+                path.to_str().unwrap(),
+                None,
+                &Engine::default(),
+                Some(crate::state::StageKind::Layer),
+            )
+            .await
+            .unwrap_err();
+        assert!(
+            format!("{error:#}").contains("pass it via `--provider`"),
+            "{error:#}"
+        );
+        assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 0);
     }
 
     #[tokio::test]

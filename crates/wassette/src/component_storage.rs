@@ -14,7 +14,7 @@ use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 use tokio::task::spawn_blocking;
 
 use crate::loader::DownloadedResource;
-use crate::{ComponentMetadata, ValidationStamp};
+use crate::{ComponentMetadata, StorageKey, ValidationStamp};
 
 /// Handles filesystem layout and metadata persistence for components.
 #[derive(Clone)]
@@ -102,6 +102,7 @@ impl ComponentStorage {
         component_id: &str,
         resource: DownloadedResource,
     ) -> Result<PathBuf> {
+        StorageKey::parse(component_id).context("Invalid component storage key")?;
         let _permit = self.acquire_download_permit().await;
 
         self.remove_component_artifacts(component_id).await?;

@@ -3,6 +3,8 @@ install-wasi-target:
 
 build mode="debug": install-wasi-target
     cargo build --target wasm32-wasip2 {{ if mode == "release" { "--release" } else { "" } }} 
+    python3 ../../scripts/name-component.py . target/wasm32-wasip2/{{ mode }}/filesystem.wasm
 
 build-auditable mode="debug": install-wasi-target
     cargo auditable build --target wasm32-wasip2 {{ if mode == "release" { "--release" } else { "" } }}
+    python3 ../../scripts/name-component.py . target/wasm32-wasip2/{{ mode }}/filesystem.wasm

@@ -416,11 +416,9 @@ fn default_secrets_dir() -> Result<PathBuf> {
     Ok(strategy.config_dir().join("wassette").join("secrets"))
 }
 
-/// Load a wasm component from disk and pair it with its component
-/// identity (`namespace:component-name`; see
-/// [`install::component_id_for_arg`]). Used for both the provider and
-/// each layer stage. Validates the component's import set against the
-/// world it was passed as so a layer-shaped wasm passed via `--provider`
+/// Load a wasm component from disk and pair it with its current storage key.
+/// Used for both the provider and each layer stage. Checks the root export
+/// shape before compilation so a layer-shaped wasm passed via `--provider`
 /// (or vice versa) is rejected at boot rather than failing later at
 /// instantiation with a less obvious error.
 fn load_stage(
@@ -430,11 +428,13 @@ fn load_stage(
     component_id: String,
     sandbox: Sandbox,
 ) -> Result<Stage> {
-    let component = Component::from_file(engine, path)
+    let bytes = std::fs::read(path).with_context(|| format!("reading {}", path.display()))?;
+    let inspection = ::wassette::inspect_artifact(&bytes)
+        .with_context(|| format!("inspecting {}", path.display()))?;
+    validate_stage(&inspection, kind).with_context(|| format!("validating {}", path.display()))?;
+    let component = Component::new(engine, &bytes)
         .map_err(anyhow::Error::from)
         .with_context(|| format!("loading {}", path.display()))?;
-    validate_imports(engine, &component, kind)
-        .with_context(|| format!("validating {}", path.display()))?;
     Ok(Stage {
         component,
         component_id,
@@ -462,13 +462,20 @@ pub(crate) const HOST_ACP_VERSION: &str = "7.0.0";
 /// Any other export shape — wrong package namespace, missing `agent`,
 /// or a version incompatible with [`EXPECTED_ACP_REQ`] — is rejected up
 /// front so the failure isn't deferred to instantiation.
-pub(crate) fn classify_acp_component(engine: &Engine, component: &Component) -> Result<StageKind> {
+pub(crate) fn classify_acp_component(
+    inspection: &::wassette::ArtifactInspection,
+) -> Result<StageKind> {
+    let kind = match inspection.shape {
+        ::wassette::ArtifactShape::AcpProvider => StageKind::Provider,
+        ::wassette::ArtifactShape::AcpLayer => StageKind::Layer,
+        _ => anyhow::bail!(
+            "component does not implement the `wassette:acp/provider` or \
+             `wassette:acp/layer` world (host expects `wassette:acp@{EXPECTED_ACP_REQ}`)"
+        ),
+    };
     let req = semver::VersionReq::parse(EXPECTED_ACP_REQ)
         .expect("EXPECTED_ACP_REQ is a hardcoded valid semver req");
-    let ty = component.component_type();
-    let mut exports_agent = false;
-    let mut exports_client = false;
-    for (name, _) in ty.exports(engine) {
+    for name in &inspection.acp_exports {
         let Some(rest) = name.strip_prefix("wassette:acp/") else {
             continue;
         };
@@ -500,35 +507,19 @@ pub(crate) fn classify_acp_component(engine: &Engine, component: &Component) -> 
                  rebuild the component against the matching WIT definition"
             );
         }
-        match iface {
-            "agent" => exports_agent = true,
-            "client" => exports_client = true,
-            _ => {}
-        }
     }
-    if !exports_agent {
-        anyhow::bail!(
-            "component does not implement the `wassette:acp/provider` or \
-             `wassette:acp/layer` world (host expects `wassette:acp@{EXPECTED_ACP_REQ}`)"
-        );
-    }
-    Ok(if exports_client {
-        StageKind::Layer
-    } else {
-        StageKind::Provider
-    })
+    Ok(kind)
 }
 
 /// Reject components whose detected world (provider vs layer) doesn't
 /// match the CLI flag they were passed under. The classification itself
 /// also catches non-ACP components and ACP version mismatches; see
 /// [`classify_acp_component`].
-pub(crate) fn validate_imports(
-    engine: &Engine,
-    component: &Component,
+pub(crate) fn validate_stage(
+    inspection: &::wassette::ArtifactInspection,
     kind: StageKind,
 ) -> Result<()> {
-    let detected = classify_acp_component(engine, component)?;
+    let detected = classify_acp_component(inspection)?;
     match (kind, detected) {
         (StageKind::Provider, StageKind::Layer) => anyhow::bail!(
             "component implements the `wassette:acp/layer` world; \
@@ -539,6 +530,55 @@ pub(crate) fn validate_imports(
              pass it via `--provider` rather than `--layer`",
         ),
         _ => Ok(()),
+    }
+}
+
+#[cfg(test)]
+mod classification_tests {
+    use ::wassette::{ArtifactInspection, ArtifactShape, IdentityError, UnsupportedArtifact};
+
+    use super::*;
+
+    fn inspection(shape: ArtifactShape, export: &str) -> ArtifactInspection {
+        ArtifactInspection {
+            identity: Err(IdentityError::Missing),
+            shape,
+            acp_exports: vec![export.to_owned()],
+        }
+    }
+
+    #[test]
+    fn shared_shapes_retain_acp_version_and_stage_checks() {
+        let provider = inspection(ArtifactShape::AcpProvider, "wassette:acp/agent@7.0.0");
+        assert!(matches!(
+            classify_acp_component(&provider).unwrap(),
+            StageKind::Provider
+        ));
+        assert!(validate_stage(&provider, StageKind::Provider).is_ok());
+        assert!(validate_stage(&provider, StageKind::Layer).is_err());
+        let layer = inspection(ArtifactShape::AcpLayer, "wassette:acp/agent@7.0.0");
+        assert!(matches!(
+            classify_acp_component(&layer).unwrap(),
+            StageKind::Layer
+        ));
+        assert!(validate_stage(&layer, StageKind::Provider).is_err());
+        for export in [
+            "wassette:acp/agent",
+            "wassette:acp/agent@6.0.0",
+            "wassette:acp/agent@invalid",
+        ] {
+            assert!(
+                classify_acp_component(&inspection(ArtifactShape::AcpProvider, export)).is_err()
+            );
+        }
+        assert!(classify_acp_component(&inspection(ArtifactShape::ToolCandidate, "")).is_err());
+        assert!(
+            classify_acp_component(&inspection(
+                ArtifactShape::Unsupported(UnsupportedArtifact::CoreModule),
+                ""
+            ))
+            .is_err()
+        );
     }
 }
 

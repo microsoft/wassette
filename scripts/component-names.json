@@ -1,0 +1,18 @@
+{
+  "examples/arxiv-rs": "microsoft:arxiv-rs",
+  "examples/brave-search-rs": "microsoft:brave-search-rs",
+  "examples/context7-rs": "microsoft:context7-rs",
+  "examples/eval-py": "microsoft:eval-py",
+  "examples/fetch-rs": "microsoft:fetch-rs",
+  "examples/filesystem-rs": "microsoft:filesystem-rs",
+  "examples/get-open-meteo-weather-js": "microsoft:get-open-meteo-weather-js",
+  "examples/get-weather-js": "microsoft:get-weather-js",
+  "examples/github-js": "microsoft:github-js",
+  "examples/gomodule-go": "microsoft:gomodule-go",
+  "examples/memory-js": "microsoft:memory-js",
+  "examples/time-server-js": "microsoft:time-server-js",
+  "components/acp-copilot-provider": "acp-copilot-provider",
+  "components/acp-echo-provider": "acp-echo-provider",
+  "components/acp-ollama-provider": "acp-ollama-provider",
+  "components/acp-uppercase-layer": "acp-uppercase-layer"
+}

@@ -10,8 +10,8 @@ build-test-components:
     (cd examples/fetch-rs && CARGO_TARGET_DIR=target cargo build --release --target wasm32-wasip2)
     (cd examples/filesystem-rs && CARGO_TARGET_DIR=target cargo build --release --target wasm32-wasip2)
     # Inject docs for test components
-    just inject-docs examples/fetch-rs/target/wasm32-wasip2/release/fetch_rs.wasm examples/fetch-rs/wit
-    just inject-docs examples/filesystem-rs/target/wasm32-wasip2/release/filesystem.wasm examples/filesystem-rs/wit
+    just finalize-component examples/fetch-rs examples/fetch-rs/target/wasm32-wasip2/release/fetch_rs.wasm
+    just finalize-component examples/filesystem-rs examples/filesystem-rs/target/wasm32-wasip2/release/filesystem.wasm
 
 test:
     just build-test-components
@@ -46,9 +46,13 @@ test-mcp-clients-negative:
 # Build the standalone ACP components (providers + layer)
 build-acp-examples:
     (cd components/acp-echo-provider && cargo build --release --target wasm32-wasip2)
+    just name-component components/acp-echo-provider components/acp-echo-provider/target/wasm32-wasip2/release/acp_echo_provider.wasm
     (cd components/acp-uppercase-layer && cargo build --release --target wasm32-wasip2)
+    just name-component components/acp-uppercase-layer components/acp-uppercase-layer/target/wasm32-wasip2/release/acp_uppercase_layer.wasm
     (cd components/acp-ollama-provider && cargo build --release --target wasm32-wasip2)
+    just name-component components/acp-ollama-provider components/acp-ollama-provider/target/wasm32-wasip2/release/acp_ollama_provider.wasm
     (cd components/acp-copilot-provider && cargo build --release --target wasm32-wasip2)
+    just name-component components/acp-copilot-provider components/acp-copilot-provider/target/wasm32-wasip2/release/acp_copilot_provider.wasm
 
 # Regenerate the ACP components' checked-in `bindings.rs` from
 # crates/wassette-acp/wit/acp. Needs a matching `wit-bindgen` CLI.
@@ -165,10 +169,19 @@ ensure-wit-docs-inject:
         echo "wit-docs-inject is already installed"
     fi
 
+# Name a first-party build output using its authored producer declaration
+name-component project wasm_path:
+    python3 scripts/name-component.py {{ quote(project) }} {{ quote(wasm_path) }}
+
 # Inject docs into a wasm component
 inject-docs wasm_path wit_dir:
     @echo "Injecting docs into {{ wasm_path }}"
     wit-docs-inject --component {{ wasm_path }} --wit-dir {{ wit_dir }} --inplace
+
+# Finalize a first-party source build before copying or publishing
+finalize-component project wasm_path:
+    just inject-docs {{ quote(wasm_path) }} {{ quote(project) }}/wit
+    just name-component {{ quote(project) }} {{ quote(wasm_path) }}
 
 build-examples mode="debug":
     mkdir -p bin
@@ -186,21 +199,21 @@ build-examples mode="debug":
     (cd examples/arxiv-rs && just build {{ mode }})
     (cd examples/github-js && just build)
     # Inject docs for Rust examples
-    just inject-docs examples/fetch-rs/target/wasm32-wasip2/{{ mode }}/fetch_rs.wasm examples/fetch-rs/wit
-    just inject-docs examples/filesystem-rs/target/wasm32-wasip2/{{ mode }}/filesystem.wasm examples/filesystem-rs/wit
-    just inject-docs examples/brave-search-rs/target/wasm32-wasip2/{{ mode }}/brave_search_rs.wasm examples/brave-search-rs/wit
-    just inject-docs examples/arxiv-rs/target/wasm32-wasip2/{{ mode }}/arxiv_rs.wasm examples/arxiv-rs/wit
-    just inject-docs examples/context7-rs/target/wasm32-wasip2/{{ mode }}/context7.wasm examples/context7-rs/wit
+    just finalize-component examples/fetch-rs examples/fetch-rs/target/wasm32-wasip2/{{ mode }}/fetch_rs.wasm
+    just finalize-component examples/filesystem-rs examples/filesystem-rs/target/wasm32-wasip2/{{ mode }}/filesystem.wasm
+    just finalize-component examples/brave-search-rs examples/brave-search-rs/target/wasm32-wasip2/{{ mode }}/brave_search_rs.wasm
+    just finalize-component examples/arxiv-rs examples/arxiv-rs/target/wasm32-wasip2/{{ mode }}/arxiv_rs.wasm
+    just finalize-component examples/context7-rs examples/context7-rs/target/wasm32-wasip2/{{ mode }}/context7.wasm
     # Inject docs for JS examples
-    just inject-docs examples/get-weather-js/weather.wasm examples/get-weather-js/wit
-    just inject-docs examples/time-server-js/time.wasm examples/time-server-js/wit
-    just inject-docs examples/memory-js/memory.wasm examples/memory-js/wit
-    just inject-docs examples/get-open-meteo-weather-js/weather.wasm examples/get-open-meteo-weather-js/wit
-    just inject-docs examples/github-js/github.wasm examples/github-js/wit
+    just finalize-component examples/get-weather-js examples/get-weather-js/weather.wasm
+    just finalize-component examples/time-server-js examples/time-server-js/time.wasm
+    just finalize-component examples/memory-js examples/memory-js/memory.wasm
+    just finalize-component examples/get-open-meteo-weather-js examples/get-open-meteo-weather-js/weather.wasm
+    just finalize-component examples/github-js examples/github-js/github.wasm
     # Inject docs for Python examples
-    just inject-docs examples/eval-py/eval.wasm examples/eval-py/wit
+    just finalize-component examples/eval-py examples/eval-py/eval.wasm
     # Inject docs for Go examples
-    just inject-docs examples/gomodule-go/gomodule.wasm examples/gomodule-go/wit
+    just finalize-component examples/gomodule-go examples/gomodule-go/gomodule.wasm
     # Copy to bin directory
     cp examples/fetch-rs/target/wasm32-wasip2/{{ mode }}/fetch_rs.wasm bin/fetch-rs.wasm
     cp examples/filesystem-rs/target/wasm32-wasip2/{{ mode }}/filesystem.wasm bin/filesystem.wasm

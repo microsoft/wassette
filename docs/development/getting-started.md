@@ -37,6 +37,10 @@ brew install just
 
 # Install Just (Linux or other)
 cargo install just
+
+# For first-party component name metadata
+cargo install wasm-tools --locked
+python3 --version # Python 3.8 or later
 ```
 
 **Optional:**
@@ -72,6 +76,37 @@ just build-examples
 just build-examples release
 ```
 
+### Declaring first-party component names
+
+The example build recipes, direct JavaScript build scripts, and
+`just build-acp-examples` embed an explicit root `component-name` declaration.
+Names are authored in
+[`scripts/component-names.json`](https://github.com/microsoft/wassette/blob/main/scripts/component-names.json),
+not inferred from output filenames. Examples use their declared
+`microsoft:<project>` names; ACP components use their distinct Cargo package names,
+not the shared `wassette:acp` protocol package.
+
+For a new first-party producer, add its source project and intended name to that
+catalog and finish its build recipe with:
+
+```bash
+# From the repository root; only for an output built from this source project
+just name-component examples/fetch-rs examples/fetch-rs/target/wasm32-wasip2/release/fetch_rs.wasm
+```
+
+The helper uses `wasm-tools metadata add --name`, preserves nested metadata, and
+atomically replaces the output on success. Repeated naming is idempotent. It
+rejects undeclared projects, non-components, and multiple root name sections
+instead of emitting ambiguous metadata. `just finalize-component` adds WIT docs
+and reapplies the declaration before copying, validating, hashing, or publishing
+final first-party outputs. The generic `just inject-docs` recipe does not name artifacts.
+Never use this helper to rename opaque third-party downloads.
+
+The producer tests check final names with `wassette::inspect_artifact`. This
+metadata does not authenticate a publisher or establish source continuity.
+Runtime selectors and policy/secrets keys remain unchanged until the separate
+semantic-name-to-storage-key mapping is implemented.
+
 ## Running Tests
 
 ```bash
@@ -80,6 +115,7 @@ just test
 
 # Build test components separately
 just build-test-components
+just build-acp-examples
 just clean-test-components
 
 # Run specific tests

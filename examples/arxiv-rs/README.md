@@ -11,16 +11,11 @@ A WebAssembly component that provides arXiv research capabilities, including sea
 ## Building
 
 ```bash
-cargo build --target wasm32-wasip2 --release
-```
-
-Or use the Justfile:
-
-```bash
 just build release
 ```
 
-The compiled `.wasm` file will be in `target/wasm32-wasip2/release/arxiv_rs.wasm`.
+The compiled `.wasm` file will be in `target/wasm32-wasip2/release/arxiv_rs.wasm`,
+with the declared root component name `microsoft:arxiv-rs`.
 
 ## Usage
 

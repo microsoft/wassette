@@ -10,6 +10,8 @@ use tokio::fs::metadata;
 use tokio::io::AsyncWriteExt;
 use tracing::{debug, info};
 
+use crate::StorageKey;
+
 /// Represents a downloaded resource, either from a local file or a temporary one.
 pub(crate) enum DownloadedResource {
     /// A file that already exists on the local filesystem.
@@ -32,12 +34,14 @@ impl DownloadedResource {
     /// Returns a new `DownloadedComponent` with an already opened file handle for writing the
     /// download.
     ///
-    /// The `name` parameter must be unique across all components as it is used to identify the
-    /// component.
+    /// `name` is a physical storage key, not the component's semantic name.
     pub(crate) async fn new_temp_file(
         name: impl AsRef<str>,
         extension: &str,
     ) -> Result<(Self, tokio::fs::File)> {
+        if extension == ComponentResource::FILE_EXTENSION {
+            StorageKey::parse(name.as_ref()).context("Invalid component storage key")?;
+        }
         let tempdir = tokio::task::spawn_blocking(tempfile::tempdir).await??;
         let file_path = tempdir
             .path()
@@ -46,32 +50,14 @@ impl DownloadedResource {
         Ok((DownloadedResource::Temp((tempdir, file_path)), temp_file))
     }
 
-    /// Returns a stable identifier for the resource: the file stem of its
-    /// path.
-    pub(crate) fn id(&self) -> Result<String> {
-        // NOTE(thomastaylor312): Unfortunately the rust tooling (and I think some of the others),
-        // doesn't preserve the package ID from the wit world defined for the component. It just
-        // ends up as "root-component". So for now we rely on the file name to give us a unique ID
-        // for the component.
-        // let decoded = wit_parser::decoding::decode(&wasm_bytes)
-        //     .map_err(|e| anyhow::anyhow!("Failed to decode component from path: {}. Error: {}. Please ensure the file is a valid WebAssembly component.", file.as_ref().display(), e))?;
-
-        // let pkg_id = decoded.package();
-        // // SAFETY: The package ID is guaranteed to be valid because we just decoded it
-        // let pkg = decoded.resolve().packages.get(pkg_id).unwrap();
-        // // Format the package name without the colon so it is valid on all systems. We are using the
-        // // package name as a unique key on the filesystem as well
-        // let id = format!("{}-{}", pkg.name.namespace, pkg.name.name);
-
-        // Load the component to see if it is valid
-        let maybe_id = match self {
-            DownloadedResource::Local(path) => path.file_stem().and_then(|s| s.to_str()),
-            DownloadedResource::Temp((_, path)) => path.file_stem().and_then(|s| s.to_str()),
-        };
-
-        maybe_id
-            .map(|s| s.to_string())
-            .ok_or_else(|| anyhow::anyhow!("Failed to extract resource ID from path"))
+    /// Returns the portable physical key. Embedded identity is inspected separately.
+    pub(crate) fn storage_key(&self) -> Result<StorageKey> {
+        let stem = self
+            .as_ref()
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .context("Failed to extract component storage key from path")?;
+        StorageKey::parse(stem).context("Invalid component storage key")
     }
 
     /// Copies the resource, and any co-located policy file, into the `dest`
@@ -124,6 +110,7 @@ async fn promote_component_artifact_with_policy(
         .file_stem()
         .and_then(|stem| stem.to_str())
         .context("Path to copy is missing component id")?;
+    StorageKey::parse(id).context("Invalid component storage key")?;
     let policy_name = format!("{id}.policy.yaml");
     let source_policy = staged_wasm.with_file_name(&policy_name);
     let wasm_dest = dest_dir.join(name);
@@ -442,8 +429,9 @@ pub(crate) async fn load_resource_with_progress<T: Loadable>(
     }
 }
 
-/// Fetch a WebAssembly component referenced by `uri` and return its Wassette
-/// component id (the `.wasm` file stem) together with a local path to it.
+/// Fetch a WebAssembly component referenced by `uri` and return its portable
+/// storage key (the `.wasm` file stem) together with a local path to it.
+/// This legacy selector is not the semantic [`crate::ComponentId`].
 ///
 /// `uri` is one of `file://<absolute path>`, `oci://<reference>` or
 /// `https://<url>`. Local files are used where they are; remote artifacts are
@@ -494,7 +482,7 @@ pub async fn fetch_component_with_clients(
     let resource = load_resource::<ComponentResource>(uri, oci_client, http_client)
         .await
         .with_context(|| format!("Failed to fetch component from {uri}"))?;
-    let id = resource.id()?;
+    let id = resource.storage_key()?.as_str().to_owned();
     match resource {
         DownloadedResource::Local(path) => Ok((id, path)),
         downloaded => {

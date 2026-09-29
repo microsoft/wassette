@@ -176,16 +176,22 @@ mod tests {
     use super::*;
 
     /// Writes the on-disk state a previous process leaves behind for an installed component:
-    /// the artifact plus the cached tool metadata beside it. Neither has to be a real
-    /// WebAssembly component, because hydrating the registry from cached metadata reads the
-    /// metadata and validates the artifact's stamp without ever compiling it.
+    /// a real component plus cached tool metadata. Hydration inspects the binary
+    /// and checks its stamp without compiling it.
     async fn install_cached_component(
         dir: &Path,
         component_id: &str,
         tool_name: &str,
     ) -> Result<()> {
         let artifact = dir.join(format!("{component_id}.wasm"));
-        tokio::fs::write(&artifact, b"stand-in for a component artifact").await?;
+        let bytes = wat::parse_str(
+            r#"(component
+                (core module $m (func (export "run")))
+                (core instance $i (instantiate $m))
+                (func (export "run") (canon lift (core func $i "run")))
+            )"#,
+        )?;
+        tokio::fs::write(&artifact, bytes).await?;
 
         let file_metadata = tokio::fs::metadata(&artifact).await?;
         let mtime = file_metadata
