@@ -12,6 +12,7 @@ clap_complete = "4.5"
 etcetera = { workspace = true }
 figment = { version = "0.10", features = ["env", "toml"] }
 wassette = { workspace = true }
+wassette-acp = { workspace = true }
 mcp-server = { workspace = true }
 oci-client = { workspace = true }
 policy = { workspace = true }

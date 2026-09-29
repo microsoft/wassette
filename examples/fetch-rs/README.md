@@ -36,6 +36,9 @@ Please load the component from oci://ghcr.io/microsoft/fetch-rs:latest
 Please fetch the content of https://example.com
 ```
 
+HTML responses are converted to Markdown. When a page has no `<h1>` heading,
+the component uses its `<title>` as the Markdown heading.
+
 ## Policy
 
 By default, WebAssembly (Wasm) components do not have any access to the host machine or network. The `policy.yaml` file is used to explicitly define what network resources are made available to the component. This ensures that the component can only access the resources that are explicitly allowed.

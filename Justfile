@@ -7,14 +7,16 @@ clean-test-components:
 build-test-components:
     just clean-test-components
     just ensure-wit-docs-inject
-    (cd examples/fetch-rs && cargo build --release --target wasm32-wasip2)
-    (cd examples/filesystem-rs && cargo build --release --target wasm32-wasip2)
+    (cd examples/fetch-rs && CARGO_TARGET_DIR=target cargo build --release --target wasm32-wasip2)
+    (cd examples/filesystem-rs && CARGO_TARGET_DIR=target cargo build --release --target wasm32-wasip2)
     # Inject docs for test components
     just inject-docs examples/fetch-rs/target/wasm32-wasip2/release/fetch_rs.wasm examples/fetch-rs/wit
     just inject-docs examples/filesystem-rs/target/wasm32-wasip2/release/filesystem.wasm examples/filesystem-rs/wit
 
 test:
     just build-test-components
+    just build-acp-examples
+    cargo build -p wassette-mcp-server
     cargo test --workspace -- --nocapture
     cargo test --doc --workspace -- --nocapture
 
@@ -39,6 +41,24 @@ test-mcp-clients:
 test-mcp-clients-negative:
     just build release
     ./scripts/test-mcp-clients.sh --negative
+
+# Build the standalone ACP components (provider + layer)
+build-acp-examples:
+    (cd components/acp-echo-provider && cargo build --release --target wasm32-wasip2)
+    (cd components/acp-uppercase-layer && cargo build --release --target wasm32-wasip2)
+
+# Build a real (model-backed) ACP provider from a playground-wasm-acp checkout.
+# Needs the wstd p3 branch plus a two-line patch for wasmtime 47; see
+# crates/wassette-acp/real-providers/ and docs/design/acp.md.
+build-acp-real-provider playground provider="ollama-provider":
+    ./scripts/build-acp-real-provider.sh {{ playground }} {{ provider }}
+
+# Run the `wassette acp` end-to-end tests against the example components.
+# They drive the built `wassette` binary over stdio, so build it first.
+test-acp:
+    just build-acp-examples
+    cargo build -p wassette-mcp-server
+    cargo test -p wassette-acp -- --nocapture
 
 build mode="debug":
     mkdir -p bin

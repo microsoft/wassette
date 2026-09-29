@@ -38,18 +38,33 @@ impl Guest for Component {
 
 fn html_to_markdown(html: &str) -> String {
     let mut markdown = String::new();
-    let fragment = scraper::Html::parse_fragment(html);
-    let text_selector = scraper::Selector::parse("h1, h2, h3, h4, h5, h6, p, a, div").unwrap();
+    let document = scraper::Html::parse_document(html);
+    let has_h1 = document
+        .select(&scraper::Selector::parse("h1").unwrap())
+        .next()
+        .is_some();
+    let text_selector =
+        scraper::Selector::parse("title, h1, h2, h3, h4, h5, h6, p, a, div").unwrap();
 
-    for element in fragment.select(&text_selector) {
+    for element in document.select(&text_selector) {
         let tag_name = element.value().name();
-        let text = element.text().collect::<Vec<_>>().join(" ").trim().to_string();
-        
+        let text = element
+            .text()
+            .collect::<Vec<_>>()
+            .join(" ")
+            .trim()
+            .to_string();
+
         if text.is_empty() {
             continue;
         }
 
         match tag_name {
+            "title" => {
+                if !has_h1 {
+                    markdown.push_str(&format!("# {}\n\n", text));
+                }
+            }
             "h1" => markdown.push_str(&format!("# {}\n\n", text)),
             "h2" => markdown.push_str(&format!("## {}\n\n", text)),
             "h3" => markdown.push_str(&format!("### {}\n\n", text)),
@@ -63,7 +78,7 @@ fn html_to_markdown(html: &str) -> String {
                 } else {
                     markdown.push_str(&format!("{}\n\n", text));
                 }
-            },
+            }
             _ => markdown.push_str(&format!("{}\n\n", text)),
         }
     }
@@ -97,3 +112,26 @@ fn json_to_markdown(value: &Value) -> String {
     }
 }
 bindings::export!(Component with_types_in bindings);
+
+#[cfg(test)]
+mod tests {
+    use super::html_to_markdown;
+
+    #[test]
+    fn uses_page_title_when_no_heading_exists() {
+        let html = "<html><head><title>Example Domain</title></head><body><p>Example content</p></body></html>";
+        assert_eq!(
+            html_to_markdown(html),
+            "# Example Domain\n\nExample content"
+        );
+    }
+
+    #[test]
+    fn does_not_repeat_title_when_page_has_heading() {
+        let html = "<html><head><title>Example Domain</title></head><body><h1>Example Domain</h1><p>Example content</p></body></html>";
+        assert_eq!(
+            html_to_markdown(html),
+            "# Example Domain\n\nExample content"
+        );
+    }
+}

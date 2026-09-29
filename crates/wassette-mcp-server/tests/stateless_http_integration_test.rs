@@ -27,6 +27,9 @@ const STATELESS_VERSION: &str = "2026-07-28";
 /// A protocol revision that still uses the `initialize` handshake.
 const LEGACY_VERSION: &str = "2025-06-18";
 
+/// Prevent parallel tests from selecting the same port before either server binds it.
+static SERVER_STARTUP: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
 async fn find_open_port() -> Result<u16> {
     let listener = TcpListener::bind("127.0.0.1:0")
         .await
@@ -34,8 +37,15 @@ async fn find_open_port() -> Result<u16> {
     Ok(listener.local_addr()?.port())
 }
 
-async fn wait_until_listening(port: u16) -> Result<()> {
+async fn wait_until_listening(port: u16, server: &mut ServerGuard) -> Result<()> {
     for _ in 0..100 {
+        if let Some(status) = server
+            .0
+            .try_wait()
+            .context("failed to check wassette process")?
+        {
+            bail!("wassette exited before listening on 127.0.0.1:{port}: {status}");
+        }
         if TcpStream::connect(("127.0.0.1", port)).await.is_ok() {
             return Ok(());
         }
@@ -73,6 +83,14 @@ async fn spawn_server(port: u16, component_dir: &Path, extra_args: &[&str]) -> R
         .spawn()
         .context("failed to spawn `wassette serve --streamable-http`")?;
     Ok(ServerGuard(child))
+}
+
+async fn start_server(component_dir: &Path, extra_args: &[&str]) -> Result<(u16, ServerGuard)> {
+    let _startup = SERVER_STARTUP.lock().await;
+    let port = find_open_port().await?;
+    let mut server = spawn_server(port, component_dir, extra_args).await?;
+    wait_until_listening(port, &mut server).await?;
+    Ok((port, server))
 }
 
 fn mcp_url(port: u16) -> String {
@@ -157,10 +175,8 @@ async fn read_json_rpc(response: reqwest::Response) -> Result<Value> {
 /// A stateless `tools/list` succeeds with no `initialize` and no session id.
 #[tokio::test]
 async fn stateless_tools_list_needs_no_initialize() -> Result<()> {
-    let port = find_open_port().await?;
     let temp_dir = tempfile::tempdir()?;
-    let _server = spawn_server(port, temp_dir.path(), &[]).await?;
-    wait_until_listening(port).await?;
+    let (port, _server) = start_server(temp_dir.path(), &[]).await?;
 
     let client = reqwest::Client::new();
     let response = post_stateless(
@@ -202,10 +218,8 @@ async fn stateless_tools_list_needs_no_initialize() -> Result<()> {
 /// Cacheable list responses carry the fields required by the modern schema.
 #[tokio::test]
 async fn stateless_cacheable_lists_include_cache_hints() -> Result<()> {
-    let port = find_open_port().await?;
     let temp_dir = tempfile::tempdir()?;
-    let _server = spawn_server(port, temp_dir.path(), &[]).await?;
-    wait_until_listening(port).await?;
+    let (port, _server) = start_server(temp_dir.path(), &[]).await?;
 
     let client = reqwest::Client::new();
     for method in [
@@ -254,10 +268,8 @@ async fn stateless_cacheable_lists_include_cache_hints() -> Result<()> {
 /// require them.
 #[tokio::test]
 async fn legacy_cacheable_lists_omit_cache_hints() -> Result<()> {
-    let port = find_open_port().await?;
     let temp_dir = tempfile::tempdir()?;
-    let _server = spawn_server(port, temp_dir.path(), &[]).await?;
-    wait_until_listening(port).await?;
+    let (port, _server) = start_server(temp_dir.path(), &[]).await?;
 
     let client = reqwest::Client::new();
     let initialize = client
@@ -349,10 +361,8 @@ async fn legacy_cacheable_lists_omit_cache_hints() -> Result<()> {
 /// server executes the body; the two must never diverge.
 #[tokio::test]
 async fn stateless_header_body_mismatch_is_rejected() -> Result<()> {
-    let port = find_open_port().await?;
     let temp_dir = tempfile::tempdir()?;
-    let _server = spawn_server(port, temp_dir.path(), &[]).await?;
-    wait_until_listening(port).await?;
+    let (port, _server) = start_server(temp_dir.path(), &[]).await?;
 
     let client = reqwest::Client::new();
     // `Mcp-Method` claims tools/call while the body asks for tools/list.
@@ -385,10 +395,8 @@ async fn stateless_header_body_mismatch_is_rejected() -> Result<()> {
 /// A missing `Mcp-Method` header is rejected for a 2026-07-28 request.
 #[tokio::test]
 async fn stateless_missing_method_header_is_rejected() -> Result<()> {
-    let port = find_open_port().await?;
     let temp_dir = tempfile::tempdir()?;
-    let _server = spawn_server(port, temp_dir.path(), &[]).await?;
-    wait_until_listening(port).await?;
+    let (port, _server) = start_server(temp_dir.path(), &[]).await?;
 
     let client = reqwest::Client::new();
     let response = client
@@ -423,10 +431,8 @@ async fn stateless_missing_method_header_is_rejected() -> Result<()> {
 /// A stateless `tools/call` carries `Mcp-Name` alongside `Mcp-Method`.
 #[tokio::test]
 async fn stateless_tools_call_round_trips() -> Result<()> {
-    let port = find_open_port().await?;
     let temp_dir = tempfile::tempdir()?;
-    let _server = spawn_server(port, temp_dir.path(), &[]).await?;
-    wait_until_listening(port).await?;
+    let (port, _server) = start_server(temp_dir.path(), &[]).await?;
 
     let client = reqwest::Client::new();
     let response = post_stateless(
@@ -462,10 +468,8 @@ async fn stateless_tools_call_round_trips() -> Result<()> {
 /// keep working against the same endpoint.
 #[tokio::test]
 async fn legacy_initialize_still_issues_a_session() -> Result<()> {
-    let port = find_open_port().await?;
     let temp_dir = tempfile::tempdir()?;
-    let _server = spawn_server(port, temp_dir.path(), &[]).await?;
-    wait_until_listening(port).await?;
+    let (port, _server) = start_server(temp_dir.path(), &[]).await?;
 
     let client = reqwest::Client::new();
     let response = client
@@ -572,10 +576,8 @@ async fn wait_for_sse_message(
 /// precisely because the subscriber is not the client making the change.
 #[tokio::test]
 async fn stateless_subscription_receives_tool_list_changed() -> Result<()> {
-    let port = find_open_port().await?;
     let temp_dir = tempfile::tempdir()?;
-    let _server = spawn_server(port, temp_dir.path(), &[]).await?;
-    wait_until_listening(port).await?;
+    let (port, _server) = start_server(temp_dir.path(), &[]).await?;
 
     let client = reqwest::Client::new();
     let subscription = open_subscription(&client, port).await?;
@@ -600,7 +602,7 @@ async fn stateless_subscription_receives_tool_list_changed() -> Result<()> {
     );
     let loaded = read_json_rpc(load).await?;
     assert!(
-        loaded.get("error").is_none(),
+        loaded.get("error").is_none() && loaded["result"]["isError"] != json!(true),
         "loading the test component failed: {loaded}"
     );
 
@@ -622,10 +624,8 @@ async fn stateless_subscription_receives_tool_list_changed() -> Result<()> {
 /// be called.
 #[tokio::test]
 async fn stateless_subscription_receives_tool_list_changed_after_unload() -> Result<()> {
-    let port = find_open_port().await?;
     let temp_dir = tempfile::tempdir()?;
-    let _server = spawn_server(port, temp_dir.path(), &[]).await?;
-    wait_until_listening(port).await?;
+    let (port, _server) = start_server(temp_dir.path(), &[]).await?;
 
     let client = reqwest::Client::new();
     let component = format!("file://{}", test_component_path().display());
@@ -693,10 +693,8 @@ async fn stateless_subscription_receives_tool_list_changed_after_unload() -> Res
 /// were treated as tool-list mutations.
 #[tokio::test]
 async fn stateless_subscription_is_silent_for_non_mutating_tool() -> Result<()> {
-    let port = find_open_port().await?;
     let temp_dir = tempfile::tempdir()?;
-    let _server = spawn_server(port, temp_dir.path(), &[]).await?;
-    wait_until_listening(port).await?;
+    let (port, _server) = start_server(temp_dir.path(), &[]).await?;
 
     let client = reqwest::Client::new();
     let subscription = open_subscription(&client, port).await?;
@@ -743,10 +741,8 @@ async fn stateless_subscription_is_silent_for_non_mutating_tool() -> Result<()> 
 /// that never changed. The success case above cannot catch that.
 #[tokio::test]
 async fn stateless_subscription_is_silent_when_load_fails() -> Result<()> {
-    let port = find_open_port().await?;
     let temp_dir = tempfile::tempdir()?;
-    let _server = spawn_server(port, temp_dir.path(), &[]).await?;
-    wait_until_listening(port).await?;
+    let (port, _server) = start_server(temp_dir.path(), &[]).await?;
 
     let client = reqwest::Client::new();
     let subscription = open_subscription(&client, port).await?;
@@ -790,10 +786,8 @@ async fn stateless_subscription_is_silent_when_load_fails() -> Result<()> {
 /// `--json-response` answers a simple request with a plain JSON body.
 #[tokio::test]
 async fn json_response_returns_plain_json() -> Result<()> {
-    let port = find_open_port().await?;
     let temp_dir = tempfile::tempdir()?;
-    let _server = spawn_server(port, temp_dir.path(), &["--json-response"]).await?;
-    wait_until_listening(port).await?;
+    let (port, _server) = start_server(temp_dir.path(), &["--json-response"]).await?;
 
     let client = reqwest::Client::new();
     let response = post_stateless(
@@ -836,10 +830,8 @@ async fn json_response_returns_plain_json() -> Result<()> {
 /// session-scoped GET and DELETE verbs on /mcp are no longer allowed.
 #[tokio::test]
 async fn legacy_sessions_disabled_removes_the_session_lifecycle() -> Result<()> {
-    let port = find_open_port().await?;
     let temp_dir = tempfile::tempdir()?;
-    let _server = spawn_server(port, temp_dir.path(), &["--legacy-sessions=false"]).await?;
-    wait_until_listening(port).await?;
+    let (port, _server) = start_server(temp_dir.path(), &["--legacy-sessions=false"]).await?;
 
     let client = reqwest::Client::new();
     let initialize = client
