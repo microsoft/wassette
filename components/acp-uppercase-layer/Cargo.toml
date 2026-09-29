@@ -8,7 +8,7 @@ license = "MIT"
 crate-type = ["cdylib"]
 
 [dependencies]
-wit-bindgen = { version = "0.54.0", features = ["bitflags", "async", "async-spawn"] }
+wit-bindgen = { version = "0.62.0", features = ["bitflags", "async", "async-spawn"] }
 
 [profile.release]
 codegen-units = 1
