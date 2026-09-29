@@ -5365,6 +5365,7 @@ dependencies = [
  "temp-env",
  "tempfile",
  "test-log",
+ "thiserror 2.0.21",
  "tokio",
  "tokio-test",
  "tokio-util",
@@ -5372,10 +5373,13 @@ dependencies = [
  "tracing-subscriber",
  "tracing-test",
  "url",
+ "wasm-encoder 0.252.0",
+ "wasmparser 0.252.0",
  "wasmtime",
  "wasmtime-wasi",
  "wasmtime-wasi-config",
  "wasmtime-wasi-http",
+ "wat",
 ]
 
 [[package]]
@@ -5452,6 +5456,7 @@ dependencies = [
  "tracing-test",
  "wassette",
  "wassette-acp",
+ "wat",
 ]
 
 [[package]]

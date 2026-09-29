@@ -172,6 +172,14 @@ this check, so health probes are unaffected either way.
 
 Load a WebAssembly component from various sources.
 
+This command loads ordinary tool candidates, not ACP providers/layers or
+non-runnable artifacts. Compatibility is checked by the ordinary runtime.
+Current component IDs are storage-key selectors; inspecting an embedded
+semantic name does not yet change policy, secrets, or lookup keys.
+New storage keys must be portable ASCII filenames: Windows device names,
+trailing dots, path separators, and unsafe secret-filename projections are
+rejected rather than renamed.
+
 **Load from OCI registry:**
 ```bash
 # Load a component from GitHub Container Registry

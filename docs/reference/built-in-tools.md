@@ -35,6 +35,12 @@ Wassette comes with several built-in tools for managing components and their per
 When an existing component is replaced, the `status` value becomes
 `component reloaded successfully`.
 
+ACP providers/layers and unsupported artifact shapes cannot be loaded as
+ordinary tools, including through cached schemas. An ordinary candidate still
+needs runtime validation. The returned `id` remains the storage-key selector,
+not an embedded semantic name; policies and secrets retain their existing keys.
+Nonportable storage keys are rejected without automatic renaming.
+
 ## unload-component
 **Parameters:**
 - `id` (string, required): Unique identifier of the component to unload

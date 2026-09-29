@@ -19,6 +19,8 @@ use anyhow::{anyhow, Context, Result};
 use tokio::sync::RwLock;
 use tracing::{debug, info, warn};
 
+use crate::identity::legacy_secret_stem as sanitize_component_id;
+
 /// Cache entry for component secrets
 #[derive(Debug, Clone)]
 pub struct SecretCache {
@@ -339,47 +341,6 @@ impl SecretsManager {
 
         Ok(())
     }
-}
-
-/// Sanitize component ID for use as filename
-/// Maps [^A-Za-z0-9._-] → _, collapses repeats, trims to 128 bytes
-fn sanitize_component_id(component_id: &str) -> String {
-    let mut result = String::new();
-    let mut last_was_underscore = false;
-
-    for ch in component_id.chars() {
-        if ch.is_ascii_alphanumeric() || ch == '.' || ch == '-' {
-            result.push(ch);
-            last_was_underscore = false;
-        } else if !last_was_underscore {
-            result.push('_');
-            last_was_underscore = true;
-        }
-    }
-
-    // Trim leading and trailing underscores
-    while result.starts_with('_') {
-        result.remove(0);
-    }
-    while result.ends_with('_') {
-        result.pop();
-    }
-
-    // Trim to 128 bytes (being conservative with UTF-8)
-    if result.len() > 128 {
-        result.truncate(128);
-        // Ensure we don't break in the middle of a character
-        while !result.is_char_boundary(result.len()) {
-            result.pop();
-        }
-    }
-
-    // Ensure non-empty result
-    if result.is_empty() {
-        result = "unnamed".to_string();
-    }
-
-    result
 }
 
 #[cfg(test)]

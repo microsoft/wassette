@@ -31,6 +31,8 @@ use serde_json::Value;
 use tokio::fs::DirEntry;
 use tokio::sync::{Mutex, RwLock, Semaphore};
 use tracing::{debug, info, instrument, warn};
+use wasmparser::ComponentExternalKind;
+use wasmtime::component::types::ComponentItem;
 use wasmtime::component::{Component, InstancePre};
 use wasmtime::Store;
 
@@ -38,6 +40,10 @@ mod component_storage;
 mod config;
 mod error_display;
 mod http;
+mod identity;
+mod inspect;
+#[cfg(test)]
+mod kind_gate_tests;
 pub mod loader;
 pub mod oci_multi_layer;
 mod policy_internal;
@@ -50,6 +56,8 @@ use component_storage::ComponentStorage;
 pub use config::{LifecycleBuilder, LifecycleConfig};
 pub use error_display::format_error_chain;
 pub use http::WassetteWasiState;
+pub use identity::{ComponentId, IdentityError, StorageCollisionKeys, StorageKey, StorageKeyError};
+pub use inspect::{inspect_artifact, ArtifactInspection, ArtifactShape, UnsupportedArtifact};
 use loader::{ComponentResource, DownloadedResource};
 use policy_internal::PolicyManager;
 pub use policy_internal::{PermissionGrantRequest, PermissionRule, PolicyInfo};
@@ -633,7 +641,7 @@ impl LifecycleManager {
             show_progress,
         )
         .await?;
-        let id = resource.id()?;
+        let id = resource.storage_key()?.as_str().to_owned();
         Ok((id, resource))
     }
 
@@ -667,8 +675,8 @@ impl LifecycleManager {
     /// Compiles and registers a component; the caller must hold the guard returned by
     /// [`Self::load_guard`] for `component_id`.
     ///
-    /// This is the only place that compiles a component, so holding the guard here is what
-    /// makes "compiled once" hold across the on-demand load path and the background restore.
+    /// This is the shared compilation path for on-demand loading and background restore.
+    /// Holding the guard here makes concurrent requests compile the component only once.
     /// Every caller takes the guard itself first, because each of them has to do its own
     /// check-then-act (recheck the registry, or stage the artifact) inside the same critical
     /// section. Taking the guard again here would deadlock.
@@ -764,6 +772,10 @@ impl LifecycleManager {
         let guard = self.load_guard(&component_id).await;
         let _guard = guard.lock().await;
 
+        ordinary_artifact_bytes(resource.as_ref())
+            .await?
+            .context("Cannot load ACP or unsupported artifacts as ordinary tool components")?;
+
         let staged_path = self
             .stage_component_artifact(&component_id, resource)
             .await?;
@@ -799,6 +811,7 @@ impl LifecycleManager {
     /// component registered with no files behind it.
     #[instrument(skip(self))]
     pub async fn unload_component(&self, id: &str) -> Result<()> {
+        StorageKey::parse(id).context("Invalid component storage key")?;
         debug!("Unloading component and removing files from disk");
 
         // Nothing reached from here takes the guard again, so this cannot deadlock. The guard
@@ -931,6 +944,10 @@ impl LifecycleManager {
     /// Gets the schema for a specific component
     #[instrument(skip(self))]
     pub async fn get_component_schema(&self, component_id: &str) -> Option<Value> {
+        if let Err(error) = StorageKey::parse(component_id) {
+            warn!(%component_id, %error, "Invalid component storage key for schema lookup");
+            return None;
+        }
         // Prefer live component schema if loaded
         if let Some(component_instance) = self.get_component(component_id).await {
             return Some(
@@ -952,6 +969,16 @@ impl LifecycleManager {
         }
 
         // Fallback to metadata-based schema without compiling the component
+        let guard = self.load_guard(component_id).await;
+        let _guard = guard.lock().await;
+        match ordinary_artifact_bytes(&self.component_path(component_id)).await {
+            Ok(Some(_)) => {}
+            Ok(None) => return None,
+            Err(error) => {
+                warn!(%component_id, error = %format_error_chain(&error), "Cannot inspect component for cached schema");
+                return None;
+            }
+        }
         match self.load_component_metadata(component_id).await {
             Ok(Some(metadata)) => {
                 let component_path = self.component_path(component_id);
@@ -970,7 +997,11 @@ impl LifecycleManager {
                     "tools": tools
                 }))
             }
-            _ => None,
+            Ok(None) => None,
+            Err(error) => {
+                warn!(%component_id, error = %format_error_chain(&error), "Cannot read cached component schema");
+                None
+            }
         }
     }
 
@@ -1082,6 +1113,7 @@ impl LifecycleManager {
     /// parallel.
     #[instrument(skip(self))]
     pub async fn ensure_component_loaded(&self, component_id: &str) -> Result<()> {
+        StorageKey::parse(component_id).context("Invalid component storage key")?;
         if self.registry.contains_component(component_id).await {
             return Ok(());
         }
@@ -1158,7 +1190,17 @@ impl LifecycleManager {
         &self,
         component_id: &str,
     ) -> Result<Option<ComponentMetadata>> {
-        self.storage.read_metadata(component_id).await
+        StorageKey::parse(component_id).context("Invalid component storage key")?;
+        let metadata = self.storage.read_metadata(component_id).await?;
+        if let Some(metadata) = &metadata {
+            if metadata.component_id != component_id
+                || metadata.function_identifiers.iter().any(is_acp_identifier)
+            {
+                warn!(%component_id, "Ignoring mismatched or ACP cached tool metadata");
+                return Ok(None);
+            }
+        }
+        Ok(metadata)
     }
 
     /// Save precompiled component to disk
@@ -1187,18 +1229,22 @@ impl LifecycleManager {
         wasm_path: &Path,
         component_id: &str,
     ) -> Result<(Component, Vec<u8>)> {
+        let wasm_bytes = ordinary_artifact_bytes(wasm_path)
+            .await?
+            .context("Cannot load ACP or unsupported artifacts as ordinary tool components")?;
         let precompiled_path = self.component_precompiled_path(component_id);
 
         // Try to load from precompiled cache first
         if precompiled_path.exists() {
             match unsafe { Component::deserialize_file(self.runtime.as_ref(), &precompiled_path) } {
                 Ok(component) => {
-                    debug!(component_id = %component_id, "Loaded component from precompiled cache");
-                    // Still need the wasm bytes for metadata/validation
-                    let wasm_bytes = tokio::fs::read(wasm_path)
-                        .await
-                        .context("Failed to read wasm file")?;
-                    return Ok((component, wasm_bytes));
+                    if compiled_artifact_shape(&component, self.runtime.as_ref())
+                        == ArtifactShape::ToolCandidate
+                    {
+                        debug!(component_id = %component_id, "Loaded component from precompiled cache");
+                        return Ok((component, wasm_bytes));
+                    }
+                    warn!(%component_id, "Ignoring ACP or unsupported precompiled artifact for an ordinary component");
                 }
                 Err(e) => {
                     warn!(%component_id, error = %format_error_chain(&e), "Failed to load precompiled component, falling back to compilation");
@@ -1207,10 +1253,6 @@ impl LifecycleManager {
         }
 
         // Fall back to compilation
-        let wasm_bytes = tokio::fs::read(wasm_path)
-            .await
-            .context("Failed to read wasm file")?;
-
         let component = Component::new(self.runtime.as_ref(), &wasm_bytes)
             .map_err(anyhow::Error::from)
             .context("Failed to compile component")?;
@@ -1462,7 +1504,7 @@ impl LifecycleManager {
     /// take the answer back. With one write, a lookup sees either no hydrated component or
     /// all of them, and the collision is visible in both. The cost is that hydration becomes
     /// visible only once every component has been validated; validation reads metadata and
-    /// stats an artifact, and compiles nothing.
+    /// inspects an artifact's current bytes and stamp, and compiles nothing.
     pub async fn populate_registry_from_metadata(&self) -> Result<()> {
         let mut entries = tokio::fs::read_dir(self.storage.root()).await?;
         let mut pending = Vec::new();
@@ -1539,9 +1581,25 @@ impl LifecycleManager {
             return None;
         }
 
-        let Ok(Some(metadata)) = self.load_component_metadata(component_id).await else {
-            debug!(component_id = %component_id, "No valid cached metadata found, will load component later");
-            return None;
+        match ordinary_artifact_bytes(entry_path).await {
+            Ok(Some(_)) => {}
+            Ok(None) => return None,
+            Err(error) => {
+                warn!(%component_id, error = %format_error_chain(&error), "Cannot inspect component for cached tools");
+                return None;
+            }
+        }
+
+        let metadata = match self.load_component_metadata(component_id).await {
+            Ok(Some(metadata)) => metadata,
+            Ok(None) => {
+                debug!(%component_id, "No valid cached metadata found, will load component later");
+                return None;
+            }
+            Err(error) => {
+                warn!(%component_id, error = %format_error_chain(&error), "Cannot read cached component tools");
+                return None;
+            }
         };
 
         // Validate that the component file hasn't changed
@@ -1618,6 +1676,9 @@ impl LifecycleManager {
         }
 
         let start_time = Instant::now();
+        if ordinary_artifact_bytes(&entry_path).await?.is_none() {
+            return Ok(false);
+        }
         self.compile_and_register_component_locked(&component_id, &entry_path)
             .await
             .with_context(|| {
@@ -1710,17 +1771,16 @@ async fn load_component_from_entry(
     }
     let entry_path = entry.path();
 
-    // Read wasm bytes to extract package docs
-    let wasm_bytes = tokio::fs::read(&entry_path)
-        .await
-        .context("Failed to read wasm file")?;
+    let Some(wasm_bytes) = ordinary_artifact_bytes(&entry_path).await? else {
+        return Ok(None);
+    };
 
     // Extract package docs before spawning blocking task
     let package_docs = extract_package_docs(&wasm_bytes);
 
     let runtime_for_component = Arc::clone(&runtime);
     let component = tokio::task::spawn_blocking(move || {
-        Component::from_file(runtime_for_component.as_ref(), entry_path)
+        Component::new(runtime_for_component.as_ref(), &wasm_bytes)
     })
     .await??;
     let name = entry
@@ -1739,6 +1799,52 @@ async fn load_component_from_entry(
         },
         name,
     )))
+}
+
+async fn ordinary_artifact_bytes(path: &Path) -> Result<Option<Vec<u8>>> {
+    let stem = path
+        .file_stem()
+        .and_then(|stem| stem.to_str())
+        .context("Component path has no valid storage key")?;
+    StorageKey::parse(stem).context("Invalid component storage key")?;
+    let bytes = tokio::fs::read(path)
+        .await
+        .with_context(|| format!("Failed to read component {}", path.display()))?;
+    let inspection = inspect_artifact(&bytes)
+        .with_context(|| format!("Failed to inspect component {}", path.display()))?;
+    if inspection.shape != ArtifactShape::ToolCandidate {
+        debug!(path = %path.display(), shape = ?inspection.shape, "Skipping non-tool artifact");
+        return Ok(None);
+    }
+    Ok(Some(bytes))
+}
+
+fn compiled_artifact_shape(component: &Component, engine: &wasmtime::Engine) -> ArtifactShape {
+    inspect::classify_exports(
+        component
+            .component_type()
+            .exports(engine)
+            .map(|(name, item)| {
+                let kind = match item.ty {
+                    ComponentItem::ComponentFunc(_) => ComponentExternalKind::Func,
+                    ComponentItem::ComponentInstance(_) => ComponentExternalKind::Instance,
+                    _ => ComponentExternalKind::Type,
+                };
+                (name, kind)
+            }),
+    )
+}
+
+fn is_acp_identifier(identifier: &FunctionIdentifier) -> bool {
+    identifier
+        .package_name
+        .as_deref()
+        .is_some_and(|package| package.split('@').next() == Some("wassette:acp"))
+        || identifier
+            .interface_name
+            .as_deref()
+            .is_some_and(inspect::is_acp_export)
+        || inspect::is_acp_export(&identifier.function_name)
 }
 
 #[cfg(test)]
@@ -1936,7 +2042,7 @@ mod tests {
         let manager = create_test_manager().await?;
         let component_id = "cached-component";
         let component_path = manager.component_path(component_id);
-        tokio::fs::write(&component_path, b"cached component").await?;
+        tokio::fs::write(&component_path, kind_gate_tests::ordinary_component()).await?;
 
         let tool_schema = serde_json::json!({
             "name": "cached-tool",
@@ -2538,9 +2644,8 @@ mod tests {
     }
 
     /// Writes the on-disk state a previous process leaves behind for an installed component:
-    /// the artifact plus the cached tool metadata beside it. Neither has to be a real
-    /// WebAssembly component, because hydrating the registry from cached metadata reads the
-    /// metadata and validates the artifact's stamp without ever compiling it.
+    /// a real component plus cached tool metadata. Hydration inspects the binary
+    /// and checks its stamp without compiling it.
     async fn install_cached_component(
         component_dir: &Path,
         component_id: &str,
@@ -2548,7 +2653,7 @@ mod tests {
     ) -> Result<()> {
         let storage = ComponentStorage::new(component_dir.to_path_buf(), 1).await?;
         let artifact = storage.component_path(component_id);
-        tokio::fs::write(&artifact, format!("stand-in artifact for {component_id}")).await?;
+        tokio::fs::write(&artifact, kind_gate_tests::ordinary_component()).await?;
 
         let validation_stamp = storage.create_validation_stamp(&artifact, false).await?;
         storage
