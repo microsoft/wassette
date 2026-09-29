@@ -379,36 +379,49 @@ The registry commands provide convenient access to a centralized catalog of comm
 
 ### `wassette registry search`
 
-Search for components in the registry by name or description.
+Search wasm.directory for component packages. Search results are discovery
+metadata only: the advertised package kind and WIT identity are not validation
+of the artifact, and searching does not install or expose a component.
 
-**Search all components:**
+**Search all packages:**
 ```bash
-# List all available components in the registry
+# List packages indexed by wasm.directory
 wassette registry search
 ```
 
 **Search with a query:**
 ```bash
-# Search for components matching "weather"
+# Search for packages matching "weather"
 wassette registry search weather
-
-# Search is case-insensitive
-wassette registry search RUST
-
-# Search matches both name and description
-wassette registry search javascript
 ```
+
+Use `--offset` and `--limit` to continue through upstream results. The default
+page size is 20; the API limit is 100. `next_offset` advances by the raw
+wasm.directory page size, including records excluded from component results.
+The API base defaults to `https://api.wasm.directory`; set
+`WASSETTE_WASM_DIRECTORY_URL` to use a compatible self-hosted endpoint.
+Search requires the API to be reachable and does not fall back to a bundled
+catalog. Direct local component operations remain available offline.
 
 **Example output:**
 ```json
 {
   "status": "success",
+  "source": "wasm.directory",
+  "discovery_only": true,
   "count": 1,
+  "upstream_count": 1,
+  "offset": 0,
+  "limit": 20,
+  "next_offset": null,
+  "may_have_more": false,
   "components": [
     {
-      "name": "Weather Server",
+      "package_id": "ghcr.io/microsoft/get-weather-js",
       "description": "A weather component written in JavaScript",
-      "uri": "oci://ghcr.io/microsoft/get-weather-js:latest"
+      "advertised_kind": "component",
+      "wit_identity": null,
+      "tags": ["1.0.0"]
     }
   ]
 }
@@ -416,6 +429,8 @@ wassette registry search javascript
 
 **Options:**
 - `--output-format <FORMAT>`: Output format (json, yaml, table) [default: json]
+- `--offset <N>`: Upstream result offset [default: 0]
+- `--limit <N>`: Upstream page size from 1 to 100 [default: 20]
 
 ### `wassette registry get`
 

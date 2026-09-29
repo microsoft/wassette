@@ -63,6 +63,7 @@ pub mod tool_result;
 #[cfg(test)]
 mod tool_tests;
 mod wasistate;
+pub mod wasm_directory;
 
 use component_storage::ComponentStorage;
 pub use config::{LifecycleBuilder, LifecycleConfig};

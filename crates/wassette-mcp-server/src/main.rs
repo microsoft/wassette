@@ -21,6 +21,7 @@ use rmcp::transport::streamable_http_server::{StreamableHttpServerConfig, Stream
 use serde_json::{json, Map};
 use tracing_subscriber::layer::SubscriberExt as _;
 use tracing_subscriber::util::SubscriberInitExt as _;
+use wassette::wasm_directory::WasmDirectoryClient;
 
 mod cli_handlers;
 mod commands;
@@ -884,15 +885,25 @@ async fn main() -> Result<()> {
             Commands::Registry { command } => match command {
                 RegistryCommands::Search {
                     query,
+                    offset,
+                    limit,
                     output_format,
                 } => {
-                    let components = load_component_registry()?;
-                    let results = registry::search_components(&components, query.as_deref());
+                    let page = WasmDirectoryClient::from_environment()?
+                        .search(query.as_deref(), *offset, *limit)
+                        .await?;
 
                     let result = json!({
                         "status": "success",
-                        "count": results.len(),
-                        "components": results
+                        "source": "wasm.directory",
+                        "discovery_only": true,
+                        "count": page.packages.len(),
+                        "upstream_count": page.upstream_count,
+                        "offset": page.offset,
+                        "limit": page.limit,
+                        "next_offset": page.next_offset,
+                        "may_have_more": page.may_have_more,
+                        "components": page.packages
                     });
 
                     print_result(

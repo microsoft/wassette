@@ -7,7 +7,7 @@ Wassette comes with several built-in tools for managing components and their per
 | `load-component` | Dynamically loads a new tool or component from either the filesystem or OCI registries |
 | `unload-component` | Unloads a tool or component |
 | `list-components` | Lists all currently loaded components or tools |
-| `search-components` | Lists all known components that can be fetched and loaded from the component registry |
+| `search-components` | Searches wasm.directory for component packages; results are discovery-only |
 | `get-policy` | Gets the policy information for a specific component |
 | `grant-storage-permission` | Grants storage access permission to a component, allowing it to read from and/or write to specific storage locations |
 | `grant-network-permission` | Grants network access permission to a component, allowing it to make network requests to specific hosts |
@@ -77,22 +77,36 @@ ownership or revisions require an explicit retry, not an overwrite.
 ```
 
 ## search-components
-**Parameters:** None
+**Parameters:**
+- `query` (string, optional): Search query sent to wasm.directory
+- `offset` (integer, optional): Upstream result offset (default: `0`)
+- `limit` (integer, optional): Upstream page size from 1 to 100 (default: `20`)
+
+Results are discovery-only. `advertised_kind` is registry metadata, not
+validation of the downloaded artifact. Interface packages are excluded from
+component results, and no package is installed or exposed by searching.
+`next_offset` is based on raw upstream records; `may_have_more` means a later
+upstream page may exist.
 
 **Returns:**
 ```json
 {
-  "status": "Component list found",
+  "status": "success",
+  "source": "wasm.directory",
+  "discovery_only": true,
+  "count": 1,
+  "upstream_count": 1,
+  "offset": 0,
+  "limit": 20,
+  "next_offset": null,
+  "may_have_more": false,
   "components": [
     {
-      "name": "Weather Server",
+      "package_id": "ghcr.io/microsoft/get-weather-js",
       "description": "A weather component written in JavaScript",
-      "uri": "oci://ghcr.io/microsoft/get-weather-js:latest"
-    },
-    {
-      "name": "Time Server", 
-      "description": "A time server component written in JavaScript",
-      "uri": "oci://ghcr.io/microsoft/time-server-js:latest"
+      "advertised_kind": "component",
+      "wit_identity": null,
+      "tags": ["1.0.0"]
     }
   ]
 }

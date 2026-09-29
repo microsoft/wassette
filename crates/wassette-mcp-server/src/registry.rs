@@ -20,6 +20,7 @@ pub fn parse_registry(registry_json: &str) -> Result<Vec<RegistryComponent>> {
 }
 
 /// Search for components matching a query string with optimized full-text search
+#[cfg(test)]
 pub fn search_components(
     components: &[RegistryComponent],
     query: Option<&str>,

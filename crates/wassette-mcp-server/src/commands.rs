@@ -484,8 +484,14 @@ pub enum ToolCommands {
 pub enum RegistryCommands {
     /// Search for components in the registry.
     Search {
-        /// Search query (matches against component name and description)
+        /// Search query sent to wasm.directory
         query: Option<String>,
+        /// Offset into the upstream result set
+        #[arg(long, default_value_t = 0)]
+        offset: usize,
+        /// Maximum number of upstream records to fetch (1-100)
+        #[arg(long, default_value_t = wassette::wasm_directory::DEFAULT_SEARCH_PAGE_SIZE)]
+        limit: usize,
         /// Output format
         #[arg(short = 'o', long = "output-format", default_value = "json")]
         output_format: OutputFormat,
