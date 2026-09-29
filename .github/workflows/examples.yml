@@ -6,11 +6,17 @@ on:
     paths:
       - 'examples/**'
       - '.github/workflows/examples.yml'
+      - 'Justfile'
+      - 'scripts/name-component.py'
+      - 'scripts/component-names.json'
   pull_request:
     branches: [ "main" ]
     paths:
       - 'examples/**'
       - '.github/workflows/examples.yml'
+      - 'Justfile'
+      - 'scripts/name-component.py'
+      - 'scripts/component-names.json'
   workflow_dispatch:
     inputs:
       tag:

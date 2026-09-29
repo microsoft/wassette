@@ -183,6 +183,10 @@ loading and cached tool metadata before choosing an engine. ACP still checks
 the protocol version and expected stage, and linking checks runtime compatibility.
 Embedded semantic names are inspected separately; existing ACP selectors and
 secrets continue to use storage keys until a persisted semantic lookup exists.
+`just build-acp-examples` embeds each producer's explicitly declared Cargo package
+name (`acp-echo-provider`, `acp-uppercase-layer`, `acp-ollama-provider`, or
+`acp-copilot-provider`) at the root. The shared `wassette:acp` interface package
+does not identify a particular producer.
 
 * Provider terminal requests go directly to the host; layers cannot intercept
   or deny them. The example layer's terminal exports are unfinished.

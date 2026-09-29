@@ -5,7 +5,7 @@
   "main": "memory.js",
   "type": "module",
   "scripts": {
-    "build": "jco componentize ./memory.js --wit ./wit -o ./memory.wasm"
+    "build": "jco componentize ./memory.js --wit ./wit -o ./memory.wasm && python3 ../../scripts/name-component.py . memory.wasm"
   },
   "keywords": [
     "mcp",

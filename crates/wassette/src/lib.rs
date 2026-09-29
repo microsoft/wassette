@@ -47,6 +47,8 @@ mod kind_gate_tests;
 pub mod loader;
 pub mod oci_multi_layer;
 mod policy_internal;
+#[cfg(test)]
+mod producer_names_tests;
 mod runtime_context;
 pub mod schema;
 mod secrets;
@@ -1903,11 +1905,11 @@ mod tests {
             cwd.join("../../examples/fetch-rs/target/wasm32-wasip2/release/fetch_rs.wasm");
 
         if !component_path.exists() {
-            let status = Command::new("cargo")
+            let status = Command::new("just")
                 .current_dir(cwd.join("../../examples/fetch-rs"))
-                .args(["build", "--release", "--target", "wasm32-wasip2"])
+                .args(["build", "release"])
                 .status()
-                .context("Failed to execute cargo component build")?;
+                .context("Failed to execute named component build")?;
 
             if !status.success() {
                 anyhow::bail!("Failed to compile fetch-rs component");
@@ -1920,6 +1922,17 @@ mod tests {
                 component_path.display()
             );
         }
+
+        let status = Command::new("python3")
+            .arg(cwd.join("../../scripts/name-component.py"))
+            .arg(cwd.join("../../examples/fetch-rs"))
+            .arg(&component_path)
+            .status()
+            .context("Failed to name the source-built fetch fixture")?;
+        anyhow::ensure!(
+            status.success(),
+            "Failed to name the source-built fetch fixture"
+        );
 
         Ok(component_path)
     }

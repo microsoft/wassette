@@ -6,14 +6,14 @@ For more information on installing Wassette, please see the [installation instru
 
 ## Building
 
-This example uses the standard Rust build process with an additional documentation injection step:
+The build recipe compiles Rust and embeds the declared root name `microsoft:fetch-rs`:
 
 ```bash
 # Build the component
-cargo build --target wasm32-wasip2 --release
+just build release
 
-# From repository root: inject WIT documentation into the component
-just inject-docs examples/fetch-rs/target/wasm32-wasip2/release/fetch_rs.wasm examples/fetch-rs/wit
+# From repository root: inject WIT documentation and finalize the root name
+just finalize-component examples/fetch-rs examples/fetch-rs/target/wasm32-wasip2/release/fetch_rs.wasm
 ```
 
 The documentation injection embeds the WIT interface documentation into the WASM binary, making it available to AI agents when they discover this tool. See [`wit/world.wit`](wit/world.wit) for the documented interface.

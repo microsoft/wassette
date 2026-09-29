@@ -67,10 +67,15 @@ It neither generates semantic names nor grants permission to replace a component
 New keys reject nonportable spelling, Windows device names, trailing dots, and
 unsafe projected secret filenames instead of silently renaming them.
 
+First-party build recipes embed the explicit names declared in
+`scripts/component-names.json` before hashing or publishing their outputs.
+Nested metadata is preserved; opaque third-party downloads are not renamed.
+See [producer naming](../development/getting-started.md#declaring-first-party-component-names).
+
 Existing load results, selectors, policy, and secrets lookups still use storage
-keys. Semantic-only lookup is not enabled: it requires explicitly named producer
-artifacts and a persisted semantic-name-to-storage-key mapping adopted by every
-adapter. Existing secret paths are unchanged.
+keys. Semantic-only lookup is not enabled: it requires a persisted
+semantic-name-to-storage-key mapping adopted by every adapter. Existing secret
+paths are unchanged.
 
 The ordinary runtime inspects current Wasm bytes before eager or lazy compilation,
 native-cache loading, and cached tool/schema publication. ACP providers/layers

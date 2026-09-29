@@ -9,5 +9,6 @@ bindings:
 
 build:
     uv run componentize-py -d wit -w eval-py componentize -s main -o eval.wasm
+    python3 ../../scripts/name-component.py . eval.wasm
 
 all: bindings build 

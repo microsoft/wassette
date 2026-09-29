@@ -3,3 +3,4 @@ bindings:
 
 build: bindings
     tinygo build -o gomodule.wasm -target wasip2 --wit-package ./wit --wit-world gomodule-go main.go
+    python3 ../../scripts/name-component.py . gomodule.wasm

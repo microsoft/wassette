@@ -20,11 +20,11 @@ fn ensure_fetch_component_built() -> Result<()> {
             .join("..");
 
             // Use std::process::Command instead of tokio::process::Command to avoid runtime issues
-            let status = std::process::Command::new("cargo")
+            let status = std::process::Command::new("just")
                 .current_dir(top_level.join("examples/fetch-rs"))
-                .args(["build", "--release", "--target", "wasm32-wasip2"])
+                .args(["build", "release"])
                 .status()
-                .expect("Failed to execute cargo component build");
+                .expect("Failed to execute named component build");
 
             if !status.success() {
                 panic!("Failed to compile fetch-rs component");
@@ -73,11 +73,11 @@ fn ensure_filesystem_component_built() -> Result<()> {
             .join("..");
 
             // Use std::process::Command instead of tokio::process::Command to avoid runtime issues
-            let status = std::process::Command::new("cargo")
+            let status = std::process::Command::new("just")
                 .current_dir(top_level.join("examples/filesystem-rs"))
-                .args(["build", "--release", "--target", "wasm32-wasip2"])
+                .args(["build", "release"])
                 .status()
-                .expect("Failed to execute cargo component build");
+                .expect("Failed to execute named component build");
 
             if !status.success() {
                 panic!("Failed to compile filesystem component");

@@ -13,7 +13,7 @@
 //!
 //! ```sh
 //! cargo build -p wassette-mcp-server
-//! (cd components/acp-echo-provider && cargo build --release --target wasm32-wasip2)
+//! just build-acp-examples
 //! ```
 //!
 //! Outside CI, missing artifacts skip the tests so a plain `cargo test

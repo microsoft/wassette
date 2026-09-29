@@ -5,7 +5,7 @@
   "type": "module",
   "main": "github.js",
   "scripts": {
-    "build": "jco componentize -w ./wit github.js -o github.wasm"
+    "build": "jco componentize -w ./wit github.js -o github.wasm && python3 ../../scripts/name-component.py . github.wasm"
   },
   "license": "MIT",
   "dependencies": {
