@@ -54,6 +54,7 @@ mod tests {
 
     #[test]
     fn preserves_display_text() -> Result<()> {
+        let compound = json!({"result": "hello", "extra": true}).to_string();
         let cases = [
             ("plain text", "plain text"),
             ("", ""),
@@ -67,10 +68,7 @@ mod tests {
             (r#"{"result":[1,2]}"#, "[1,2]"),
             (r#"{"result":{"answer":42}}"#, r#"{"answer":42}"#),
             (r#"{"value":"hello"}"#, r#"{"value":"hello"}"#),
-            (
-                r#"{"result":"hello","extra":true}"#,
-                r#"{"extra":true,"result":"hello"}"#,
-            ),
+            (r#"{"result":"hello","extra":true}"#, compound.as_str()),
         ];
 
         for (raw, expected_text) in cases {

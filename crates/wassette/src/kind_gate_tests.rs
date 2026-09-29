@@ -177,7 +177,7 @@ async fn current_shape_gates_same_stamp_metadata_and_all_restore_paths() -> Resu
         .is_err());
     assert!(manager.populate_registry_from_metadata().await.is_err());
     assert!(manager.list_tools().await.is_empty());
-    manager.load_all_components().await?;
+    assert!(manager.load_all_components().await.is_err());
     assert!(manager.list_components().await.is_empty());
     let notifications = Arc::new(AtomicUsize::new(0));
     let notified = Arc::clone(&notifications);
@@ -371,12 +371,12 @@ async fn non_runnable_and_missing_legacy_artifacts_never_publish_cached_tools() 
         assert_eq!(inventory.protected.len(), 1);
         assert!(inventory.protected[0].diagnostic.is_some());
         assert!(manager.get_component_schema("test").await.is_none());
-        manager.populate_registry_from_metadata().await?;
+        assert!(manager.populate_registry_from_metadata().await.is_err());
         assert!(manager.list_tools().await.is_empty(), "{wat}");
         assert!(manager.ensure_component_loaded("test").await.is_err());
         tokio::fs::remove_file(path).await?;
         assert!(manager.get_component_schema("test").await.is_none());
-        manager.populate_registry_from_metadata().await?;
+        assert!(manager.populate_registry_from_metadata().await.is_err());
         assert!(manager.list_tools().await.is_empty());
     }
     Ok(())
@@ -484,16 +484,18 @@ async fn cached_acp_identifiers_and_mismatched_keys_are_not_published() -> Resul
     let mut acp = metadata.clone();
     acp.function_identifiers[0].package_name = Some("wassette:acp".to_owned());
     acp.function_identifiers[0].interface_name = Some("agent".to_owned());
-    publish_metadata(&manager, "ordinary", &acp, native.clone()).await?;
-    assert!(manager.get_component_schema("ordinary").await.is_none());
-    assert!(manager.populate_registry_from_metadata().await.is_err());
-    assert!(manager.list_tools().await.is_empty());
     let mut mismatched = metadata.clone();
     mismatched.component_id = "different".to_owned();
-    publish_metadata(&manager, "ordinary", &mismatched, native.clone()).await?;
-    assert!(manager.get_component_schema("ordinary").await.is_none());
-    assert!(manager.populate_registry_from_metadata().await.is_err());
-    assert!(manager.list_tools().await.is_empty());
+    for invalid in [acp, mismatched] {
+        manager.registry.remove_component("ordinary").await;
+        publish_metadata(&manager, "ordinary", &invalid, native.clone()).await?;
+        assert!(manager.get_component_schema("ordinary").await.is_some());
+        manager.populate_registry_from_metadata().await?;
+        let tools = manager.list_tool_descriptors().await?;
+        assert_eq!(tools.len(), 1);
+        assert_eq!(tools[0].key.component_id.as_str(), "ordinary");
+        assert_eq!(tools[0].key.export, metadata.function_identifiers[0]);
+    }
     assert!(!is_acp_identifier(&FunctionIdentifier {
         package_name: None,
         interface_name: None,

@@ -74,7 +74,15 @@ impl LifecycleManager {
                     }
                 }
             }
-            manager.publish_policy_commit(commit).await
+            let publication = manager.publish_policy_commit(commit).await;
+            drop(_guard);
+            let refresh = manager
+                .refresh_from_store()
+                .await
+                .context("Policy committed, but catalog reconciliation failed");
+            publication?;
+            refresh?;
+            Ok(())
         })
         .await
         .context("Policy mutation worker failed")?
@@ -113,7 +121,7 @@ impl LifecycleManager {
         id: &str,
         cursor: &store::StoreCursor,
     ) -> Result<()> {
-        loop {
+        for _ in 0..crate::tool_catalog::PUBLICATION_ATTEMPTS {
             let registry = self.registry.clone();
             let cursor = cursor.clone();
             let id = id.to_owned();
@@ -132,6 +140,7 @@ impl LifecycleManager {
             }
             tokio::task::yield_now().await;
         }
+        bail!("Runtime registry remained busy while publishing removal; retry")
     }
 
     /// The shared persistent store, independent of this manager's runtime registry.
@@ -262,7 +271,15 @@ impl LifecycleManager {
                 Ok(store.commit_install(install, expected)?)
             })
             .await?;
-            manager.publish_prepared(prepared, outcome).await
+            let publication = manager.publish_prepared(prepared, outcome).await;
+            drop(_guard);
+            let refresh = manager
+                .refresh_from_store()
+                .await
+                .context("Component installed, but catalog reconciliation failed");
+            let outcome = publication?;
+            refresh?;
+            Ok(outcome)
         })
         .await
         .context("Component installation worker failed")?
@@ -294,6 +311,7 @@ impl LifecycleManager {
         .await
     }
 
+    #[cfg(test)]
     pub(crate) async fn read_cached_metadata(&self, id: &str) -> Result<Option<ComponentMetadata>> {
         let snapshot = self.store_snapshot(id).await?;
         if !snapshot.receipt.requests_tool_exposure() {
@@ -320,64 +338,6 @@ impl LifecycleManager {
             bail!("Derived tool metadata does not match its component receipt");
         }
         Ok(Some(metadata))
-    }
-
-    pub(crate) async fn hydrate_cached_registry(&self) -> Result<()> {
-        let snapshot = store_operation(&self.store, |store| {
-            store
-                .snapshot_if_changed(None)?
-                .context("missing requested store snapshot")
-        })
-        .await?;
-        let mut pending = Vec::new();
-        for entry in &snapshot.entries {
-            let StoredEntry::Installed(receipt) = entry else {
-                continue;
-            };
-            if !receipt.requests_tool_exposure() {
-                continue;
-            }
-            let id = receipt.component_id.as_str();
-            let guard = self.load_guard(id).await;
-            let _guard = guard.lock().await;
-            if let Some(metadata) = self.read_cached_metadata(id).await? {
-                let tools = metadata
-                    .function_identifiers
-                    .into_iter()
-                    .zip(metadata.tool_schemas)
-                    .zip(metadata.tool_names)
-                    .map(|((identifier, schema), normalized_name)| ToolMetadata {
-                        identifier,
-                        schema: schema::canonicalize_tool_schema(&schema),
-                        normalized_name,
-                    })
-                    .collect::<Vec<_>>();
-                pending.push((id.to_owned(), tools));
-            }
-        }
-        loop {
-            let registry = self.registry.clone();
-            let cursor = snapshot.cursor.clone();
-            let result = store_operation(&self.store, move |store| {
-                let _scope = store.checked_read(&cursor, None)?;
-                let Ok(mut state) = registry.state.try_write() else {
-                    return Ok(Some(pending));
-                };
-                for (id, tools) in pending {
-                    if !state.components.contains_key(&id) && !state.component_map.contains_key(&id)
-                    {
-                        state.register_tools_only(&id, tools);
-                    }
-                }
-                Ok(None)
-            })
-            .await?;
-            match result {
-                None => return Ok(()),
-                Some(retained) => pending = retained,
-            }
-            tokio::task::yield_now().await;
-        }
     }
 
     async fn publish_prepared(
@@ -424,7 +384,7 @@ impl LifecycleManager {
         let mut instance = Some(prepared.instance);
         let mut tools = Some(tools);
         let revision = receipt.revision.clone();
-        loop {
+        for _ in 0..crate::tool_catalog::PUBLICATION_ATTEMPTS {
             let registry = self.registry.clone();
             let cursor = outcome.cursor.clone();
             let revision = revision.clone();
@@ -462,6 +422,7 @@ impl LifecycleManager {
                 }
             }
         }
+        bail!("Component committed, but runtime registry remained busy; retry")
     }
 
     pub(crate) async fn restore_component_locked(&self, id: &str) -> Result<ComponentLoadOutcome> {
@@ -550,7 +511,7 @@ impl LifecycleManager {
         };
         let id = receipt.component_id.as_str().to_owned();
         let expected = receipt.revision.clone();
-        loop {
+        for _ in 0..crate::tool_catalog::PUBLICATION_ATTEMPTS {
             let registry = self.registry.clone();
             let template = commit.template.clone();
             let effective_policy = commit.effective_policy.clone();
@@ -583,6 +544,7 @@ impl LifecycleManager {
             }
             tokio::task::yield_now().await;
         }
+        bail!("Policy committed, but runtime registry remained busy; retry")
     }
 
     pub(crate) async fn installed_tool_ids(&self) -> Result<Vec<String>> {
@@ -615,7 +577,7 @@ impl LifecycleManager {
         format!("ordinary-{:016x}", hash.finish())
     }
 
-    fn metadata_for(
+    pub(crate) fn metadata_for(
         &self,
         id: &str,
         tools: &[ToolMetadata],

@@ -40,7 +40,16 @@ pub struct ComponentStore {
     root: PathBuf,
     #[cfg(test)]
     failpoint: std::sync::Arc<std::sync::Mutex<Option<(&'static str, bool)>>>,
+    #[cfg(test)]
+    cache_publication_pauses:
+        std::sync::Arc<std::sync::Mutex<std::collections::VecDeque<CachePublicationPause>>>,
 }
+
+#[cfg(test)]
+type CachePublicationPause = (
+    tokio::sync::oneshot::Sender<()>,
+    tokio::sync::oneshot::Receiver<()>,
+);
 
 /// A checked admission scope owning a shared store lock until dropped.
 ///
@@ -73,6 +82,8 @@ impl ComponentStore {
             root,
             #[cfg(test)]
             failpoint: Default::default(),
+            #[cfg(test)]
+            cache_publication_pauses: Default::default(),
         })
     }
 
@@ -330,9 +341,35 @@ impl ComponentStore {
         let mut head = capture.head.clone();
         head.operation = Some(transaction.operation.clone());
         let transaction = transaction.seal(capture.head.clone(), head)?;
+        #[cfg(test)]
+        {
+            let pause = self
+                .cache_publication_pauses
+                .lock()
+                .expect("cache publication pause mutex")
+                .pop_front();
+            if let Some((ready, resume)) = pause {
+                ready
+                    .send(())
+                    .map_err(|_| anyhow::anyhow!("Cache publication test listener closed"))?;
+                resume.blocking_recv().map_err(anyhow::Error::from)?;
+            }
+        }
         let _lock = journal::exclusive(&self.root)?;
         self.recheck(&capture)?;
         transaction.commit(&self.root, |point| self.inject(point))
+    }
+
+    #[cfg(test)]
+    pub(crate) fn pause_next_cache_publication(
+        &self,
+        ready: tokio::sync::oneshot::Sender<()>,
+        resume: tokio::sync::oneshot::Receiver<()>,
+    ) {
+        self.cache_publication_pauses
+            .lock()
+            .expect("cache publication pause mutex")
+            .push_back((ready, resume));
     }
 
     /// Capture an eligible native cache; stale/unbound caches are simply ineligible.

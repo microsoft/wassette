@@ -4,6 +4,7 @@
 use serde_json::json;
 
 use super::*;
+use crate::tool::ToolSelector;
 
 const ALPHA: &str = "example:alpha/tool";
 const BETA: &str = "example:beta/tool";
@@ -252,7 +253,8 @@ async fn lazy_loading_rechecks_global_name_collisions() -> Result<()> {
     let arguments = json!({});
     let mut invocation = Box::pin(manager.invoke_unique_tool(ALIAS, &arguments));
     assert!(futures::poll!(invocation.as_mut()).is_pending());
-    install(&manager, root.path(), "beta", BETA, &[("MATH", "bool", 1)]).await?;
+    let writer = self::manager(root.path()).await?;
+    install(&writer, root.path(), "beta", BETA, &[("MATH", "bool", 1)]).await?;
     drop(held);
     let error = invocation.await.unwrap_err();
     assert!(matches!(
@@ -278,6 +280,7 @@ async fn selected_instance_export_and_schema_survive_registry_replacement_togeth
     let (instance, selected) = manager
         .select_loaded_tool(ToolSelector::Exact(&descriptor.key))
         .await?;
+    let state = manager.wasi_state_for_instance(&instance).await?;
     install(
         &manager,
         root.path(),
@@ -287,7 +290,7 @@ async fn selected_instance_export_and_schema_survive_registry_replacement_togeth
     )
     .await?;
     let output = manager
-        .execute_tool_call(instance, selected, &json!({}))
+        .execute_tool_call(instance, selected, Vec::new(), state)
         .await?;
     assert_eq!(returned(&output)?, json!({"result": 7}));
     assert_eq!(output.descriptor, descriptor);
@@ -330,12 +333,17 @@ async fn scoped_lookup_reports_missing_exports_without_using_a_normalized_alias(
             Some(ToolLookupError::NotFound { .. })
         ));
     }
-    assert!(manager
+    let error = manager
         .invoke_scoped_tool(&descriptor.key, &json!([]))
         .await
-        .unwrap_err()
-        .downcast_ref::<component2json::ValError>()
-        .is_some());
+        .unwrap_err();
+    assert!(matches!(
+        error.downcast_ref::<crate::ToolInvocationError>(),
+        Some(crate::ToolInvocationError::InvalidArguments(_))
+    ));
+    assert!(error
+        .chain()
+        .any(|cause| cause.is::<component2json::ValError>()));
     manager.unload_component(ALPHA).await?;
     assert!(manager.describe_scoped_tool(&descriptor.key).await.is_err());
     assert!(manager

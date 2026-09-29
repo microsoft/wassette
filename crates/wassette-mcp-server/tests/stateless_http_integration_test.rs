@@ -12,7 +12,7 @@
 //! These tests exercise `wassette serve --streamable-http` end to end over
 //! real HTTP so the behaviour is pinned at the wire, not at the rmcp API.
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::process::Stdio;
 use std::time::Duration;
 
@@ -20,6 +20,8 @@ use anyhow::{bail, Context, Result};
 use serde_json::{json, Value};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::process::{Child, Command};
+
+mod common;
 
 /// The protocol revision that removed sessions and added the mirrored headers.
 const STATELESS_VERSION: &str = "2026-07-28";
@@ -64,6 +66,7 @@ impl Drop for ServerGuard {
 
 async fn spawn_server(port: u16, component_dir: &Path, extra_args: &[&str]) -> Result<ServerGuard> {
     let bind_address = format!("127.0.0.1:{port}");
+    let secrets_dir = component_dir.join("secrets");
     let component_dir = format!("--component-dir={}", component_dir.display());
     let mut args = vec![
         "serve",
@@ -77,6 +80,7 @@ async fn spawn_server(port: u16, component_dir: &Path, extra_args: &[&str]) -> R
     let child = Command::new(env!("CARGO_BIN_EXE_wassette"))
         .args(&args)
         .env("RUST_LOG", "error")
+        .env("WASSETTE_SECRETS_DIR", secrets_dir)
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null())
@@ -498,14 +502,6 @@ async fn legacy_initialize_still_issues_a_session() -> Result<()> {
     Ok(())
 }
 
-/// A component checked into the repository, cheap to load and always present.
-fn test_component_path() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../component2json/testdata/fetch-rs.wasm")
-        .canonicalize()
-        .expect("test component should exist")
-}
-
 /// Open a `subscriptions/listen` stream and return the response to read from.
 ///
 /// `params.notifications` is required: rmcp answers a listen request whose
@@ -582,7 +578,10 @@ async fn stateless_subscription_receives_tool_list_changed() -> Result<()> {
     let client = reqwest::Client::new();
     let subscription = open_subscription(&client, port).await?;
 
-    let component = format!("file://{}", test_component_path().display());
+    let component = format!(
+        "file://{}",
+        common::build_fetch_component().await?.display()
+    );
     let load = post_stateless(
         &client,
         port,
@@ -628,7 +627,10 @@ async fn stateless_subscription_receives_tool_list_changed_after_unload() -> Res
     let (port, _server) = start_server(temp_dir.path(), &[]).await?;
 
     let client = reqwest::Client::new();
-    let component = format!("file://{}", test_component_path().display());
+    let component = format!(
+        "file://{}",
+        common::build_fetch_component().await?.display()
+    );
     let load = post_stateless(
         &client,
         port,

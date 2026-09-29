@@ -257,6 +257,17 @@ async fn test_filesystem_component_integration() -> Result<()> {
     stdin.write_all(grant_permission_request.as_bytes()).await?;
     stdin.flush().await?;
 
+    let mut notification_line = String::new();
+    tokio::time::timeout(
+        Duration::from_secs(10),
+        stdout.read_line(&mut notification_line),
+    )
+    .await
+    .context("Timeout waiting for policy-revision notification")??;
+    let notification: serde_json::Value = serde_json::from_str(&notification_line)?;
+    assert_eq!(notification["method"], "notifications/tools/list_changed");
+    assert!(notification.get("id").is_none());
+
     let mut grant_response_line = String::new();
     tokio::time::timeout(
         Duration::from_secs(10),

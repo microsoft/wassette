@@ -145,18 +145,19 @@ async fn main() -> Result<()> {
                     lifecycle_manager.clone(),
                     cfg.disable_builtin_tools,
                     legacy_sessions,
-                );
+                )
+                .await?;
 
-                // Start background component loading
+                let mut background_tasks = tokio::task::JoinSet::new();
                 let server_clone = server.clone();
-                let lifecycle_manager_clone = lifecycle_manager.clone();
-                tokio::spawn(async move {
-                    // Announce newly loaded components to session peers and to
-                    // stateless `subscriptions/listen` streams alike.
-                    let notify_fn = move || server_clone.publish_tool_list_changed();
+                background_tasks.spawn(async move {
+                    server_clone.watch_catalog_changes().await;
+                });
 
+                let lifecycle_manager_clone = lifecycle_manager.clone();
+                background_tasks.spawn(async move {
                     if let Err(e) = lifecycle_manager_clone
-                        .load_existing_components_async(None, Some(notify_fn))
+                        .load_existing_components_async(None, None::<fn()>)
                         .await
                     {
                         tracing::error!("Background component loading failed: {:#}", e);
@@ -169,6 +170,7 @@ async fn main() -> Result<()> {
 
                 tokio::signal::ctrl_c().await?;
                 let _ = running_service.cancel().await;
+                background_tasks.shutdown().await;
 
                 tracing::info!("MCP server shutting down");
             }
@@ -270,18 +272,19 @@ async fn main() -> Result<()> {
                     lifecycle_manager.clone(),
                     cfg.disable_builtin_tools,
                     legacy_sessions,
-                );
+                )
+                .await?;
 
-                // Start background component loading
+                let mut background_tasks = tokio::task::JoinSet::new();
                 let server_clone = server.clone();
-                let lifecycle_manager_clone = lifecycle_manager.clone();
-                tokio::spawn(async move {
-                    // Announce newly loaded components to session peers and to
-                    // stateless `subscriptions/listen` streams alike.
-                    let notify_fn = move || server_clone.publish_tool_list_changed();
+                background_tasks.spawn(async move {
+                    server_clone.watch_catalog_changes().await;
+                });
 
+                let lifecycle_manager_clone = lifecycle_manager.clone();
+                background_tasks.spawn(async move {
                     if let Err(e) = lifecycle_manager_clone
-                        .load_existing_components_async(None, Some(notify_fn))
+                        .load_existing_components_async(None, None::<fn()>)
                         .await
                     {
                         tracing::error!("Background component loading failed: {:#}", e);
@@ -355,6 +358,7 @@ async fn main() -> Result<()> {
                     }
                 }
 
+                background_tasks.shutdown().await;
                 tracing::info!("MCP server shutting down");
             }
             Commands::Component { command } => match command {

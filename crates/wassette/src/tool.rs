@@ -67,17 +67,12 @@ pub enum ToolLookupError {
 #[derive(Clone, Copy)]
 pub(crate) enum ToolSelector<'a> {
     Exact(&'a ToolKey),
-    Name {
-        component_id: Option<&'a str>,
-        name: &'a str,
-    },
 }
 
 impl ToolSelector<'_> {
     fn label(self) -> String {
         match self {
             Self::Exact(key) => format!("{}::{:?}", key.component_id.as_str(), key.export),
-            Self::Name { name, .. } => name.to_owned(),
         }
     }
 }
@@ -108,13 +103,6 @@ impl ComponentRegistryState {
                     info.component_id == key.component_id.as_str() && info.identifier == key.export
                 })
                 .collect(),
-            ToolSelector::Name { component_id, name } => self
-                .tool_map
-                .get(name)
-                .into_iter()
-                .flatten()
-                .filter(|info| component_id.is_none_or(|id| info.component_id == id))
-                .collect(),
         };
         match matches.as_slice() {
             [] => Err(ToolLookupError::NotFound {
@@ -128,7 +116,10 @@ impl ComponentRegistryState {
         }
     }
 
-    fn descriptors_for_component(&self, id: &ComponentId) -> Result<Vec<ScopedToolDescriptor>> {
+    pub(crate) fn descriptors_for_component(
+        &self,
+        id: &ComponentId,
+    ) -> Result<Vec<ScopedToolDescriptor>> {
         self.tool_map
             .values()
             .flatten()
@@ -141,17 +132,16 @@ impl ComponentRegistryState {
 impl LifecycleManager {
     /// List descriptors for installed ordinary components requesting tool exposure.
     ///
-    /// Receipt-bound metadata avoids compilation when available. This is an
-    /// unversioned inventory read, not an atomic cross-component catalog snapshot.
+    /// Receipt-bound metadata avoids compilation when available. This compatibility
+    /// view drops the revision references; use `catalog()` for permission-safe identity.
     pub async fn list_tool_descriptors(&self) -> Result<Vec<ScopedToolDescriptor>> {
-        let mut tools = Vec::new();
-        for id in self.installed_tool_ids().await? {
-            tools.extend(
-                self.list_tools_for_component(&ComponentId::from_declared_name(&id)?)
-                    .await?,
-            );
-        }
-        Ok(tools)
+        Ok(self
+            .catalog()
+            .await?
+            .tools
+            .into_iter()
+            .map(|tool| tool.tool)
+            .collect())
     }
 
     /// List a component's exports without collapsing normalized-name collisions.
@@ -163,63 +153,20 @@ impl LifecycleManager {
         &self,
         component_id: &ComponentId,
     ) -> Result<Vec<ScopedToolDescriptor>> {
-        let mut tools = self.component_tool_descriptors(component_id).await?;
-        tools.sort_by(|left, right| {
-            let left = &left.key.export;
-            let right = &right.key.export;
-            (
-                &left.package_name,
-                &left.interface_name,
-                &left.function_name,
-            )
-                .cmp(&(
-                    &right.package_name,
-                    &right.interface_name,
-                    &right.function_name,
-                ))
-        });
-        Ok(tools)
-    }
-
-    async fn component_tool_descriptors(
-        &self,
-        component_id: &ComponentId,
-    ) -> Result<Vec<ScopedToolDescriptor>> {
         let id = component_id.as_str();
         let snapshot = self.store_snapshot(id).await?;
         ensure!(
             snapshot.receipt.requests_tool_exposure(),
             "Component '{id}' is not installed for ordinary tool exposure"
         );
-        {
-            let state = self.registry.state.read().await;
-            if state.components.get(id).is_some_and(|instance| {
-                instance.revision.as_ref() == Some(&snapshot.receipt.revision)
-            }) {
-                return state.descriptors_for_component(component_id);
-            }
-        }
-        if let Some(metadata) = self.read_cached_metadata(id).await? {
-            return Ok(metadata
-                .function_identifiers
-                .into_iter()
-                .zip(metadata.tool_schemas)
-                .map(|(export, schema)| ScopedToolDescriptor {
-                    key: ToolKey {
-                        component_id: snapshot.receipt.component_id.clone(),
-                        export,
-                    },
-                    schema: schema::canonicalize_tool_schema(&schema),
-                })
-                .collect());
-        }
-        self.ensure_component_loaded(id).await?;
-        let state = self.registry.state.read().await;
-        ensure!(
-            state.components.contains_key(id),
-            "Component not found: {id}"
-        );
-        state.descriptors_for_component(component_id)
+        Ok(self
+            .catalog()
+            .await?
+            .tools
+            .into_iter()
+            .filter(|tool| tool.tool.key.component_id == *component_id)
+            .map(|tool| tool.tool)
+            .collect())
     }
 
     /// Describe an exact export, independently of normalized-name collisions.
@@ -245,51 +192,42 @@ impl LifecycleManager {
     /// Invoke an exact component export in a fresh store with its own policy/secrets.
     ///
     /// Instance, export and schema are selected together after lazy restoration.
-    /// No registry or filesystem lock is held over guest execution. This is not
-    /// revision-safe admission for a previously approved descriptor.
+    /// No registry or filesystem lock is held over guest execution. This resolves
+    /// the latest revision; retain a `ToolRef` instead across a permission prompt.
     pub async fn invoke_scoped_tool(
         &self,
         key: &ToolKey,
         arguments: &Value,
     ) -> Result<ScopedToolOutput> {
-        self.ensure_component_loaded(key.component_id.as_str())
+        let catalog = self.catalog().await?;
+        let tool = catalog
+            .tools
+            .iter()
+            .find(|tool| tool.tool.key == *key)
+            .ok_or_else(|| ToolLookupError::NotFound {
+                tool: ToolSelector::Exact(key).label(),
+            })?;
+        let output = self
+            .prepare_invocation(&tool.reference, arguments)
+            .await?
+            .run()
             .await?;
-        let (component, descriptor) = self.select_loaded_tool(ToolSelector::Exact(key)).await?;
-        self.execute_tool_call(component, descriptor, arguments)
-            .await
+        Ok(ScopedToolOutput {
+            descriptor: output.descriptor.tool,
+            raw_result: output.raw_result,
+        })
     }
 
     /// Invoke a unique normalized name among the currently registered tools.
     ///
     /// Global collisions remain errors, including collisions added during lazy
-    /// loading. Callers populate the registry using the existing startup/hydration
-    /// APIs; this method does not introduce a background catalog refresh policy.
+    /// loading or before final admission. Cold callers do not require a background loader.
     pub async fn invoke_unique_tool(
         &self,
         name: &str,
         arguments: &Value,
     ) -> Result<ScopedToolOutput> {
-        let component_id = self
-            .get_component_id_for_tool(name)
-            .await
-            .with_context(|| format!("Failed to find component for tool '{name}'"))?;
-        self.ensure_component_loaded(&component_id)
-            .await
-            .with_context(|| {
-                format!("Failed to load component '{component_id}' for tool '{name}'")
-            })?;
-        let (component, descriptor) = self
-            .select_loaded_tool(ToolSelector::Name {
-                component_id: None,
-                name,
-            })
-            .await?;
-        ensure!(
-            descriptor.key.component_id.as_str() == component_id,
-            "Tool '{name}' changed components while loading; retry the call"
-        );
-        self.execute_tool_call(component, descriptor, arguments)
-            .await
+        self.invoke_catalog_name(None, name, arguments).await
     }
 
     pub(crate) async fn select_loaded_tool(
