@@ -7,7 +7,7 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use anyhow::{anyhow, Result};
+use anyhow::{anyhow, Context, Result};
 use oci_wasm::WasmClient;
 use policy::{
     AccessType, EnvironmentPermission, NetworkHostPermission, NetworkPermission, PolicyDocument,
@@ -277,6 +277,33 @@ impl PolicyManager {
         self.store_template(component_id, Arc::new(wasi_template))
             .await;
         Ok(())
+    }
+
+    pub(crate) async fn prepare_template(
+        &self,
+        component_id: &str,
+        policy_bytes: Option<&[u8]>,
+    ) -> Result<Option<Arc<WasiStateTemplate>>> {
+        let Some(bytes) = policy_bytes else {
+            // No cached template: default policy continues to read current secrets on each call.
+            return Ok(None);
+        };
+        let content = std::str::from_utf8(bytes).context("Policy must be valid UTF-8")?;
+        let policy =
+            PolicyParser::parse_str(content).context("Failed to parse effective policy")?;
+        let secrets = self
+            .secrets
+            .load_component_secrets(component_id)
+            .await
+            .context("Failed to load component secrets for effective policy")?;
+        let template = crate::create_wasi_state_template_from_policy(
+            &policy,
+            self.storage.root(),
+            self.environment_vars.as_ref(),
+            Some(&secrets),
+        )
+        .context("Failed to prepare effective policy")?;
+        Ok(Some(Arc::new(template)))
     }
 
     /// Rehydrate policy templates from a co-located policy file on disk, if

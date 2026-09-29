@@ -380,7 +380,10 @@ pub(crate) fn extract_memory_limit(policy: &PolicyDocument) -> anyhow::Result<Op
         // Fall back to legacy memory field for backward compatibility
         if let Some(legacy_memory) = resources.memory {
             // Legacy numeric values are assumed to be in MB
-            return Ok(Some(legacy_memory * 1024 * 1024));
+            let bytes = legacy_memory.checked_mul(1024 * 1024).ok_or_else(|| {
+                anyhow::anyhow!("Legacy memory limit {legacy_memory} MB is too large")
+            })?;
+            return Ok(Some(bytes));
         }
     }
 
@@ -394,6 +397,22 @@ mod tests {
     use tempfile::TempDir;
 
     use super::*;
+
+    #[test]
+    fn legacy_memory_limit_rejects_overflow() -> anyhow::Result<()> {
+        let largest = u64::MAX / (1024 * 1024);
+        let policy = |memory| {
+            PolicyParser::parse_str(format!(
+                "version: '1.0'\npermissions:\n  resources:\n    memory: {memory}\n"
+            ))
+        };
+        assert_eq!(
+            extract_memory_limit(&policy(largest)?)?,
+            Some(largest * 1024 * 1024)
+        );
+        assert!(extract_memory_limit(&policy(largest + 1)?).is_err());
+        Ok(())
+    }
 
     fn create_zero_permission_policy() -> PolicyDocument {
         let yaml_content = r#"

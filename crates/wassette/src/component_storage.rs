@@ -4,7 +4,7 @@
 //! Filesystem helpers that manage component artifacts, metadata, and cache
 //! layout for the lifecycle manager.
 
-use std::io::{BufReader, Read};
+use std::io::{BufReader, Read, Write};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -13,8 +13,8 @@ use sha2::{Digest, Sha256};
 use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 use tokio::task::spawn_blocking;
 
-use crate::loader::DownloadedResource;
-use crate::{ComponentMetadata, StorageKey, ValidationStamp};
+use crate::loader::{CapturedComponent, StagedComponentArtifact};
+use crate::{ComponentMetadata, ValidationStamp};
 
 /// Handles filesystem layout and metadata persistence for components.
 #[derive(Clone)]
@@ -96,25 +96,20 @@ impl ComponentStorage {
         self.root.join(format!("{component_id}.policy.meta.json"))
     }
 
-    /// Stage a downloaded component artifact into storage, replacing any existing files.
-    pub async fn install_component_artifact(
+    /// Stage captured bytes on the destination filesystem without changing installed files.
+    pub(crate) async fn stage_component_artifact(
         &self,
-        component_id: &str,
-        resource: DownloadedResource,
-    ) -> Result<PathBuf> {
-        StorageKey::parse(component_id).context("Invalid component storage key")?;
+        captured: &CapturedComponent,
+        policy: Option<&[u8]>,
+    ) -> Result<StagedComponentArtifact> {
         let _permit = self.acquire_download_permit().await;
-
-        self.remove_component_artifacts(component_id).await?;
-
-        resource.copy_to(self.root()).await.with_context(|| {
-            format!(
-                "Failed to copy component to destination: {}",
-                self.root.display()
-            )
-        })?;
-
-        Ok(self.component_path(component_id))
+        StagedComponentArtifact::from_bytes(
+            &captured.storage_key,
+            &captured.wasm,
+            policy,
+            self.root(),
+        )
+        .await
     }
 
     /// Remove persisted component artifacts (wasm, metadata, cache) if they exist.
@@ -125,6 +120,11 @@ impl ComponentStorage {
             component_id,
         )
         .await?;
+        self.invalidate_component_caches(component_id).await
+    }
+
+    /// Invalidate derived files without removing the authoritative Wasm.
+    pub(crate) async fn invalidate_component_caches(&self, component_id: &str) -> Result<()> {
         self.remove_if_exists(
             &self.metadata_path(component_id),
             "component metadata file",
@@ -174,12 +174,20 @@ impl ComponentStorage {
     /// Write precompiled component bytes to disk.
     pub async fn write_precompiled(&self, component_id: &str, bytes: &[u8]) -> Result<()> {
         let path = self.precompiled_path(component_id);
-        tokio::fs::write(&path, bytes).await.with_context(|| {
-            format!(
-                "Failed to write precompiled component to {}",
-                path.display()
-            )
+        let root = self.root.clone();
+        let bytes = bytes.to_vec();
+        spawn_blocking(move || {
+            let mut file = tempfile::NamedTempFile::new_in(root)?;
+            file.write_all(&bytes)?;
+            file.persist(&path).with_context(|| {
+                format!(
+                    "Failed to publish precompiled component to {}",
+                    path.display()
+                )
+            })?;
+            Ok(())
         })
+        .await?
     }
 
     /// Remove a file if it exists, translating IO errors into `anyhow`.

@@ -60,30 +60,128 @@ impl DownloadedResource {
         StorageKey::parse(stem).context("Invalid component storage key")
     }
 
-    /// Copies the resource, and any co-located policy file, into the `dest`
-    /// directory. The lifecycle manager retains an attached policy when the
-    /// replacement has no bundled policy.
-    pub(crate) async fn copy_to(self, dest: impl AsRef<Path>) -> Result<()> {
-        let meta = tokio::fs::metadata(&dest).await?;
-        if !meta.is_dir() {
-            bail!(
-                "Destination path must be a directory: {}",
-                dest.as_ref().display()
-            );
-        }
-        match self {
-            DownloadedResource::Local(path) => {
-                let dest = dest.as_ref().join(
-                    path.file_name()
-                        .context("Path to copy is missing filename")?,
-                );
-                tokio::fs::copy(path, dest).await?;
+    pub(crate) async fn capture(self) -> Result<CapturedComponent> {
+        let storage_key = self.storage_key()?;
+        let wasm = tokio::fs::read(self.as_ref())
+            .await
+            .with_context(|| format!("Failed to capture component {}", self.as_ref().display()))?;
+        let bundled_policy = match &self {
+            Self::Local(_) => None,
+            Self::Temp((_, path)) => {
+                read_optional_file(
+                    &path.with_file_name(format!("{}.policy.yaml", storage_key.as_str())),
+                )
+                .await?
             }
-            DownloadedResource::Temp((_tempdir, file)) => {
-                promote_component_artifact_with_policy(&file, dest.as_ref(), true).await?;
+        };
+        Ok(CapturedComponent {
+            storage_key,
+            wasm,
+            bundled_policy,
+        })
+    }
+}
+
+pub(crate) struct CapturedComponent {
+    pub(crate) storage_key: StorageKey,
+    pub(crate) wasm: Vec<u8>,
+    pub(crate) bundled_policy: Option<Vec<u8>>,
+}
+
+pub(crate) async fn read_optional_file(path: &Path) -> Result<Option<Vec<u8>>> {
+    match tokio::fs::read(path).await {
+        Ok(bytes) => Ok(Some(bytes)),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            match tokio::fs::symlink_metadata(path).await {
+                Err(missing) if missing.kind() == std::io::ErrorKind::NotFound => Ok(None),
+                Ok(_) => Err(error)
+                    .with_context(|| format!("Failed to read existing policy {}", path.display())),
+                Err(error) => Err(error)
+                    .with_context(|| format!("Failed to inspect policy {}", path.display())),
             }
         }
-        Ok(())
+        Err(error) => Err(error).with_context(|| format!("Failed to read {}", path.display())),
+    }
+}
+
+/// Destination-filesystem staging, owned until promotion finishes.
+pub(crate) struct StagedComponentArtifact {
+    directory: tempfile::TempDir,
+    wasm: PathBuf,
+    policy: PathBuf,
+    wasm_dest: PathBuf,
+    policy_dest: PathBuf,
+}
+
+impl StagedComponentArtifact {
+    async fn new(key: &StorageKey, dest_dir: &Path) -> Result<Self> {
+        let dest = dest_dir.to_path_buf();
+        let directory = tokio::task::spawn_blocking(move || tempfile::tempdir_in(dest)).await??;
+        let wasm_name = format!("{}.wasm", key.as_str());
+        let policy_name = format!("{}.policy.yaml", key.as_str());
+        Ok(Self {
+            wasm: directory.path().join(&wasm_name),
+            policy: directory.path().join(&policy_name),
+            wasm_dest: dest_dir.join(wasm_name),
+            policy_dest: dest_dir.join(policy_name),
+            directory,
+        })
+    }
+
+    pub(crate) async fn from_bytes(
+        key: &StorageKey,
+        wasm: &[u8],
+        policy: Option<&[u8]>,
+        dest_dir: &Path,
+    ) -> Result<Self> {
+        let stage = Self::new(key, dest_dir).await?;
+        tokio::fs::write(&stage.wasm, wasm)
+            .await
+            .context("Failed to stage captured component")?;
+        if let Some(policy) = policy {
+            tokio::fs::write(&stage.policy, policy)
+                .await
+                .context("Failed to stage captured policy")?;
+        }
+        Ok(stage)
+    }
+
+    pub(crate) fn promote(self, retain_unbundled_policy: bool) -> Result<PathBuf> {
+        let old_policy = self.directory.path().join("previous-policy");
+        let has_policy = self.policy.try_exists()?;
+        let had_policy = self.policy_dest.try_exists()?;
+        if had_policy && (has_policy || !retain_unbundled_policy) {
+            std::fs::hard_link(&self.policy_dest, &old_policy).with_context(|| {
+                format!("Failed to back up policy {}", self.policy_dest.display())
+            })?;
+        }
+
+        if has_policy {
+            std::fs::rename(&self.policy, &self.policy_dest).with_context(|| {
+                format!("Failed to install policy {}", self.policy_dest.display())
+            })?;
+        } else if had_policy && !retain_unbundled_policy {
+            std::fs::remove_file(&self.policy_dest).with_context(|| {
+                format!(
+                    "Failed to remove stale policy {}",
+                    self.policy_dest.display()
+                )
+            })?;
+        }
+
+        if let Err(error) = std::fs::rename(&self.wasm, &self.wasm_dest) {
+            if had_policy && (has_policy || !retain_unbundled_policy) {
+                std::fs::rename(&old_policy, &self.policy_dest)
+                    .with_context(|| format!("Failed to restore policy after {error}"))?;
+            } else if has_policy {
+                std::fs::remove_file(&self.policy_dest)
+                    .with_context(|| format!("Failed to remove policy after {error}"))?;
+            }
+            return Err(error)
+                .with_context(|| format!("Failed to install {}", self.wasm_dest.display()));
+        }
+        debug!(path = %self.wasm_dest.display(), "Promoted component artifact");
+        Ok(self.wasm_dest)
     }
 }
 
@@ -95,75 +193,27 @@ impl DownloadedResource {
 /// old WASM in place. Publishing two separate paths cannot be atomic for
 /// unsynchronized readers, so callers must serialize concurrent loads.
 pub async fn promote_component_artifact(staged_wasm: &Path, dest_dir: &Path) -> Result<PathBuf> {
-    promote_component_artifact_with_policy(staged_wasm, dest_dir, false).await
-}
-
-async fn promote_component_artifact_with_policy(
-    staged_wasm: &Path,
-    dest_dir: &Path,
-    retain_unbundled_policy: bool,
-) -> Result<PathBuf> {
-    let name = staged_wasm
-        .file_name()
-        .context("Path to copy is missing filename")?;
     let id = staged_wasm
         .file_stem()
         .and_then(|stem| stem.to_str())
         .context("Path to copy is missing component id")?;
-    StorageKey::parse(id).context("Invalid component storage key")?;
-    let policy_name = format!("{id}.policy.yaml");
-    let source_policy = staged_wasm.with_file_name(&policy_name);
-    let wasm_dest = dest_dir.join(name);
-    let policy_dest = dest_dir.join(&policy_name);
-
-    let dir = dest_dir.to_path_buf();
-    let stage = tokio::task::spawn_blocking(move || tempfile::tempdir_in(dir)).await??;
-    let staged_copy = stage.path().join(name);
-    tokio::fs::copy(staged_wasm, &staged_copy)
+    let key = StorageKey::parse(id).context("Invalid component storage key")?;
+    let mut stage = StagedComponentArtifact::new(&key, dest_dir).await?;
+    stage.wasm_dest = dest_dir.join(
+        staged_wasm
+            .file_name()
+            .context("Path to copy is missing filename")?,
+    );
+    tokio::fs::copy(staged_wasm, &stage.wasm)
         .await
         .with_context(|| format!("Failed to stage component {}", staged_wasm.display()))?;
-    let staged_policy = stage.path().join(&policy_name);
-    let has_policy = tokio::fs::try_exists(&source_policy).await?;
-    if has_policy {
-        tokio::fs::copy(&source_policy, &staged_policy)
+    let source_policy = staged_wasm.with_file_name(format!("{id}.policy.yaml"));
+    if tokio::fs::try_exists(&source_policy).await? {
+        tokio::fs::copy(&source_policy, &stage.policy)
             .await
             .with_context(|| format!("Failed to stage policy {}", source_policy.display()))?;
     }
-
-    let installed = tokio::task::spawn_blocking(move || -> Result<PathBuf> {
-        // Keep the transaction together even if the awaiting task is cancelled.
-        let old_policy = stage.path().join("previous-policy");
-        let had_policy = policy_dest.try_exists()?;
-        if had_policy && (has_policy || !retain_unbundled_policy) {
-            std::fs::hard_link(&policy_dest, &old_policy)
-                .with_context(|| format!("Failed to back up policy {}", policy_dest.display()))?;
-        }
-
-        if has_policy {
-            std::fs::rename(&staged_policy, &policy_dest)
-                .with_context(|| format!("Failed to install policy {}", policy_dest.display()))?;
-        } else if had_policy && !retain_unbundled_policy {
-            std::fs::remove_file(&policy_dest).with_context(|| {
-                format!("Failed to remove stale policy {}", policy_dest.display())
-            })?;
-        }
-
-        if let Err(error) = std::fs::rename(&staged_copy, &wasm_dest) {
-            if had_policy && (has_policy || !retain_unbundled_policy) {
-                std::fs::rename(&old_policy, &policy_dest)
-                    .with_context(|| format!("Failed to restore policy after {error}"))?;
-            } else if has_policy {
-                std::fs::remove_file(&policy_dest)
-                    .with_context(|| format!("Failed to remove policy after {error}"))?;
-            }
-            return Err(error)
-                .with_context(|| format!("Failed to install {}", wasm_dest.display()));
-        }
-        Ok(wasm_dest)
-    })
-    .await??;
-    debug!(path = %installed.display(), "Promoted component artifact");
-    Ok(installed)
+    tokio::task::spawn_blocking(move || stage.promote(false)).await?
 }
 
 /// A trait for resources that can be loaded from a URI.
@@ -505,11 +555,35 @@ pub async fn fetch_component_with_clients(
 mod tests {
     use super::*;
 
+    async fn promote_resource(resource: DownloadedResource, dest: &Path) -> Result<()> {
+        let captured = resource.capture().await?;
+        let stage = StagedComponentArtifact::from_bytes(
+            &captured.storage_key,
+            &captured.wasm,
+            captured.bundled_policy.as_deref(),
+            dest,
+        )
+        .await?;
+        tokio::task::spawn_blocking(move || stage.promote(true)).await??;
+        Ok(())
+    }
+
     fn test_directory() -> tempfile::TempDir {
         tempfile::Builder::new()
             .prefix("wassette-loader-test-")
             .tempdir_in(".")
             .unwrap()
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn dangling_policy_is_not_an_absent_policy() -> Result<()> {
+        let root = tempfile::tempdir()?;
+        let path = root.path().join("component.policy.yaml");
+        assert!(read_optional_file(&path).await?.is_none());
+        std::os::unix::fs::symlink(root.path().join("missing-policy"), &path)?;
+        assert!(read_optional_file(&path).await.is_err());
+        Ok(())
     }
 
     #[tokio::test]
@@ -524,9 +598,7 @@ mod tests {
         tokio::fs::write(dest.join("agent.wasm"), b"old wasm").await?;
         tokio::fs::write(dest.join("agent.policy.yaml"), b"old policy").await?;
 
-        DownloadedResource::Temp((source, wasm))
-            .copy_to(&dest)
-            .await?;
+        promote_resource(DownloadedResource::Temp((source, wasm)), &dest).await?;
         assert_eq!(tokio::fs::read(dest.join("agent.wasm")).await?, b"new wasm");
         assert_eq!(
             tokio::fs::read(dest.join("agent.policy.yaml")).await?,
@@ -563,9 +635,7 @@ mod tests {
         tokio::fs::write(dest.join("agent.wasm"), b"old wasm").await?;
         tokio::fs::write(dest.join("agent.policy.yaml"), b"attached policy").await?;
 
-        DownloadedResource::Temp((source, wasm))
-            .copy_to(&dest)
-            .await?;
+        promote_resource(DownloadedResource::Temp((source, wasm)), &dest).await?;
         assert_eq!(tokio::fs::read(dest.join("agent.wasm")).await?, b"new wasm");
         assert_eq!(
             tokio::fs::read(dest.join("agent.policy.yaml")).await?,
