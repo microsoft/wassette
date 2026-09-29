@@ -48,7 +48,7 @@ The problem compounds when multiple tools with overlapping permissions are loade
 
 Wassette enforces least privilege through deny-by-default permissions at the component level. Components start with zero access to system resources. Each capability must be explicitly granted through a policy file that specifies exactly which resources the component can access.
 
-Storage permissions use URI-based paths with explicit access modes (read, write, or both). A component can be granted read access to `fs:///workspace/data` and write access to `fs:///workspace/output` without receiving access to other directories. Network permissions specify individual hosts rather than wildcards. Environment permissions list specific variable names rather than allowing access to the entire environment.
+Storage permissions use URI-based paths with read-only or read/write access. Write-only grants are rejected because the WASI filesystem cannot represent them without also allowing reads. A component can be granted read access to `fs:///workspace/data` and read/write access to `fs:///workspace/output` without receiving access to other directories. Network permissions specify individual hosts rather than wildcards. Environment permissions list specific variable names rather than allowing access to the entire environment.
 
 The policy system supports both file-based and runtime permission management. Developers can define initial policies co-located with component binaries, and administrators can modify permissions dynamically using built-in tools like `grant-storage-permission` and `grant-network-permission`. This granularity enables precise control over component capabilities.
 

@@ -24,8 +24,7 @@ use agent_client_protocol::schema::v1 as schema;
 use tokio::sync::{mpsc, oneshot};
 use wasmtime::component::ResourceTable;
 use wasmtime_wasi::{WasiCtx, WasiCtxView, WasiView};
-use wasmtime_wasi_http::WasiHttpCtx;
-use wasmtime_wasi_http::p2::{WasiHttpCtxView, WasiHttpView};
+use wasmtime_wasi_http::{WasiHttpCtx, WasiHttpCtxView, WasiHttpView};
 
 use crate::http_policy::HttpPolicyHooks;
 use crate::secrets::SecretsRegistry;
@@ -200,16 +199,6 @@ impl WasiView for HostState {
 impl WasiHttpView for HostState {
     fn http(&mut self) -> WasiHttpCtxView<'_> {
         WasiHttpCtxView {
-            ctx: &mut self.http,
-            table: &mut self.table,
-            hooks: &mut self.http_hooks,
-        }
-    }
-}
-
-impl wasmtime_wasi_http::p3::WasiHttpView for HostState {
-    fn http(&mut self) -> wasmtime_wasi_http::p3::WasiHttpCtxView<'_> {
-        wasmtime_wasi_http::p3::WasiHttpCtxView {
             ctx: &mut self.http,
             table: &mut self.table,
             hooks: &mut self.http_hooks,

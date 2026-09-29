@@ -155,6 +155,10 @@ wassette permission grant storage weather-tool fs://workspace/ --access read,wri
 wassette permission grant storage weather-tool fs://config/app.yaml --access read
 ```
 
+Storage grants must include `read` when they include `write`. The WASI filesystem
+does not support write-only preopens, so Wassette rejects those policies rather
+than granting read access implicitly.
+
 **Grant network access:**
 ```bash
 # Allow access to a specific host

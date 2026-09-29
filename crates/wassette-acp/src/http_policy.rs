@@ -17,25 +17,9 @@
 use std::collections::BTreeSet;
 use std::future::Future;
 
-use bytes::Bytes;
-use http_body_util::combinators::UnsyncBoxBody;
 use tracing::{debug, warn};
-use wasmtime_wasi::TrappableError;
 use wasmtime_wasi_http::p2::bindings::http::types;
-use wasmtime_wasi_http::p2::body::HyperOutgoingBody;
-use wasmtime_wasi_http::p2::types::{HostFutureIncomingResponse, OutgoingRequestConfig};
-use wasmtime_wasi_http::p2::{HttpResult, WasiHttpHooks, default_send_request};
-use wasmtime_wasi_http::p3::bindings::http::types::ErrorCode as P3ErrorCode;
-
-/// What `wasi:http@0.3`'s `send_request` hook resolves to: the response
-/// plus a future carrying any error seen while streaming its body.
-type P3Result = Result<
-    (
-        http::Response<UnsyncBoxBody<Bytes, P3ErrorCode>>,
-        Box<dyn Future<Output = Result<(), P3ErrorCode>> + Send>,
-    ),
-    TrappableError<P3ErrorCode>,
->;
+use wasmtime_wasi_http::{RequestOptions, WasiBody, WasiHttpHooks, default_send_request};
 
 /// One entry of a policy's `permissions.network.allow` list, parsed into
 /// an optional scheme and a host.
@@ -114,7 +98,7 @@ impl HttpPolicyHooks {
 
     /// Deny with `http-request-denied` unless the chain's policy allows
     /// the request's host.
-    fn check(&self, uri: &http::Uri) -> HttpResult<()> {
+    fn check(&self, uri: &http::Uri) -> wasmtime_wasi_http::Result<()> {
         if self.is_allowed(uri) {
             debug!(%uri, "HTTP request allowed by policy");
             return Ok(());
@@ -131,42 +115,28 @@ impl HttpPolicyHooks {
 impl WasiHttpHooks for HttpPolicyHooks {
     fn send_request(
         &mut self,
-        request: http::Request<HyperOutgoingBody>,
-        config: OutgoingRequestConfig,
-    ) -> HttpResult<HostFutureIncomingResponse> {
-        self.check(request.uri())?;
-        Ok(default_send_request(request, config))
-    }
-}
-
-/// The same filtering for `wasi:http@0.3`, which the host also links so
-/// p3 guests are not an unpoliced side door. The signature is verbose
-/// because the trait hands ownership of the request body and the
-/// error-reporting futures across the hook boundary; the only behaviour
-/// added is the `check` before delegating to the default sender.
-impl wasmtime_wasi_http::p3::WasiHttpHooks for HttpPolicyHooks {
-    fn send_request(
-        &mut self,
-        request: http::Request<UnsyncBoxBody<Bytes, P3ErrorCode>>,
-        options: Option<wasmtime_wasi_http::p3::RequestOptions>,
-        fut: Box<dyn Future<Output = Result<(), P3ErrorCode>> + Send>,
-    ) -> Box<dyn Future<Output = P3Result> + Send> {
-        if !self.is_allowed(request.uri()) {
-            let uri = request.uri().clone();
-            warn!(%uri, "HTTP request blocked by policy (wasi:http@0.3)");
-            return Box::new(async move { Err(P3ErrorCode::HttpRequestDenied.into()) });
+        request: http::Request<WasiBody>,
+        options: Option<RequestOptions>,
+        _io: Box<dyn Future<Output = wasmtime_wasi_http::Result<()>> + Send>,
+    ) -> Box<
+        dyn Future<
+                Output = wasmtime_wasi_http::Result<(
+                    http::Response<WasiBody>,
+                    Box<dyn Future<Output = wasmtime_wasi_http::Result<()>> + Send>,
+                )>,
+            > + Send,
+    > {
+        if let Err(error) = self.check(request.uri()) {
+            return Box::new(async move { Err(error) });
         }
-        // The default implementation drops `fut` too: errors observed
-        // while the guest consumes the response body are reported
-        // through the returned future instead.
-        let _ = fut;
+
         Box::new(async move {
             use http_body_util::BodyExt;
 
-            let (res, io) = wasmtime_wasi_http::p3::default_send_request(request, options).await?;
+            let (response, io) = default_send_request(request, options).await?;
             Ok((
-                res.map(BodyExt::boxed_unsync),
-                Box::new(io) as Box<dyn Future<Output = _> + Send>,
+                response.map(BodyExt::boxed_unsync),
+                Box::new(io) as Box<dyn Future<Output = wasmtime_wasi_http::Result<()>> + Send>,
             ))
         })
     }

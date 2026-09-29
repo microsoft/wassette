@@ -2,16 +2,15 @@
 // Licensed under the MIT license.
 
 use std::collections::HashSet;
+use std::future::Future;
 
 use anyhow::Result;
 use tracing::{debug, warn};
 use url::Url;
 use wasmtime_wasi::{WasiCtxView, WasiView};
 use wasmtime_wasi_http::p2::bindings::http::types;
-use wasmtime_wasi_http::p2::body::HyperOutgoingBody;
-use wasmtime_wasi_http::p2::types::{HostFutureIncomingResponse, OutgoingRequestConfig};
-use wasmtime_wasi_http::p2::{
-    default_send_request, HttpResult, WasiHttpCtxView, WasiHttpHooks, WasiHttpView,
+use wasmtime_wasi_http::{
+    default_send_request, RequestOptions, WasiBody, WasiHttpCtxView, WasiHttpHooks, WasiHttpView,
 };
 
 use crate::wasistate::PermissionError;
@@ -115,7 +114,7 @@ impl NetworkPolicyHttpHooks {
         false
     }
 
-    fn validate_request_uri(&self, uri: &hyper::Uri) -> HttpResult<()> {
+    fn validate_request_uri(&self, uri: &hyper::Uri) -> wasmtime_wasi_http::Result<()> {
         let Some(host) = uri.host() else {
             warn!("HTTP request missing host, blocking request");
             return Err(types::ErrorCode::HttpRequestUriInvalid.into());
@@ -189,12 +188,30 @@ impl WasiHttpView for WassetteWasiState<crate::wasistate::WasiState> {
 impl WasiHttpHooks for NetworkPolicyHttpHooks {
     fn send_request(
         &mut self,
-        request: hyper::Request<HyperOutgoingBody>,
-        config: OutgoingRequestConfig,
-    ) -> HttpResult<HostFutureIncomingResponse> {
-        self.validate_request_uri(request.uri())?;
+        request: http::Request<WasiBody>,
+        options: Option<RequestOptions>,
+        _io: Box<dyn Future<Output = wasmtime_wasi_http::Result<()>> + Send>,
+    ) -> Box<
+        dyn Future<
+                Output = wasmtime_wasi_http::Result<(
+                    http::Response<WasiBody>,
+                    Box<dyn Future<Output = wasmtime_wasi_http::Result<()>> + Send>,
+                )>,
+            > + Send,
+    > {
+        if let Err(error) = self.validate_request_uri(request.uri()) {
+            return Box::new(async move { Err(error) });
+        }
 
-        Ok(default_send_request(request, config))
+        Box::new(async move {
+            use http_body_util::BodyExt;
+
+            let (response, io) = default_send_request(request, options).await?;
+            Ok((
+                response.map(BodyExt::boxed_unsync),
+                Box::new(io) as Box<dyn Future<Output = wasmtime_wasi_http::Result<()>> + Send>,
+            ))
+        })
     }
 }
 

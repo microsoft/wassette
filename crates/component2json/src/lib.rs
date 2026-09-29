@@ -327,6 +327,16 @@ fn type_to_json_schema(t: &Type) -> Value {
                 "items": elem_schema
             })
         }
+        Type::FixedLengthList(list_handle) => {
+            let elem_schema = type_to_json_schema(&list_handle.ty());
+            let length = list_handle.len();
+            json!({
+                "type": "array",
+                "items": elem_schema,
+                "minItems": length,
+                "maxItems": length
+            })
+        }
         Type::Map(map_handle) => {
             let key_schema = type_to_json_schema(&map_handle.key());
             let value_schema = type_to_json_schema(&map_handle.value());
@@ -685,7 +695,9 @@ fn val_to_json(val: &Val) -> Value {
         Val::Char(c) => Value::String(c.to_string()),
         Val::String(s) => Value::String(s.clone()),
 
-        Val::List(list) => Value::Array(list.iter().map(val_to_json).collect()),
+        Val::List(list) | Val::FixedLengthList(list) => {
+            Value::Array(list.iter().map(val_to_json).collect())
+        }
         Val::Map(entries) => Value::Array(
             entries
                 .iter()
@@ -856,6 +868,26 @@ fn json_to_val(value: &Value, ty: &Type) -> Result<Val, ValError> {
             }
             _ => Err(ValError::ShapeError("list", format!("{value:?}"))),
         },
+        Type::FixedLengthList(list_handle) => match value {
+            Value::Array(arr) => {
+                let length = list_handle.len() as usize;
+                if arr.len() != length {
+                    return Err(ValError::ShapeError(
+                        "fixed-length list",
+                        format!("expected {length} items, got {}", arr.len()),
+                    ));
+                }
+                let mut vals = Vec::with_capacity(length);
+                for item in arr {
+                    vals.push(json_to_val(item, &list_handle.ty())?);
+                }
+                Ok(Val::FixedLengthList(vals))
+            }
+            _ => Err(ValError::ShapeError(
+                "fixed-length list",
+                format!("{value:?}"),
+            )),
+        },
         Type::Map(map_handle) => match value {
             Value::Array(entries) => {
                 let mut pairs = Vec::with_capacity(entries.len());
@@ -1015,6 +1047,11 @@ fn default_val_for_type(ty: &Type) -> Val {
         Type::Char => Val::Char('\0'),
         Type::String => Val::String("".to_string()),
         Type::List(_) => Val::List(Vec::new()),
+        Type::FixedLengthList(list) => Val::FixedLengthList(
+            (0..list.len())
+                .map(|_| default_val_for_type(&list.ty()))
+                .collect(),
+        ),
         Type::Map(_) => Val::Map(Vec::new()),
 
         Type::Record(r) => {
@@ -1201,6 +1238,55 @@ mod tests {
     fn test_val_to_json_list() {
         let val = Val::List(vec![Val::S64(1), Val::S64(2)]);
         assert_eq!(val_to_json(&val), json!([1, 2]));
+    }
+
+    #[test]
+    fn test_fixed_length_list() {
+        let mut config = wasmtime::Config::new();
+        config.wasm_component_model(true);
+        config.wasm_component_model_fixed_length_lists(true);
+        let engine = Engine::new(&config).unwrap();
+        let component = Component::new(
+            &engine,
+            r#"(component
+                (type (list u8 3))
+                (export "fixed-list" (type 0))
+            )"#,
+        )
+        .unwrap();
+        let ty = match component
+            .component_type()
+            .get_export(&engine, "fixed-list")
+            .unwrap()
+            .ty
+        {
+            wasmtime::component::types::ComponentItem::Type(ty) => ty,
+            _ => panic!("Expected a type export"),
+        };
+
+        assert_eq!(
+            type_to_json_schema(&ty),
+            json!({
+                "type": "array",
+                "items": { "type": "number" },
+                "minItems": 3,
+                "maxItems": 3
+            })
+        );
+
+        let input = json!([1, 2, 3]);
+        let val = json_to_val(&input, &ty).unwrap();
+        assert_eq!(
+            val,
+            Val::FixedLengthList(vec![Val::U8(1), Val::U8(2), Val::U8(3)])
+        );
+        assert_eq!(val_to_json(&val), input);
+        assert!(json_to_val(&json!([1, 2]), &ty).is_err());
+        assert!(json_to_val(&json!([1, 2, 3, 4]), &ty).is_err());
+        assert_eq!(
+            default_val_for_type(&ty),
+            Val::FixedLengthList(vec![Val::U8(0); 3])
+        );
     }
 
     #[test]
