@@ -218,3 +218,131 @@ async fn unnamed_legacy_files_are_protected_not_filename_named_tools() -> Result
     );
     Ok(())
 }
+
+#[tokio::test]
+async fn install_only_receipts_stay_unexposed_even_with_valid_tool_caches() -> Result<()> {
+    use store::{
+        InstallIntent, InstallOptions, PreparedCache, PreparedInstall, PreparedPolicy,
+        ValidationEvidence,
+    };
+
+    let root = tempfile::tempdir()?;
+    let source = root.path().join("private-key.wasm");
+    tokio::fs::write(&source, named_tool("semantic", 7)?).await?;
+    let uri = format!("file://{}", source.display());
+    let installer = manager(root.path()).await?;
+    installer.load_component(&uri).await?;
+    let snapshot = installer.component_store().read("semantic")?;
+    let receipt = snapshot.receipt;
+    let engine = installer.cache_engine();
+    let cache = installer
+        .component_store()
+        .read_cache(
+            "semantic",
+            &receipt.revision,
+            &engine,
+            store_runtime::CACHE_SCHEMA,
+        )?
+        .expect("explicit load publishes a valid tool cache");
+    let expected =
+        installer
+            .component_store()
+            .observe("semantic", &receipt.storage_key, &receipt.source)?;
+    let prepared = PreparedInstall::prepare(
+        snapshot.wasm,
+        InstallOptions {
+            storage_key: receipt.storage_key,
+            source: receipt.source,
+            origin: receipt.origin,
+            owner: receipt.owner,
+            intent: InstallIntent::InstallOnly,
+            policy: PreparedPolicy::absent(receipt.policy.provenance),
+            observation: receipt.observation,
+        },
+        |bytes, _, policy| {
+            assert!(policy.is_none());
+            let component = Component::new(installer.runtime.as_ref(), bytes)?;
+            installer.prepare_component_instance(component, bytes)?;
+            Ok(ValidationEvidence::OrdinaryPrepared {
+                runtime: engine.clone(),
+            })
+        },
+    )?;
+    let committed = installer
+        .component_store()
+        .commit_install(prepared, expected)?;
+    installer.component_store().publish_cache(
+        "semantic",
+        committed.entry.revision(),
+        PreparedCache {
+            artifact_sha256: receipt.artifact_sha256,
+            engine,
+            schema: store_runtime::CACHE_SCHEMA.into(),
+            metadata: cache.metadata,
+            native: cache.native,
+        },
+    )?;
+
+    let error = installer
+        .ensure_component_loaded("semantic")
+        .await
+        .unwrap_err();
+    assert!(error.to_string().contains("tool exposure"), "{error:#}");
+    assert!(installer.list_tools().await.is_empty());
+    installer
+        .grant_permission(
+            "semantic",
+            "network",
+            &serde_json::json!({"host": "example.test"}),
+        )
+        .await?;
+    assert!(installer.list_tools().await.is_empty());
+    let persisted = installer.component_store().read("semantic")?.receipt;
+    assert_eq!(persisted.intent, InstallIntent::InstallOnly);
+    assert!(installer
+        .component_store()
+        .read_cache(
+            "semantic",
+            &persisted.revision,
+            &installer.cache_engine(),
+            store_runtime::CACHE_SCHEMA,
+        )?
+        .is_some());
+
+    for eager in [false, true] {
+        let fresh = LifecycleManager::builder(root.path().join("components"))
+            .with_secrets_dir(root.path().join("secrets"))
+            .with_eager_loading(eager)
+            .build()
+            .await?;
+        fresh.populate_registry_from_metadata().await?;
+        fresh.load_all_components().await?;
+        fresh
+            .load_existing_components_async(Some(1), None::<fn()>)
+            .await?;
+        assert!(fresh.list_components_known().await.is_empty());
+        assert!(fresh.list_components().await.is_empty());
+        assert!(fresh.list_tools().await.is_empty());
+        assert!(fresh.get_component_schema("semantic").await.is_none());
+        assert!(fresh.load_component_metadata("semantic").await?.is_none());
+        assert!(fresh
+            .execute_component_call("semantic", "value", "{}")
+            .await
+            .is_err());
+        assert_eq!(fresh.component_store().read("semantic")?.receipt, persisted);
+    }
+
+    let activated = installer.load_component(&uri).await?;
+    assert_eq!(
+        activated.commit.entry.binding().intent,
+        InstallIntent::ExposeTools
+    );
+    assert_eq!(
+        installer.get_component_id_for_tool("value").await?,
+        "semantic"
+    );
+    installer
+        .execute_component_call("semantic", "value", "{}")
+        .await?;
+    Ok(())
+}

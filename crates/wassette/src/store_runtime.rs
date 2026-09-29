@@ -296,7 +296,7 @@ impl LifecycleManager {
 
     pub(crate) async fn read_cached_metadata(&self, id: &str) -> Result<Option<ComponentMetadata>> {
         let snapshot = self.store_snapshot(id).await?;
-        if snapshot.receipt.kind != StoredArtifactKind::Tool {
+        if !snapshot.receipt.requests_tool_exposure() {
             return Ok(None);
         }
         let id = id.to_owned();
@@ -334,7 +334,7 @@ impl LifecycleManager {
             let StoredEntry::Installed(receipt) = entry else {
                 continue;
             };
-            if receipt.kind != StoredArtifactKind::Tool {
+            if !receipt.requests_tool_exposure() {
                 continue;
             }
             let id = receipt.component_id.as_str();
@@ -470,6 +470,10 @@ impl LifecycleManager {
             snapshot.receipt.kind == StoredArtifactKind::Tool,
             "Cannot load ACP or unsupported artifacts as ordinary tool components"
         );
+        anyhow::ensure!(
+            snapshot.receipt.requests_tool_exposure(),
+            "Component '{id}' is not installed for ordinary tool exposure"
+        );
         let binding = snapshot.receipt.secret_binding()?;
         let policy_template = self
             .policy_manager
@@ -559,7 +563,9 @@ impl LifecycleManager {
                 let Ok(mut state) = registry.state.try_write() else {
                     return Ok(false);
                 };
-                if let Some(instance) = state.components.get_mut(&selected_id) {
+                if !receipt.requests_tool_exposure() {
+                    state.unregister_component(&selected_id);
+                } else if let Some(instance) = state.components.get_mut(&selected_id) {
                     if instance.artifact_sha256 == receipt.artifact_sha256 {
                         instance.policy_template = template;
                         instance.effective_policy = effective_policy;
@@ -593,7 +599,7 @@ impl LifecycleManager {
             .entries
             .into_iter()
             .filter_map(|entry| match entry {
-                StoredEntry::Installed(receipt) if receipt.kind == StoredArtifactKind::Tool => {
+                StoredEntry::Installed(receipt) if receipt.requests_tool_exposure() => {
                     Some(receipt.component_id.as_str().to_owned())
                 }
                 _ => None,

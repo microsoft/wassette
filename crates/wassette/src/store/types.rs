@@ -512,6 +512,13 @@ pub struct InstallReceipt {
     pub observation: Option<SourceObservation>,
 }
 
+impl InstallReceipt {
+    /// Whether this ordinary artifact requests tool exposure, not runtime authorization.
+    pub fn requests_tool_exposure(&self) -> bool {
+        self.kind == StoredArtifactKind::Tool && self.intent == InstallIntent::ExposeTools
+    }
+}
+
 /// Why an installed entry became a durable reservation.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum RemovalReason {

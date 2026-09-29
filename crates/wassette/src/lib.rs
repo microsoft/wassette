@@ -480,7 +480,7 @@ impl LifecycleManager {
         })
     }
 
-    /// Load each receipt-backed ordinary component, updating the registry and cache.
+    /// Load each receipt-backed ordinary component requesting tool exposure.
     ///
     /// Each component is compiled and registered while holding that component's load guard, so
     /// an eager startup load cannot re-register a component that a concurrent unload has already
@@ -730,7 +730,7 @@ impl LifecycleManager {
         self.registry.list_components().await
     }
 
-    /// List installed ordinary components by semantic ID without compiling them.
+    /// List ordinary components requesting tool exposure, without compiling them.
     #[instrument(skip(self))]
     pub async fn list_components_known(&self) -> Vec<String> {
         match self.installed_tool_ids().await {
@@ -746,7 +746,7 @@ impl LifecycleManager {
     #[instrument(skip(self))]
     pub async fn get_component_schema(&self, component_id: &str) -> Option<Value> {
         let snapshot = match self.store_snapshot(component_id).await {
-            Ok(snapshot) if snapshot.receipt.kind == store::StoredArtifactKind::Tool => snapshot,
+            Ok(snapshot) if snapshot.receipt.requests_tool_exposure() => snapshot,
             Ok(_) => return None,
             Err(error) => {
                 warn!(%component_id, error = %format_error_chain(&error), "Cannot read component schema binding");
@@ -936,6 +936,10 @@ impl LifecycleManager {
                 return Err(error);
             }
         };
+        if !snapshot.receipt.requests_tool_exposure() {
+            self.unregister_at_cursor(component_id, &snapshot.cursor)
+                .await?;
+        }
         if let Some(instance) = self.registry.get_component(component_id).await {
             if instance.revision.as_ref() == Some(&snapshot.receipt.revision) {
                 return Ok(());

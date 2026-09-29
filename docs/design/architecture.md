@@ -82,6 +82,9 @@ policy. Ordinary loads compile, link and prepare schemas; ACP compiles and check
 the exported stage and protocol version with its own engine. ACP evidence does
 not promise complete host linking: remaining link failures are selection errors.
 Installation alone neither exposes tools nor starts an ACP agent.
+Ordinary startup, cache hydration and restoration require `ExposeTools` intent.
+An `InstallOnly` receipt stays unexposed even with a valid tool cache or after a
+policy edit; an explicit ordinary load can commit the exposure intent.
 
 The store retains the flat artifact layout:
 
