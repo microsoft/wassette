@@ -16,3 +16,4 @@ futures = { workspace = true }
 tokio-test = { workspace = true }
 tempfile = { workspace = true }
 tokio = { workspace = true, features = ["test-util", "macros"] }
+wat = "1.259"

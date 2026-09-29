@@ -2495,6 +2495,7 @@ dependencies = [
  "tokio-test",
  "tracing",
  "wassette",
+ "wat",
 ]
 
 [[package]]

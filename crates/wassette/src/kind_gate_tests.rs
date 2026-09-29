@@ -151,6 +151,7 @@ async fn current_shape_gates_same_stamp_metadata_and_all_restore_paths() -> Resu
     pad(&mut provider);
     assert_eq!(ordinary.len(), provider.len());
     install_tool(&manager, key, &ordinary).await?;
+    let descriptor = manager.list_tool_descriptors().await?.remove(0);
     manager.registry.remove_component("agent").await;
     let path = manager.component_path(key);
     let old_metadata = std::fs::metadata(&path)?;
@@ -168,6 +169,12 @@ async fn current_shape_gates_same_stamp_metadata_and_all_restore_paths() -> Resu
     assert_eq!(changed_metadata.modified()?, modified);
     assert!(manager.store_snapshot("agent").await.is_err());
     assert!(manager.get_component_schema("agent").await.is_none());
+    assert!(manager.list_tool_descriptors().await.is_err());
+    assert!(manager.describe_scoped_tool(&descriptor.key).await.is_err());
+    assert!(manager
+        .invoke_scoped_tool(&descriptor.key, &serde_json::json!({}))
+        .await
+        .is_err());
     assert!(manager.populate_registry_from_metadata().await.is_err());
     assert!(manager.list_tools().await.is_empty());
     manager.load_all_components().await?;
@@ -196,57 +203,89 @@ async fn current_shape_gates_same_stamp_metadata_and_all_restore_paths() -> Resu
 
 #[tokio::test]
 async fn receipted_acp_artifacts_never_enter_ordinary_restore_paths() -> Result<()> {
-    let root = test_dir()?;
-    let manager = manager(root.path()).await?;
-    let wasm = provider_component("agent");
-    let key = StorageKey::parse("agent-private")?;
-    let source = store::SourceIdentity::File(root.path().join("agent-source.wasm"));
-    let expected = manager.component_store().observe("agent", &key, &source)?;
-    let prepared = store::PreparedInstall::prepare(
-        wasm,
-        store::InstallOptions {
-            storage_key: key,
-            source,
-            origin: store::OriginEvidence {
-                location: "test-fixture:agent".into(),
-                requested_version: None,
-                selected_version: None,
-                manifest_digest: None,
-                immutable_uri: None,
+    for exports in [
+        vec!["wassette:acp/agent@7.0.0"],
+        vec!["wassette:acp/agent@7.0.0", "wassette:acp/client@7.0.0"],
+    ] {
+        let root = test_dir()?;
+        let manager = manager(root.path()).await?;
+        let declarations = exports
+            .iter()
+            .map(|export| format!(r#"(export "{export}" (instance $stage))"#))
+            .collect::<String>();
+        let wasm = wat::parse_str(format!(
+            r#"(component $agent
+            (instance $stage)
+            {declarations})"#
+        ))?;
+        let key = StorageKey::parse("agent-private")?;
+        let source = store::SourceIdentity::File(root.path().join("agent-source.wasm"));
+        let expected = manager.component_store().observe("agent", &key, &source)?;
+        let prepared = store::PreparedInstall::prepare(
+            wasm,
+            store::InstallOptions {
+                storage_key: key,
+                source,
+                origin: store::OriginEvidence {
+                    location: "test-fixture:agent".into(),
+                    requested_version: None,
+                    selected_version: None,
+                    manifest_digest: None,
+                    immutable_uri: None,
+                },
+                owner: store::InstallOwner::Explicit,
+                intent: store::InstallIntent::InstallOnly,
+                policy: store::PreparedPolicy::absent(store::PolicyProvenance::Default),
+                observation: None,
             },
-            owner: store::InstallOwner::Explicit,
-            intent: store::InstallIntent::InstallOnly,
-            policy: store::PreparedPolicy::absent(store::PolicyProvenance::Default),
-            observation: None,
-        },
-        |bytes, inspection, _| {
-            Component::new(manager.runtime.as_ref(), bytes)?;
-            anyhow::ensure!(
-                inspection.acp_exports == ["wassette:acp/agent@7.0.0"],
-                "unexpected test ACP export"
-            );
-            Ok(store::ValidationEvidence::AcpCompiledAndExportChecked {
-                runtime: "test-fixture-acp-v7".into(),
-            })
-        },
-    )?;
-    manager
-        .component_store()
-        .commit_install(prepared, expected)?;
-    assert!(manager.get_component_schema("agent").await.is_none());
-    manager.populate_registry_from_metadata().await?;
-    manager.load_all_components().await?;
-    manager
-        .load_existing_components_async(Some(1), None::<fn()>)
-        .await?;
-    assert!(manager.list_components_known().await.is_empty());
-    assert!(manager.list_components().await.is_empty());
-    assert!(manager.list_tools().await.is_empty());
-    let error = manager.ensure_component_loaded("agent").await.unwrap_err();
-    assert!(
-        format!("{error:#}").contains("Cannot load ACP or unsupported"),
-        "{error:#}"
-    );
+            |bytes, inspection, _| {
+                Component::new(manager.runtime.as_ref(), bytes)?;
+                anyhow::ensure!(
+                    inspection.acp_exports == exports,
+                    "unexpected test ACP export"
+                );
+                Ok(store::ValidationEvidence::AcpCompiledAndExportChecked {
+                    runtime: "test-fixture-acp-v7".into(),
+                })
+            },
+        )?;
+        manager
+            .component_store()
+            .commit_install(prepared, expected)?;
+        assert!(manager.get_component_schema("agent").await.is_none());
+        manager.populate_registry_from_metadata().await?;
+        manager.load_all_components().await?;
+        manager
+            .load_existing_components_async(Some(1), None::<fn()>)
+            .await?;
+        assert!(manager.list_components_known().await.is_empty());
+        assert!(manager.list_components().await.is_empty());
+        assert!(manager.list_tools().await.is_empty());
+        assert!(manager.list_tool_descriptors().await?.is_empty());
+        let component_id = ComponentId::from_declared_name("agent")?;
+        assert!(manager
+            .list_tools_for_component(&component_id)
+            .await
+            .is_err());
+        let key = ToolKey {
+            component_id,
+            export: FunctionIdentifier {
+                package_name: None,
+                interface_name: Some(exports[0].to_owned()),
+                function_name: "run".to_owned(),
+            },
+        };
+        assert!(manager.describe_scoped_tool(&key).await.is_err());
+        assert!(manager
+            .invoke_scoped_tool(&key, &serde_json::json!({}))
+            .await
+            .is_err());
+        let error = manager.ensure_component_loaded("agent").await.unwrap_err();
+        assert!(
+            format!("{error:#}").contains("Cannot load ACP or unsupported"),
+            "{error:#}"
+        );
+    }
     Ok(())
 }
 

@@ -58,6 +58,10 @@ pub mod store;
 mod store_integration_tests;
 mod store_runtime;
 mod store_support;
+pub mod tool;
+pub mod tool_result;
+#[cfg(test)]
+mod tool_tests;
 mod wasistate;
 
 use component_storage::ComponentStorage;
@@ -73,6 +77,8 @@ use policy_internal::PolicyManager;
 pub use policy_internal::{PermissionGrantRequest, PermissionRule, PolicyInfo};
 use runtime_context::RuntimeContext;
 pub use secrets::{SecretBinding, SecretsManager};
+use tool::ToolSelector;
+pub use tool::{ScopedToolDescriptor, ScopedToolOutput, ToolKey, ToolLookupError};
 use wasistate::WasiState;
 pub use wasistate::{
     create_wasi_state_template_from_policy, CustomResourceLimiter, PermissionError,
@@ -257,19 +263,6 @@ impl ComponentRegistry {
         let mut ids: Vec<String> = state.components.keys().cloned().collect();
         ids.sort();
         ids
-    }
-
-    async fn tool_identifier(&self, tool_name: &str) -> Option<FunctionIdentifier> {
-        let state = self.state.read().await;
-        state
-            .tool_map
-            .get(tool_name)
-            .and_then(|infos| infos.first().map(|info| info.identifier.clone()))
-    }
-
-    async fn tool_infos(&self, tool_name: &str) -> Option<Vec<ToolInfo>> {
-        let state = self.state.read().await;
-        state.tool_map.get(tool_name).cloned()
     }
 
     async fn list_tools(&self) -> Vec<Value> {
@@ -677,25 +670,14 @@ impl LifecycleManager {
     /// If there are multiple components with the same tool name, returns an error.
     #[instrument(skip(self))]
     pub async fn get_component_id_for_tool(&self, tool_name: &str) -> Result<String> {
-        let tool_infos = self
-            .registry
-            .tool_infos(tool_name)
-            .await
-            .context("Tool not found")?;
-
-        if tool_infos.len() > 1 {
-            bail!(
-                "Multiple components found for tool '{}': {}",
-                tool_name,
-                tool_infos
-                    .iter()
-                    .map(|info| info.component_id.as_str())
-                    .collect::<Vec<_>>()
-                    .join(", ")
-            );
-        }
-
-        Ok(tool_infos[0].component_id.clone())
+        let state = self.registry.state.read().await;
+        Ok(state
+            .resolve_tool(ToolSelector::Name {
+                component_id: None,
+                name: tool_name,
+            })?
+            .component_id
+            .clone())
     }
 
     /// Lists all available tools across all components
@@ -704,18 +686,27 @@ impl LifecycleManager {
         self.registry.list_tools().await
     }
 
-    /// Returns the schema for a specific tool owned by a component, if available
+    /// Returns the schema for a unique normalized name owned by a component.
+    /// Returns `None` for missing or ambiguous names.
     #[instrument(skip(self))]
     pub async fn get_tool_schema_for_component(
         &self,
         component_id: &str,
         tool_name: &str,
     ) -> Option<Value> {
-        let tool_infos = self.registry.tool_infos(tool_name).await?;
-        tool_infos
-            .iter()
-            .find(|info| info.component_id == component_id)
-            .map(|info| info.schema.clone())
+        let state = self.registry.state.read().await;
+        match state.resolve_tool(ToolSelector::Name {
+            component_id: Some(component_id),
+            name: tool_name,
+        }) {
+            Ok(info) => Some(info.schema.clone()),
+            Err(error) => {
+                if matches!(error, ToolLookupError::Ambiguous { .. }) {
+                    warn!(%component_id, %tool_name, %error, "Cannot select an ambiguous tool schema");
+                }
+                None
+            }
+        }
     }
 
     /// Returns the requested component. Returns `None` if the component is not found.
@@ -990,7 +981,11 @@ impl LifecycleManager {
         Ok((wassette_wasi_state, resource_limiter))
     }
 
-    /// Executes a function call on a WebAssembly component
+    /// Executes a unique normalized tool name within the selected component.
+    ///
+    /// Same-name tools in other components do not affect this lookup. Ambiguous
+    /// exports within this component are rejected; use [`Self::invoke_scoped_tool`]
+    /// with an exact [`ToolKey`] to distinguish them.
     #[instrument(skip(self))]
     pub async fn execute_component_call(
         &self,
@@ -998,20 +993,33 @@ impl LifecycleManager {
         function_name: &str,
         parameters: &str,
     ) -> Result<String> {
-        let start_time = Instant::now();
-
-        debug!(
-            component_id = %component_id,
-            function_name = %function_name,
-            "Starting WebAssembly component execution"
-        );
-
         self.ensure_component_loaded(component_id).await?;
-        let component = self
-            .get_component(component_id)
+        let (component, descriptor) = self
+            .select_loaded_tool(ToolSelector::Name {
+                component_id: Some(component_id),
+                name: function_name,
+            })
             .await
-            .ok_or_else(|| anyhow!("Component not found: {}", component_id))?;
+            .with_context(|| {
+                format!("Failed to resolve tool '{function_name}' in '{component_id}'")
+            })?;
+        let arguments = serde_json::from_str(parameters)?;
+        Ok(self
+            .execute_tool_call(component, descriptor, &arguments)
+            .await?
+            .raw_result)
+    }
 
+    async fn execute_tool_call(
+        &self,
+        component: ComponentInstance,
+        descriptor: ScopedToolDescriptor,
+        arguments: &Value,
+    ) -> Result<ScopedToolOutput> {
+        let start_time = Instant::now();
+        let component_id = descriptor.key.component_id.as_str();
+        let function_id = &descriptor.key.export;
+        debug!(%component_id, ?function_id, "Starting WebAssembly component execution");
         let (state, resource_limiter) = self.wasi_state_for_instance(&component).await?;
 
         let mut store = Store::new(self.runtime.as_ref(), state);
@@ -1038,13 +1046,6 @@ impl LifecycleManager {
             instantiation_ms = %instantiation_duration.as_millis(),
             "Component instance created"
         );
-
-        // Use the new function identifier lookup instead of dot-splitting
-        let function_id = self
-            .registry
-            .tool_identifier(function_name)
-            .await
-            .ok_or_else(|| anyhow!("Unknown tool name: {}", function_name))?;
 
         let (interface_name, func_name) = (
             function_id.interface_name.as_deref().unwrap_or(""),
@@ -1084,13 +1085,12 @@ impl LifecycleManager {
                 .ok_or_else(|| anyhow!("Function not found: {}", func_name))?
         };
 
-        let params: serde_json::Value = serde_json::from_str(parameters)?;
         let func_type = func.ty(&store);
         let parameter_types = func_type
             .params()
             .map(|(name, ty)| (name.to_string(), ty))
             .collect::<Vec<_>>();
-        let argument_vals = json_to_vals(&params, &parameter_types)?;
+        let argument_vals = json_to_vals(arguments, &parameter_types)?;
 
         let result_types = func_type.results().collect::<Vec<_>>();
         let mut results = create_placeholder_results(&result_types);
@@ -1121,18 +1121,22 @@ impl LifecycleManager {
 
         debug!(
             component_id = %component_id,
-            function_name = %function_name,
+            ?function_id,
             total_duration_ms = %total_duration.as_millis(),
             instantiation_ms = %instantiation_duration.as_millis(),
             execution_ms = %execution_duration.as_millis(),
             "WebAssembly component execution completed"
         );
 
-        if let Some(result_str) = result_json.as_str() {
-            Ok(result_str.to_string())
+        let raw_result = if let Some(result_str) = result_json.as_str() {
+            result_str.to_string()
         } else {
-            Ok(serde_json::to_string(&result_json)?)
-        }
+            serde_json::to_string(&result_json)?
+        };
+        Ok(ScopedToolOutput {
+            descriptor,
+            raw_result,
+        })
     }
 
     /// Load existing components from component directory in the background with bounded parallelism
