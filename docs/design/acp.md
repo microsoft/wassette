@@ -131,7 +131,7 @@ Point an ACP-speaking editor at it the same way you would point one at
 
 ## Demo
 
-Build the two example components and run the chain:
+Build the example components and run the echo provider:
 
 ```sh
 just build-acp-examples
@@ -202,49 +202,47 @@ WASI isolation is also a follow-up. Multi-provider sessions require unique
 editor IDs and consistent outbound request remapping before the
 single-provider restriction can be removed.
 
-## Building the real providers
+## Model-backed providers
 
-The `ollama` and `copilot` providers build against the `p3` branch of
-`bytecodealliance/wstd` (PR #129) — the `wasip3` feature is not on crates.io.
-Those external providers in
-`yoshuawuyts/playground-wasm-acp` still export `yosh:acp@7.0.0`; they must
-rename their WIT package and regenerate their bindings as
-`wassette:acp@7.0.0` before they can load in this host. The build script does
-not perform that rename. Two further adjustments are needed to target this
-workspace's Wasmtime 47 rather than upstream's 44:
+Two providers talk to real models:
 
-* Bump wstd's `wasip3` pin from `0.5` to `0.7.1`. Wasmtime 44 ships
-  `wasi:http@0.3.0-rc-2026-03-15`; wasmtime 47 ships final `wasi:http@0.3.0`.
-  A guest built against the older pin fails to link, and the error names the
-  mismatched import directly.
-* Add an optional, renamed `wit-bindgen` 0.57 dependency to wstd's `wasip3`
-  feature, enabling `async`, `async-spawn` and `inter-task-wakeup`. The
-  `wasip3` 0.7.1 dependency uses the same 0.57 version, so Cargo unifies
-  these features. Wstd's existing 0.54 dependency cannot enable them on
-  0.57, leaving `async_support::spawn` private without this hunk.
+* `components/acp-ollama-provider` forwards prompts to a local
+  [Ollama](https://ollama.com) server (`OLLAMA_URL`, default
+  `http://localhost:11434/api/chat`; `OLLAMA_MODEL`, default `llama3.2`).
+* `components/acp-copilot-provider` forwards prompts to the GitHub Copilot
+  chat API. It reads a GitHub token from its `github_token` secret, falling
+  back to `COPILOT_GITHUB_TOKEN`, `GH_TOKEN` or `GITHUB_TOKEN`. See
+  `components/acp-copilot-provider/README.md` for token types, tools and
+  config options.
 
-Both steps are captured as a temporary patch in
-`crates/wassette-acp/real-providers/wstd-p3-wasmtime47.patch` and applied by
-`just build-acp-real-provider <path-to-playground-wasm-acp>`, which fetches
-the tested `p3` commit `c3bac234b01774b95ff3510351ec6fc674fd81e2`,
-checks it out, patches it, and builds the component. Keep it until wstd
-publishes a `wasip3` release compatible with Wasmtime 47.
+`just build-acp-examples` builds both alongside the echo provider:
 
-As of September 2026, the
-[wstd WASIp3 port](https://github.com/bytecodealliance/wstd/issues/141)
-on `main` has superseded the older `p3` branch used here. The bridge can be
-removed once wstd releases compatible WASIp3 HTTP support
-([HTTP tracking issue](https://github.com/bytecodealliance/wstd/issues/164)).
+```sh
+just build-acp-examples
+GH_TOKEN="$(gh auth token)" cargo run -p wassette-mcp-server -- acp --allow-all \
+  --provider components/acp-copilot-provider/target/wasm32-wasip2/release/acp_copilot_provider.wasm
+```
 
-Before the package rename, `ollama_provider.wasm` was verified end to end
-streaming a chat completion over real `wasi:http`, and refused without a
-network grant. The external providers need the WIT rename described above
-to load again. Because these are local patches over an unmerged branch, the
-in-tree demo and end-to-end tests deliberately use the echo provider instead,
-so they never depend on a model or on a moving upstream.
+To keep the token out of the environment, load the component into the
+component directory and store it as a secret instead:
+`wassette secret set acp_copilot_provider "github_token=$(gh auth token)"`,
+then run `wassette acp --allow-all --provider acp_copilot_provider`.
 
-GHCR is not anonymously reachable from this sandbox, so prebuilt components
-cannot be pulled either.
+`--allow-all` grants network and environment access; a policy granting the
+model's host is the least-privilege alternative. The end-to-end tests in
+`crates/wassette-acp/tests/acp_model_providers.rs` drive both providers
+against a local mock of each API, so they need no network or credentials.
+
+Both use wstd's WASIp3 HTTP client, which no released wstd ships yet
+([wstd#164](https://github.com/bytecodealliance/wstd/issues/164)). The
+`p3` branch ([wstd#129](https://github.com/bytecodealliance/wstd/pull/129))
+is vendored under `vendor/wstd`, patched to `wasip3` 0.9 (final
+`wasi:http@0.3.0`, as Wasmtime 47 requires) and `wit-bindgen` 0.62; see
+`vendor/wstd/README.vendor.md`. Replace it with a crates.io release once one
+is available.
+
+All ACP components check in `wit-bindgen` output as `src/bindings.rs`;
+`just acp-bindgen` regenerates them from `crates/wassette-acp/wit/acp`.
 
 ## Implementation notes
 
