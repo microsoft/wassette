@@ -1,7 +1,7 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT license.
 
-//! Per-component secret store: host-side `wasmcloud:secrets@0.1.0-draft`
+//! Per-component secret store: host-side `wasmcloud:secrets@2.1.0`
 //! backend, over Wassette's [`SecretsManager`].
 //!
 //! Secrets are stored persistently by Wassette component id. A

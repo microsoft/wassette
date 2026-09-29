@@ -104,9 +104,9 @@ fn now_secs() -> u64 {
 /// Precedence: the host secrets store (key `github_token`) first, then the
 /// [`TOKEN_ENV_VARS`] environment variables. Classic PATs (`ghp_`) are
 /// rejected with a clear message because the Copilot API doesn't accept them.
-pub fn resolve_github_token() -> Result<String, String> {
-    if let Ok(secret) = store::get("github_token")
-        && let SecretValue::String(s) = reveal::reveal(&secret) {
+pub async fn resolve_github_token() -> Result<String, String> {
+    if let Ok(secret) = store::get("github_token".to_string()).await
+        && let SecretValue::String(s) = reveal::reveal(&secret).await {
             let s = s.trim().to_string();
             if !s.is_empty() {
                 validate_token_prefix(&s)?;
@@ -125,7 +125,7 @@ pub fn resolve_github_token() -> Result<String, String> {
     }
 
     Err("no GitHub token configured: store one in the copilot provider's secret \
-         store (`cargo run -p host -- secret set local:copilot_provider github_token`) \
+         store (`wassette secret set acp_copilot_provider github_token=<token>`) \
          or set COPILOT_GITHUB_TOKEN / GH_TOKEN / GITHUB_TOKEN"
         .to_string())
 }
@@ -184,7 +184,7 @@ pub async fn copilot_token() -> Result<CopilotToken, String> {
         && now_secs() + REFRESH_MARGIN_SECS < cached.expires_at {
             return Ok(cached);
         }
-    let github_token = resolve_github_token()?;
+    let github_token = resolve_github_token().await?;
     let fresh = match try_exchange(&github_token).await? {
         Some(exchanged) => exchanged,
         // The exchange endpoint doesn't accept this token (gh-CLI tokens and

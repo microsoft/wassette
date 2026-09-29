@@ -51,6 +51,7 @@ use crate::http_policy::HttpPolicyHooks;
 use crate::install::Resolver;
 use crate::sandbox::{ChainSandbox, Sandbox};
 use crate::secrets::SecretsRegistry;
+use crate::secrets_impl::{add_labeled_secrets_to_linker, check_labeled_secrets, labeled_secrets};
 use crate::state::{Bindings, ClientSink, HostState, OutboundEvent, StageData, StageKind};
 use crate::wassette::acp::errors::Error;
 use crate::wassette::acp::init::{AuthenticateRequest, InitializeRequest, InitializeResponse};
@@ -341,6 +342,17 @@ impl SessionFactory {
         // imports `agent` for the `session` resource's destructor), so
         // calling it once suffices for either component shape.
         Layer::add_to_linker::<HostState, HasSelf<HostState>>(&mut linker, |s| s)?;
+
+        // Labeled `wasmcloud:secrets/secret` imports are named by each
+        // component, so define them per chain once every one is known to
+        // be backed by a stored secret.
+        let mut labels = Vec::new();
+        for stage in std::iter::once(provider).chain(&self.layers) {
+            let stage_labels = labeled_secrets(&self.engine, &stage.component);
+            check_labeled_secrets(&self.secrets, &stage.component_id, &stage_labels).await?;
+            labels.extend(stage_labels);
+        }
+        add_labeled_secrets_to_linker(&mut linker, &labels)?;
 
         // Instantiate each stage's component against the shared linker.
         for idx in 0..stage_count {

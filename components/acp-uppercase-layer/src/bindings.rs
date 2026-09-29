@@ -6,16 +6,34 @@
 #[allow(dead_code, clippy::all)]
 pub mod wasmcloud {
     pub mod secrets {
+        /// Opaque-handle access to a secrets backend. Returning `secret` rather than
+        /// the underlying value lets the host gate reveal independently of lookup.
+        ///
+        /// The operations are `async`: a secrets backend is commonly served by a host
+        /// component plugin from its own store, and cross-store capability calls are
+        /// dispatched asynchronously. (This is the async revision of the synchronous
+        /// `wasmcloud:secrets@1.0.0` interface.)
         #[allow(dead_code, async_fn_in_trait, unused_imports, clippy::all)]
         pub mod store {
             #[used]
             #[doc(hidden)]
             static __FORCE_SECTION_REF: fn() = super::super::super::__link_custom_section_describing_imports;
             use super::super::super::_rt;
+            /// An error type that encapsulates the different errors that can occur fetching secrets
             #[derive(Clone)]
             pub enum SecretsError {
+                /// This indicates an error from an "upstream" secrets source.
+                /// As this could be almost _anything_ (such as Vault, Kubernetes Secrets, KeyValue buckets, etc),
+                /// the error message is a string.
                 Upstream(_rt::String),
+                /// This indicates an error from an I/O operation.
+                /// As this could be almost _anything_ (such as a file read, network connection, etc),
+                /// the error message is a string.
+                /// Depending on how this ends up being consumed,
+                /// we may consider moving this to use the `wasi:io/error` type instead.
+                /// For simplicity right now in supporting multiple implementations, it is being left as a string.
                 Io(_rt::String),
+                /// This indicates that the requested secret was not found.
                 NotFound,
             }
             impl ::core::fmt::Debug for SecretsError {
@@ -45,6 +63,8 @@ pub mod wasmcloud {
                 }
             }
             impl ::core::error::Error for SecretsError {}
+            /// A secret value can be either a string or a byte array, which lets you
+            /// store binary data as a secret.
             #[derive(Clone)]
             pub enum SecretValue {
                 String(_rt::String),
@@ -65,6 +85,10 @@ pub mod wasmcloud {
                     }
                 }
             }
+            /// A secret is a resource that can only be borrowed. This allows you to
+            /// pass around handles to secrets and not reveal the values until a
+            /// component needs them.
+            /// You need to use the reveal interface to get the value.
             #[derive(Debug)]
             #[repr(transparent)]
             pub struct Secret {
@@ -90,7 +114,7 @@ pub mod wasmcloud {
                 #[inline]
                 unsafe fn drop(_handle: u32) {
                     #[cfg(target_arch = "wasm32")]
-                    #[link(wasm_import_module = "wasmcloud:secrets/store@0.1.0-draft")]
+                    #[link(wasm_import_module = "wasmcloud:secrets/store@2.1.0")]
                     unsafe extern "C" {
                         #[link_name = "[resource-drop]secret"]
                         fn drop(_: i32);
@@ -105,103 +129,167 @@ pub mod wasmcloud {
                 }
             }
             #[allow(unused_unsafe, clippy::all)]
+            /// Gets a single opaque secrets value set at the given key if it exists
             #[allow(async_fn_in_trait)]
-            pub fn get(key: &str) -> ::core::result::Result<Secret, SecretsError> {
+            pub async fn get(
+                key: _rt::String,
+            ) -> ::core::result::Result<Secret, SecretsError> {
                 unsafe {
-                    #[cfg_attr(target_pointer_width = "64", repr(align(8)))]
-                    #[cfg_attr(target_pointer_width = "32", repr(align(4)))]
-                    struct RetArea(
-                        [::core::mem::MaybeUninit<
-                            u8,
-                        >; 4 * ::core::mem::size_of::<*const u8>()],
-                    );
-                    let mut ret_area = RetArea(
-                        [::core::mem::MaybeUninit::uninit(); 4
-                            * ::core::mem::size_of::<*const u8>()],
-                    );
-                    let vec0 = key;
-                    let ptr0 = vec0.as_ptr().cast::<u8>();
-                    let len0 = vec0.len();
-                    let ptr1 = ret_area.0.as_mut_ptr().cast::<u8>();
-                    #[cfg(target_arch = "wasm32")]
-                    #[link(wasm_import_module = "wasmcloud:secrets/store@0.1.0-draft")]
-                    unsafe extern "C" {
-                        #[link_name = "get"]
-                        fn wit_import2(_: *mut u8, _: usize, _: *mut u8);
+                    #[derive(Copy, Clone)]
+                    struct ParamsLower(*mut u8, usize);
+                    unsafe impl Send for ParamsLower {}
+                    use wit_bindgen::rt::async_support::Subtask as _Subtask;
+                    struct _MySubtask<'a> {
+                        _unused: core::marker::PhantomData<&'a ()>,
                     }
-                    #[cfg(not(target_arch = "wasm32"))]
-                    unsafe extern "C" fn wit_import2(_: *mut u8, _: usize, _: *mut u8) {
-                        unreachable!()
-                    }
-                    wit_import2(ptr0.cast_mut(), len0, ptr1);
-                    let l3 = i32::from(*ptr1.add(0).cast::<u8>());
-                    let result13 = match l3 {
-                        0 => {
-                            let e = {
-                                let l4 = *ptr1
-                                    .add(::core::mem::size_of::<*const u8>())
-                                    .cast::<i32>();
-                                Secret::from_handle(l4 as u32)
-                            };
-                            Ok(e)
+                    #[allow(unused_parens)]
+                    unsafe impl<'a> _Subtask for _MySubtask<'a> {
+                        type Params = (_rt::String,);
+                        type Results = ::core::result::Result<Secret, SecretsError>;
+                        type ParamsLower = ParamsLower;
+                        fn abi_layout(&mut self) -> ::core::alloc::Layout {
+                            unsafe {
+                                ::core::alloc::Layout::from_size_align_unchecked(
+                                    (4 * ::core::mem::size_of::<*const u8>()),
+                                    ::core::mem::size_of::<*const u8>(),
+                                )
+                            }
                         }
-                        1 => {
-                            let e = {
-                                let l5 = i32::from(
-                                    *ptr1.add(::core::mem::size_of::<*const u8>()).cast::<u8>(),
-                                );
-                                let v12 = match l5 {
+                        fn results_offset(&mut self) -> usize {
+                            0
+                        }
+                        unsafe fn call_import(
+                            &mut self,
+                            _params: Self::ParamsLower,
+                            _results: *mut u8,
+                        ) -> u32 {
+                            #[cfg(target_arch = "wasm32")]
+                            #[link(wasm_import_module = "wasmcloud:secrets/store@2.1.0")]
+                            unsafe extern "C" {
+                                #[link_name = "[async-lower]get"]
+                                fn call(_: *mut u8, _: usize, _: *mut u8) -> i32;
+                            }
+                            #[cfg(not(target_arch = "wasm32"))]
+                            unsafe extern "C" fn call(
+                                _: *mut u8,
+                                _: usize,
+                                _: *mut u8,
+                            ) -> i32 {
+                                unreachable!()
+                            }
+                            unsafe { call(_params.0, _params.1, _results) as u32 }
+                        }
+                        unsafe fn params_dealloc_lists(
+                            &mut self,
+                            _params: Self::ParamsLower,
+                        ) {
+                            unsafe {
+                                _rt::cabi_dealloc(_params.0, _params.1, 1);
+                            }
+                        }
+                        unsafe fn params_dealloc_lists_and_own(
+                            &mut self,
+                            _params: Self::ParamsLower,
+                        ) {
+                            unsafe {
+                                _rt::cabi_dealloc(_params.0, _params.1, 1);
+                            }
+                        }
+                        unsafe fn params_lower(
+                            &mut self,
+                            (_lower0,): Self::Params,
+                            _ptr: *mut u8,
+                        ) -> Self::ParamsLower {
+                            unsafe {
+                                let vec0 = (_lower0.into_bytes()).into_boxed_slice();
+                                let ptr0 = vec0.as_ptr().cast::<u8>();
+                                let len0 = vec0.len();
+                                ::core::mem::forget(vec0);
+                                ParamsLower(ptr0.cast_mut(), len0)
+                            }
+                        }
+                        unsafe fn results_lift(
+                            &mut self,
+                            _ptr: *mut u8,
+                        ) -> Self::Results {
+                            unsafe {
+                                let l0 = i32::from(*_ptr.add(0).cast::<u8>());
+                                match l0 {
                                     0 => {
-                                        let e12 = {
-                                            let l6 = *ptr1
-                                                .add(2 * ::core::mem::size_of::<*const u8>())
-                                                .cast::<*mut u8>();
-                                            let l7 = *ptr1
-                                                .add(3 * ::core::mem::size_of::<*const u8>())
-                                                .cast::<usize>();
-                                            let len8 = l7;
-                                            let bytes8 = _rt::Vec::from_raw_parts(
-                                                l6.cast(),
-                                                len8,
-                                                len8,
-                                            );
-                                            _rt::string_lift(bytes8)
+                                        let e = {
+                                            let l1 = *_ptr
+                                                .add(::core::mem::size_of::<*const u8>())
+                                                .cast::<i32>();
+                                            Secret::from_handle(l1 as u32)
                                         };
-                                        SecretsError::Upstream(e12)
+                                        Ok(e)
                                     }
                                     1 => {
-                                        let e12 = {
-                                            let l9 = *ptr1
-                                                .add(2 * ::core::mem::size_of::<*const u8>())
-                                                .cast::<*mut u8>();
-                                            let l10 = *ptr1
-                                                .add(3 * ::core::mem::size_of::<*const u8>())
-                                                .cast::<usize>();
-                                            let len11 = l10;
-                                            let bytes11 = _rt::Vec::from_raw_parts(
-                                                l9.cast(),
-                                                len11,
-                                                len11,
+                                        let e = {
+                                            let l2 = i32::from(
+                                                *_ptr.add(::core::mem::size_of::<*const u8>()).cast::<u8>(),
                                             );
-                                            _rt::string_lift(bytes11)
+                                            let v9 = match l2 {
+                                                0 => {
+                                                    let e9 = {
+                                                        let l3 = *_ptr
+                                                            .add(2 * ::core::mem::size_of::<*const u8>())
+                                                            .cast::<*mut u8>();
+                                                        let l4 = *_ptr
+                                                            .add(3 * ::core::mem::size_of::<*const u8>())
+                                                            .cast::<usize>();
+                                                        let len5 = l4;
+                                                        let bytes5 = _rt::Vec::from_raw_parts(
+                                                            l3.cast(),
+                                                            len5,
+                                                            len5,
+                                                        );
+                                                        _rt::string_lift(bytes5)
+                                                    };
+                                                    SecretsError::Upstream(e9)
+                                                }
+                                                1 => {
+                                                    let e9 = {
+                                                        let l6 = *_ptr
+                                                            .add(2 * ::core::mem::size_of::<*const u8>())
+                                                            .cast::<*mut u8>();
+                                                        let l7 = *_ptr
+                                                            .add(3 * ::core::mem::size_of::<*const u8>())
+                                                            .cast::<usize>();
+                                                        let len8 = l7;
+                                                        let bytes8 = _rt::Vec::from_raw_parts(
+                                                            l6.cast(),
+                                                            len8,
+                                                            len8,
+                                                        );
+                                                        _rt::string_lift(bytes8)
+                                                    };
+                                                    SecretsError::Io(e9)
+                                                }
+                                                n => {
+                                                    debug_assert_eq!(n, 2, "invalid enum discriminant");
+                                                    SecretsError::NotFound
+                                                }
+                                            };
+                                            v9
                                         };
-                                        SecretsError::Io(e12)
+                                        Err(e)
                                     }
-                                    n => {
-                                        debug_assert_eq!(n, 2, "invalid enum discriminant");
-                                        SecretsError::NotFound
-                                    }
-                                };
-                                v12
-                            };
-                            Err(e)
+                                    _ => _rt::invalid_enum_discriminant(),
+                                }
+                            }
                         }
-                        _ => _rt::invalid_enum_discriminant(),
-                    };
-                    result13
+                    }
+                    _MySubtask {
+                        _unused: core::marker::PhantomData,
+                    }
+                        .call((key,))
+                        .await
                 }
             }
         }
+        /// Unwraps an opaque `secret` handle into its underlying value. Split from
+        /// `store` so a host can audit or restrict reveal calls separately.
         #[allow(dead_code, async_fn_in_trait, unused_imports, clippy::all)]
         pub mod reveal {
             #[used]
@@ -211,72 +299,124 @@ pub mod wasmcloud {
             pub type Secret = super::super::super::wasmcloud::secrets::store::Secret;
             pub type SecretValue = super::super::super::wasmcloud::secrets::store::SecretValue;
             #[allow(unused_unsafe, clippy::all)]
+            /// Reveals the value of a secret to the caller.
+            /// This lets you easily audit your code to discover where secrets are being used.
             #[allow(async_fn_in_trait)]
-            pub fn reveal(s: &Secret) -> SecretValue {
+            pub async fn reveal(s: &Secret) -> SecretValue {
                 unsafe {
-                    #[cfg_attr(target_pointer_width = "64", repr(align(8)))]
-                    #[cfg_attr(target_pointer_width = "32", repr(align(4)))]
-                    struct RetArea(
-                        [::core::mem::MaybeUninit<
-                            u8,
-                        >; 3 * ::core::mem::size_of::<*const u8>()],
-                    );
-                    let mut ret_area = RetArea(
-                        [::core::mem::MaybeUninit::uninit(); 3
-                            * ::core::mem::size_of::<*const u8>()],
-                    );
-                    let ptr0 = ret_area.0.as_mut_ptr().cast::<u8>();
-                    #[cfg(target_arch = "wasm32")]
-                    #[link(wasm_import_module = "wasmcloud:secrets/reveal@0.1.0-draft")]
-                    unsafe extern "C" {
-                        #[link_name = "reveal"]
-                        fn wit_import1(_: i32, _: *mut u8);
+                    #[derive(Copy, Clone)]
+                    struct ParamsLower(i32);
+                    unsafe impl Send for ParamsLower {}
+                    use wit_bindgen::rt::async_support::Subtask as _Subtask;
+                    struct _MySubtask<'a> {
+                        _unused: core::marker::PhantomData<&'a ()>,
                     }
-                    #[cfg(not(target_arch = "wasm32"))]
-                    unsafe extern "C" fn wit_import1(_: i32, _: *mut u8) {
-                        unreachable!()
+                    #[allow(unused_parens)]
+                    unsafe impl<'a> _Subtask for _MySubtask<'a> {
+                        type Params = (&'a Secret,);
+                        type Results = SecretValue;
+                        type ParamsLower = ParamsLower;
+                        fn abi_layout(&mut self) -> ::core::alloc::Layout {
+                            unsafe {
+                                ::core::alloc::Layout::from_size_align_unchecked(
+                                    (3 * ::core::mem::size_of::<*const u8>()),
+                                    ::core::mem::size_of::<*const u8>(),
+                                )
+                            }
+                        }
+                        fn results_offset(&mut self) -> usize {
+                            0
+                        }
+                        unsafe fn call_import(
+                            &mut self,
+                            _params: Self::ParamsLower,
+                            _results: *mut u8,
+                        ) -> u32 {
+                            #[cfg(target_arch = "wasm32")]
+                            #[link(
+                                wasm_import_module = "wasmcloud:secrets/reveal@2.1.0"
+                            )]
+                            unsafe extern "C" {
+                                #[link_name = "[async-lower]reveal"]
+                                fn call(_: i32, _: *mut u8) -> i32;
+                            }
+                            #[cfg(not(target_arch = "wasm32"))]
+                            unsafe extern "C" fn call(_: i32, _: *mut u8) -> i32 {
+                                unreachable!()
+                            }
+                            unsafe { call(_params.0, _results) as u32 }
+                        }
+                        unsafe fn params_dealloc_lists(
+                            &mut self,
+                            _params: Self::ParamsLower,
+                        ) {
+                            unsafe {}
+                        }
+                        unsafe fn params_dealloc_lists_and_own(
+                            &mut self,
+                            _params: Self::ParamsLower,
+                        ) {
+                            unsafe {}
+                        }
+                        unsafe fn params_lower(
+                            &mut self,
+                            (_lower0,): Self::Params,
+                            _ptr: *mut u8,
+                        ) -> Self::ParamsLower {
+                            unsafe { ParamsLower((_lower0).handle() as i32) }
+                        }
+                        unsafe fn results_lift(
+                            &mut self,
+                            _ptr: *mut u8,
+                        ) -> Self::Results {
+                            unsafe {
+                                let l0 = i32::from(*_ptr.add(0).cast::<u8>());
+                                use super::super::super::wasmcloud::secrets::store::SecretValue as V7;
+                                let v7 = match l0 {
+                                    0 => {
+                                        let e7 = {
+                                            let l1 = *_ptr
+                                                .add(::core::mem::size_of::<*const u8>())
+                                                .cast::<*mut u8>();
+                                            let l2 = *_ptr
+                                                .add(2 * ::core::mem::size_of::<*const u8>())
+                                                .cast::<usize>();
+                                            let len3 = l2;
+                                            let bytes3 = _rt::Vec::from_raw_parts(
+                                                l1.cast(),
+                                                len3,
+                                                len3,
+                                            );
+                                            _rt::string_lift(bytes3)
+                                        };
+                                        V7::String(e7)
+                                    }
+                                    n => {
+                                        debug_assert_eq!(n, 1, "invalid enum discriminant");
+                                        let e7 = {
+                                            let l4 = *_ptr
+                                                .add(::core::mem::size_of::<*const u8>())
+                                                .cast::<*mut u8>();
+                                            let l5 = *_ptr
+                                                .add(2 * ::core::mem::size_of::<*const u8>())
+                                                .cast::<usize>();
+                                            let len6 = l5;
+                                            <_ as From<
+                                                _rt::Vec<_>,
+                                            >>::from(_rt::Vec::from_raw_parts(l4.cast(), len6, len6))
+                                        };
+                                        V7::Bytes(e7)
+                                    }
+                                };
+                                v7
+                            }
+                        }
                     }
-                    wit_import1((s).handle() as i32, ptr0);
-                    let l2 = i32::from(*ptr0.add(0).cast::<u8>());
-                    use super::super::super::wasmcloud::secrets::store::SecretValue as V9;
-                    let v9 = match l2 {
-                        0 => {
-                            let e9 = {
-                                let l3 = *ptr0
-                                    .add(::core::mem::size_of::<*const u8>())
-                                    .cast::<*mut u8>();
-                                let l4 = *ptr0
-                                    .add(2 * ::core::mem::size_of::<*const u8>())
-                                    .cast::<usize>();
-                                let len5 = l4;
-                                let bytes5 = _rt::Vec::from_raw_parts(
-                                    l3.cast(),
-                                    len5,
-                                    len5,
-                                );
-                                _rt::string_lift(bytes5)
-                            };
-                            V9::String(e9)
-                        }
-                        n => {
-                            debug_assert_eq!(n, 1, "invalid enum discriminant");
-                            let e9 = {
-                                let l6 = *ptr0
-                                    .add(::core::mem::size_of::<*const u8>())
-                                    .cast::<*mut u8>();
-                                let l7 = *ptr0
-                                    .add(2 * ::core::mem::size_of::<*const u8>())
-                                    .cast::<usize>();
-                                let len8 = l7;
-                                <_ as From<
-                                    _rt::Vec<_>,
-                                >>::from(_rt::Vec::from_raw_parts(l6.cast(), len8, len8))
-                            };
-                            V9::Bytes(e9)
-                        }
-                    };
-                    let result10 = v9;
-                    result10
+                    _MySubtask {
+                        _unused: core::marker::PhantomData,
+                    }
+                        .call((s,))
+                        .await
                 }
             }
         }
@@ -30127,9 +30267,9 @@ macro_rules! __export_layer_impl {
         : () = { #[rustfmt::skip] #[cfg(target_arch = "wasm32")] #[unsafe (link_section =
         "component-type:wit-bindgen:0.62.0:wassette:acp@7.0.0:layer:imports and exports")]
         #[doc(hidden)] #[allow(clippy::octal_escapes)] pub static
-        __WIT_BINDGEN_COMPONENT_TYPE : [u8; 10253] = *
+        __WIT_BINDGEN_COMPONENT_TYPE : [u8; 10241] = *
         b"\
-\0asm\x0d\0\x01\0\0\x19\x16wit-component-encoding\x04\0\x07\x91O\x01A\x02\x01A?\x01\
+\0asm\x0d\0\x01\0\0\x19\x16wit-component-encoding\x04\0\x07\x85O\x01A\x02\x01A?\x01\
 B\x04\x01q\x08\x0bparse-error\0\0\x0finvalid-request\0\0\x10method-not-found\0\0\
 \x0einvalid-params\0\0\x0einternal-error\0\0\x0dauth-required\0\0\x12resource-no\
 t-found\0\0\x05other\x01z\0\x04\0\x0aerror-code\x03\0\0\x01r\x02\x04code\x01\x07\
@@ -30302,53 +30442,53 @@ j\0\x01\x01\x01C\x01\x03req\x0f\0!\x04\0\x0fwrite-text-file\x01\"\x03\0\x19wasse
 tte:acp/client@7.0.0\x05*\x01B\x0a\x01q\x03\x08upstream\x01s\0\x02io\x01s\0\x09n\
 ot-found\0\0\x04\0\x0dsecrets-error\x03\0\0\x01p}\x01q\x02\x06string\x01s\0\x05b\
 ytes\x01\x02\0\x04\0\x0csecret-value\x03\0\x03\x04\0\x06secret\x03\x01\x01i\x05\x01\
-j\x01\x06\x01\x01\x01@\x01\x03keys\0\x07\x04\0\x03get\x01\x08\x03\0#wasmcloud:se\
-crets/store@0.1.0-draft\x05+\x02\x03\0\x0a\x06secret\x02\x03\0\x0a\x0csecret-val\
-ue\x01B\x07\x02\x03\x02\x01,\x04\0\x06secret\x03\0\0\x02\x03\x02\x01-\x04\0\x0cs\
-ecret-value\x03\0\x02\x01h\x01\x01@\x01\x01s\x04\0\x03\x04\0\x06reveal\x01\x05\x03\
-\0$wasmcloud:secrets/reveal@0.1.0-draft\x05.\x01BJ\x02\x03\x02\x01\x0f\x04\0\x05\
-error\x03\0\0\x02\x03\x02\x01\x10\x04\0\x12initialize-request\x03\0\x02\x02\x03\x02\
-\x01\x11\x04\0\x13initialize-response\x03\0\x04\x02\x03\x02\x01\x12\x04\0\x14aut\
-henticate-request\x03\0\x06\x02\x03\x02\x01\x0a\x04\0\x0fsession-mode-id\x03\0\x08\
-\x02\x03\x02\x01\x13\x04\0\x10session-model-id\x03\0\x0a\x02\x03\x02\x01\x14\x04\
-\0\x11session-config-id\x03\0\x0c\x02\x03\x02\x01\x15\x04\0\x17session-config-va\
-lue-id\x03\0\x0e\x02\x03\x02\x01\x16\x04\0\x15session-config-option\x03\0\x10\x02\
-\x03\x02\x01\x17\x04\0\x13new-session-request\x03\0\x12\x02\x03\x02\x01\x18\x04\0\
-\x14new-session-response\x03\0\x14\x02\x03\x02\x01\x19\x04\0\x14load-session-req\
-uest\x03\0\x16\x02\x03\x02\x01\x1a\x04\0\x15load-session-response\x03\0\x18\x02\x03\
-\x02\x01\x1b\x04\0\x15list-sessions-request\x03\0\x1a\x02\x03\x02\x01\x1c\x04\0\x16\
-list-sessions-response\x03\0\x1c\x02\x03\x02\x01\x1d\x04\0\x16resume-session-req\
-uest\x03\0\x1e\x02\x03\x02\x01\x1e\x04\0\x17resume-session-response\x03\0\x20\x02\
-\x03\x02\x01\x07\x04\0\x0dcontent-block\x03\0\"\x02\x03\x02\x01\x1f\x04\0\x0fpro\
-mpt-response\x03\0$\x04\0\x07session\x03\x01\x01h&\x01p#\x01j\x01%\x01\x01\x01C\x02\
-\x04self'\x06prompt(\0)\x04\0\x16[method]session.prompt\x01*\x01j\0\x01\x01\x01C\
-\x02\x04self'\x07mode-id\x09\0+\x04\0\x18[method]session.set-mode\x01,\x01C\x02\x04\
-self'\x08model-id\x0b\0+\x04\0\x1c[method]session.select-model\x01-\x01p\x11\x01\
-j\x01.\x01\x01\x01C\x03\x04self'\x09config-id\x0d\x05value\x0f\0/\x04\0![method]\
-session.set-config-option\x010\x01j\x01\x05\x01\x01\x01C\x01\x03req\x03\01\x04\0\
-\x0ainitialize\x012\x01C\x01\x03req\x07\0+\x04\0\x0cauthenticate\x013\x01i&\x01o\
-\x024\x15\x01j\x015\x01\x01\x01C\x01\x03req\x13\06\x04\0\x0bnew-session\x017\x01\
-o\x024\x19\x01j\x018\x01\x01\x01C\x01\x03req\x17\09\x04\0\x0cload-session\x01:\x01\
-j\x01\x1d\x01\x01\x01C\x01\x03req\x1b\0;\x04\0\x0dlist-sessions\x01<\x01o\x024!\x01\
-j\x01=\x01\x01\x01C\x01\x03req\x1f\0>\x04\0\x0eresume-session\x01?\x04\0\x18wass\
-ette:acp/agent@7.0.0\x05/\x01B*\x02\x03\x02\x01\x0f\x04\0\x05error\x03\0\0\x02\x03\
-\x02\x01\x04\x04\0\x0asession-id\x03\0\x02\x02\x03\x02\x01\"\x04\0\x0esession-up\
-date\x03\0\x04\x02\x03\x02\x01#\x04\0\x1arequest-permission-request\x03\0\x06\x02\
-\x03\x02\x01$\x04\0\x1brequest-permission-response\x03\0\x08\x02\x03\x02\x01%\x04\
-\0\x16read-text-file-request\x03\0\x0a\x02\x03\x02\x01&\x04\0\x17read-text-file-\
-response\x03\0\x0c\x02\x03\x02\x01'\x04\0\x17write-text-file-request\x03\0\x0e\x02\
-\x03\x02\x01(\x04\0\x17create-terminal-request\x03\0\x10\x02\x03\x02\x01)\x04\0\x14\
-terminal-exit-status\x03\0\x12\x04\0\x08terminal\x03\x01\x01i\x14\x01@\x01\x03re\
-q\x11\0\x15\x04\0\x15[constructor]terminal\x01\x16\x01h\x14\x01f\x01}\x01C\x01\x04\
-self\x17\0\x18\x04\0\x17[method]terminal.output\x01\x19\x01j\x01\x13\x01\x01\x01\
-C\x01\x04self\x17\0\x1a\x04\0\x1e[method]terminal.wait-for-exit\x01\x1b\x01C\x02\
-\x0asession-id\x03\x06update\x05\x01\0\x04\0\x0enotify-session\x01\x1c\x01j\x01\x09\
-\x01\x01\x01C\x01\x03req\x07\0\x1d\x04\0\x12request-permission\x01\x1e\x01j\x01\x0d\
-\x01\x01\x01C\x01\x03req\x0b\0\x1f\x04\0\x0eread-text-file\x01\x20\x01j\0\x01\x01\
-\x01C\x01\x03req\x0f\0!\x04\0\x0fwrite-text-file\x01\"\x04\0\x19wassette:acp/cli\
-ent@7.0.0\x050\x04\0\x18wassette:acp/layer@7.0.0\x04\0\x0b\x0b\x01\0\x05layer\x03\
-\0\0\0G\x09producers\x01\x0cprocessed-by\x02\x0dwit-component\x070.259.0\x10wit-\
-bindgen-rust\x060.62.0";
+j\x01\x06\x01\x01\x01C\x01\x03keys\0\x07\x04\0\x03get\x01\x08\x03\0\x1dwasmcloud\
+:secrets/store@2.1.0\x05+\x02\x03\0\x0a\x06secret\x02\x03\0\x0a\x0csecret-value\x01\
+B\x07\x02\x03\x02\x01,\x04\0\x06secret\x03\0\0\x02\x03\x02\x01-\x04\0\x0csecret-\
+value\x03\0\x02\x01h\x01\x01C\x01\x01s\x04\0\x03\x04\0\x06reveal\x01\x05\x03\0\x1e\
+wasmcloud:secrets/reveal@2.1.0\x05.\x01BJ\x02\x03\x02\x01\x0f\x04\0\x05error\x03\
+\0\0\x02\x03\x02\x01\x10\x04\0\x12initialize-request\x03\0\x02\x02\x03\x02\x01\x11\
+\x04\0\x13initialize-response\x03\0\x04\x02\x03\x02\x01\x12\x04\0\x14authenticat\
+e-request\x03\0\x06\x02\x03\x02\x01\x0a\x04\0\x0fsession-mode-id\x03\0\x08\x02\x03\
+\x02\x01\x13\x04\0\x10session-model-id\x03\0\x0a\x02\x03\x02\x01\x14\x04\0\x11se\
+ssion-config-id\x03\0\x0c\x02\x03\x02\x01\x15\x04\0\x17session-config-value-id\x03\
+\0\x0e\x02\x03\x02\x01\x16\x04\0\x15session-config-option\x03\0\x10\x02\x03\x02\x01\
+\x17\x04\0\x13new-session-request\x03\0\x12\x02\x03\x02\x01\x18\x04\0\x14new-ses\
+sion-response\x03\0\x14\x02\x03\x02\x01\x19\x04\0\x14load-session-request\x03\0\x16\
+\x02\x03\x02\x01\x1a\x04\0\x15load-session-response\x03\0\x18\x02\x03\x02\x01\x1b\
+\x04\0\x15list-sessions-request\x03\0\x1a\x02\x03\x02\x01\x1c\x04\0\x16list-sess\
+ions-response\x03\0\x1c\x02\x03\x02\x01\x1d\x04\0\x16resume-session-request\x03\0\
+\x1e\x02\x03\x02\x01\x1e\x04\0\x17resume-session-response\x03\0\x20\x02\x03\x02\x01\
+\x07\x04\0\x0dcontent-block\x03\0\"\x02\x03\x02\x01\x1f\x04\0\x0fprompt-response\
+\x03\0$\x04\0\x07session\x03\x01\x01h&\x01p#\x01j\x01%\x01\x01\x01C\x02\x04self'\
+\x06prompt(\0)\x04\0\x16[method]session.prompt\x01*\x01j\0\x01\x01\x01C\x02\x04s\
+elf'\x07mode-id\x09\0+\x04\0\x18[method]session.set-mode\x01,\x01C\x02\x04self'\x08\
+model-id\x0b\0+\x04\0\x1c[method]session.select-model\x01-\x01p\x11\x01j\x01.\x01\
+\x01\x01C\x03\x04self'\x09config-id\x0d\x05value\x0f\0/\x04\0![method]session.se\
+t-config-option\x010\x01j\x01\x05\x01\x01\x01C\x01\x03req\x03\01\x04\0\x0ainitia\
+lize\x012\x01C\x01\x03req\x07\0+\x04\0\x0cauthenticate\x013\x01i&\x01o\x024\x15\x01\
+j\x015\x01\x01\x01C\x01\x03req\x13\06\x04\0\x0bnew-session\x017\x01o\x024\x19\x01\
+j\x018\x01\x01\x01C\x01\x03req\x17\09\x04\0\x0cload-session\x01:\x01j\x01\x1d\x01\
+\x01\x01C\x01\x03req\x1b\0;\x04\0\x0dlist-sessions\x01<\x01o\x024!\x01j\x01=\x01\
+\x01\x01C\x01\x03req\x1f\0>\x04\0\x0eresume-session\x01?\x04\0\x18wassette:acp/a\
+gent@7.0.0\x05/\x01B*\x02\x03\x02\x01\x0f\x04\0\x05error\x03\0\0\x02\x03\x02\x01\
+\x04\x04\0\x0asession-id\x03\0\x02\x02\x03\x02\x01\"\x04\0\x0esession-update\x03\
+\0\x04\x02\x03\x02\x01#\x04\0\x1arequest-permission-request\x03\0\x06\x02\x03\x02\
+\x01$\x04\0\x1brequest-permission-response\x03\0\x08\x02\x03\x02\x01%\x04\0\x16r\
+ead-text-file-request\x03\0\x0a\x02\x03\x02\x01&\x04\0\x17read-text-file-respons\
+e\x03\0\x0c\x02\x03\x02\x01'\x04\0\x17write-text-file-request\x03\0\x0e\x02\x03\x02\
+\x01(\x04\0\x17create-terminal-request\x03\0\x10\x02\x03\x02\x01)\x04\0\x14termi\
+nal-exit-status\x03\0\x12\x04\0\x08terminal\x03\x01\x01i\x14\x01@\x01\x03req\x11\
+\0\x15\x04\0\x15[constructor]terminal\x01\x16\x01h\x14\x01f\x01}\x01C\x01\x04sel\
+f\x17\0\x18\x04\0\x17[method]terminal.output\x01\x19\x01j\x01\x13\x01\x01\x01C\x01\
+\x04self\x17\0\x1a\x04\0\x1e[method]terminal.wait-for-exit\x01\x1b\x01C\x02\x0as\
+ession-id\x03\x06update\x05\x01\0\x04\0\x0enotify-session\x01\x1c\x01j\x01\x09\x01\
+\x01\x01C\x01\x03req\x07\0\x1d\x04\0\x12request-permission\x01\x1e\x01j\x01\x0d\x01\
+\x01\x01C\x01\x03req\x0b\0\x1f\x04\0\x0eread-text-file\x01\x20\x01j\0\x01\x01\x01\
+C\x01\x03req\x0f\0!\x04\0\x0fwrite-text-file\x01\"\x04\0\x19wassette:acp/client@\
+7.0.0\x050\x04\0\x18wassette:acp/layer@7.0.0\x04\0\x0b\x0b\x01\0\x05layer\x03\0\0\
+\0G\x09producers\x01\x0cprocessed-by\x02\x0dwit-component\x070.259.0\x10wit-bind\
+gen-rust\x060.62.0";
         };
     };
 }
@@ -30361,8 +30501,8 @@ pub use __export_layer_impl as export;
 )]
 #[doc(hidden)]
 #[allow(clippy::octal_escapes)]
-pub static __WIT_BINDGEN_COMPONENT_TYPE: [u8; 8623] = *b"\
-\0asm\x0d\0\x01\0\0\x19\x16wit-component-encoding\x04\0\x07\x93B\x01A\x02\x01A;\x01\
+pub static __WIT_BINDGEN_COMPONENT_TYPE: [u8; 8611] = *b"\
+\0asm\x0d\0\x01\0\0\x19\x16wit-component-encoding\x04\0\x07\x87B\x01A\x02\x01A;\x01\
 B\x04\x01q\x08\x0bparse-error\0\0\x0finvalid-request\0\0\x10method-not-found\0\0\
 \x0einvalid-params\0\0\x0einternal-error\0\0\x0dauth-required\0\0\x12resource-no\
 t-found\0\0\x05other\x01z\0\x04\0\x0aerror-code\x03\0\0\x01r\x02\x04code\x01\x07\
@@ -30535,14 +30675,14 @@ j\0\x01\x01\x01C\x01\x03req\x0f\0!\x04\0\x0fwrite-text-file\x01\"\x03\0\x19wasse
 tte:acp/client@7.0.0\x05*\x01B\x0a\x01q\x03\x08upstream\x01s\0\x02io\x01s\0\x09n\
 ot-found\0\0\x04\0\x0dsecrets-error\x03\0\0\x01p}\x01q\x02\x06string\x01s\0\x05b\
 ytes\x01\x02\0\x04\0\x0csecret-value\x03\0\x03\x04\0\x06secret\x03\x01\x01i\x05\x01\
-j\x01\x06\x01\x01\x01@\x01\x03keys\0\x07\x04\0\x03get\x01\x08\x03\0#wasmcloud:se\
-crets/store@0.1.0-draft\x05+\x02\x03\0\x0a\x06secret\x02\x03\0\x0a\x0csecret-val\
-ue\x01B\x07\x02\x03\x02\x01,\x04\0\x06secret\x03\0\0\x02\x03\x02\x01-\x04\0\x0cs\
-ecret-value\x03\0\x02\x01h\x01\x01@\x01\x01s\x04\0\x03\x04\0\x06reveal\x01\x05\x03\
-\0$wasmcloud:secrets/reveal@0.1.0-draft\x05.\x04\08wassette:acp/layer-with-all-o\
-f-its-exports-removed@7.0.0\x04\0\x0b+\x01\0%layer-with-all-of-its-exports-remov\
-ed\x03\0\0\0G\x09producers\x01\x0cprocessed-by\x02\x0dwit-component\x070.259.0\x10\
-wit-bindgen-rust\x060.62.0";
+j\x01\x06\x01\x01\x01C\x01\x03keys\0\x07\x04\0\x03get\x01\x08\x03\0\x1dwasmcloud\
+:secrets/store@2.1.0\x05+\x02\x03\0\x0a\x06secret\x02\x03\0\x0a\x0csecret-value\x01\
+B\x07\x02\x03\x02\x01,\x04\0\x06secret\x03\0\0\x02\x03\x02\x01-\x04\0\x0csecret-\
+value\x03\0\x02\x01h\x01\x01C\x01\x01s\x04\0\x03\x04\0\x06reveal\x01\x05\x03\0\x1e\
+wasmcloud:secrets/reveal@2.1.0\x05.\x04\08wassette:acp/layer-with-all-of-its-exp\
+orts-removed@7.0.0\x04\0\x0b+\x01\0%layer-with-all-of-its-exports-removed\x03\0\0\
+\0G\x09producers\x01\x0cprocessed-by\x02\x0dwit-component\x070.259.0\x10wit-bind\
+gen-rust\x060.62.0";
 #[inline(never)]
 #[doc(hidden)]
 pub fn __link_custom_section_describing_imports() {
