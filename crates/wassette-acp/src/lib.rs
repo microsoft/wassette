@@ -23,11 +23,11 @@ use tokio::task::LocalSet;
 use tracing::info;
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
-use wasmtime::component::Component;
 use wasmtime::{Config, Engine};
 
 mod bridge;
 mod client_impl;
+mod data;
 mod group;
 mod http_policy;
 mod install;
@@ -116,8 +116,8 @@ pub struct AcpArgs {
     /// Accepts anything `wassette component load` does — a filesystem
     /// path (`./my-agent.wasm`), an `oci://` reference, or an `https://`
     /// URL — plus the id of a component already in the component
-    /// directory. Downloads are stored in the component directory, so a
-    /// component only has to be fetched once.
+    /// directory. Explicit local paths and downloads are transactionally
+    /// installed; later selections use the embedded semantic component id.
     #[arg(long = "provider", value_name = "PATH|URI|COMPONENT_ID")]
     pub providers: Vec<String>,
 
@@ -144,9 +144,8 @@ pub struct AcpArgs {
     /// Run every stage with the host's network and environment instead of
     /// its Wassette policy.
     ///
-    /// By default each provider and layer is sandboxed from its
-    /// `<component-id>.policy.yaml` (looked up in the component
-    /// directory, then beside the `.wasm`), exactly as
+    /// By default each provider and layer is sandboxed from the effective
+    /// policy captured with its installation receipt, exactly as
     /// `wassette component load` + `wassette policy attach` set it up for
     /// MCP. **A component with no policy therefore gets no network and no
     /// filesystem access beyond its own per-session `/data` directory
@@ -163,6 +162,8 @@ pub struct AcpArgs {
     /// Stages share one WASI context, and concurrent callbacks may be
     /// attributed to the wrong stage (including secret lookups). Does not
     /// isolate stages; use only with mutually trusted components.
+    /// Nonempty legacy /data directories without a matching receipt-bound
+    /// ownership record remain protected, regardless of this flag.
     #[arg(long)]
     pub allow_shared_grants: bool,
 
@@ -264,45 +265,34 @@ pub async fn run(args: AcpArgs) -> Result<()> {
 
     let data_root = init_data_root()?;
     let resolver = Arc::new(Resolver::with_config(
-        ::wassette::LifecycleManager::builder(component_dir).build_config()?,
+        ::wassette::LifecycleManager::builder(component_dir)
+            .with_secrets_dir(secrets_dir)
+            .build_config()?,
     ));
 
-    // Each component gets a private secret store keyed by its Wassette
-    // component id: `store.get(key)` reads that component's secrets file
-    // and nothing else.
-    let secrets = Arc::new(crate::secrets::SecretsRegistry::new(secrets_dir));
+    let secrets = Arc::new(crate::secrets::SecretsRegistry::new(resolver.secrets_dir()));
 
     // `LocalSet` pins the `!Send` session actors to this thread while
     // `Send` work keeps running on the caller's runtime worker pool.
     let local = LocalSet::new();
     local
         .run_until(async move {
-            // Resolve provider/layer args (filesystem paths pass through;
-            // URIs download into the Wassette component dir; bare ids come
-            // from it). The Wassette component id that keys a stage's
-            // secret store and `/data` comes from the same arg.
             let mut providers: Vec<Stage> = Vec::with_capacity(args.providers.len());
             for arg in &args.providers {
                 let resolved = resolver
                     .resolve_validated(arg, None, &engine, Some(StageKind::Provider))
                     .await
                     .with_context(|| format!("resolving provider `{arg}`"))?;
+                secrets.register(resolved.snapshot.receipt.secret_binding()?)?;
                 let sandbox = Sandbox::load(
                     args.allow_all,
-                    &resolved.component_id,
-                    &resolved.path,
+                    &resolved,
                     resolver.component_dir(),
                     &secrets,
                 )
                 .await
                 .with_context(|| format!("sandboxing provider `{arg}`"))?;
-                let stage = load_stage(
-                    &engine,
-                    &resolved.path,
-                    StageKind::Provider,
-                    resolved.component_id,
-                    sandbox,
-                )?;
+                let stage = load_stage(&resolved, sandbox)?;
                 info!(
                     path = %resolved.path.display(),
                     provider = %stage.component_id,
@@ -323,22 +313,16 @@ pub async fn run(args: AcpArgs) -> Result<()> {
                     .resolve_validated(arg, None, &engine, Some(StageKind::Layer))
                     .await
                     .with_context(|| format!("resolving layer `{arg}`"))?;
+                secrets.register(resolved.snapshot.receipt.secret_binding()?)?;
                 let sandbox = Sandbox::load(
                     args.allow_all,
-                    &resolved.component_id,
-                    &resolved.path,
+                    &resolved,
                     resolver.component_dir(),
                     &secrets,
                 )
                 .await
                 .with_context(|| format!("sandboxing layer `{arg}`"))?;
-                layers.push(load_stage(
-                    &engine,
-                    &resolved.path,
-                    StageKind::Layer,
-                    resolved.component_id,
-                    sandbox,
-                )?);
+                layers.push(load_stage(&resolved, sandbox)?);
             }
             for (idx, stage) in layers.iter().enumerate() {
                 info!(
@@ -416,28 +400,14 @@ fn default_secrets_dir() -> Result<PathBuf> {
     Ok(strategy.config_dir().join("wassette").join("secrets"))
 }
 
-/// Load a wasm component from disk and pair it with its current storage key.
-/// Used for both the provider and each layer stage. Checks the root export
-/// shape before compilation so a layer-shaped wasm passed via `--provider`
-/// (or vice versa) is rejected at boot rather than failing later at
-/// instantiation with a less obvious error.
-fn load_stage(
-    engine: &Engine,
-    path: &std::path::Path,
-    kind: StageKind,
-    component_id: String,
-    sandbox: Sandbox,
-) -> Result<Stage> {
-    let bytes = std::fs::read(path).with_context(|| format!("reading {}", path.display()))?;
-    let inspection = ::wassette::inspect_artifact(&bytes)
-        .with_context(|| format!("inspecting {}", path.display()))?;
-    validate_stage(&inspection, kind).with_context(|| format!("validating {}", path.display()))?;
-    let component = Component::new(engine, &bytes)
-        .map_err(anyhow::Error::from)
-        .with_context(|| format!("loading {}", path.display()))?;
+/// Pin a validated component and its admitted policy/identity for the stage's
+/// entire lifetime. No live Wasm or policy path is reopened here.
+fn load_stage(resolved: &install::ResolvedComponent, sandbox: Sandbox) -> Result<Stage> {
     Ok(Stage {
-        component,
-        component_id,
+        component: resolved.component.clone(),
+        component_id: resolved.component_id.clone(),
+        storage_key: resolved.snapshot.receipt.storage_key.clone(),
+        snapshot: resolved.snapshot.clone(),
         sandbox,
     })
 }
@@ -767,6 +737,8 @@ mod shared_grants_tests {
     async fn unprivileged_layered_chains_run_without_opt_in() {
         let dir = tempfile::tempdir().unwrap();
         let secrets = secrets::SecretsRegistry::new(dir.path());
+        secrets.register(secrets::test_binding("provider")).unwrap();
+        secrets.register(secrets::test_binding("layer")).unwrap();
         let denied = Sandbox::Policy(Box::new(crate::sandbox::PolicyGrants {
             policy_path: None,
             has_policy_grants: false,
@@ -806,6 +778,8 @@ mod shared_grants_tests {
         let dir = tempfile::tempdir().unwrap();
         std::fs::write(dir.path().join("layer.yaml"), "not: [valid").unwrap();
         let secrets = secrets::SecretsRegistry::new(dir.path());
+        secrets.register(secrets::test_binding("provider")).unwrap();
+        secrets.register(secrets::test_binding("layer")).unwrap();
         let denied = Sandbox::Policy(Box::new(crate::sandbox::PolicyGrants {
             policy_path: None,
             has_policy_grants: false,

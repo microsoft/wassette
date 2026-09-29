@@ -29,6 +29,9 @@ use std::time::Duration;
 
 use serde_json::{Value, json};
 
+mod common;
+use common::NamedFixture;
+
 /// How long to wait for any single line of output. Generous: the first
 /// response includes compiling the provider component.
 const LINE_TIMEOUT: Duration = Duration::from_secs(60);
@@ -58,7 +61,7 @@ fn wassette_binary() -> Option<PathBuf> {
 }
 
 /// The echo provider component, built by `just build-acp-examples`.
-fn echo_provider() -> Option<PathBuf> {
+fn echo_provider() -> Option<NamedFixture> {
     let target_dir = std::env::var_os("CARGO_TARGET_DIR")
         .map(PathBuf::from)
         .unwrap_or_else(|| {
@@ -66,10 +69,10 @@ fn echo_provider() -> Option<PathBuf> {
                 .join("../../components/acp-echo-provider/target")
         });
     let path = target_dir.join("wasm32-wasip2/release/acp_echo_provider.wasm");
-    path.is_file().then_some(path)
+    path.is_file().then(|| NamedFixture::copy(&path))
 }
 
-fn uppercase_layer() -> Option<PathBuf> {
+fn uppercase_layer() -> Option<NamedFixture> {
     let target_dir = std::env::var_os("CARGO_TARGET_DIR")
         .map(PathBuf::from)
         .unwrap_or_else(|| {
@@ -77,11 +80,11 @@ fn uppercase_layer() -> Option<PathBuf> {
                 .join("../../components/acp-uppercase-layer/target")
         });
     let path = target_dir.join("wasm32-wasip2/release/acp_uppercase_layer.wasm");
-    path.is_file().then_some(path)
+    path.is_file().then(|| NamedFixture::copy(&path))
 }
 
 /// Both artifacts, or `None` with an explanation of what to build.
-fn artifacts() -> Option<(PathBuf, PathBuf)> {
+fn artifacts() -> Option<(PathBuf, NamedFixture)> {
     let Some(bin) = wassette_binary() else {
         assert!(
             std::env::var_os("CI").is_none(),
@@ -636,7 +639,7 @@ fn unadvertised_load_does_not_replace_the_active_session() {
 }
 
 #[test]
-fn install_local_path_reports_use_in_place() {
+fn install_local_path_reports_receipt_backed_installation() {
     let Some((bin, wasm)) = artifacts() else {
         return;
     };
@@ -657,13 +660,13 @@ fn install_local_path_reports_use_in_place() {
         .as_str()
         .expect("install result text");
     assert!(text.contains("Ready to use"), "{text}");
-    assert!(text.contains(&wasm.display().to_string()), "{text}");
+    assert!(text.contains("acp_echo_provider.wasm"), "{text}");
     assert!(
-        !h._xdg
+        h._xdg
             .path()
             .join("data/wassette/components/acp_echo_provider.wasm")
             .exists(),
-        "local path was unexpectedly copied to the component store"
+        "local input was not transactionally installed"
     );
 }
 
@@ -1003,20 +1006,18 @@ fn stored_secrets_in_a_policy_free_layer_chain_require_opt_in() {
     };
     let layer = uppercase_layer().expect("build the uppercase layer with just build-acp-examples");
     let secrets = tempfile::tempdir().unwrap();
-    let component_id = layer.file_stem().unwrap().to_str().unwrap();
-    std::fs::write(
-        secrets.path().join(format!("{component_id}.yaml")),
-        "TOKEN: hidden\n",
-    )
-    .unwrap();
+    common::seed_secrets(&layer, secrets.path(), &[("TOKEN", "hidden")]);
+    let components = tempfile::tempdir().unwrap();
     let output = Command::new(bin)
         .arg("acp")
         .arg("--provider")
-        .arg(wasm)
+        .arg(&wasm)
         .arg("--layer")
-        .arg(layer)
+        .arg(&layer)
         .arg("--secrets-dir")
         .arg(secrets.path())
+        .arg("--component-dir")
+        .arg(components.path())
         .output()
         .expect("run CLI");
     assert!(
@@ -1042,12 +1043,7 @@ fn stored_secrets_in_a_layer_chain_run_with_opt_in() {
     };
     let layer = uppercase_layer().expect("build the uppercase layer with just build-acp-examples");
     let secrets = tempfile::tempdir().unwrap();
-    let component_id = wasm.file_stem().unwrap().to_str().unwrap();
-    std::fs::write(
-        secrets.path().join(format!("{component_id}.yaml")),
-        "TOKEN: hidden\n",
-    )
-    .unwrap();
+    common::seed_secrets(&wasm, secrets.path(), &[("TOKEN", "hidden")]);
     let mut h = Harness::start(
         &bin,
         &wasm,
@@ -1079,13 +1075,16 @@ fn privileged_layer_chain_requires_shared_grants_flag() {
         return;
     };
     let layer = uppercase_layer().expect("build the uppercase layer with just build-acp-examples");
+    let components = tempfile::tempdir().unwrap();
     let output = Command::new(bin)
         .arg("acp")
         .arg("--provider")
-        .arg(wasm)
+        .arg(&wasm)
         .arg("--layer")
-        .arg(layer)
+        .arg(&layer)
         .arg("--allow-all")
+        .arg("--component-dir")
+        .arg(components.path())
         .output()
         .expect("run CLI");
     assert!(

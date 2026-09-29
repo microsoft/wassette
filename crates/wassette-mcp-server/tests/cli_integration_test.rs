@@ -79,6 +79,7 @@ impl CliTestContext {
     /// Execute a wassette CLI command
     async fn run_command(&self, args: &[&str]) -> Result<(String, String, i32)> {
         let mut cmd = AsyncCommand::new(&self.wassette_bin);
+        cmd.env("WASSETTE_SECRETS_DIR", self.temp_dir.path().join("secrets"));
         cmd.args(args);
         cmd.arg("--component-dir").arg(&self.component_dir);
 
@@ -109,6 +110,7 @@ impl CliTestContext {
         timeout_secs: u64,
     ) -> Result<(String, String, i32)> {
         let mut cmd = AsyncCommand::new(&self.wassette_bin);
+        cmd.env("WASSETTE_SECRETS_DIR", self.temp_dir.path().join("secrets"));
         cmd.args(args);
 
         let output = tokio::time::timeout(Duration::from_secs(timeout_secs), cmd.output())
@@ -144,6 +146,7 @@ async fn test_serve_manifest_attaches_declared_policy() -> Result<()> {
     .await?;
 
     let mut command = AsyncCommand::new(&ctx.wassette_bin);
+    command.env("WASSETTE_SECRETS_DIR", ctx.temp_dir.path().join("secrets"));
     command
         .args(["serve", "--manifest"])
         .arg(&manifest_path)
@@ -267,6 +270,7 @@ async fn assert_manifest_preserves_existing_policy(
     drop(listener);
 
     let mut command = AsyncCommand::new(&ctx.wassette_bin);
+    command.env("WASSETTE_SECRETS_DIR", ctx.temp_dir.path().join("secrets"));
     command
         .args(["serve", "--manifest"])
         .arg(&manifest_path)

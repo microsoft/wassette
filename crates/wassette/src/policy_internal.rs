@@ -1,26 +1,30 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT license.
 
-//! Policy management structures and types
+//! Receipt-backed policy transactions and pure permission-editing helpers.
+//!
+//! Effective policy and attachment metadata are committed through the component
+//! store. Runtime instances retain their own prepared templates; this module has
+//! no separate template registry or live policy-file mutation path.
+
+mod transactional;
 
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use anyhow::{anyhow, Context, Result};
+use anyhow::{anyhow, Result};
 use oci_wasm::WasmClient;
 use policy::{
     AccessType, EnvironmentPermission, NetworkHostPermission, NetworkPermission, PolicyDocument,
-    PolicyParser, StoragePermission,
+    StoragePermission,
 };
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
-use tokio::sync::RwLock;
-use tracing::{info, instrument, warn};
+pub(crate) use transactional::{explicit_policy, PolicyCommit};
 
 use crate::component_storage::ComponentStorage;
-use crate::loader::{self, PolicyResource};
-use crate::{SecretsManager, WasiStateTemplate};
+use crate::SecretsManager;
 
 /// Granular permission rule types
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -50,17 +54,10 @@ pub struct PermissionGrantRequest {
     pub details: serde_json::Value,
 }
 
-/// Registry for storing policy templates associated with components
-#[derive(Default)]
-pub(crate) struct PolicyRegistry {
-    /// Maps component IDs to their associated policy templates
-    pub(crate) component_policies: HashMap<String, Arc<WasiStateTemplate>>,
-}
-
 #[derive(Clone)]
 pub(crate) struct PolicyManager {
-    registry: Arc<RwLock<PolicyRegistry>>,
     storage: ComponentStorage,
+    store: crate::store::ComponentStore,
     secrets: Arc<SecretsManager>,
     environment_vars: Arc<HashMap<String, String>>,
     oci_client: Arc<WasmClient>,
@@ -85,305 +82,20 @@ pub struct PolicyInfo {
 impl PolicyManager {
     pub(crate) fn new(
         storage: ComponentStorage,
+        store: crate::store::ComponentStore,
         secrets: Arc<SecretsManager>,
         environment_vars: Arc<HashMap<String, String>>,
         oci_client: Arc<WasmClient>,
         http_client: Client,
     ) -> Self {
         Self {
-            registry: Arc::new(RwLock::new(PolicyRegistry::default())),
             storage,
+            store,
             secrets,
             environment_vars,
             oci_client,
             http_client,
         }
-    }
-
-    pub(crate) fn policy_path(&self, component_id: &str) -> PathBuf {
-        self.storage.policy_path(component_id)
-    }
-
-    pub(crate) fn metadata_path(&self, component_id: &str) -> PathBuf {
-        self.storage.policy_metadata_path(component_id)
-    }
-
-    pub(crate) async fn cleanup(&self, component_id: &str) {
-        self.registry
-            .write()
-            .await
-            .component_policies
-            .remove(component_id);
-    }
-
-    pub(crate) async fn store_template(
-        &self,
-        component_id: &str,
-        template: Arc<WasiStateTemplate>,
-    ) {
-        self.registry
-            .write()
-            .await
-            .component_policies
-            .insert(component_id.to_string(), template);
-    }
-
-    pub(crate) async fn template_for_component(
-        &self,
-        component_id: &str,
-    ) -> Arc<WasiStateTemplate> {
-        if let Some(existing) = self
-            .registry
-            .read()
-            .await
-            .component_policies
-            .get(component_id)
-            .cloned()
-        {
-            return existing;
-        }
-
-        self.build_default_template(component_id).await
-    }
-
-    /// Construct a default WASI template enriched with configured environment
-    /// variables and any stored secrets for the component.
-    async fn build_default_template(&self, component_id: &str) -> Arc<WasiStateTemplate> {
-        let mut config_vars = self.environment_vars.as_ref().clone();
-
-        if let Ok(secrets) = self.secrets.load_component_secrets(component_id).await {
-            for (key, value) in secrets {
-                config_vars.insert(key, value);
-            }
-        }
-
-        let template = WasiStateTemplate {
-            config_vars,
-            ..WasiStateTemplate::default()
-        };
-        Arc::new(template)
-    }
-
-    pub(crate) async fn attach_policy(&self, component_id: &str, policy_uri: &str) -> Result<()> {
-        info!(component_id, policy_uri, "Attaching policy to component");
-
-        let downloaded_policy = loader::load_resource::<PolicyResource>(
-            policy_uri,
-            &self.oci_client,
-            &self.http_client,
-        )
-        .await?;
-
-        let policy = PolicyParser::parse_file(downloaded_policy.as_ref())?;
-
-        let policy_path = self.policy_path(component_id);
-        tokio::fs::copy(downloaded_policy.as_ref(), &policy_path).await?;
-
-        let metadata = serde_json::json!({
-            "source_uri": policy_uri,
-            "attached_at": std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_secs()
-        });
-        let metadata_path = self.metadata_path(component_id);
-        tokio::fs::write(&metadata_path, serde_json::to_string_pretty(&metadata)?).await?;
-
-        let secrets = self.secrets.load_component_secrets(component_id).await.ok();
-
-        let wasi_template = crate::create_wasi_state_template_from_policy(
-            &policy,
-            self.storage.root(),
-            self.environment_vars.as_ref(),
-            secrets.as_ref(),
-        )?;
-
-        self.store_template(component_id, Arc::new(wasi_template))
-            .await;
-
-        info!(component_id, policy_uri, "Policy attached successfully");
-        Ok(())
-    }
-
-    pub(crate) async fn detach_policy(&self, component_id: &str) -> Result<()> {
-        info!(component_id, "Detaching policy from component");
-
-        let policy_path = self.policy_path(component_id);
-        self.storage
-            .remove_if_exists(&policy_path, "policy file", component_id)
-            .await?;
-
-        let metadata_path = self.metadata_path(component_id);
-        self.storage
-            .remove_if_exists(&metadata_path, "policy metadata file", component_id)
-            .await?;
-
-        self.cleanup(component_id).await;
-
-        info!(component_id, "Policy detached successfully");
-        Ok(())
-    }
-
-    pub(crate) async fn get_policy_info(&self, component_id: &str) -> Option<PolicyInfo> {
-        let policy_path = self.policy_path(component_id);
-        if !tokio::fs::try_exists(&policy_path).await.unwrap_or(false) {
-            return None;
-        }
-
-        let metadata_path = self.metadata_path(component_id);
-        let source_uri =
-            if let Ok(metadata_content) = tokio::fs::read_to_string(&metadata_path).await {
-                if let Ok(metadata) = serde_json::from_str::<serde_json::Value>(&metadata_content) {
-                    metadata
-                        .get("source_uri")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("unknown")
-                        .to_string()
-                } else {
-                    format!("file://{}", policy_path.display())
-                }
-            } else {
-                format!("file://{}", policy_path.display())
-            };
-
-        let metadata = tokio::fs::metadata(&policy_path).await.ok()?;
-        let created_at = metadata
-            .created()
-            .unwrap_or_else(|_| std::time::SystemTime::now());
-
-        Some(PolicyInfo {
-            policy_id: format!("{component_id}-policy"),
-            source_uri,
-            local_path: policy_path,
-            component_id: component_id.to_string(),
-            created_at,
-        })
-    }
-
-    pub(crate) async fn update_policy_registry(
-        &self,
-        component_id: &str,
-        policy: &PolicyDocument,
-    ) -> Result<()> {
-        let secrets = self.secrets.load_component_secrets(component_id).await.ok();
-
-        let wasi_template = crate::create_wasi_state_template_from_policy(
-            policy,
-            self.storage.root(),
-            self.environment_vars.as_ref(),
-            secrets.as_ref(),
-        )?;
-
-        self.store_template(component_id, Arc::new(wasi_template))
-            .await;
-        Ok(())
-    }
-
-    pub(crate) async fn prepare_template(
-        &self,
-        component_id: &str,
-        policy_bytes: Option<&[u8]>,
-    ) -> Result<Option<Arc<WasiStateTemplate>>> {
-        let Some(bytes) = policy_bytes else {
-            // No cached template: default policy continues to read current secrets on each call.
-            return Ok(None);
-        };
-        let content = std::str::from_utf8(bytes).context("Policy must be valid UTF-8")?;
-        let policy =
-            PolicyParser::parse_str(content).context("Failed to parse effective policy")?;
-        let secrets = self
-            .secrets
-            .load_component_secrets(component_id)
-            .await
-            .context("Failed to load component secrets for effective policy")?;
-        let template = crate::create_wasi_state_template_from_policy(
-            &policy,
-            self.storage.root(),
-            self.environment_vars.as_ref(),
-            Some(&secrets),
-        )
-        .context("Failed to prepare effective policy")?;
-        Ok(Some(Arc::new(template)))
-    }
-
-    /// Rehydrate policy templates from a co-located policy file on disk, if
-    /// one exists for the component.
-    pub(crate) async fn restore_from_disk(&self, component_id: &str) -> Result<()> {
-        let policy_path = self.policy_path(component_id);
-        if !policy_path.exists() {
-            return Ok(());
-        }
-
-        let secrets = self.secrets.load_component_secrets(component_id).await.ok();
-
-        match tokio::fs::read_to_string(&policy_path).await {
-            Ok(policy_content) => match PolicyParser::parse_str(&policy_content) {
-                Ok(policy) => match crate::create_wasi_state_template_from_policy(
-                    &policy,
-                    self.storage.root(),
-                    self.environment_vars.as_ref(),
-                    secrets.as_ref(),
-                ) {
-                    Ok(wasi_template) => {
-                        self.store_template(component_id, Arc::new(wasi_template))
-                            .await;
-                        info!(component_id = %component_id, "Restored policy association from co-located file");
-                    }
-                    Err(e) => {
-                        warn!(component_id = %component_id, error = %e, "Failed to create WASI template from policy");
-                    }
-                },
-                Err(e) => {
-                    warn!(component_id = %component_id, error = %e, "Failed to parse co-located policy file");
-                }
-            },
-            Err(e) => {
-                warn!(component_id = %component_id, error = %e, "Failed to read co-located policy file");
-            }
-        }
-
-        Ok(())
-    }
-
-    pub(crate) async fn revoke_storage_permission_by_uri(
-        &self,
-        component_id: &str,
-        uri: &str,
-    ) -> Result<()> {
-        if uri.is_empty() {
-            return Err(anyhow!("Storage URI cannot be empty"));
-        }
-        let mut policy = self.load_or_create_component_policy(component_id).await?;
-        self.remove_storage_permission_by_uri_from_policy(&mut policy, uri)?;
-        self.save_component_policy(component_id, &policy).await?;
-        self.update_policy_registry(component_id, &policy).await?;
-        Ok(())
-    }
-
-    /// Grant a specific permission rule to a component
-    #[instrument(skip(self))]
-    pub async fn grant_permission(
-        &self,
-        component_id: &str,
-        permission_type: &str,
-        details: &serde_json::Value,
-    ) -> Result<()> {
-        info!(
-            component_id,
-            permission_type, "Granting permission to component"
-        );
-        let permission_rule = self.parse_permission_rule(permission_type, details)?;
-        self.validate_permission_rule(&permission_rule)?;
-        let mut policy = self.load_or_create_component_policy(component_id).await?;
-        self.add_permission_rule_to_policy(&mut policy, permission_rule)?;
-        self.save_component_policy(component_id, &policy).await?;
-        self.update_policy_registry(component_id, &policy).await?;
-
-        info!(
-            component_id,
-            permission_type, "Permission granted successfully"
-        );
-        Ok(())
     }
 
     /// Parse a permission rule from the request details
@@ -491,28 +203,6 @@ impl PolicyManager {
         };
 
         Ok(permission_rule)
-    }
-
-    /// Load or create component policy
-    pub(crate) async fn load_or_create_component_policy(
-        &self,
-        component_id: &str,
-    ) -> Result<policy::PolicyDocument> {
-        let policy_path = self.policy_path(component_id);
-
-        if policy_path.exists() {
-            let policy_content = tokio::fs::read_to_string(&policy_path).await?;
-            Ok(PolicyParser::parse_str(&policy_content)?)
-        } else {
-            // Create minimal policy document
-            Ok(policy::PolicyDocument {
-                version: "1.0".to_string(),
-                description: Some(format!(
-                    "Auto-generated policy for component: {component_id}"
-                )),
-                permissions: Default::default(),
-            })
-        }
     }
 
     /// Add permission rule to policy
@@ -678,18 +368,6 @@ impl PolicyManager {
         Ok(())
     }
 
-    /// Save component policy to file
-    pub(crate) async fn save_component_policy(
-        &self,
-        component_id: &str,
-        policy: &PolicyDocument,
-    ) -> Result<()> {
-        let policy_path = self.policy_path(component_id);
-        let policy_yaml = serde_yaml::to_string(policy)?;
-        tokio::fs::write(&policy_path, policy_yaml).await?;
-        Ok(())
-    }
-
     /// Validate permission rule
     fn validate_permission_rule(&self, rule: &PermissionRule) -> Result<()> {
         match rule {
@@ -711,54 +389,6 @@ impl PolicyManager {
             }
             _ => {}
         }
-        Ok(())
-    }
-
-    /// Revoke a specific permission rule from a component
-    #[instrument(skip(self))]
-    pub async fn revoke_permission(
-        &self,
-        component_id: &str,
-        permission_type: &str,
-        details: &serde_json::Value,
-    ) -> Result<()> {
-        info!(
-            component_id,
-            permission_type, "Revoking permission from component"
-        );
-        let permission_rule = self.parse_permission_rule(permission_type, details)?;
-        self.validate_permission_rule(&permission_rule)?;
-        let mut policy = self.load_or_create_component_policy(component_id).await?;
-        self.remove_permission_rule_from_policy(&mut policy, permission_rule)?;
-        self.save_component_policy(component_id, &policy).await?;
-        self.update_policy_registry(component_id, &policy).await?;
-
-        info!(
-            component_id,
-            permission_type, "Permission revoked successfully"
-        );
-        Ok(())
-    }
-
-    /// Reset all permissions for a component
-    #[instrument(skip(self))]
-    pub async fn reset_permission(&self, component_id: &str) -> Result<()> {
-        info!(component_id, "Resetting all permissions for component");
-        // Remove policy files
-        let policy_path = self.policy_path(component_id);
-        self.storage
-            .remove_if_exists(&policy_path, "policy file", component_id)
-            .await?;
-
-        let metadata_path = self.metadata_path(component_id);
-        self.storage
-            .remove_if_exists(&metadata_path, "policy metadata file", component_id)
-            .await?;
-
-        // Remove from policy registry
-        self.cleanup(component_id).await;
-
-        info!(component_id, "All permissions reset successfully");
         Ok(())
     }
 
@@ -872,8 +502,100 @@ impl PolicyManager {
 
 #[cfg(test)]
 mod tests {
+    use std::ops::Deref;
+    use std::time::UNIX_EPOCH;
+
+    use anyhow::Context;
+
     use super::*;
-    use crate::tests::*;
+    use crate::store::{ArtifactSnapshot, PolicyProvenance};
+    use crate::{LifecycleManager, StorageKey, WasiStateTemplate};
+
+    const TEST_COMPONENT_ID: &str = "policy:fixture/tool";
+    const TEST_STORAGE_KEY: &str = "private-policy-fixture";
+
+    struct PolicyFixture {
+        manager: LifecycleManager,
+        directory: tempfile::TempDir,
+    }
+
+    impl Deref for PolicyFixture {
+        type Target = LifecycleManager;
+
+        fn deref(&self) -> &Self::Target {
+            &self.manager
+        }
+    }
+
+    impl PolicyFixture {
+        async fn load_test_component(&self) -> Result<()> {
+            let source = self.directory.path().join("source");
+            tokio::fs::create_dir_all(&source).await?;
+            let source = source.join(format!("{TEST_STORAGE_KEY}.wasm"));
+            let bytes = wat::parse_str(format!(
+                r#"(component $"{TEST_COMPONENT_ID}"
+                    (core module $m
+                        (func (export "run") (result i32) i32.const 1))
+                    (core instance $i (instantiate $m))
+                    (func (export "run") (result u32)
+                        (canon lift (core func $i "run"))))"#
+            ))?;
+            tokio::fs::write(&source, bytes).await?;
+            self.manager
+                .load_component(&format!("file://{}", source.display()))
+                .await?;
+            let snapshot = self.snapshot().await?;
+            assert_eq!(snapshot.receipt.component_id.as_str(), TEST_COMPONENT_ID);
+            assert_eq!(snapshot.receipt.storage_key.as_str(), TEST_STORAGE_KEY);
+            Ok(())
+        }
+
+        fn get_component_policy_path(&self, id: &str) -> PathBuf {
+            assert_eq!(id, TEST_COMPONENT_ID);
+            self.manager.storage.policy_path(
+                &StorageKey::parse(TEST_STORAGE_KEY).expect("valid fixture storage key"),
+            )
+        }
+
+        async fn snapshot(&self) -> Result<ArtifactSnapshot> {
+            self.manager
+                .policy_manager
+                .policy_snapshot(TEST_COMPONENT_ID)
+                .await
+        }
+
+        async fn template(&self) -> Result<Arc<WasiStateTemplate>> {
+            Ok(self
+                .manager
+                .registry
+                .get_component(TEST_COMPONENT_ID)
+                .await
+                .context("Missing installed policy fixture")?
+                .policy_template
+                .clone())
+        }
+
+        async fn attach(&self, policy: &str) -> Result<String> {
+            let path = self.directory.path().join("attachment.yaml");
+            tokio::fs::write(&path, policy).await?;
+            let uri = format!("file://{}", path.display());
+            self.manager.attach_policy(TEST_COMPONENT_ID, &uri).await?;
+            Ok(uri)
+        }
+    }
+
+    async fn create_test_manager() -> Result<PolicyFixture> {
+        let directory = tempfile::Builder::new()
+            .prefix(".policy-test-")
+            .tempdir_in(std::env::current_dir()?)?;
+        let manager = LifecycleManager::builder(directory.path().join("components"))
+            .with_secrets_dir(directory.path().join("configured-secrets"))
+            .with_environment_var("TEST_VAR", "configured-value")
+            .with_eager_loading(false)
+            .build()
+            .await?;
+        Ok(PolicyFixture { manager, directory })
+    }
 
     #[tokio::test]
     async fn test_policy_attachment_and_detachment() -> Result<()> {
@@ -1249,22 +971,25 @@ permissions: {}
     }
 
     #[tokio::test]
-    async fn test_grant_permission_updates_policy_registry() -> Result<()> {
+    async fn test_grant_permission_publishes_a_pinned_runtime_template() -> Result<()> {
         let manager = create_test_manager().await?;
         manager.load_test_component().await?;
+        let original = manager.template().await?;
 
-        // Grant permission
         let details = serde_json::json!({"host": "api.example.com"});
         manager
             .grant_permission(TEST_COMPONENT_ID, "network", &details)
             .await?;
 
-        // Verify policy registry was updated by attempting to get WASI state
-        let _wasi_state = manager
-            .get_wasi_state_for_component(TEST_COMPONENT_ID)
-            .await?;
-
-        // If we get here without error, the policy registry was updated successfully
+        let updated = manager.template().await?;
+        assert!(!Arc::ptr_eq(&original, &updated));
+        assert!(original.allowed_hosts.is_empty());
+        assert!(updated.allowed_hosts.contains("api.example.com"));
+        let snapshot = manager.snapshot().await?;
+        assert_eq!(
+            snapshot.receipt.policy.provenance,
+            PolicyProvenance::PermissionEdit
+        );
         Ok(())
     }
 
@@ -1303,6 +1028,365 @@ permissions:
         assert!(final_policy_content.contains("initial.example.com"));
         assert!(final_policy_content.contains("additional.example.com"));
 
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn attachment_metadata_survives_permission_grants_and_revocations() -> Result<()> {
+        let manager = create_test_manager().await?;
+        manager.load_test_component().await?;
+        let uri = manager
+            .attach("version: '1.0'\ndescription: attached\npermissions: {}\n")
+            .await?;
+        let attached = manager.snapshot().await?;
+        let metadata = attached
+            .receipt
+            .policy
+            .metadata
+            .clone()
+            .context("Missing attachment metadata")?;
+        assert_eq!(metadata.source_uri, uri);
+        assert!(metadata.attached_at.is_some());
+        assert_eq!(
+            attached.receipt.policy.provenance,
+            PolicyProvenance::ExplicitAttachment
+        );
+        let before_info = manager
+            .policy_manager
+            .policy_info_transactional(TEST_COMPONENT_ID)
+            .await?
+            .context("Missing policy information")?;
+        assert_eq!(before_info.source_uri, uri);
+        assert_eq!(
+            before_info.local_path,
+            manager.get_component_policy_path(TEST_COMPONENT_ID)
+        );
+        assert_eq!(
+            before_info.created_at.duration_since(UNIX_EPOCH)?.as_secs(),
+            metadata.attached_at.unwrap()
+        );
+
+        for (kind, details) in [
+            (
+                "network",
+                serde_json::json!({"host": "granted.example.com"}),
+            ),
+            ("environment", serde_json::json!({"key": "TEST_VAR"})),
+            (
+                "storage",
+                serde_json::json!({"uri": "fs://project-files", "access": ["read", "write"]}),
+            ),
+            ("resource", serde_json::json!({"memory": "64Mi"})),
+        ] {
+            manager
+                .grant_permission(TEST_COMPONENT_ID, kind, &details)
+                .await?;
+            let granted = manager.snapshot().await?;
+            assert_ne!(granted.receipt.revision, attached.receipt.revision);
+            assert_eq!(
+                granted.receipt.artifact_sha256,
+                attached.receipt.artifact_sha256
+            );
+            assert_eq!(granted.receipt.source, attached.receipt.source);
+            assert_eq!(granted.receipt.storage_key, attached.receipt.storage_key);
+            assert_eq!(
+                granted.receipt.policy.provenance,
+                PolicyProvenance::PermissionEdit
+            );
+            assert_eq!(granted.receipt.policy.metadata, Some(metadata.clone()));
+            assert_eq!(
+                granted.receipt.policy.metadata_sha256,
+                attached.receipt.policy.metadata_sha256
+            );
+            manager
+                .revoke_permission(TEST_COMPONENT_ID, kind, &details)
+                .await?;
+            let revoked = manager.snapshot().await?;
+            assert_eq!(
+                revoked.receipt.policy.provenance,
+                PolicyProvenance::PermissionEdit
+            );
+            assert_eq!(revoked.receipt.policy.metadata, Some(metadata.clone()));
+            let info = manager
+                .policy_manager
+                .policy_info_transactional(TEST_COMPONENT_ID)
+                .await?
+                .context("Permission edit removed policy information")?;
+            assert_eq!(info.source_uri, before_info.source_uri);
+            assert_eq!(info.created_at, before_info.created_at);
+        }
+        let template = manager.template().await?;
+        assert!(template.allowed_hosts.is_empty());
+        assert!(template.config_vars.is_empty());
+        assert!(template.preopened_dirs.is_empty());
+        assert!(template.memory_limit.is_none());
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn storage_uri_revocation_retains_metadata_and_other_permissions() -> Result<()> {
+        let manager = create_test_manager().await?;
+        manager.load_test_component().await?;
+        manager
+            .attach(
+                r#"version: "1.0"
+permissions:
+  storage:
+    allow:
+      - uri: fs://first
+        access: [read, write]
+      - uri: fs://second
+        access: [read]
+"#,
+            )
+            .await?;
+        let attached = manager.snapshot().await?;
+        manager
+            .revoke_storage_permission_by_uri(TEST_COMPONENT_ID, "fs://first")
+            .await?;
+        let revoked = manager.snapshot().await?;
+        assert_eq!(
+            revoked.receipt.policy.provenance,
+            PolicyProvenance::PermissionEdit
+        );
+        assert_eq!(
+            revoked.receipt.policy.metadata,
+            attached.receipt.policy.metadata
+        );
+        let policy = policy::PolicyParser::parse_bytes(
+            revoked.policy.as_deref().context("Missing edited policy")?,
+        )?;
+        let allowed = policy
+            .permissions
+            .storage
+            .context("Missing storage section")?
+            .allow
+            .context("Unrelated storage permission was lost")?;
+        assert_eq!(allowed.len(), 1);
+        assert_eq!(allowed[0].uri, "fs://second");
+        assert_eq!(allowed[0].access, [AccessType::Read]);
+        let template = manager.template().await?;
+        assert_eq!(template.preopened_dirs.len(), 1);
+        assert_eq!(template.preopened_dirs[0].guest_path, "second");
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn clear_records_explicit_absence_without_changing_pinned_templates() -> Result<()> {
+        let manager = create_test_manager().await?;
+        manager.load_test_component().await?;
+        manager
+            .attach(
+                r#"version: "1.0"
+permissions:
+  network:
+    allow:
+      - host: attached.example.com
+"#,
+            )
+            .await?;
+        let attached = manager.template().await?;
+        manager.detach_policy(TEST_COMPONENT_ID).await?;
+        let cleared = manager.snapshot().await?;
+        assert!(cleared.policy.is_none());
+        assert!(cleared.receipt.policy.sha256.is_none());
+        assert!(cleared.receipt.policy.metadata.is_none());
+        assert_eq!(
+            cleared.receipt.policy.provenance,
+            PolicyProvenance::ExplicitAttachment
+        );
+        assert!(manager
+            .policy_manager
+            .policy_info_transactional(TEST_COMPONENT_ID)
+            .await?
+            .is_none());
+        assert!(!manager
+            .get_component_policy_path(TEST_COMPONENT_ID)
+            .exists());
+        assert!(attached.allowed_hosts.contains("attached.example.com"));
+        assert!(manager.template().await?.allowed_hosts.is_empty());
+
+        manager
+            .grant_permission(
+                TEST_COMPONENT_ID,
+                "network",
+                &serde_json::json!({"host": "edited.example.com"}),
+            )
+            .await?;
+        let edited = manager.snapshot().await?;
+        assert_eq!(
+            edited.receipt.policy.provenance,
+            PolicyProvenance::PermissionEdit
+        );
+        assert!(edited.receipt.policy.metadata.is_none());
+        let info = manager
+            .policy_manager
+            .policy_info_transactional(TEST_COMPONENT_ID)
+            .await?
+            .context("Missing generated policy information")?;
+        assert_eq!(
+            info.source_uri,
+            format!(
+                "file://{}",
+                manager
+                    .get_component_policy_path(TEST_COMPONENT_ID)
+                    .display()
+            )
+        );
+        assert_eq!(info.created_at, UNIX_EPOCH);
+
+        manager.reset_permission(TEST_COMPONENT_ID).await?;
+        let reset = manager.snapshot().await?;
+        assert!(reset.policy.is_none());
+        assert_eq!(
+            reset.receipt.policy.provenance,
+            PolicyProvenance::ExplicitAttachment
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn failed_policy_preparation_preserves_receipt_metadata_and_runtime() -> Result<()> {
+        let manager = create_test_manager().await?;
+        manager.load_test_component().await?;
+        manager
+            .attach("version: '1.0'\ndescription: retained\npermissions: {}\n")
+            .await?;
+        let original = manager.snapshot().await?;
+        let template = manager.template().await?;
+        for invalid in [
+            "[",
+            "version: '1.0'\npermissions:\n  resources:\n    limits:\n      memory: invalid\n",
+        ] {
+            assert!(manager.attach(invalid).await.is_err());
+            let current = manager.snapshot().await?;
+            assert_eq!(current.receipt, original.receipt);
+            assert_eq!(current.policy, original.policy);
+            assert!(Arc::ptr_eq(&manager.template().await?, &template));
+        }
+        assert!(manager
+            .grant_permission(
+                TEST_COMPONENT_ID,
+                "network",
+                &serde_json::json!({"host": ""}),
+            )
+            .await
+            .is_err());
+        assert!(manager
+            .revoke_storage_permission_by_uri(TEST_COMPONENT_ID, "")
+            .await
+            .is_err());
+        assert_eq!(manager.snapshot().await?.receipt, original.receipt);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn policy_reads_and_edits_reject_corrupt_receipt_backed_yaml() -> Result<()> {
+        let manager = create_test_manager().await?;
+        manager.load_test_component().await?;
+        manager.attach("version: '1.0'\npermissions: {}\n").await?;
+        let template = manager.template().await?;
+        let path = manager.get_component_policy_path(TEST_COMPONENT_ID);
+        tokio::fs::write(&path, b"malformed: [").await?;
+        assert!(manager
+            .policy_manager
+            .policy_info_transactional(TEST_COMPONENT_ID)
+            .await
+            .is_err());
+        assert!(manager
+            .policy_manager
+            .edit_permission_transactional(
+                TEST_COMPONENT_ID,
+                "network",
+                &serde_json::json!({"host": "unexpected.example.com"}),
+                true,
+            )
+            .await
+            .is_err());
+        assert!(manager
+            .policy_manager
+            .clear_transactional(TEST_COMPONENT_ID)
+            .await
+            .is_err());
+        assert_eq!(tokio::fs::read(&path).await?, b"malformed: [");
+        assert!(Arc::ptr_eq(&manager.template().await?, &template));
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn bound_secret_ownership_errors_abort_policy_changes() -> Result<()> {
+        let manager = create_test_manager().await?;
+        manager.load_test_component().await?;
+        let original = manager.snapshot().await?;
+        let binding = original.receipt.secret_binding()?;
+        manager
+            .policy_manager
+            .secrets
+            .set_bound_component_secrets(&binding, &[("TOKEN".into(), "protected-value".into())])
+            .await?;
+        let template = manager
+            .policy_manager
+            .prepare_bound_template(&binding, None)
+            .await?;
+        assert_eq!(template.config_vars["TOKEN"], "protected-value");
+        let owner_path = manager
+            .policy_manager
+            .secrets
+            .secrets_dir()
+            .join(".secret-bindings.json");
+        tokio::fs::write(owner_path, b"broken-owner-record").await?;
+        for policy in [None, Some(b"version: '1.0'\npermissions: {}\n".as_slice())] {
+            assert!(manager
+                .policy_manager
+                .prepare_bound_template(&binding, policy)
+                .await
+                .is_err());
+        }
+        assert!(manager
+            .policy_manager
+            .edit_permission_transactional(
+                TEST_COMPONENT_ID,
+                "network",
+                &serde_json::json!({"host": "unexpected.example.com"}),
+                true,
+            )
+            .await
+            .is_err());
+        assert!(manager
+            .policy_manager
+            .clear_transactional(TEST_COMPONENT_ID)
+            .await
+            .is_err());
+        assert!(manager
+            .attach("version: '1.0'\npermissions: {}\n")
+            .await
+            .is_err());
+        assert_eq!(manager.snapshot().await?.receipt, original.receipt);
+        assert!(manager.snapshot().await?.policy.is_none());
+        Ok(())
+    }
+
+    #[test]
+    fn explicit_attachment_metadata_redacts_https_credentials() -> Result<()> {
+        let policy = explicit_policy(
+            b"version: '1.0'\npermissions: {}\n".to_vec(),
+            "https://example.com/policy.yaml?token=do-not-persist#private-fragment",
+        )?;
+        let metadata = policy
+            .evidence()
+            .metadata
+            .as_ref()
+            .context("Missing explicit metadata")?;
+        assert_eq!(metadata.source_uri, "https://example.com/policy.yaml");
+        assert!(metadata.attached_at.is_some());
+        let serialized = serde_json::to_string(metadata)?;
+        assert!(!serialized.contains("do-not-persist"));
+        assert!(!serialized.contains("private-fragment"));
+        assert!(explicit_policy(
+            b"version: '1.0'\npermissions: {}\n".to_vec(),
+            "https://username:password@example.com/policy.yaml",
+        )
+        .is_err());
         Ok(())
     }
 

@@ -5406,10 +5406,12 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "tracing-test",
+ "wasm-encoder 0.252.0",
  "wasmtime",
  "wasmtime-wasi",
  "wasmtime-wasi-http",
  "wassette",
+ "wat",
  "wiremock",
 ]
 

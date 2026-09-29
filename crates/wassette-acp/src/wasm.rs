@@ -66,12 +66,13 @@ use crate::{Layer, Provider};
 // -----------------------------------------------------------------------------
 
 /// One stage in the routing chain: a pre-loaded wasm `Component` plus its
-/// component identity (`namespace:component-name`) used to scope its
-/// `/data` preopen and secret lookups.
+/// semantic identity for routing, and separate receipt-bound private storage.
 #[derive(Clone)]
 pub struct Stage {
     pub component: Component,
     pub component_id: String,
+    pub storage_key: ::wassette::StorageKey,
+    pub snapshot: Arc<::wassette::store::ArtifactSnapshot>,
     /// Capabilities this stage is granted, from its Wassette policy (or
     /// `--allow-all`). See [`crate::sandbox`].
     pub sandbox: Sandbox,
@@ -296,11 +297,13 @@ impl SessionFactory {
         // A store has one `WasiCtx`, and a chain is one store, so the
         // stages' policy grants are unioned. Do not mount the provider's
         // persistent data into a non-opted-in chain where layers could read it.
-        let provider_data = stage_data_dir(
+        let provider_data = crate::data::stage_data_dir(
             project_dir,
-            &provider.component_id,
+            &provider.storage_key,
+            &provider.snapshot.receipt.secret_binding()?,
             self.layers.is_empty() || self.allow_shared_grants,
-        )?;
+        )
+        .await?;
         let mut chain_sandbox = ChainSandbox::default();
         chain_sandbox.merge(&provider.sandbox);
         for layer in &self.layers {
@@ -411,45 +414,6 @@ fn debug_assert_chain_wiring(state: &HostState) {
         outbound_count, 1,
         "exactly one stage must have Outbound sink"
     );
-}
-
-/// Compute `<project_dir>/<slug>/` (creating the directory) when a
-/// project dir is supplied; otherwise return `None`. The component
-/// identity is slugified (`namespace:name` → `namespace__name`) so the
-/// `:` never reaches the filesystem (illegal on Windows).
-fn stage_data_dir(
-    project_dir: Option<&std::path::Path>,
-    component_id: &str,
-    mount: bool,
-) -> Result<Option<PathBuf>> {
-    let Some(project_dir) = project_dir.filter(|_| mount) else {
-        return Ok(None);
-    };
-    let dir = project_dir.join(component_id.replace(':', "__"));
-    std::fs::create_dir_all(&dir)
-        .with_context(|| format!("creating project data dir {}", dir.display()))?;
-    Ok(Some(dir))
-}
-
-#[cfg(test)]
-mod data_tests {
-    use super::*;
-
-    #[test]
-    fn non_opted_layered_chain_does_not_mount_persisted_provider_data() {
-        let project = tempfile::tempdir().unwrap();
-        let persisted = project.path().join("provider");
-        std::fs::create_dir(&persisted).unwrap();
-        std::fs::write(persisted.join("history"), "private").unwrap();
-        assert_eq!(
-            stage_data_dir(Some(project.path()), "provider", false).unwrap(),
-            None
-        );
-        assert_eq!(
-            stage_data_dir(Some(project.path()), "provider", true).unwrap(),
-            Some(persisted)
-        );
-    }
 }
 
 #[derive(serde::Serialize, serde::Deserialize, Default)]

@@ -64,11 +64,17 @@ identity, and it is why the stages share a single `WasiCtx`.
 ## Sandboxing
 
 Each stage's capabilities come from its Wassette policy —
-`<component-id>.policy.yaml`, looked up in the component directory
-(where `wassette component load` and `wassette policy attach` put it) and
-then next to the `.wasm` file — through
+the receipt-bound `<storage-key>.policy.yaml`, captured together with the
+artifact. Local acquisition can import an adjacent policy before installation;
+selection does not reopen mutable policy paths. Policy preparation uses
 `wassette::create_wasi_state_template_from_policy`, the same function the
 MCP server uses.
+
+Persistent `/data` keeps its project/private-key path, but a durable ownership
+record outside the guest preopen binds it to the receipt's semantic name and
+source. Separate stores cannot reuse another component's data by choosing the
+same private key. Conflicting ownership or unowned nonempty legacy data fails
+closed; installation does not migrate or adopt it.
 
 * No policy means **no network and no filesystem** beyond the
   per-session `/data` directory the host preopens for a provider running
@@ -132,8 +138,9 @@ wassette acp --provider <PATH|URI|COMPONENT_ID>
   component directory.
 * Logs go to **stderr**, never stdout: stdout is the protocol channel.
   `--log-file` mirrors them into a timestamped file for editors that hide stderr.
-* `/install` validates local paths in place; OCI and HTTPS references are
-  downloaded into the component directory.
+* `/install` privately captures local, OCI and HTTPS inputs, validates them with
+  the ACP engine, and commits them through the shared transactional store.
+  Installation does not automatically select or activate a provider.
 * `RUST_LOG=debug` or `RUST_LOG=trace` logs full JSON-RPC payloads, including prompt text and any secrets a guest emits; enable it only when appropriate.
 
 Point an ACP-speaking editor at it the same way you would point one at
@@ -181,12 +188,14 @@ exports identify providers; `agent` plus `client` identifies layers. Client
 imports alone do not make a layer. These shapes are excluded from ordinary MCP
 loading and cached tool metadata before choosing an engine. ACP still checks
 the protocol version and expected stage, and linking checks runtime compatibility.
-Embedded semantic names are inspected separately; existing ACP selectors and
-secrets continue to use storage keys until a persisted semantic lookup exists.
 `just build-acp-examples` embeds each producer's explicitly declared Cargo package
 name (`acp-echo-provider`, `acp-uppercase-layer`, `acp-ollama-provider`, or
 `acp-copilot-provider`) at the root. The shared `wassette:acp` interface package
 does not identify a particular producer.
+Selectors use the exact embedded root semantic name; receipts separately retain
+private artifact, policy, secret and persistent-data bindings. Unnamed producers
+must add a root component name before admission. Unreceipted artifacts are
+protected legacy inventory, not filename aliases.
 
 * Provider terminal requests go directly to the host; layers cannot intercept
   or deny them. The example layer's terminal exports are unfinished.
@@ -200,11 +209,11 @@ does not identify a particular producer.
   methods or stateful authentication; advertising them would mislead editors.
 * Sessions stay registered until the host exits; there is no eviction or
   session-close path.
-* Remote components and their policies are staged and validated before
-  replacement. Publishing the two files requires separate filesystem
-  operations; a concurrent reader outside the ACP host can briefly see a
-  mixed pair. Do not modify the shared component store from another process
-  while ACP is loading a component.
+* Cooperating CLI, MCP and ACP readers use receipt-bound snapshots and the shared
+  journal. Old binaries and direct filesystem edits do not participate. See the
+  [transaction and platform limits](architecture.md#transactional-installation-and-replacement).
+  ACP compilation and export checks do not prove full host-link compatibility;
+  selection can still fail to link without rolling back a committed installation.
 * Terminal output limits currently forward the first bytes (a prefix),
   not the latest bytes as described in WIT, and cannot report truncation
   through the current streaming API. The host also caps each command at

@@ -1,62 +1,57 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT license.
 
-//! Resolution of `--provider` / `--layer` arguments to on-disk wasm
-//! components.
+//! Receipt-backed ACP installation and selection.
 //!
-//! ACP components live in the *same* store as Wassette's MCP components:
-//! the Wassette component directory (`--component-dir`, defaulting to
-//! `$XDG_DATA_HOME/wassette/components`). Downloads go through
-//! [`wassette::loader`], so `wassette acp --provider` accepts exactly the
-//! references `wassette component load` does:
-//!
-//! | Argument | Meaning |
-//! | --- | --- |
-//! | `./agent.wasm`, `/abs/agent.wasm`, `file:///abs/agent.wasm` | a local file, used in place |
-//! | `oci://ghcr.io/org/agent:0.1.0` | pulled from a registry into the component dir |
-//! | `https://example.com/agent.wasm` | downloaded into the component dir |
-//! | `agent` | a component already in the component dir (`agent.wasm`) |
-//!
-//! Existing selectors still use the `.wasm` storage key, including for
-//! `/data` and secrets. This is separate from the semantic [`wassette::ComponentId`]
-//! inspected from the root component name; semantic lookup needs a persisted
-//! identity-to-key binding and is not enabled here.
+//! Explicit local paths, `file://`, HTTPS and OCI inputs are captured and
+//! installed through the shared transaction store. Non-URI selectors first
+//! resolve an exact installed semantic name, even when it contains separators.
+//! Physical filenames are private storage keys, never semantic identities.
+//! Compilation and policy validation use captured bytes, outside store locks;
+//! subsequent sandboxing and stage loading retain that same snapshot.
 
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use anyhow::{Context, Result, anyhow};
 use tokio::sync::mpsc::Sender;
 use wasmtime::Engine;
 use wasmtime::component::Component;
+use wassette::store::{
+    ArtifactSnapshot, ComponentStore, ExpectedEntry, InstallIntent, InstallOptions, InstallOwner,
+    PolicyMetadata, PolicyProvenance, PreparedInstall, PreparedPolicy, StoreError, StoredEntry,
+    ValidationEvidence,
+};
 
-/// A provider or layer argument resolved to a concrete component.
-#[derive(Debug, Clone)]
+/// One admitted snapshot; `path` is informational and must not be reopened.
+#[derive(Clone)]
 pub struct ResolvedComponent {
-    /// Wassette component id (the `.wasm` file stem). Keys the stage's
-    /// secret store and its `/data` directory.
+    /// Exact embedded root name, not a filename.
     pub component_id: String,
-    /// Path to the component on disk.
+    /// Informational location of the store's current artifact.
     pub path: PathBuf,
+    pub snapshot: Arc<ArtifactSnapshot>,
+    pub component: Component,
 }
 
-/// How a CLI argument names a component.
+impl std::fmt::Debug for ResolvedComponent {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("ResolvedComponent")
+            .field("component_id", &self.component_id)
+            .field("path", &self.path)
+            .field("receipt", &self.snapshot.receipt)
+            .finish_non_exhaustive()
+    }
+}
+
 #[derive(Debug, PartialEq, Eq)]
 enum Reference<'a> {
-    /// A remote URI understood by [`wassette::loader`] (`oci://`,
-    /// `https://`) or an explicit `file://` path.
     Uri(&'a str),
-    /// A filesystem path.
     Path(&'a str),
-    /// A component id already present in the component directory.
     Id(&'a str),
 }
 
-/// Classify a `--provider` / `--layer` argument.
-///
-/// Anything with a `<scheme>://` prefix is a URI and handed to the
-/// loader. Otherwise an argument that looks like a path (contains a
-/// separator, ends in `.wasm`, or exists on disk) is a local file; what
-/// remains is a component id to look up in the component directory.
 fn classify(arg: &str) -> Result<Reference<'_>> {
     if let Some((scheme, _)) = arg.split_once("://") {
         return match scheme {
@@ -67,56 +62,53 @@ fn classify(arg: &str) -> Result<Reference<'_>> {
             )),
         };
     }
-    let looks_like_path = arg.contains(std::path::MAIN_SEPARATOR)
+    if arg.contains(std::path::MAIN_SEPARATOR)
         || arg.contains('/')
         || arg.ends_with(".wasm")
-        || Path::new(arg).exists();
-    if looks_like_path {
+        || Path::new(arg).exists()
+    {
         Ok(Reference::Path(arg))
     } else {
         Ok(Reference::Id(arg))
     }
 }
 
-/// Resolves component references against a Wassette component directory.
+/// Resolves with the caller's configured clients, without an ordinary MCP engine.
 pub struct Resolver {
-    component_dir: PathBuf,
-    config: Option<wassette::LifecycleConfig>,
+    config: wassette::LifecycleConfig,
 }
 
 impl Resolver {
-    /// Resolve against `component_dir`, the Wassette component store.
-    pub fn new(component_dir: impl Into<PathBuf>) -> Self {
-        Self {
-            component_dir: component_dir.into(),
-            config: None,
-        }
+    #[cfg(test)]
+    pub fn new(component_dir: impl Into<PathBuf>) -> Result<Self> {
+        Ok(Self::with_config(
+            wassette::LifecycleManager::builder(component_dir.into()).build_config()?,
+        ))
     }
 
-    /// Resolve using the lifecycle manager's configured HTTP and OCI clients.
     pub fn with_config(config: wassette::LifecycleConfig) -> Self {
-        let mut resolver = Self::new(config.component_dir());
-        resolver.config = Some(config);
-        resolver
+        Self { config }
     }
 
-    /// The component directory this resolver reads from and downloads into.
     pub fn component_dir(&self) -> &Path {
-        &self.component_dir
+        self.config.component_dir()
     }
 
-    /// Validate a component before adding any fetched artifact to the store.
-    /// Local paths and existing IDs are never owned by this invocation.
+    pub fn secrets_dir(&self) -> &Path {
+        self.config.secrets_dir()
+    }
+
+    /// Persist only: this never starts a guest or replaces a selected stage.
     pub async fn install_validated(
         &self,
         arg: &str,
         progress: Option<Sender<String>>,
         engine: &Engine,
     ) -> Result<ResolvedComponent> {
-        self.resolve_validated(arg, progress, engine, None).await
+        self.resolve(arg, progress, engine, None, InstallIntent::InstallOnly)
+            .await
     }
 
-    /// Validate a remote artifact before publishing it to the shared component store.
     pub async fn resolve_validated(
         &self,
         arg: &str,
@@ -124,137 +116,230 @@ impl Resolver {
         engine: &Engine,
         expected_kind: Option<crate::state::StageKind>,
     ) -> Result<ResolvedComponent> {
-        let remote = matches!(classify(arg)?, Reference::Uri(uri) if uri.starts_with("oci://") || uri.starts_with("https://"));
-        let staging = if remote {
-            std::fs::create_dir_all(&self.component_dir)
-                .with_context(|| format!("creating {}", self.component_dir.display()))?;
-            Some(
-                tempfile::Builder::new()
-                    .prefix(".acp-install-")
-                    .tempdir_in(&self.component_dir)?,
-            )
-        } else {
-            None
-        };
-        let staged_resolver = Resolver {
-            component_dir: staging
-                .as_ref()
-                .map(|dir| dir.path().to_path_buf())
-                .unwrap_or_else(|| self.component_dir.clone()),
-            config: self.config.clone(),
-        };
-        let resolved = staged_resolver
-            .resolve_with_progress(arg, progress.clone())
-            .await?;
-        if let Some(tx) = progress.as_ref() {
-            let _ = tx.try_send("Validating component…".to_string());
-        }
-        let bytes = tokio::fs::read(&resolved.path)
-            .await
-            .context("reading installed component")?;
-        let inspection =
-            wassette::inspect_artifact(&bytes).context("inspecting installed component")?;
-        match expected_kind {
-            Some(kind) => crate::validate_stage(&inspection, kind)?,
-            None => {
-                crate::classify_acp_component(&inspection)?;
-            }
-        }
-        Component::new(engine, &bytes)
-            .map_err(anyhow::Error::from)
-            .context("loading installed component")?;
-
-        if staging.is_some() {
-            let policy_path = resolved
-                .path
-                .with_file_name(format!("{}.policy.yaml", resolved.component_id));
-            if policy_path.is_file() {
-                let content = std::fs::read_to_string(&policy_path)
-                    .with_context(|| format!("reading {}", policy_path.display()))?;
-                policy::PolicyParser::parse_str(&content)
-                    .with_context(|| format!("validating {}", policy_path.display()))?;
-            }
-            return self.promote_staged(resolved).await;
-        }
-        Ok(resolved)
+        self.resolve(
+            arg,
+            progress,
+            engine,
+            expected_kind,
+            InstallIntent::AcpSelection,
+        )
+        .await
     }
 
-    async fn promote_staged(&self, resolved: ResolvedComponent) -> Result<ResolvedComponent> {
-        let destination =
-            wassette::loader::promote_component_artifact(&resolved.path, &self.component_dir)
-                .await
-                .with_context(|| format!("installing `{}`", resolved.component_id))?;
-        Ok(ResolvedComponent {
-            component_id: resolved.component_id,
-            path: destination,
-        })
-    }
-
-    /// Like [`Resolver::resolve`] but emits coarse phase messages on
-    /// `progress` when set. Used by the host-side `/install` slash
-    /// command to drive an ACP tool-call progress card; send failures are
-    /// ignored so reporting never blocks resolution.
-    pub async fn resolve_with_progress(
+    async fn resolve(
         &self,
         arg: &str,
         progress: Option<Sender<String>>,
+        engine: &Engine,
+        expected_kind: Option<crate::state::StageKind>,
+        intent: InstallIntent,
     ) -> Result<ResolvedComponent> {
-        let report = |msg: String| {
-            if let Some(tx) = progress.as_ref() {
-                let _ = tx.try_send(msg);
-            }
-        };
-
-        match classify(arg)? {
-            Reference::Id(id) => {
-                wassette::StorageKey::parse(id).context("Invalid component storage key")?;
-                let path = self.component_dir.join(format!("{id}.wasm"));
-                if !tokio::fs::try_exists(&path).await.unwrap_or(false) {
-                    anyhow::bail!(
-                        "no component `{id}` in {}; load it first (`wassette component load \
-                         <oci://…|https://…|file://…>`) or pass a path or URI",
-                        self.component_dir.display()
-                    );
+        let root = self.component_dir().to_path_buf();
+        let store = tokio::task::spawn_blocking(move || ComponentStore::open(root)).await??;
+        if !arg.contains("://") {
+            let reader = store.clone();
+            let name = arg.to_string();
+            match tokio::task::spawn_blocking(move || reader.read(&name)).await? {
+                Ok(snapshot) => {
+                    let component = self.validate(
+                        engine,
+                        &snapshot.wasm,
+                        &wassette::inspect_artifact(&snapshot.wasm)?,
+                        snapshot.policy.as_deref(),
+                        expected_kind,
+                    )?;
+                    return Ok(self.resolved(snapshot, component));
                 }
-                report(format!("Using `{id}`."));
-                Ok(ResolvedComponent {
-                    component_id: id.to_string(),
-                    path,
-                })
-            }
-            Reference::Path(path) => {
-                // The loader requires absolute paths; relative CLI
-                // arguments are the common case, so anchor them at the
-                // current directory before handing them over.
-                let abs = std::path::absolute(path)
-                    .with_context(|| format!("resolving component path `{path}`"))?;
-                report(format!("Loading `{}`…", abs.display()));
-                self.fetch(&format!("file://{}", abs.display())).await
-            }
-            Reference::Uri(uri) => {
-                report(format!("Fetching `{uri}`…"));
-                let resolved = self.fetch(uri).await?;
-                report(format!("Fetched `{}`.", resolved.component_id));
-                Ok(resolved)
+                Err(StoreError::NotFound(_)) => {}
+                Err(error) => return Err(error.into()),
             }
         }
+        let uri = match classify(arg)? {
+            Reference::Id(id) => anyhow::bail!(
+                "no component `{id}` in {}; install a named ACP artifact from a path or URI first",
+                self.component_dir().display()
+            ),
+            Reference::Path(path) => {
+                let absolute = std::path::absolute(path)
+                    .with_context(|| format!("resolving component path `{path}`"))?;
+                format!("file://{}", absolute.display())
+            }
+            Reference::Uri(uri) => uri.to_string(),
+        };
+        if let Some(tx) = &progress {
+            let _ = tx.try_send("Capturing component…".to_string());
+        }
+        let acquired = wassette::acquisition::acquire_component(&uri, &self.config, true)
+            .await
+            .with_context(|| format!("fetching component `{uri}`"))?;
+        let inspection = wassette::inspect_artifact(&acquired.wasm)?;
+        let component_id = inspection.identity.map_err(anyhow::Error::from)?;
+        let observer = store.clone();
+        let name = component_id.as_str().to_owned();
+        let key = acquired.storage_key.clone();
+        let source = acquired.source.clone();
+        let policy_source = match &source {
+            wassette::store::SourceIdentity::File(path) => format!(
+                "file://{}",
+                path.with_file_name(format!("{}.policy.yaml", key.as_str()))
+                    .display()
+            ),
+            _ => acquired.origin.location.clone(),
+        };
+        let (expected, policy) = tokio::task::spawn_blocking(move || {
+            let expected = observer.observe(&name, &key, &source)?;
+            let policy = select_policy(&observer, &expected, acquired.policy, policy_source)?;
+            Ok::<_, anyhow::Error>((expected, policy))
+        })
+        .await??;
+        if let Some(tx) = &progress {
+            let _ = tx.try_send("Validating component…".to_string());
+        }
+        let policy_bytes = policy.bytes().map(<[u8]>::to_vec);
+        let wasm = acquired.wasm;
+        let mut compiled = None;
+        let prepared = PreparedInstall::prepare(
+            wasm.clone(),
+            InstallOptions {
+                storage_key: acquired.storage_key,
+                source: acquired.source,
+                origin: acquired.origin,
+                owner: InstallOwner::Explicit,
+                intent,
+                policy,
+                observation: None,
+            },
+            |bytes, inspection, policy| {
+                compiled = Some(self.validate(engine, bytes, inspection, policy, expected_kind)?);
+                Ok(ValidationEvidence::AcpCompiledAndExportChecked {
+                    runtime: format!("wassette-acp/{}", crate::HOST_ACP_VERSION),
+                })
+            },
+        )?;
+        // Keep the exact prepared bytes, rather than reopening a possibly newer
+        // receipt after commit. The owned closure also finishes on cancellation.
+        let outcome =
+            tokio::task::spawn_blocking(move || store.commit_install(prepared, expected)).await??;
+        let StoredEntry::Installed(receipt) = outcome.entry else {
+            anyhow::bail!("install returned a retired component");
+        };
+        Ok(self.resolved(
+            ArtifactSnapshot {
+                receipt,
+                wasm,
+                policy: policy_bytes,
+                cursor: outcome.cursor,
+            },
+            compiled.context("ACP validator did not compile the component")?,
+        ))
     }
 
-    /// Hand `uri` to [`wassette::loader`]. Remote artifacts land in the
-    /// component directory; local files are used where they are.
-    async fn fetch(&self, uri: &str) -> Result<ResolvedComponent> {
-        let (component_id, path) = match &self.config {
-            Some(config) => {
-                wassette::loader::fetch_component_with_config_into(uri, config, &self.component_dir)
-                    .await
+    fn validate(
+        &self,
+        engine: &Engine,
+        bytes: &[u8],
+        inspection: &wassette::ArtifactInspection,
+        policy: Option<&[u8]>,
+        expected_kind: Option<crate::state::StageKind>,
+    ) -> Result<Component> {
+        match expected_kind {
+            Some(kind) => crate::validate_stage(inspection, kind)?,
+            None => {
+                crate::classify_acp_component(inspection)?;
             }
-            None => wassette::loader::fetch_component(uri, &self.component_dir).await,
         }
-        .with_context(|| format!("fetching component `{uri}`"))?;
-        wassette::StorageKey::parse(&component_id)
-            .with_context(|| format!("deriving a component storage key from `{uri}`"))?;
-        Ok(ResolvedComponent { component_id, path })
+        crate::sandbox::validate_policy(policy, self.component_dir())?;
+        Component::new(engine, bytes)
+            .map_err(anyhow::Error::from)
+            .context("compiling ACP component")
     }
+
+    fn resolved(&self, snapshot: ArtifactSnapshot, component: Component) -> ResolvedComponent {
+        ResolvedComponent {
+            component_id: snapshot.receipt.component_id.as_str().to_owned(),
+            path: self
+                .component_dir()
+                .join(format!("{}.wasm", snapshot.receipt.storage_key.as_str())),
+            snapshot: Arc::new(snapshot),
+            component,
+        }
+    }
+}
+
+fn select_policy(
+    store: &ComponentStore,
+    expected: &ExpectedEntry,
+    incoming: Option<Vec<u8>>,
+    source_uri: String,
+) -> Result<PreparedPolicy> {
+    if let Some(entry) = expected.entry() {
+        let receipt = entry.binding();
+        if let StoredEntry::Installed(_) = entry {
+            let snapshot = store.read(receipt.component_id.as_str())?;
+            anyhow::ensure!(
+                snapshot.receipt.revision == receipt.revision,
+                "component changed while selecting its effective policy"
+            );
+            // Conservatively retain the complete current policy, including an
+            // explicit clear, until policy replacement is explicitly requested.
+            return Ok(
+                prepared_policy(snapshot.policy, receipt.policy.provenance.clone())?
+                    .with_metadata(receipt.policy.metadata.clone())?,
+            );
+        }
+        if matches!(
+            receipt.policy.provenance,
+            PolicyProvenance::ExplicitAttachment
+                | PolicyProvenance::PermissionEdit
+                | PolicyProvenance::Legacy
+        ) {
+            if receipt.policy.sha256.is_none() {
+                return Ok(PreparedPolicy::absent(receipt.policy.provenance.clone())
+                    .with_metadata(receipt.policy.metadata.clone())?);
+            }
+            let restored = prepared_policy(incoming, receipt.policy.provenance.clone())?
+                .with_metadata(receipt.policy.metadata.clone())?;
+            anyhow::ensure!(
+                restored.evidence() == &receipt.policy,
+                "retired component requires the exact previously protected policy"
+            );
+            return Ok(restored);
+        }
+    }
+    let provenance = if incoming.is_some() {
+        PolicyProvenance::Bundled
+    } else {
+        PolicyProvenance::Default
+    };
+    let metadata = incoming.as_ref().map(|_| PolicyMetadata {
+        source_uri,
+        attached_at: None,
+    });
+    Ok(prepared_policy(incoming, provenance)?.with_metadata(metadata)?)
+}
+
+fn prepared_policy(bytes: Option<Vec<u8>>, provenance: PolicyProvenance) -> Result<PreparedPolicy> {
+    Ok(match bytes {
+        Some(bytes) => PreparedPolicy::parse(bytes, provenance)?,
+        None => PreparedPolicy::absent(provenance),
+    })
+}
+
+#[cfg(test)]
+pub(crate) fn named_fixture(name: &str, layer: bool) -> Vec<u8> {
+    let name = serde_json::to_string(name).unwrap();
+    let client = if layer {
+        r#"(export "wassette:acp/client@7.0.0" (instance $empty))"#
+    } else {
+        ""
+    };
+    wat::parse_str(format!(
+        r#"(component ${name}
+            (instance $empty)
+            (export "wassette:acp/agent@7.0.0" (instance $empty))
+            {client})"#
+    ))
+    .unwrap()
 }
 
 #[cfg(test)]
@@ -262,173 +347,380 @@ mod tests {
     use super::*;
 
     #[test]
-    fn schemes_are_uris() {
-        assert_eq!(
-            classify("oci://ghcr.io/org/agent:0.1.0").unwrap(),
-            Reference::Uri("oci://ghcr.io/org/agent:0.1.0")
-        );
-        assert_eq!(
-            classify("https://example.com/agent.wasm").unwrap(),
-            Reference::Uri("https://example.com/agent.wasm")
-        );
-        assert_eq!(
-            classify("file:///tmp/agent.wasm").unwrap(),
-            Reference::Uri("file:///tmp/agent.wasm")
-        );
-    }
-
-    #[test]
-    fn unknown_scheme_is_rejected() {
-        assert!(classify("ftp://example.com/agent.wasm").is_err());
-    }
-
-    #[test]
-    fn paths_are_paths() {
-        assert_eq!(
-            classify("./target/agent.wasm").unwrap(),
-            Reference::Path("./target/agent.wasm")
-        );
-        assert_eq!(
-            classify("agent.wasm").unwrap(),
-            Reference::Path("agent.wasm")
-        );
-    }
-
-    #[test]
-    fn bare_names_are_ids() {
-        assert_eq!(
-            classify("acp-echo-provider").unwrap(),
-            Reference::Id("acp-echo-provider")
-        );
-    }
-
-    #[test]
-    fn traversal_ids_are_rejected() {
-        for id in [
-            "../etc/passwd",
-            "..",
-            "",
-            "NUL.txt",
-            "COM1",
-            "trailing.",
-            "NUL_",
+    fn selectors_distinguish_uris_paths_and_names() {
+        for uri in [
+            "oci://ghcr.io/org/agent:0.1.0",
+            "https://example.com/agent.wasm",
+            "file:///fixtures/agent.wasm",
         ] {
-            assert!(wassette::StorageKey::parse(id).is_err(), "{id}");
+            assert_eq!(classify(uri).unwrap(), Reference::Uri(uri));
         }
+        assert!(classify("ftp://example.com/agent.wasm").is_err());
+        for path in ["./target/agent.wasm", "agent.wasm"] {
+            assert_eq!(classify(path).unwrap(), Reference::Path(path));
+        }
+        assert_eq!(classify("agent").unwrap(), Reference::Id("agent"));
     }
 
     #[tokio::test]
     async fn missing_id_reports_the_component_dir() {
         let dir = tempfile::tempdir().unwrap();
-        let resolver = Resolver::new(dir.path());
-        let err = resolver
-            .resolve_with_progress("nope", None)
+        let error = Resolver::new(dir.path())
+            .unwrap()
+            .install_validated("nope", None, &Engine::default())
             .await
-            .unwrap_err()
-            .to_string();
-        assert!(err.contains("no component `nope`"), "{err}");
-        assert!(err.contains(&dir.path().display().to_string()), "{err}");
+            .unwrap_err();
+        assert!(error.to_string().contains("no component `nope`"), "{error}");
+        assert!(
+            error
+                .to_string()
+                .contains(&dir.path().display().to_string())
+        );
     }
 
     #[tokio::test]
-    async fn id_resolves_against_the_component_dir() {
+    async fn local_install_and_semantic_selection_pin_the_same_snapshot() {
         let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("agent.wasm");
-        tokio::fs::write(&path, b"\0asm").await.unwrap();
-        let resolver = Resolver::new(dir.path());
-        let resolved = resolver.resolve_with_progress("agent", None).await.unwrap();
-        assert_eq!(resolved.component_id, "agent");
-        assert_eq!(resolved.path, path);
-    }
-
-    #[tokio::test]
-    async fn failed_install_keeps_existing_component_and_policy() {
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("agent.wasm");
-        let policy = dir.path().join("agent.policy.yaml");
-        tokio::fs::write(&path, b"old wasm").await.unwrap();
-        tokio::fs::write(&policy, b"old policy").await.unwrap();
-        let resolver = Resolver::new(dir.path());
+        let source = tempfile::tempdir().unwrap();
+        let path = source.path().join("private-key.wasm");
+        let bytes = named_fixture("../namespace:agent/semantic", false);
+        std::fs::write(&path, &bytes).unwrap();
+        let resolver = Resolver::new(dir.path()).unwrap();
         let engine = Engine::default();
+        let installed = resolver
+            .install_validated(path.to_str().unwrap(), None, &engine)
+            .await
+            .unwrap();
+        assert_eq!(installed.component_id, "../namespace:agent/semantic");
+        assert_eq!(
+            installed.snapshot.receipt.storage_key.as_str(),
+            "private-key"
+        );
+        assert_eq!(
+            installed.snapshot.receipt.intent,
+            InstallIntent::InstallOnly
+        );
+        let selected = resolver
+            .resolve_validated(
+                "../namespace:agent/semantic",
+                None,
+                &engine,
+                Some(crate::state::StageKind::Provider),
+            )
+            .await
+            .unwrap();
+        std::fs::write(&selected.path, b"replaced").unwrap();
+        assert_eq!(selected.snapshot.wasm, bytes);
+        assert_eq!(selected.snapshot.receipt, installed.snapshot.receipt);
+        let sandbox = crate::sandbox::Sandbox::Policy(Box::new(crate::sandbox::PolicyGrants {
+            policy_path: None,
+            has_policy_grants: false,
+            template: wassette::WasiStateTemplate::default(),
+        }));
+        let stage = crate::load_stage(&selected, sandbox).unwrap();
+        assert_eq!(stage.component_id, "../namespace:agent/semantic");
+        assert_eq!(stage.storage_key.as_str(), "private-key");
+    }
+
+    #[tokio::test]
+    async fn invalid_or_wrong_role_replacement_preserves_last_known_good() {
+        let dir = tempfile::tempdir().unwrap();
+        let source = tempfile::tempdir().unwrap();
+        let path = source.path().join("agent.wasm");
+        let original = named_fixture("semantic", false);
+        std::fs::write(&path, &original).unwrap();
+        let resolver = Resolver::new(dir.path()).unwrap();
+        let engine = Engine::default();
+        let installed = resolver
+            .install_validated(path.to_str().unwrap(), None, &engine)
+            .await
+            .unwrap();
+        for replacement in [
+            b"invalid".to_vec(),
+            named_fixture("semantic", true),
+            wat::parse_str(
+                r#"(component $semantic (instance $empty)
+                (export "wassette:acp/agent@8.0.0" (instance $empty)))"#,
+            )
+            .unwrap(),
+            wat::parse_str(
+                r#"(component $semantic (instance $empty)
+                (export "tool" (instance $empty)))"#,
+            )
+            .unwrap(),
+        ] {
+            std::fs::write(&path, replacement).unwrap();
+            assert!(
+                resolver
+                    .resolve_validated(
+                        path.to_str().unwrap(),
+                        None,
+                        &engine,
+                        Some(crate::state::StageKind::Provider)
+                    )
+                    .await
+                    .is_err()
+            );
+            let snapshot = ComponentStore::open(dir.path())
+                .unwrap()
+                .read("semantic")
+                .unwrap();
+            assert_eq!(snapshot.wasm, original);
+            assert_eq!(snapshot.receipt, installed.snapshot.receipt);
+        }
+    }
+
+    #[tokio::test]
+    async fn unnamed_and_legacy_artifacts_are_not_runnable_by_filename() {
+        let dir = tempfile::tempdir().unwrap();
+        let source = tempfile::tempdir().unwrap();
+        let path = source.path().join("agent.wasm");
+        let unnamed = wat::parse_str(
+            r#"(component (instance $empty) (export "wassette:acp/agent@7.0.0" (instance $empty)))"#,
+        ).unwrap();
+        std::fs::write(&path, &unnamed).unwrap();
+        std::fs::write(
+            dir.path().join("agent.wasm"),
+            named_fixture("semantic", false),
+        )
+        .unwrap();
+        let resolver = Resolver::new(dir.path()).unwrap();
+        let engine = Engine::default();
+        assert!(
+            resolver
+                .install_validated(path.to_str().unwrap(), None, &engine)
+                .await
+                .is_err()
+        );
         assert!(
             resolver
                 .install_validated("agent", None, &engine)
                 .await
                 .is_err()
         );
-        assert_eq!(tokio::fs::read(&path).await.unwrap(), b"old wasm");
-        assert_eq!(tokio::fs::read(&policy).await.unwrap(), b"old policy");
-    }
-
-    #[tokio::test]
-    async fn wrong_stage_is_rejected_before_compiling_async_component() {
-        let dir = tempfile::tempdir().unwrap();
-        let path = Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("../../components/acp-echo-provider/target/wasm32-wasip2/release/acp_echo_provider.wasm");
-        assert!(path.exists(), "run `just build-acp-examples` first");
-        let error = Resolver::new(dir.path())
-            .resolve_validated(
-                path.to_str().unwrap(),
-                None,
-                &Engine::default(),
-                Some(crate::state::StageKind::Layer),
-            )
-            .await
-            .unwrap_err();
         assert!(
-            format!("{error:#}").contains("pass it via `--provider`"),
-            "{error:#}"
-        );
-        assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 0);
-    }
-
-    #[tokio::test]
-    async fn staged_replacement_updates_wasm_and_policy_together() {
-        let dir = tempfile::tempdir().unwrap();
-        let stage = tempfile::tempdir_in(dir.path()).unwrap();
-        let staged_path = stage.path().join("agent.wasm");
-        std::fs::write(&staged_path, b"new wasm").unwrap();
-        std::fs::write(stage.path().join("agent.policy.yaml"), b"new policy").unwrap();
-        std::fs::write(dir.path().join("agent.wasm"), b"old wasm").unwrap();
-        std::fs::write(dir.path().join("agent.policy.yaml"), b"old policy").unwrap();
-        let installed = Resolver::new(dir.path())
-            .promote_staged(ResolvedComponent {
-                component_id: "agent".to_string(),
-                path: staged_path,
-            })
-            .await
-            .unwrap();
-        assert_eq!(std::fs::read(installed.path).unwrap(), b"new wasm");
-        assert_eq!(
-            std::fs::read(dir.path().join("agent.policy.yaml")).unwrap(),
-            b"new policy"
+            resolver
+                .install_validated("semantic", None, &engine)
+                .await
+                .is_err()
         );
     }
 
     #[tokio::test]
-    async fn staged_replacement_without_policy_removes_old_policy() {
+    async fn ambiguous_root_names_are_rejected_without_reserving_a_slot() {
+        use wasm_encoder::{ComponentSection, Encode};
+
         let dir = tempfile::tempdir().unwrap();
-        let stage = tempfile::tempdir_in(dir.path()).unwrap();
-        let staged_path = stage.path().join("agent.wasm");
-        std::fs::write(&staged_path, b"new wasm").unwrap();
-        std::fs::write(dir.path().join("agent.wasm"), b"old wasm").unwrap();
-        std::fs::write(dir.path().join("agent.policy.yaml"), b"old policy").unwrap();
-        Resolver::new(dir.path())
-            .promote_staged(ResolvedComponent {
-                component_id: "agent".to_string(),
-                path: staged_path,
-            })
+        let source = tempfile::tempdir().unwrap();
+        let path = source.path().join("agent.wasm");
+        let mut wasm = named_fixture("first", false);
+        let mut names = wasm_encoder::ComponentNameSection::new();
+        names.component("second");
+        wasm.push(names.id());
+        names.encode(&mut wasm);
+        std::fs::write(&path, wasm).unwrap();
+        let resolver = Resolver::new(dir.path()).unwrap();
+        assert!(
+            resolver
+                .install_validated(path.to_str().unwrap(), None, &Engine::default())
+                .await
+                .is_err()
+        );
+        let snapshot = ComponentStore::open(dir.path())
+            .unwrap()
+            .snapshot_if_changed(None)
+            .unwrap()
+            .unwrap();
+        assert!(snapshot.entries.is_empty());
+        assert!(!dir.path().join("agent.wasm").exists());
+    }
+
+    #[tokio::test]
+    async fn explicit_policy_clear_is_not_replaced_by_a_source_policy() {
+        let dir = tempfile::tempdir().unwrap();
+        let source = tempfile::tempdir().unwrap();
+        let path = source.path().join("agent.wasm");
+        std::fs::write(&path, named_fixture("semantic", false)).unwrap();
+        let resolver = Resolver::new(dir.path()).unwrap();
+        let engine = Engine::default();
+        let installed = resolver
+            .install_validated(path.to_str().unwrap(), None, &engine)
             .await
             .unwrap();
         assert_eq!(
-            std::fs::read(dir.path().join("agent.wasm")).unwrap(),
-            b"new wasm"
+            installed.snapshot.receipt.policy.provenance,
+            PolicyProvenance::Default
+        );
+        let store = ComponentStore::open(dir.path()).unwrap();
+        store
+            .update_policy(
+                "semantic",
+                &installed.snapshot.receipt.revision,
+                PreparedPolicy::absent(PolicyProvenance::ExplicitAttachment),
+            )
+            .unwrap();
+        std::fs::write(
+            source.path().join("agent.policy.yaml"),
+            "version: '1.0'\npermissions:\n  network:\n    allow:\n      - host: example.com\n",
+        )
+        .unwrap();
+        let next = resolver
+            .install_validated(path.to_str().unwrap(), None, &engine)
+            .await
+            .unwrap();
+        assert_eq!(next.snapshot.policy, None);
+        assert_eq!(
+            next.snapshot.receipt.policy.provenance,
+            PolicyProvenance::ExplicitAttachment
         );
         assert!(!dir.path().join("agent.policy.yaml").exists());
+        let attached = store
+            .update_policy(
+                "semantic",
+                &next.snapshot.receipt.revision,
+                PreparedPolicy::parse(
+                    b"version: '1.0'\npermissions: {}\n".to_vec(),
+                    PolicyProvenance::ExplicitAttachment,
+                )
+                .unwrap()
+                .with_metadata(Some(PolicyMetadata {
+                    source_uri: "file:///operator-policy.yaml".to_owned(),
+                    attached_at: Some(42),
+                }))
+                .unwrap(),
+            )
+            .unwrap();
+        let reinstalled = resolver
+            .install_validated(path.to_str().unwrap(), None, &engine)
+            .await
+            .unwrap();
+        assert_eq!(
+            reinstalled.snapshot.receipt.policy,
+            attached.entry.binding().policy
+        );
     }
 
     #[tokio::test]
-    async fn resolver_preserves_configured_http_client_during_staging() {
+    async fn malformed_policy_and_operator_edits_are_never_silently_replaced() {
+        let dir = tempfile::tempdir().unwrap();
+        let source = tempfile::tempdir().unwrap();
+        let path = source.path().join("agent.wasm");
+        std::fs::write(&path, named_fixture("semantic", false)).unwrap();
+        let resolver = Resolver::new(dir.path()).unwrap();
+        let engine = Engine::default();
+        std::fs::write(path.with_extension("policy.yaml"), "not: [valid").unwrap();
+        assert!(
+            resolver
+                .install_validated(path.to_str().unwrap(), None, &engine)
+                .await
+                .is_err()
+        );
+        assert!(!dir.path().join("agent.wasm").exists());
+        std::fs::write(
+            path.with_extension("policy.yaml"),
+            "version: '1.0'\npermissions: {}\n",
+        )
+        .unwrap();
+        let installed = resolver
+            .install_validated(path.to_str().unwrap(), None, &engine)
+            .await
+            .unwrap();
+        std::fs::write(dir.path().join("agent.policy.yaml"), "operator-edit").unwrap();
+        assert!(
+            resolver
+                .install_validated(path.to_str().unwrap(), None, &engine)
+                .await
+                .is_err()
+        );
+        assert_eq!(
+            std::fs::read(dir.path().join("agent.policy.yaml")).unwrap(),
+            b"operator-edit"
+        );
+        assert_eq!(
+            std::fs::read(&installed.path).unwrap(),
+            installed.snapshot.wasm
+        );
+    }
+
+    #[tokio::test]
+    async fn install_uses_supplied_acp_engine_without_host_linking() {
+        let dir = tempfile::tempdir().unwrap();
+        let source = tempfile::tempdir().unwrap();
+        let path = source.path().join("async-agent.wasm");
+        let wasm = wat::parse_str(
+            r#"(component $async-provider
+            (import "unlinked" (func))
+            (core func $return (canon task.return))
+            (core module $m
+                (import "" "return" (func $return))
+                (func (export "run") (call $return)))
+            (core instance $i (instantiate $m (with "" (instance
+                (export "return" (func $return))))))
+            (func $pending async (canon lift (core func $i "run") async))
+            (instance $agent (export "pending" (func $pending)))
+            (export "wassette:acp/agent@7.0.0" (instance $agent)))"#,
+        )
+        .unwrap();
+        assert!(Component::new(&Engine::default(), &wasm).is_err());
+        std::fs::write(&path, wasm).unwrap();
+        let mut config = wasmtime::Config::new();
+        config.wasm_component_model_async(true);
+        config.wasm_component_model_async_stackful(true);
+        let engine = Engine::new(&config).unwrap();
+        let installed = Resolver::new(dir.path())
+            .unwrap()
+            .install_validated(path.to_str().unwrap(), None, &engine)
+            .await
+            .unwrap();
+        assert!(matches!(
+            installed.snapshot.receipt.validation,
+            ValidationEvidence::AcpCompiledAndExportChecked { .. }
+        ));
+    }
+
+    #[tokio::test]
+    async fn configured_secrets_path_reaches_runtime_sandbox() {
+        let dir = tempfile::tempdir().unwrap();
+        let source = tempfile::tempdir().unwrap();
+        let custom_secrets = tempfile::tempdir().unwrap();
+        let path = source.path().join("private-key.wasm");
+        std::fs::write(&path, named_fixture("namespace:agent/semantic", false)).unwrap();
+        std::fs::write(path.with_extension("policy.yaml"), "version: '1.0'\npermissions:\n  environment:\n    allow:\n      - key: WASSETTE_ACP_BOUND_TEST_TOKEN\n").unwrap();
+        let config = wassette::LifecycleManager::builder(dir.path())
+            .with_secrets_dir(custom_secrets.path())
+            .build_config()
+            .unwrap();
+        let resolver = Resolver::with_config(config);
+        let resolved = resolver
+            .install_validated(path.to_str().unwrap(), None, &Engine::default())
+            .await
+            .unwrap();
+        let binding = resolved.snapshot.receipt.secret_binding().unwrap();
+        wassette::SecretsManager::new(custom_secrets.path().to_path_buf())
+            .set_bound_component_secrets(
+                &binding,
+                &[("WASSETTE_ACP_BOUND_TEST_TOKEN".into(), "configured".into())],
+            )
+            .await
+            .unwrap();
+        let registry = crate::secrets::SecretsRegistry::new(resolver.secrets_dir());
+        registry.register(binding).unwrap();
+        let sandbox =
+            crate::sandbox::Sandbox::load(false, &resolved, resolver.component_dir(), &registry)
+                .await
+                .unwrap();
+        let crate::sandbox::Sandbox::Policy(grants) = sandbox else {
+            panic!("expected policy")
+        };
+        assert_eq!(
+            grants.template.config_vars["WASSETTE_ACP_BOUND_TEST_TOKEN"],
+            "configured"
+        );
+        assert!(!dir.path().join("private-key.yaml").exists());
+    }
+
+    #[tokio::test]
+    async fn resolver_preserves_configured_http_client() {
         use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
         let dir = tempfile::tempdir().unwrap();
@@ -452,11 +744,10 @@ mod tests {
         });
         let error = tokio::time::timeout(
             std::time::Duration::from_secs(10),
-            resolver.resolve_validated(
+            resolver.install_validated(
                 "https://example.invalid/agent.wasm",
                 None,
                 &Engine::default(),
-                None,
             ),
         )
         .await

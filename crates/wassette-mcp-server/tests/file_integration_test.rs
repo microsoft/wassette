@@ -27,7 +27,9 @@ async fn setup_lifecycle_manager() -> Result<(Arc<LifecycleManager>, TempDir)> {
     let tempdir = tempfile::tempdir()?;
 
     let manager = Arc::new(
-        LifecycleManager::new(&tempdir)
+        LifecycleManager::builder(tempdir.path())
+            .with_secrets_dir(tempdir.path().join("secrets"))
+            .build()
             .await
             .context("Failed to create LifecycleManager")?,
     );

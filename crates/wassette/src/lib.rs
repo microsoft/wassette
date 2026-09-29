@@ -14,7 +14,6 @@
 #![recursion_limit = "256"]
 
 use std::collections::HashMap;
-use std::io::IsTerminal;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Weak};
 use std::time::Instant;
@@ -28,14 +27,14 @@ use component2json::{
 use etcetera::BaseStrategy;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use tokio::fs::DirEntry;
-use tokio::sync::{Mutex, OwnedMutexGuard, RwLock, Semaphore};
+use tokio::sync::{Mutex, RwLock, Semaphore};
 use tracing::{debug, info, instrument, warn};
 use wasmparser::ComponentExternalKind;
 use wasmtime::component::types::ComponentItem;
 use wasmtime::component::{Component, InstancePre};
 use wasmtime::Store;
 
+pub mod acquisition;
 mod component_storage;
 mod config;
 mod error_display;
@@ -54,6 +53,11 @@ mod replacement_tests;
 mod runtime_context;
 pub mod schema;
 mod secrets;
+pub mod store;
+#[cfg(test)]
+mod store_integration_tests;
+mod store_runtime;
+mod store_support;
 mod wasistate;
 
 use component_storage::ComponentStorage;
@@ -62,25 +66,22 @@ pub use error_display::format_error_chain;
 pub use http::WassetteWasiState;
 pub use identity::{ComponentId, IdentityError, StorageCollisionKeys, StorageKey, StorageKeyError};
 pub use inspect::{inspect_artifact, ArtifactInspection, ArtifactShape, UnsupportedArtifact};
-use loader::{CapturedComponent, ComponentResource, DownloadedResource, StagedComponentArtifact};
+use loader::CapturedComponent;
+#[cfg(test)]
+use loader::DownloadedResource;
 use policy_internal::PolicyManager;
 pub use policy_internal::{PermissionGrantRequest, PermissionRule, PolicyInfo};
 use runtime_context::RuntimeContext;
-pub use secrets::SecretsManager;
+pub use secrets::{SecretBinding, SecretsManager};
 use wasistate::WasiState;
 pub use wasistate::{
     create_wasi_state_template_from_policy, CustomResourceLimiter, PermissionError,
     WasiStateTemplate,
 };
 
-const DOWNLOADS_DIR: &str = "downloads";
-const PRECOMPILED_EXT: &str = "cwasm";
-const METADATA_EXT: &str = "metadata.json";
-
 // Default timeout configurations
 pub(crate) const DEFAULT_OCI_TIMEOUT_SECS: u64 = 30;
 pub(crate) const DEFAULT_HTTP_TIMEOUT_SECS: u64 = 30;
-pub(crate) const DEFAULT_DOWNLOAD_CONCURRENCY: usize = 8;
 
 /// Get the default secrets directory path based on the OS
 pub(crate) fn get_default_secrets_dir() -> PathBuf {
@@ -224,21 +225,13 @@ pub struct ComponentLoadOutcome {
     pub status: LoadResult,
     /// Normalized tool names exposed by the component after registration.
     pub tool_names: Vec<String>,
+    /// Authoritative persistent result, including revision and cross-process cursor.
+    pub commit: store::CommitOutcome,
 }
 
 impl ComponentRegistry {
     fn new() -> Self {
         Self::default()
-    }
-
-    async fn upsert_component(
-        &self,
-        component_id: String,
-        instance: ComponentInstance,
-        tools: Vec<ToolMetadata>,
-    ) -> Result<LoadResult> {
-        let mut state = self.state.write().await;
-        state.upsert_component(component_id, instance, tools)
     }
 
     async fn remove_component(&self, component_id: &str) -> Option<ComponentInstance> {
@@ -287,69 +280,6 @@ impl ComponentRegistry {
             .flat_map(|tools| tools.iter().map(|t| t.schema.clone()))
             .collect()
     }
-
-    /// Registers cached tool metadata for a whole set of components under one registry write.
-    ///
-    /// Hydration has to become visible all at once. Registering one component at a time
-    /// publishes a `tool_map` in which a tool exported by two installed components is
-    /// momentarily owned by exactly one of them, and a lookup landing in that window resolves
-    /// the tool to that component and runs it, even though the collision rule would refuse it
-    /// once both are registered. Nothing revisits the tool map afterwards to withdraw the
-    /// answer. Taking the write lock once for the entire batch removes the window: a reader
-    /// holds the read lock either before this write or after it, so it sees the registry
-    /// either as it was before hydration or with every hydrated component present, and the
-    /// collision is visible in both.
-    ///
-    /// `artifact_present` is rechecked here, inside that same critical section, rather than
-    /// only under each component's load guard. The guard is released when a component's
-    /// metadata has been validated, so an unload can complete between validation and this
-    /// write, and a batch that trusted the earlier check would put a component with no
-    /// artifact and no instance back into the tool map. The recheck closes that: an unload
-    /// removes the artifact before it deregisters the component, so either the removal is
-    /// already visible here and the entry is skipped, or the unload's own deregistration is
-    /// still to come and, because it needs this very lock, it necessarily runs after this
-    /// write and takes the entry back out.
-    ///
-    /// The predicate is deliberately synchronous. It runs a `stat` per pending component while
-    /// the write lock is held, which is bounded by the number of installed components and
-    /// happens once at startup; awaiting inside the critical section would hold the lock
-    /// across scheduler yields for no benefit.
-    async fn register_cached_metadata_batch(
-        &self,
-        pending: Vec<PendingRegistration>,
-        artifact_present: impl Fn(&Path) -> bool,
-    ) -> usize {
-        let mut state = self.state.write().await;
-        let mut registered = 0;
-
-        for entry in pending {
-            if !artifact_present(&entry.artifact_path) {
-                debug!(component_id = %entry.component_id, "Component removed before its cached metadata could be registered");
-                continue;
-            }
-
-            if state.components.contains_key(&entry.component_id)
-                || state.component_map.contains_key(&entry.component_id)
-            {
-                debug!(component_id = %entry.component_id, "Skipping cached metadata; component already registered");
-                continue;
-            }
-
-            state.register_tools_only(&entry.component_id, entry.tools);
-            debug!(component_id = %entry.component_id, "Registered tools from cached metadata");
-            registered += 1;
-        }
-
-        registered
-    }
-}
-
-/// A component whose cached metadata has been read and validated, waiting to be published
-/// into the registry by [`ComponentRegistry::register_cached_metadata_batch`].
-struct PendingRegistration {
-    component_id: String,
-    artifact_path: PathBuf,
-    tools: Vec<ToolMetadata>,
 }
 
 impl ComponentRegistryState {
@@ -461,9 +391,9 @@ pub struct LifecycleManager {
     registry: ComponentRegistry,
     load_guards: ComponentLoadGuards,
     storage: ComponentStorage,
+    store: store::ComponentStore,
+    config: LifecycleConfig,
     policy_manager: PolicyManager,
-    oci_client: Arc<oci_wasm::WasmClient>,
-    http_client: reqwest::Client,
     secrets_manager: Arc<SecretsManager>,
 }
 
@@ -474,12 +404,17 @@ pub struct ComponentInstance {
     component: Arc<Component>,
     instance_pre: Arc<InstancePre<WassetteWasiState<WasiState>>>,
     package_docs: Option<Value>,
+    policy_template: Arc<WasiStateTemplate>,
+    revision: Option<store::EntryRevision>,
+    artifact_sha256: String,
+    secret_binding: Option<SecretBinding>,
+    effective_policy: Option<Vec<u8>>,
 }
 
 struct PreparedComponentLoad {
     captured: CapturedComponent,
     effective_policy: Option<Vec<u8>>,
-    policy_template: Option<Arc<WasiStateTemplate>>,
+    policy_template: Arc<WasiStateTemplate>,
     instance: ComponentInstance,
     tools: Vec<ToolMetadata>,
 }
@@ -510,10 +445,11 @@ impl LifecycleManager {
     #[instrument(skip_all, fields(component_dir = %config.component_dir().display()))]
     pub async fn from_config(config: LifecycleConfig) -> Result<Self> {
         let (component_dir, secrets_dir, environment_vars, http_client, oci_client, _) =
-            config.into_parts();
+            config.clone().into_parts();
 
-        let storage =
-            ComponentStorage::new(component_dir.clone(), DEFAULT_DOWNLOAD_CONCURRENCY).await?;
+        let storage = ComponentStorage::new(component_dir.clone()).await?;
+        let store = tokio::task::spawn_blocking(move || store::ComponentStore::open(component_dir))
+            .await??;
 
         let runtime = Arc::new(RuntimeContext::initialize()?);
 
@@ -525,6 +461,7 @@ impl LifecycleManager {
 
         let policy_manager = PolicyManager::new(
             storage.clone(),
+            store.clone(),
             Arc::clone(&secrets_manager),
             Arc::clone(&environment_vars),
             Arc::clone(&oci_client),
@@ -536,14 +473,14 @@ impl LifecycleManager {
             registry: ComponentRegistry::new(),
             load_guards: ComponentLoadGuards::default(),
             storage,
+            store,
+            config,
             policy_manager,
-            oci_client,
-            http_client,
             secrets_manager,
         })
     }
 
-    /// Load every component present in the component directory, updating the registry and cache.
+    /// Load each receipt-backed ordinary component, updating the registry and cache.
     ///
     /// Each component is compiled and registered while holding that component's load guard, so
     /// an eager startup load cannot re-register a component that a concurrent unload has already
@@ -551,16 +488,9 @@ impl LifecycleManager {
     /// components are still compiled in parallel.
     #[instrument(skip(self))]
     pub async fn load_all_components(&self) -> Result<()> {
-        let mut entries = tokio::fs::read_dir(self.storage.root()).await?;
-        let mut load_futures = Vec::new();
-
-        while let Some(entry) = entries.next_entry().await? {
-            load_futures.push(self.load_entry_under_guard(entry));
-        }
-
-        for result in futures::future::join_all(load_futures).await {
-            if let Err(error) = result {
-                warn!(error = %format_error_chain(&error), "Failed to load component");
+        for id in self.installed_tool_ids().await? {
+            if let Err(error) = self.ensure_component_loaded(&id).await {
+                warn!(component_id = %id, error = %format_error_chain(&error), "Failed to load component");
             }
         }
 
@@ -568,152 +498,13 @@ impl LifecycleManager {
         Ok(())
     }
 
-    /// Compile and register a single directory entry while holding that component's load guard.
-    ///
-    /// Compiling is not the only thing the guard has to cover: registering the result writes the
-    /// same registry entry an unload removes, so both happen inside one critical section.
-    /// Otherwise an unload could remove the artifact and the registry entry between the two, and
-    /// this would re-register a component the unload had already reported as removed.
-    ///
-    /// Nothing reached from here takes the guard again, so this cannot deadlock:
-    /// [`load_component_from_entry`] is a free function that only compiles, and the registry and
-    /// the policy manager have their own locks.
-    async fn load_entry_under_guard(&self, entry: DirEntry) -> Result<()> {
-        let entry_path = entry.path();
-        let is_wasm = entry_path
-            .extension()
-            .map(|ext| ext == "wasm")
-            .unwrap_or(false);
-        let is_file = entry
-            .metadata()
-            .await
-            .map(|m| m.is_file())
-            .context("unable to read file metadata")?;
-        if !(is_file && is_wasm) {
-            return Ok(());
-        }
-
-        let component_id = entry_path
-            .file_stem()
-            .and_then(|s| s.to_str())
-            .map(String::from)
-            .context("wasm file didn't have a valid file name")?;
-
-        let guard = self.load_guard(&component_id).await;
-        let _guard = guard.lock().await;
-
-        // An unload may have removed this component while we waited for the guard, in which
-        // case there is nothing left to load.
-        if !entry_path.exists() {
-            debug!(component_id = %component_id, "Component removed while waiting for the load guard");
-            return Ok(());
-        }
-
-        let Some((component_instance, name)) =
-            load_component_from_entry(Arc::clone(&self.runtime), entry).await?
-        else {
-            return Ok(());
-        };
-
-        let tool_metadata = if let Some(ref package_docs) = component_instance.package_docs {
-            component_exports_to_tools_with_docs(
-                &component_instance.component,
-                self.runtime.as_ref(),
-                true,
-                package_docs,
-            )
-        } else {
-            component_exports_to_tools(&component_instance.component, self.runtime.as_ref(), true)
-        };
-
-        self.registry
-            .upsert_component(name.clone(), component_instance, tool_metadata)
-            .await
-            .with_context(|| format!("Failed to register component in registry: {name}"))?;
-
-        if let Err(error) = self.restore_policy_attachment(&name).await {
-            warn!(component_id = %name, error = %format_error_chain(&error), "Failed to restore policy attachment");
-        }
-
-        Ok(())
-    }
-
-    async fn restore_policy_attachment(&self, component_id: &str) -> Result<()> {
-        self.policy_manager.restore_from_disk(component_id).await
-    }
-
-    async fn resolve_component_resource(&self, uri: &str) -> Result<DownloadedResource> {
-        // Show progress when running in CLI mode (stderr is a TTY)
-        let show_progress = std::io::stderr().is_terminal();
-
-        loader::load_resource_with_progress::<ComponentResource>(
-            uri,
-            &self.oci_client,
-            &self.http_client,
-            show_progress,
-        )
-        .await
-    }
-
     /// Returns the per-component load guard, which serializes loading of `component_id`.
     ///
-    /// The guard covers everything that reads or writes a component's on-disk artifacts:
-    /// staging the `.wasm`, compiling it, writing its metadata and precompiled cache, and
-    /// removing all of them again on unload. The mutex is not reentrant, so a caller that
-    /// already holds it must call the `_locked` form of any helper rather than a wrapper
-    /// that takes the guard itself.
+    /// Take this before the store lock. It serializes this manager's preparation and
+    /// publication for one semantic ID; filesystem locks and revision checks coordinate
+    /// other managers. Helpers called under the guard must not acquire it again.
     async fn load_guard(&self, component_id: &str) -> Arc<Mutex<()>> {
         self.load_guards.guard_for(component_id).await
-    }
-
-    /// Compiles and registers a component; the caller must hold the guard returned by
-    /// [`Self::load_guard`] for `component_id`.
-    ///
-    /// This is the shared compilation path for on-demand loading and background restore.
-    /// Holding the guard here makes concurrent requests compile the component only once.
-    /// Every caller takes the guard itself first, because each of them has to do its own
-    /// check-then-act (recheck the registry, or stage the artifact) inside the same critical
-    /// section. Taking the guard again here would deadlock.
-    async fn compile_and_register_component_locked(
-        &self,
-        component_id: &str,
-        wasm_path: &Path,
-    ) -> Result<ComponentLoadOutcome> {
-        let (component, wasm_bytes) = self
-            .load_component_optimized(wasm_path, component_id)
-            .await?;
-
-        let (component_instance, tool_metadata) =
-            self.prepare_component_instance(component, &wasm_bytes)?;
-
-        let tool_names: Vec<String> = tool_metadata
-            .iter()
-            .map(|tool| tool.normalized_name.clone())
-            .collect();
-
-        if let Ok(validation_stamp) = self.storage.create_validation_stamp(wasm_path, false).await {
-            if let Err(e) = self
-                .save_component_metadata(component_id, &tool_metadata, validation_stamp)
-                .await
-            {
-                warn!(%component_id, error = %format_error_chain(&e), "Failed to save component metadata");
-            }
-        }
-
-        let load_result = self
-            .registry
-            .upsert_component(component_id.to_string(), component_instance, tool_metadata)
-            .await?;
-
-        if let Err(error) = self.policy_manager.restore_from_disk(component_id).await {
-            warn!(%component_id, error = %format_error_chain(&error), "Failed to restore policy attachment");
-        }
-
-        Ok(ComponentLoadOutcome {
-            component_id: component_id.to_string(),
-            status: load_result,
-            tool_names,
-        })
     }
 
     fn prepare_component_instance(
@@ -733,6 +524,11 @@ impl LifecycleManager {
             component: Arc::new(component),
             instance_pre: Arc::new(instance_pre),
             package_docs: package_docs.clone(),
+            policy_template: Arc::new(WasiStateTemplate::default()),
+            revision: None,
+            artifact_sha256: String::new(),
+            secret_binding: None,
+            effective_policy: None,
         };
 
         let tool_metadata = if let Some(ref docs) = package_docs {
@@ -752,25 +548,28 @@ impl LifecycleManager {
     async fn prepare_component_load(
         &self,
         captured: CapturedComponent,
+        binding: &SecretBinding,
+        effective_policy: Option<Vec<u8>>,
     ) -> Result<PreparedComponentLoad> {
         let inspection =
             inspect_artifact(&captured.wasm).context("Failed to inspect captured component")?;
         if inspection.shape != ArtifactShape::ToolCandidate {
             bail!("Cannot load ACP or unsupported artifacts as ordinary tool components");
         }
-        let component_id = captured.storage_key.as_str();
-        let effective_policy = match &captured.bundled_policy {
-            Some(policy) => Some(policy.clone()),
-            None => loader::read_optional_file(&self.storage.policy_path(component_id)).await?,
-        };
+        anyhow::ensure!(
+            inspection.identity?.as_str() == binding.component_name(),
+            "Captured component does not match the admitted semantic binding"
+        );
         let policy_template = self
             .policy_manager
-            .prepare_template(component_id, effective_policy.as_deref())
+            .prepare_bound_template(binding, effective_policy.as_deref())
             .await?;
         let component = Component::new(self.runtime.as_ref(), &captured.wasm)
             .map_err(anyhow::Error::from)
             .context("Failed to compile captured component")?;
-        let (instance, tools) = self.prepare_component_instance(component, &captured.wasm)?;
+        let (mut instance, tools) = self.prepare_component_instance(component, &captured.wasm)?;
+        instance.secret_binding = Some(binding.clone());
+        instance.effective_policy = effective_policy.clone();
         Ok(PreparedComponentLoad {
             captured,
             effective_policy,
@@ -782,19 +581,17 @@ impl LifecycleManager {
 
     /// Loads a new component from the given URI. This URI can be a file path, an OCI reference, or a URL.
     ///
-    /// If a component with the given id already exists, it will be updated with the new component.
+    /// Replacements must retain the admitted semantic name, source and storage binding.
     /// Returns rich [`ComponentLoadOutcome`] information describing the loaded
     /// component and whether it replaced an existing instance.
     ///
-    /// Captured bytes and the effective policy are validated privately before promotion.
-    /// Validation and staging failures preserve the installed artifact, caches and runtime.
-    /// The per-component guard covers capture through publication within this manager;
-    /// this is not a cross-process or crash-atomic multi-file transaction.
+    /// Captured bytes, declared semantic identity, and effective policy are validated
+    /// before a journaled store transaction. Ownership and revision are rechecked
+    /// at commit; failed preparation preserves the installed state.
     #[instrument(skip(self))]
     pub async fn load_component(&self, uri: &str) -> Result<ComponentLoadOutcome> {
-        debug!(uri, "Loading component");
-        let resource = self.resolve_component_resource(uri).await?;
-        let outcome = self.load_component_resource(resource).await?;
+        let acquired = acquisition::acquire_component(uri, &self.config, false).await?;
+        let outcome = self.install_acquired(acquired, None).await?;
 
         info!(
             component_id = %outcome.component_id,
@@ -805,150 +602,75 @@ impl LifecycleManager {
         Ok(outcome)
     }
 
+    #[cfg(test)]
     async fn load_component_resource(
         &self,
         resource: DownloadedResource,
     ) -> Result<ComponentLoadOutcome> {
-        let key = resource.storage_key()?;
-        let guard = self.load_guard(key.as_str()).await.lock_owned().await;
-        let prepared = self
-            .prepare_component_load(resource.capture().await?)
-            .await?;
-        let bundled_policy = if prepared.captured.bundled_policy.is_some() {
-            prepared.effective_policy.as_deref()
-        } else {
-            None
-        };
-        let stage = self
+        let captured = resource.capture().await?;
+        let source = self
             .storage
-            .stage_component_artifact(&prepared.captured, bundled_policy)
-            .await?;
-
-        // Once publication starts, its owner outlives a cancelled request.
-        let manager = self.clone();
-        tokio::spawn(async move {
-            let result = manager.publish_component_load(prepared, stage, guard).await;
-            if let Err(error) = &result {
-                warn!(storage_key = %key.as_str(), error = %format_error_chain(error), "Component promotion/publication failed");
-            }
-            result
-        })
+            .root()
+            .join(".test-source")
+            .join(captured.storage_key.as_str());
+        self.install_acquired(
+            acquisition::AcquiredComponent {
+                storage_key: captured.storage_key,
+                wasm: captured.wasm,
+                policy: captured.bundled_policy,
+                source: store::SourceIdentity::File(source.clone()),
+                origin: store::OriginEvidence {
+                    location: format!("file://{}", source.display()),
+                    requested_version: None,
+                    selected_version: None,
+                    manifest_digest: None,
+                    immutable_uri: None,
+                },
+            },
+            None,
+        )
         .await
-        .context("Component publication task failed")?
     }
 
-    async fn publish_component_load(
-        &self,
-        prepared: PreparedComponentLoad,
-        stage: StagedComponentArtifact,
-        guard: OwnedMutexGuard<()>,
-    ) -> Result<ComponentLoadOutcome> {
-        let component_id = prepared.captured.storage_key.as_str();
-        self.storage
-            .invalidate_component_caches(component_id)
-            .await?;
-        let (path, _guard) = tokio::task::spawn_blocking(move || {
-            // The blocking writer must retain serialization even if its async owner is dropped.
-            let installed = stage.promote(true)?;
-            Ok::<_, anyhow::Error>((installed, guard))
-        })
-        .await
-        .context("Component promotion task failed")??;
-
-        match prepared.policy_template {
-            Some(template) => {
-                self.policy_manager
-                    .store_template(component_id, template)
-                    .await;
-            }
-            None => self.policy_manager.cleanup(component_id).await,
-        }
-
-        match self.storage.create_validation_stamp(&path, false).await {
-            Ok(stamp) => {
-                if let Err(error) = self
-                    .save_component_metadata(component_id, &prepared.tools, stamp)
-                    .await
-                {
-                    warn!(%component_id, error = %format_error_chain(&error), "Failed to save component metadata");
-                }
-            }
-            Err(error) => {
-                warn!(%component_id, error = %format_error_chain(&error), "Failed to stamp installed component");
-            }
-        }
-        match prepared
-            .instance
-            .component
-            .serialize()
-            .map_err(anyhow::Error::from)
-        {
-            Ok(bytes) => {
-                if let Err(error) = self.storage.write_precompiled(component_id, &bytes).await {
-                    warn!(%component_id, error = %format_error_chain(&error), "Failed to save precompiled component");
-                }
-            }
-            Err(error) => {
-                warn!(%component_id, error = %format_error_chain(&error), "Failed to serialize precompiled component");
-            }
-        }
-
-        let tool_names = prepared
-            .tools
-            .iter()
-            .map(|tool| tool.normalized_name.clone())
-            .collect();
-        let status = self
-            .registry
-            .upsert_component(component_id.to_owned(), prepared.instance, prepared.tools)
-            .await
-            .context("Component installed, but runtime publication failed")?;
-        Ok(ComponentLoadOutcome {
-            component_id: component_id.to_owned(),
-            status,
-            tool_names,
-        })
-    }
-
-    /// Unloads the component with the specified id. This removes the component from the runtime
-    /// and removes all associated files from disk, making it the reverse operation of load_component.
-    /// This function fails if any files cannot be removed (except when they don't exist).
+    /// Explicitly uninstall a semantic component ID and remove its runtime registration.
     ///
-    /// Removing the artifacts and cleaning up the registry happen under the same per-component
-    /// guard that loads take, so an unload cannot interleave with a load of the same component.
-    /// Without it a concurrent on-demand load could re-register the component and rewrite its
-    /// metadata and precompiled cache after the unload had already reported success, leaving a
-    /// component registered with no files behind it.
+    /// The transaction removes live artifacts and caches, but retains a retired source/name
+    /// reservation and secret values. Already absent or retired IDs are an idempotent no-op.
+    /// A cancellation-owned worker keeps the per-ID guard through runtime publication.
     #[instrument(skip(self))]
     pub async fn unload_component(&self, id: &str) -> Result<()> {
-        StorageKey::parse(id).context("Invalid component storage key")?;
-        debug!("Unloading component and removing files from disk");
-
-        // Nothing reached from here takes the guard again, so this cannot deadlock. The guard
-        // map holds weak references, so the entry this creates dies with `guard` and is swept
-        // by the next load that has to mint a mutex.
-        let guard = self.load_guard(id).await;
-        let _guard = guard.lock().await;
-
-        // Remove files first, then clean up memory on success
-        self.storage.remove_component_artifacts(id).await?;
-
-        let policy_path = self.get_component_policy_path(id);
-        self.storage
-            .remove_if_exists(&policy_path, "policy file", id)
+        let manager = self.clone();
+        let id = id.to_owned();
+        tokio::spawn(async move {
+            let _guard = manager.load_guard(&id).await.lock_owned().await;
+            let snapshot = store_support::store_operation(&manager.store, |store| {
+                store
+                    .snapshot_if_changed(None)?
+                    .context("Missing requested store snapshot")
+            })
             .await?;
-
-        let metadata_path = self.get_component_metadata_path(id);
-        self.storage
-            .remove_if_exists(&metadata_path, "policy metadata file", id)
+            let selected = snapshot
+                .entries
+                .into_iter()
+                .find(|entry| entry.component_id().as_str() == id);
+            let Some(store::StoredEntry::Installed(receipt)) = selected else {
+                return manager.unregister_at_cursor(&id, &snapshot.cursor).await;
+            };
+            let selected_id = id.clone();
+            let outcome = store_support::store_operation(&manager.store, move |store| {
+                Ok(store.remove(
+                    &selected_id,
+                    &receipt.revision,
+                    store::RemovalAuthority::Explicit,
+                )?)
+            })
             .await?;
-
-        // Only cleanup memory after all files are successfully removed
-        self.registry.remove_component(id).await;
-        self.policy_manager.cleanup(id).await;
-
-        info!(component_id = %id, "Component unloaded successfully");
-        Ok(())
+            manager.publish_removal(outcome).await?;
+            info!(component_id = %id, "Component unloaded successfully");
+            Ok(())
+        })
+        .await
+        .context("Component uninstall worker failed")?
     }
 
     /// Returns the component ID for a given tool name.
@@ -1008,58 +730,35 @@ impl LifecycleManager {
         self.registry.list_components().await
     }
 
-    /// Lists all known components by ID (union of loaded components and any
-    /// `*.wasm` files present in the component directory). Does not compile components.
+    /// List installed ordinary components by semantic ID without compiling them.
     #[instrument(skip(self))]
     pub async fn list_components_known(&self) -> Vec<String> {
-        use std::collections::HashSet;
-        let loaded = self.registry.list_components().await;
-        let mut set: HashSet<String> = loaded.into_iter().collect();
-
-        if let Ok(entries) = std::fs::read_dir(self.storage.root()) {
-            for entry in entries.flatten() {
-                let path = entry.path();
-
-                // 1) Detect regular .wasm files
-                let is_wasm = path
-                    .extension()
-                    .and_then(|ext| ext.to_str())
-                    .map(|ext| ext.eq_ignore_ascii_case("wasm"))
-                    .unwrap_or(false);
-                if is_wasm {
-                    if let Some(stem) = path.file_stem().and_then(|s| s.to_str()) {
-                        set.insert(stem.to_string());
-                        continue;
-                    }
-                }
-
-                // 2) Detect metadata files ("<id>.metadata.json")
-                if let Some(fname) = path.file_name().and_then(|s| s.to_str()) {
-                    if fname.ends_with(&format!(".{METADATA_EXT}")) {
-                        if let Ok(content) = std::fs::read_to_string(&path) {
-                            if let Ok(meta) = serde_json::from_str::<ComponentMetadata>(&content) {
-                                set.insert(meta.component_id);
-                            }
-                        }
-                    }
-                }
+        match self.installed_tool_ids().await {
+            Ok(ids) => ids,
+            Err(error) => {
+                warn!(error = %format_error_chain(&error), "Cannot list installed components");
+                Vec::new()
             }
         }
-
-        let mut v: Vec<String> = set.into_iter().collect();
-        v.sort();
-        v
     }
 
     /// Gets the schema for a specific component
     #[instrument(skip(self))]
     pub async fn get_component_schema(&self, component_id: &str) -> Option<Value> {
-        if let Err(error) = StorageKey::parse(component_id) {
-            warn!(%component_id, %error, "Invalid component storage key for schema lookup");
-            return None;
-        }
+        let snapshot = match self.store_snapshot(component_id).await {
+            Ok(snapshot) if snapshot.receipt.kind == store::StoredArtifactKind::Tool => snapshot,
+            Ok(_) => return None,
+            Err(error) => {
+                warn!(%component_id, error = %format_error_chain(&error), "Cannot read component schema binding");
+                return None;
+            }
+        };
         // Prefer live component schema if loaded
-        if let Some(component_instance) = self.get_component(component_id).await {
+        if let Some(component_instance) = self
+            .get_component(component_id)
+            .await
+            .filter(|instance| instance.revision.as_ref() == Some(&snapshot.receipt.revision))
+        {
             return Some(
                 if let Some(ref package_docs) = component_instance.package_docs {
                     component_exports_to_json_schema_with_docs(
@@ -1079,25 +778,8 @@ impl LifecycleManager {
         }
 
         // Fallback to metadata-based schema without compiling the component
-        let guard = self.load_guard(component_id).await;
-        let _guard = guard.lock().await;
-        match ordinary_artifact_bytes(&self.component_path(component_id)).await {
-            Ok(Some(_)) => {}
-            Ok(None) => return None,
-            Err(error) => {
-                warn!(%component_id, error = %format_error_chain(&error), "Cannot inspect component for cached schema");
-                return None;
-            }
-        }
         match self.load_component_metadata(component_id).await {
             Ok(Some(metadata)) => {
-                let component_path = self.component_path(component_id);
-                if !ComponentStorage::validate_stamp(&component_path, &metadata.validation_stamp)
-                    .await
-                {
-                    return None;
-                }
-
                 let tools: Vec<Value> = metadata
                     .tool_schemas
                     .into_iter()
@@ -1115,41 +797,61 @@ impl LifecycleManager {
         }
     }
 
+    #[cfg(test)]
     fn component_path(&self, component_id: &str) -> PathBuf {
-        self.storage.component_path(component_id)
+        self.storage
+            .component_path(&StorageKey::parse(component_id).expect("valid fixture storage key"))
     }
 
     /// Get the path to precompiled component file
+    #[cfg(test)]
     fn component_precompiled_path(&self, component_id: &str) -> PathBuf {
-        self.storage.precompiled_path(component_id)
+        self.storage
+            .precompiled_path(&StorageKey::parse(component_id).expect("valid fixture storage key"))
     }
 
+    #[cfg(test)]
     pub(crate) fn get_component_policy_path(&self, component_id: &str) -> PathBuf {
-        self.policy_manager.policy_path(component_id)
+        self.storage
+            .root()
+            .join(format!("{component_id}.policy.yaml"))
     }
 
+    #[cfg(test)]
     pub(crate) fn get_component_metadata_path(&self, component_id: &str) -> PathBuf {
-        self.policy_manager.metadata_path(component_id)
+        self.storage
+            .root()
+            .join(format!("{component_id}.policy.meta.json"))
     }
 
     /// Attach a policy to a component by URI.
     pub async fn attach_policy(&self, component_id: &str, policy_uri: &str) -> Result<()> {
-        if !self.registry.contains_component(component_id).await {
-            return Err(anyhow!("Component not found: {}", component_id));
-        }
-        self.policy_manager
-            .attach_policy(component_id, policy_uri)
-            .await
+        self.mutate_policy(
+            component_id,
+            store_runtime::PolicyMutation::Attach(policy_uri.to_owned()),
+        )
+        .await
     }
 
     /// Detach any policy associated with the given component.
     pub async fn detach_policy(&self, component_id: &str) -> Result<()> {
-        self.policy_manager.detach_policy(component_id).await
+        self.mutate_policy(component_id, store_runtime::PolicyMutation::Clear)
+            .await
     }
 
     /// Retrieve policy metadata for a component if one is attached.
     pub async fn get_policy_info(&self, component_id: &str) -> Option<PolicyInfo> {
-        self.policy_manager.get_policy_info(component_id).await
+        match self
+            .policy_manager
+            .policy_info_transactional(component_id)
+            .await
+        {
+            Ok(info) => info,
+            Err(error) => {
+                warn!(%component_id, error = %format_error_chain(&error), "Cannot read component policy");
+                None
+            }
+        }
     }
 
     /// Grant a specific permission rule to a component.
@@ -1160,12 +862,15 @@ impl LifecycleManager {
         permission_type: &str,
         details: &serde_json::Value,
     ) -> Result<()> {
-        if !self.registry.contains_component(component_id).await {
-            return Err(anyhow!("Component not found: {}", component_id));
-        }
-        self.policy_manager
-            .grant_permission(component_id, permission_type, details)
-            .await
+        self.mutate_policy(
+            component_id,
+            store_runtime::PolicyMutation::Permission {
+                permission_type: permission_type.to_owned(),
+                details: details.clone(),
+                grant: true,
+            },
+        )
+        .await
     }
 
     /// Revoke a specific permission rule from a component.
@@ -1176,21 +881,21 @@ impl LifecycleManager {
         permission_type: &str,
         details: &serde_json::Value,
     ) -> Result<()> {
-        if !self.registry.contains_component(component_id).await {
-            return Err(anyhow!("Component not found: {}", component_id));
-        }
-        self.policy_manager
-            .revoke_permission(component_id, permission_type, details)
-            .await
+        self.mutate_policy(
+            component_id,
+            store_runtime::PolicyMutation::Permission {
+                permission_type: permission_type.to_owned(),
+                details: details.clone(),
+                grant: false,
+            },
+        )
+        .await
     }
 
     /// Reset all permissions for a component to defaults.
     #[instrument(skip(self))]
     pub async fn reset_permission(&self, component_id: &str) -> Result<()> {
-        if !self.registry.contains_component(component_id).await {
-            return Err(anyhow!("Component not found: {}", component_id));
-        }
-        self.policy_manager.reset_permission(component_id).await
+        self.detach_policy(component_id).await
     }
 
     /// Revoke storage permission for a specific URI.
@@ -1200,12 +905,11 @@ impl LifecycleManager {
         component_id: &str,
         uri: &str,
     ) -> Result<()> {
-        if !self.registry.contains_component(component_id).await {
-            return Err(anyhow!("Component not found: {}", component_id));
-        }
-        self.policy_manager
-            .revoke_storage_permission_by_uri(component_id, uri)
-            .await
+        self.mutate_policy(
+            component_id,
+            store_runtime::PolicyMutation::RevokeStorage(uri.to_owned()),
+        )
+        .await
     }
 
     /// Returns the component directory root on disk.
@@ -1214,8 +918,8 @@ impl LifecycleManager {
     }
 
     /// Ensure a specific component is loaded (compiled and instantiated) by its ID.
-    /// If it's already loaded, this is a no-op. If the wasm file is not present in
-    /// the component directory, an error is returned.
+    /// A matching loaded receipt revision is a no-op. Missing or unreadable installed
+    /// state is an error; a newer revision is restored from a coherent snapshot.
     ///
     /// Concurrent calls for the same component are serialized against each other and
     /// against the background restore, so the component is compiled and registered once
@@ -1223,75 +927,21 @@ impl LifecycleManager {
     /// parallel.
     #[instrument(skip(self))]
     pub async fn ensure_component_loaded(&self, component_id: &str) -> Result<()> {
-        StorageKey::parse(component_id).context("Invalid component storage key")?;
-        if self.registry.contains_component(component_id).await {
-            return Ok(());
-        }
-
-        // Take the guard before looking at the artifact. An explicit reload of this component
-        // stages its replacement under this same guard, and staging removes the old `.wasm`
-        // before copying the new one in, so for part of a reload the artifact is legitimately
-        // absent. Testing the path first would report the component as missing instead of
-        // waiting for the reload that is already producing it.
-        //
-        // The original ordering existed so an unknown component id could not grow the guard
-        // map. It no longer has to: the map holds `Weak` entries, so the entry minted here
-        // dies with the `Arc` this function holds, and the next caller that has to mint a
-        // mutex sweeps every dead entry before inserting. An id that is never loaded therefore
-        // leaves nothing behind, and repeated lookups of unknown ids cannot accumulate.
         let guard = self.load_guard(component_id).await;
         let _guard = guard.lock().await;
-
-        // Another caller, including the background restore, may have finished the load
-        // while we waited for the guard.
-        if self.registry.contains_component(component_id).await {
-            return Ok(());
-        }
-
-        // An unload of this component may have completed while we waited for the guard, or it
-        // may never have existed. Either way there is no artifact to compile.
-        let entry_path = self.component_path(component_id);
-        if !entry_path.exists() {
-            bail!("Component not found: {}", component_id);
-        }
-
-        self.compile_and_register_component_locked(component_id, &entry_path)
-            .await
-            .with_context(|| {
-                format!(
-                    "Failed to compile component from path: {}",
-                    entry_path.display()
-                )
-            })?;
-
-        Ok(())
-    }
-
-    /// Save component metadata to disk
-    async fn save_component_metadata(
-        &self,
-        component_id: &str,
-        tool_metadata: &[ToolMetadata],
-        validation_stamp: ValidationStamp,
-    ) -> Result<()> {
-        let metadata = ComponentMetadata {
-            component_id: component_id.to_string(),
-            tool_schemas: tool_metadata.iter().map(|t| t.schema.clone()).collect(),
-            function_identifiers: tool_metadata.iter().map(|t| t.identifier.clone()).collect(),
-            tool_names: tool_metadata
-                .iter()
-                .map(|t| t.normalized_name.clone())
-                .collect(),
-            validation_stamp,
-            created_at: std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap_or_default()
-                .as_secs(),
+        let snapshot = match self.store_snapshot(component_id).await {
+            Ok(snapshot) => snapshot,
+            Err(error) => {
+                self.registry.remove_component(component_id).await;
+                return Err(error);
+            }
         };
-
-        self.storage.write_metadata(&metadata).await?;
-
-        info!(component_id = %component_id, "Saved component metadata");
+        if let Some(instance) = self.registry.get_component(component_id).await {
+            if instance.revision.as_ref() == Some(&snapshot.receipt.revision) {
+                return Ok(());
+            }
+        }
+        self.restore_component_locked(component_id).await?;
         Ok(())
     }
 
@@ -1300,94 +950,34 @@ impl LifecycleManager {
         &self,
         component_id: &str,
     ) -> Result<Option<ComponentMetadata>> {
-        StorageKey::parse(component_id).context("Invalid component storage key")?;
-        let metadata = self.storage.read_metadata(component_id).await?;
-        if let Some(metadata) = &metadata {
-            if metadata.component_id != component_id
-                || metadata.function_identifiers.iter().any(is_acp_identifier)
-            {
-                warn!(%component_id, "Ignoring mismatched or ACP cached tool metadata");
-                return Ok(None);
-            }
-        }
-        Ok(metadata)
+        self.read_cached_metadata(component_id).await
     }
 
-    /// Save precompiled component to disk
-    async fn save_precompiled_component(
-        &self,
-        component_id: &str,
-        wasm_bytes: &[u8],
-    ) -> Result<()> {
-        let precompiled_data = self
-            .runtime
-            .precompile_component(wasm_bytes)
-            .map_err(anyhow::Error::from)
-            .context("Failed to precompile component")?;
-
-        self.storage
-            .write_precompiled(component_id, &precompiled_data)
-            .await?;
-
-        info!(component_id = %component_id, "Saved precompiled component");
-        Ok(())
-    }
-
-    /// Load component from precompiled cache or compile fresh
-    async fn load_component_optimized(
-        &self,
-        wasm_path: &Path,
-        component_id: &str,
-    ) -> Result<(Component, Vec<u8>)> {
-        let wasm_bytes = ordinary_artifact_bytes(wasm_path)
-            .await?
-            .context("Cannot load ACP or unsupported artifacts as ordinary tool components")?;
-        let precompiled_path = self.component_precompiled_path(component_id);
-
-        // Try to load from precompiled cache first
-        if precompiled_path.exists() {
-            match unsafe { Component::deserialize_file(self.runtime.as_ref(), &precompiled_path) } {
-                Ok(component) => {
-                    if compiled_artifact_shape(&component, self.runtime.as_ref())
-                        == ArtifactShape::ToolCandidate
-                    {
-                        debug!(component_id = %component_id, "Loaded component from precompiled cache");
-                        return Ok((component, wasm_bytes));
-                    }
-                    warn!(%component_id, "Ignoring ACP or unsupported precompiled artifact for an ordinary component");
-                }
-                Err(e) => {
-                    warn!(%component_id, error = %format_error_chain(&e), "Failed to load precompiled component, falling back to compilation");
-                }
-            }
-        }
-
-        // Fall back to compilation
-        let component = Component::new(self.runtime.as_ref(), &wasm_bytes)
-            .map_err(anyhow::Error::from)
-            .context("Failed to compile component")?;
-
-        // Save precompiled version for next time (async, don't block on this)
-        if let Err(e) = self
-            .save_precompiled_component(component_id, &wasm_bytes)
-            .await
-        {
-            warn!(%component_id, error = %format_error_chain(&e), "Failed to save precompiled component");
-        }
-
-        debug!(component_id = %component_id, "Compiled component and saved to cache");
-        Ok((component, wasm_bytes))
-    }
-
+    #[cfg(test)]
     async fn get_wasi_state_for_component(
         &self,
         component_id: &str,
     ) -> Result<(WassetteWasiState<WasiState>, Option<CustomResourceLimiter>)> {
+        let component = self
+            .registry
+            .get_component(component_id)
+            .await
+            .with_context(|| format!("Component not found: {component_id}"))?;
+        self.wasi_state_for_instance(&component).await
+    }
+
+    async fn wasi_state_for_instance(
+        &self,
+        component: &ComponentInstance,
+    ) -> Result<(WassetteWasiState<WasiState>, Option<CustomResourceLimiter>)> {
+        let binding = component
+            .secret_binding
+            .as_ref()
+            .context("Missing component secret binding")?;
         let policy_template = self
             .policy_manager
-            .template_for_component(component_id)
-            .await;
-
+            .prepare_bound_template(binding, component.effective_policy.as_deref())
+            .await?;
         let wasi_state = policy_template.build()?;
         let allowed_hosts = policy_template.allowed_hosts.clone();
         let resource_limiter = wasi_state.resource_limiter.clone();
@@ -1412,12 +1002,13 @@ impl LifecycleManager {
             "Starting WebAssembly component execution"
         );
 
+        self.ensure_component_loaded(component_id).await?;
         let component = self
             .get_component(component_id)
             .await
             .ok_or_else(|| anyhow!("Component not found: {}", component_id))?;
 
-        let (state, resource_limiter) = self.get_wasi_state_for_component(component_id).await?;
+        let (state, resource_limiter) = self.wasi_state_for_instance(&component).await?;
 
         let mut store = Store::new(self.runtime.as_ref(), state);
 
@@ -1562,10 +1153,9 @@ impl LifecycleManager {
         );
 
         let semaphore = Arc::new(Semaphore::new(concurrency));
-        let mut entries = tokio::fs::read_dir(self.storage.root()).await?;
         let mut load_futures = Vec::new();
 
-        while let Some(entry) = entries.next_entry().await? {
+        for id in self.installed_tool_ids().await? {
             let self_clone = self.clone();
             let semaphore = semaphore.clone();
             let notify_fn = notify_fn.as_ref().map(std::sync::Arc::new);
@@ -1573,14 +1163,15 @@ impl LifecycleManager {
             let future = async move {
                 let _permit = semaphore.acquire().await.unwrap();
 
-                match self_clone.load_component_from_entry_optimized(entry).await {
-                    Ok(true) => {
+                let already_loaded = self_clone.registry.contains_component(&id).await;
+                match self_clone.ensure_component_loaded(&id).await {
+                    Ok(()) if !already_loaded => {
                         // Component was loaded, notify if callback provided
                         if let Some(notify) = notify_fn {
                             notify();
                         }
                     }
-                    Ok(false) => {} // No component to load (not a .wasm file)
+                    Ok(()) => {}
                     Err(e) => warn!("Failed to load component: {:#}", e),
                 }
             };
@@ -1593,216 +1184,15 @@ impl LifecycleManager {
         Ok(())
     }
 
-    /// Populate tool registry from cached metadata without compiling components
-    /// Registers tool metadata for every component on disk, without compiling anything.
+    /// Populate the tool registry from receipt-bound caches without compilation.
     ///
-    /// This makes tool names resolvable in a process that will never run the background
-    /// restore, such as a one-shot CLI invocation. Components are registered from their
-    /// cached metadata only when the validation stamp still matches, so a stale entry is
-    /// skipped rather than trusted. Compilation still happens later, on first use.
-    ///
-    /// The pass has two phases. Each component's cached metadata is read and validated while
-    /// holding that component's load guard, so this cannot race a load or unload of the same
-    /// component; the guard is released before the next entry, so unrelated components are
-    /// never serialized against each other. What every validated component produces is then
-    /// published in a single registry write.
-    ///
-    /// The write is batched because the server starts answering requests while this runs, and
-    /// registering one component at a time exposes a `tool_map` in which a tool exported by
-    /// two installed components has only one owner. A lookup landing there resolves and runs
-    /// the tool that the collision rule should refuse, and nothing revisits the tool map to
-    /// take the answer back. With one write, a lookup sees either no hydrated component or
-    /// all of them, and the collision is visible in both. The cost is that hydration becomes
-    /// visible only once every component has been validated; validation reads metadata and
-    /// inspects an artifact's current bytes and stamp, and compiles nothing.
+    /// The whole batch is published while the expected store cursor is held by a checked
+    /// read scope. A concurrent mutation causes a retryable error, not partial hydration
+    /// or resurrection of an uninstalled entry. Missing caches are left for lazy/background
+    /// restoration. General catalog refresh and adapter notifications are separate concerns.
     pub async fn populate_registry_from_metadata(&self) -> Result<()> {
-        let mut entries = tokio::fs::read_dir(self.storage.root()).await?;
-        let mut pending = Vec::new();
-
-        while let Some(entry) = entries.next_entry().await? {
-            let entry_path = entry.path();
-            let is_wasm = entry_path
-                .extension()
-                .map(|ext| ext == "wasm")
-                .unwrap_or(false);
-
-            if !is_wasm {
-                continue;
-            }
-
-            let Some(component_id) = entry_path.file_stem().and_then(|s| s.to_str()) else {
-                continue;
-            };
-
-            if let Some(prepared) = self
-                .prepare_cached_metadata_under_guard(component_id, &entry_path)
-                .await
-            {
-                pending.push(prepared);
-            }
-        }
-
-        let loaded_count = self
-            .registry
-            .register_cached_metadata_batch(pending, |path| path.exists())
-            .await;
-
-        if loaded_count > 0 {
-            info!(
-                "Registered {} components from cached metadata",
-                loaded_count
-            );
-        }
-
-        Ok(())
+        self.hydrate_cached_registry().await
     }
-
-    /// Read and validate one component's cached tool metadata while holding its load guard.
-    ///
-    /// Reading the metadata and checking its validation stamp is a check-then-act over the
-    /// very files a reload replaces and an unload removes, so both happen inside one critical
-    /// section. Without the guard this could read the metadata of one artifact and stamp it
-    /// against another that a reload has just staged in its place.
-    ///
-    /// The guard is not held until the result is registered, because the registration is
-    /// batched with every other component's and holding one component's guard across another
-    /// component's work would serialize ids that have nothing to do with each other. That is
-    /// safe because [`ComponentRegistry::register_cached_metadata_batch`] rechecks the
-    /// artifact inside its own write, which is what actually rules out reviving a component
-    /// an unload has removed.
-    ///
-    /// Nothing reached from here takes the guard again, so this cannot deadlock. The guard is
-    /// dropped when this returns, so the caller's loop does not hold one component's guard
-    /// while handling the next.
-    ///
-    /// Returns the registration to publish, or `None` if there is nothing usable to register.
-    async fn prepare_cached_metadata_under_guard(
-        &self,
-        component_id: &str,
-        entry_path: &Path,
-    ) -> Option<PendingRegistration> {
-        let guard = self.load_guard(component_id).await;
-        let _guard = guard.lock().await;
-
-        // An unload may have completed while we waited for the guard. Its artifact is gone, so
-        // there is nothing to register, whatever cached metadata may still be lying around.
-        if !entry_path.exists() {
-            debug!(component_id = %component_id, "Component removed while waiting for the load guard");
-            return None;
-        }
-
-        match ordinary_artifact_bytes(entry_path).await {
-            Ok(Some(_)) => {}
-            Ok(None) => return None,
-            Err(error) => {
-                warn!(%component_id, error = %format_error_chain(&error), "Cannot inspect component for cached tools");
-                return None;
-            }
-        }
-
-        let metadata = match self.load_component_metadata(component_id).await {
-            Ok(Some(metadata)) => metadata,
-            Ok(None) => {
-                debug!(%component_id, "No valid cached metadata found, will load component later");
-                return None;
-            }
-            Err(error) => {
-                warn!(%component_id, error = %format_error_chain(&error), "Cannot read cached component tools");
-                return None;
-            }
-        };
-
-        // Validate that the component file hasn't changed
-        if !ComponentStorage::validate_stamp(entry_path, &metadata.validation_stamp).await {
-            debug!(component_id = %component_id, "No valid cached metadata found, will load component later");
-            return None;
-        }
-
-        let tools: Vec<ToolMetadata> = metadata
-            .function_identifiers
-            .into_iter()
-            .zip(metadata.tool_schemas)
-            .zip(metadata.tool_names)
-            .map(|((identifier, schema), normalized_name)| {
-                let canonical = schema::canonicalize_tool_schema(&schema);
-                ToolMetadata {
-                    identifier,
-                    schema: canonical,
-                    normalized_name,
-                }
-            })
-            .collect();
-
-        Some(PendingRegistration {
-            component_id: component_id.to_string(),
-            artifact_path: entry_path.to_path_buf(),
-            tools,
-        })
-    }
-
-    /// Load a component from directory entry with optimization
-    async fn load_component_from_entry_optimized(&self, entry: DirEntry) -> Result<bool> {
-        let entry_path = entry.path();
-        let is_file = entry
-            .metadata()
-            .await
-            .map(|m| m.is_file())
-            .context("unable to read file metadata")?;
-        let is_wasm = entry_path
-            .extension()
-            .map(|ext| ext == "wasm")
-            .unwrap_or(false);
-        if !(is_file && is_wasm) {
-            return Ok(false);
-        }
-
-        let component_id = entry_path
-            .file_stem()
-            .and_then(|s| s.to_str())
-            .map(String::from)
-            .context("wasm file didn't have a valid file name")?;
-
-        if self.registry.contains_component(&component_id).await {
-            debug!(component_id = %component_id, "Component already loaded in memory");
-            return Ok(false);
-        }
-
-        // Serialize against the on-demand load path: a `tools/call` that arrives before the
-        // restore reaches this component compiles it itself, and without the shared guard
-        // both passes would compile it and write the same metadata and cache files.
-        let guard = self.load_guard(&component_id).await;
-        let _guard = guard.lock().await;
-
-        if self.registry.contains_component(&component_id).await {
-            debug!(component_id = %component_id, "Component loaded while waiting for the load guard");
-            return Ok(false);
-        }
-
-        // An unload may have removed this component while we waited for the guard, in which
-        // case there is nothing left to restore.
-        if !entry_path.exists() {
-            debug!(component_id = %component_id, "Component removed while waiting for the load guard");
-            return Ok(false);
-        }
-
-        let start_time = Instant::now();
-        if ordinary_artifact_bytes(&entry_path).await?.is_none() {
-            return Ok(false);
-        }
-        self.compile_and_register_component_locked(&component_id, &entry_path)
-            .await
-            .with_context(|| {
-                format!(
-                    "Failed to compile component from path: {}",
-                    entry_path.display()
-                )
-            })?;
-
-        info!(component_id = %component_id, elapsed = ?start_time.elapsed(), "component loaded");
-        Ok(true)
-    }
-
-    // Granular permission system methods
 }
 
 impl LifecycleManager {
@@ -1817,8 +1207,9 @@ impl LifecycleManager {
         component_id: &str,
         show_values: bool,
     ) -> Result<std::collections::HashMap<String, Option<String>>> {
+        let binding = self.known_secret_binding(component_id).await?;
         self.secrets_manager
-            .list_component_secrets(component_id, show_values)
+            .list_bound_component_secrets(&binding, show_values)
             .await
     }
 
@@ -1828,14 +1219,13 @@ impl LifecycleManager {
         component_id: &str,
         secrets: &[(String, String)],
     ) -> Result<()> {
-        // Check if component exists in the component directory
-        let component_path = self.component_path(component_id);
-        if !component_path.exists() {
-            bail!("Component not found: {}", component_id);
-        }
-
+        let binding = self
+            .store_snapshot(component_id)
+            .await?
+            .receipt
+            .secret_binding()?;
         self.secrets_manager
-            .set_component_secrets(component_id, secrets)
+            .set_bound_component_secrets(&binding, secrets)
             .await
     }
 
@@ -1845,8 +1235,9 @@ impl LifecycleManager {
         component_id: &str,
         keys: &[String],
     ) -> Result<()> {
+        let binding = self.known_secret_binding(component_id).await?;
         self.secrets_manager
-            .delete_component_secrets(component_id, keys)
+            .delete_bound_component_secrets(&binding, keys)
             .await
     }
 
@@ -1855,78 +1246,15 @@ impl LifecycleManager {
         &self,
         component_id: &str,
     ) -> Result<std::collections::HashMap<String, String>> {
+        let binding = self
+            .store_snapshot(component_id)
+            .await?
+            .receipt
+            .secret_binding()?;
         self.secrets_manager
-            .load_component_secrets(component_id)
+            .load_bound_component_secrets(&binding)
             .await
     }
-}
-
-async fn load_component_from_entry(
-    runtime: Arc<RuntimeContext>,
-    entry: DirEntry,
-) -> Result<Option<(ComponentInstance, String)>> {
-    let start_time = Instant::now();
-    let is_file = entry
-        .metadata()
-        .await
-        .map(|m| m.is_file())
-        .context("unable to read file metadata")?;
-    let is_wasm = entry
-        .path()
-        .extension()
-        .map(|ext| ext == "wasm")
-        .unwrap_or(false);
-    if !(is_file && is_wasm) {
-        return Ok(None);
-    }
-    let entry_path = entry.path();
-
-    let Some(wasm_bytes) = ordinary_artifact_bytes(&entry_path).await? else {
-        return Ok(None);
-    };
-
-    // Extract package docs before spawning blocking task
-    let package_docs = extract_package_docs(&wasm_bytes);
-
-    let runtime_for_component = Arc::clone(&runtime);
-    let component = tokio::task::spawn_blocking(move || {
-        Component::new(runtime_for_component.as_ref(), &wasm_bytes)
-    })
-    .await??;
-    let name = entry
-        .path()
-        .file_stem()
-        .and_then(|s| s.to_str())
-        .map(String::from)
-        .context("wasm file didn't have a valid file name")?;
-    info!(component_id = %name, elapsed = ?start_time.elapsed(), "component loaded");
-    let instance_pre = runtime.instantiate_pre(&component)?;
-    Ok(Some((
-        ComponentInstance {
-            component: Arc::new(component),
-            instance_pre: Arc::new(instance_pre),
-            package_docs,
-        },
-        name,
-    )))
-}
-
-async fn ordinary_artifact_bytes(path: &Path) -> Result<Option<Vec<u8>>> {
-    let stem = path
-        .file_stem()
-        .and_then(|stem| stem.to_str())
-        .context("Component path has no valid storage key")?;
-    StorageKey::parse(stem).context("Invalid component storage key")?;
-    let bytes = tokio::fs::read(path)
-        .await
-        .with_context(|| format!("Failed to read component {}", path.display()))?;
-    let inspection = inspect_artifact(&bytes)
-        .with_context(|| format!("Failed to inspect component {}", path.display()))?;
-    if inspection.shape != ArtifactShape::ToolCandidate {
-        debug!(path = %path.display(), shape = ?inspection.shape, "Skipping non-tool artifact");
-        return Ok(None);
-    }
-    Ok(Some(bytes))
 }
 
 fn compiled_artifact_shape(component: &Component, engine: &wasmtime::Engine) -> ArtifactShape {
@@ -1999,7 +1327,10 @@ mod tests {
 
     pub(crate) async fn create_test_manager() -> Result<TestLifecycleManager> {
         let tempdir = tempfile::tempdir()?;
-        let manager = LifecycleManager::new(&tempdir).await?;
+        let manager = LifecycleManager::builder(tempdir.path())
+            .with_secrets_dir(tempdir.path().join("secrets"))
+            .build()
+            .await?;
         Ok(TestLifecycleManager {
             manager,
             _tempdir: tempdir,
@@ -2008,7 +1339,6 @@ mod tests {
 
     pub(crate) async fn build_example_component() -> Result<PathBuf> {
         let cwd = std::env::current_dir()?;
-        println!("CWD: {}", cwd.display());
         let component_path =
             cwd.join("../../examples/fetch-rs/target/wasm32-wasip2/release/fetch_rs.wasm");
 
@@ -2042,7 +1372,27 @@ mod tests {
             "Failed to name the source-built fetch fixture"
         );
 
-        Ok(component_path)
+        let directory = cwd.join("../../target/named-test-components");
+        std::fs::create_dir_all(&directory)?;
+        let destination = directory.join(format!("{TEST_COMPONENT_ID}.wasm"));
+        let file = tempfile::NamedTempFile::new_in(directory)?;
+        let status = Command::new("wasm-tools")
+            .args(["metadata", "add", "--name", TEST_COMPONENT_ID])
+            .arg(&component_path)
+            .arg("--output")
+            .arg(file.path())
+            .status()
+            .context("Failed to name the isolated test copy")?;
+        anyhow::ensure!(status.success(), "Failed to name the isolated test copy");
+        anyhow::ensure!(
+            inspect_artifact(&std::fs::read(file.path())?)?
+                .identity?
+                .as_str()
+                == TEST_COMPONENT_ID,
+            "Unexpected fixture identity"
+        );
+        file.persist(&destination)?;
+        Ok(destination)
     }
 
     #[test(tokio::test)]
@@ -2162,8 +1512,8 @@ mod tests {
     async fn test_cached_tool_schema_preserves_tool_fields() -> Result<()> {
         let manager = create_test_manager().await?;
         let component_id = "cached-component";
+        install_cached_component(manager.component_root(), component_id, "cached-tool").await?;
         let component_path = manager.component_path(component_id);
-        tokio::fs::write(&component_path, kind_gate_tests::ordinary_component()).await?;
 
         let tool_schema = serde_json::json!({
             "name": "cached-tool",
@@ -2183,22 +1533,29 @@ mod tests {
                 "required": ["result"]
             }
         });
-        let metadata = ComponentMetadata {
-            component_id: component_id.to_string(),
-            tool_schemas: vec![tool_schema],
-            function_identifiers: vec![FunctionIdentifier {
-                package_name: None,
-                interface_name: None,
-                function_name: "cached-tool".to_string(),
-            }],
-            tool_names: vec!["cached-tool".to_string()],
-            validation_stamp: manager
-                .storage
-                .create_validation_stamp(&component_path, false)
-                .await?,
-            created_at: 0,
-        };
-        manager.storage.write_metadata(&metadata).await?;
+        let snapshot = manager.store_snapshot(component_id).await?;
+        let cache = manager
+            .store
+            .read_cache(
+                component_id,
+                &snapshot.receipt.revision,
+                &manager.cache_engine(),
+                store_runtime::CACHE_SCHEMA,
+            )?
+            .context("test installation did not publish a cache")?;
+        let mut metadata: ComponentMetadata = serde_json::from_value(cache.metadata)?;
+        metadata.tool_schemas = vec![tool_schema];
+        manager.store.publish_cache(
+            component_id,
+            &snapshot.receipt.revision,
+            store::PreparedCache {
+                artifact_sha256: snapshot.receipt.artifact_sha256,
+                engine: manager.cache_engine(),
+                schema: store_runtime::CACHE_SCHEMA.to_owned(),
+                metadata: serde_json::to_value(&metadata)?,
+                native: cache.native,
+            },
+        )?;
 
         let component_schema = manager
             .get_component_schema(component_id)
@@ -2296,12 +1653,10 @@ mod tests {
     /// exactly once per pass.
     #[tokio::test]
     async fn test_ensure_component_loaded_compiles_once_under_concurrency() -> Result<()> {
-        let manager = create_test_manager().await?;
-        let source = build_example_component().await?;
-        tokio::fs::copy(&source, manager.component_path(TEST_COMPONENT_ID)).await?;
+        let manager = create_manager_over_installed_component().await?;
         assert!(manager.list_components().await.is_empty());
 
-        let counter = MessageCounter::new("Saved component metadata");
+        let counter = MessageCounter::new("Restored component from store snapshot");
         let subscriber = tracing_subscriber::layer::SubscriberExt::with(
             tracing_subscriber::registry(),
             counter.clone(),
@@ -2340,12 +1695,10 @@ mod tests {
     /// `compile_and_register_component_locked` emits exactly once per pass.
     #[tokio::test]
     async fn test_ensure_component_loaded_compiles_once_against_background_restore() -> Result<()> {
-        let manager = create_test_manager().await?;
-        let source = build_example_component().await?;
-        tokio::fs::copy(&source, manager.component_path(TEST_COMPONENT_ID)).await?;
+        let manager = create_manager_over_installed_component().await?;
         assert!(manager.list_components().await.is_empty());
 
-        let counter = MessageCounter::new("Saved component metadata");
+        let counter = MessageCounter::new("Restored component from store snapshot");
         let subscriber = tracing_subscriber::layer::SubscriberExt::with(
             tracing_subscriber::registry(),
             counter.clone(),
@@ -2417,10 +1770,9 @@ mod tests {
     #[tokio::test]
     async fn test_unloaded_components_are_not_retained_by_the_load_guards() -> Result<()> {
         let manager = create_test_manager().await?;
-        let source = build_example_component().await?;
         let other_component_id = "other_component";
-        tokio::fs::copy(&source, manager.component_path(TEST_COMPONENT_ID)).await?;
-        tokio::fs::copy(&source, manager.component_path(other_component_id)).await?;
+        install_cached_component(manager.component_root(), TEST_COMPONENT_ID, "first").await?;
+        install_cached_component(manager.component_root(), other_component_id, "second").await?;
 
         manager.ensure_component_loaded(TEST_COMPONENT_ID).await?;
         manager.unload_component(TEST_COMPONENT_ID).await?;
@@ -2457,11 +1809,16 @@ mod tests {
         // Any installed artifact or cache changing while the guard is held elsewhere
         // is proof that replacement ran outside the critical section.
         let artifact_path = manager.component_path(TEST_COMPONENT_ID);
-        let metadata_path = manager.storage.metadata_path(TEST_COMPONENT_ID);
+        let metadata_path = manager
+            .storage
+            .metadata_path(&StorageKey::parse(TEST_COMPONENT_ID)?);
         let precompiled_path = manager.component_precompiled_path(TEST_COMPONENT_ID);
-        tokio::fs::write(&artifact_path, b"stale artifact").await?;
-        tokio::fs::write(&metadata_path, b"stale metadata").await?;
-        tokio::fs::write(&precompiled_path, b"stale precompiled cache").await?;
+        manager
+            .load_component(&format!("file://{}", source.display()))
+            .await?;
+        let old_artifact = tokio::fs::read(&artifact_path).await?;
+        let old_metadata = tokio::fs::read(&metadata_path).await?;
+        let old_native = tokio::fs::read(&precompiled_path).await?;
 
         // Stand in for a concurrent on-demand load or background restore that holds the guard
         // and is about to compile.
@@ -2480,15 +1837,15 @@ mod tests {
         for _ in 0..10 {
             tokio::time::sleep(std::time::Duration::from_millis(25)).await;
             assert!(
-                tokio::fs::read(&artifact_path).await? == b"stale artifact",
+                tokio::fs::read(&artifact_path).await? == old_artifact,
                 "a reload must not replace the artifact while another load holds the guard"
             );
             assert!(
-                tokio::fs::read(&metadata_path).await? == b"stale metadata",
+                tokio::fs::read(&metadata_path).await? == old_metadata,
                 "a reload must not remove the metadata while another load holds the guard"
             );
             assert!(
-                tokio::fs::read(&precompiled_path).await? == b"stale precompiled cache",
+                tokio::fs::read(&precompiled_path).await? == old_native,
                 "a reload must not remove the cache while another load holds the guard"
             );
         }
@@ -2501,10 +1858,10 @@ mod tests {
             tokio::fs::read(&artifact_path).await? == tokio::fs::read(&source).await?,
             "the reload must still stage the new artifact once it holds the guard"
         );
-        assert!(
-            tokio::fs::read(&metadata_path).await? != b"stale metadata",
-            "the reload must still recompile and rewrite the component's metadata"
-        );
+        assert!(manager
+            .read_cached_metadata(TEST_COMPONENT_ID)
+            .await?
+            .is_some());
         assert_eq!(
             manager.list_components().await,
             vec![TEST_COMPONENT_ID.to_string()]
@@ -2567,9 +1924,7 @@ mod tests {
     /// same no matter which one wins: nothing registered and no files left.
     #[tokio::test]
     async fn test_unload_during_on_demand_load_leaves_no_half_removed_component() -> Result<()> {
-        let manager = create_test_manager().await?;
-        let source = build_example_component().await?;
-        tokio::fs::copy(&source, manager.component_path(TEST_COMPONENT_ID)).await?;
+        let manager = create_manager_over_installed_component().await?;
         assert!(manager.list_components().await.is_empty());
 
         let load = tokio::spawn({
@@ -2593,7 +1948,10 @@ mod tests {
             "the component artifact must not survive its unload"
         );
         assert!(
-            !manager.storage.metadata_path(TEST_COMPONENT_ID).exists(),
+            !manager
+                .storage
+                .metadata_path(&StorageKey::parse(TEST_COMPONENT_ID)?)
+                .exists(),
             "the component metadata must not be rewritten after its unload reported success"
         );
         assert!(
@@ -2615,13 +1973,17 @@ mod tests {
         let tempdir = tempfile::tempdir()?;
         let source = build_example_component().await?;
 
-        let installer = LifecycleManager::new_unloaded(&tempdir).await?;
+        let config = LifecycleManager::builder(tempdir.path())
+            .with_secrets_dir(tempdir.path().join("secrets"))
+            .with_eager_loading(false)
+            .build_config()?;
+        let installer = LifecycleManager::from_config(config.clone()).await?;
         installer
             .load_component(&format!("file://{}", source.display()))
             .await?;
         drop(installer);
 
-        let manager = LifecycleManager::new_unloaded(&tempdir).await?;
+        let manager = LifecycleManager::from_config(config).await?;
         assert!(manager.list_components().await.is_empty());
         assert!(manager.list_tools().await.is_empty());
 
@@ -2642,9 +2004,7 @@ mod tests {
     /// as soon as it has compiled, which takes far less than this.
     #[tokio::test]
     async fn test_load_all_components_registers_under_the_load_guard() -> Result<()> {
-        let manager = create_test_manager().await?;
-        let source = build_example_component().await?;
-        tokio::fs::copy(&source, manager.component_path(TEST_COMPONENT_ID)).await?;
+        let manager = create_manager_over_installed_component().await?;
         assert!(manager.list_components().await.is_empty());
 
         // Stand in for a concurrent load or unload of this component that holds the guard.
@@ -2746,10 +2106,18 @@ mod tests {
 
         // Give the pass time to reach the guard, then let the "unload" win it.
         tokio::time::sleep(std::time::Duration::from_millis(200)).await;
-        tokio::fs::remove_file(manager.component_path(TEST_COMPONENT_ID)).await?;
+        let snapshot = manager.store_snapshot(TEST_COMPONENT_ID).await?;
+        manager.store.remove(
+            TEST_COMPONENT_ID,
+            &snapshot.receipt.revision,
+            store::RemovalAuthority::Explicit,
+        )?;
         drop(held);
 
-        hydrate.await??;
+        assert!(
+            hydrate.await?.is_err(),
+            "a stale hydration must report its conflict"
+        );
 
         assert!(
             manager.list_tools().await.is_empty(),
@@ -2771,30 +2139,24 @@ mod tests {
         component_id: &str,
         tool_name: &str,
     ) -> Result<()> {
-        let storage = ComponentStorage::new(component_dir.to_path_buf(), 1).await?;
-        let artifact = storage.component_path(component_id);
-        tokio::fs::write(&artifact, kind_gate_tests::ordinary_component()).await?;
-
-        let validation_stamp = storage.create_validation_stamp(&artifact, false).await?;
-        storage
-            .write_metadata(&ComponentMetadata {
-                component_id: component_id.to_string(),
-                tool_schemas: vec![serde_json::json!({
-                    "name": tool_name,
-                    "description": "a cached tool",
-                    "inputSchema": { "type": "object" },
-                })],
-                function_identifiers: vec![FunctionIdentifier {
-                    package_name: None,
-                    interface_name: None,
-                    function_name: tool_name.to_string(),
-                }],
-                tool_names: vec![tool_name.to_string()],
-                validation_stamp,
-                created_at: 0,
-            })
+        let source_dir = component_dir.join(".test-sources");
+        tokio::fs::create_dir_all(&source_dir).await?;
+        let source = source_dir.join(format!("{component_id}.wasm"));
+        let bytes = wat::parse_str(format!(
+            r#"(component ${component_id}
+            (core module $m (func (export "run")))
+            (core instance $i (instantiate $m))
+            (func (export "{tool_name}") (canon lift (core func $i "run"))))"#
+        ))?;
+        tokio::fs::write(&source, bytes).await?;
+        let manager = LifecycleManager::builder(component_dir)
+            .with_secrets_dir(component_dir.join("secrets"))
+            .with_eager_loading(false)
+            .build()
             .await?;
-
+        manager
+            .load_component(&format!("file://{}", source.display()))
+            .await?;
         Ok(())
     }
 
@@ -2822,7 +2184,11 @@ mod tests {
         }
 
         for blocked in COMPONENT_IDS {
-            let manager = LifecycleManager::new_unloaded(&tempdir).await?;
+            let manager = LifecycleManager::builder(tempdir.path())
+                .with_secrets_dir(tempdir.path().join("secrets"))
+                .with_eager_loading(false)
+                .build()
+                .await?;
             assert!(manager.list_tools().await.is_empty());
 
             // Stand in for a concurrent load or unload of this component. Hydration reaches it
@@ -2875,10 +2241,9 @@ mod tests {
     /// load/unload operation can still change the installed files.
     #[tokio::test]
     async fn test_ensure_component_loaded_waits_for_a_reload_that_is_staging() -> Result<()> {
-        let manager = create_test_manager().await?;
+        let manager = create_manager_over_installed_component().await?;
         let source = build_example_component().await?;
         let artifact_path = manager.component_path(TEST_COMPONENT_ID);
-        tokio::fs::copy(&source, &artifact_path).await?;
 
         // Stand in for a guarded writer that has temporarily removed the artifact.
         let guard = manager.load_guard(TEST_COMPONENT_ID).await;
@@ -2963,21 +2328,7 @@ permissions:
 
     #[test(tokio::test)]
     async fn test_policy_restoration_on_startup() -> Result<()> {
-        let tempdir = tempfile::tempdir()?;
-
-        // Create a component file
-        let component_content = if let Ok(content) =
-            std::fs::read("examples/fetch-rs/target/wasm32-wasip2/debug/fetch_rs.wasm")
-        {
-            content
-        } else {
-            let path = build_example_component().await?;
-            std::fs::read(path)?
-        };
-        let component_path = tempdir.path().join("test-component.wasm");
-        std::fs::write(&component_path, component_content)?;
-
-        // Create a co-located policy file
+        let installed = create_manager_over_installed_component().await?;
         let policy_content = r#"
 version: "1.0"
 description: "Test policy"
@@ -2986,14 +2337,17 @@ permissions:
     allow:
       - host: "example.com"
 "#;
-        let policy_path = tempdir.path().join("test-component.policy.yaml");
-        std::fs::write(&policy_path, policy_content)?;
-
-        // Create a new LifecycleManager to test policy restoration
-        let manager = LifecycleManager::new(&tempdir).await?;
-
-        // Check if policy was restored
-        let policy_info = manager.get_policy_info("test-component").await;
+        let policy_path = installed.component_root().join("explicit-policy.yaml");
+        tokio::fs::write(&policy_path, policy_content).await?;
+        installed
+            .attach_policy(
+                TEST_COMPONENT_ID,
+                &format!("file://{}", policy_path.display()),
+            )
+            .await?;
+        let manager = LifecycleManager::from_config(installed.config.clone()).await?;
+        manager.load_all_components().await?;
+        let policy_info = manager.get_policy_info(TEST_COMPONENT_ID).await;
         assert!(policy_info.is_some());
 
         Ok(())
@@ -3205,9 +2559,15 @@ permissions:
         // Verify policy file was removed
         assert!(!policy_path.exists());
 
-        // Verify metadata file was also removed
         let metadata_path = manager.get_component_metadata_path(TEST_COMPONENT_ID);
-        assert!(!metadata_path.exists());
+        let metadata: Value = serde_json::from_slice(&tokio::fs::read(metadata_path).await?)?;
+        assert_eq!(metadata, Value::Null);
+        let snapshot = manager.store_snapshot(TEST_COMPONENT_ID).await?;
+        assert!(snapshot.policy.is_none());
+        assert_eq!(
+            snapshot.receipt.policy.provenance,
+            store::PolicyProvenance::ExplicitAttachment
+        );
 
         Ok(())
     }

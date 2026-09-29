@@ -174,11 +174,19 @@ Load a WebAssembly component from various sources.
 
 This command loads ordinary tool candidates, not ACP providers/layers or
 non-runnable artifacts. Compatibility is checked by the ordinary runtime.
-Current component IDs are storage-key selectors; inspecting an embedded
-semantic name does not yet change policy, secrets, or lookup keys.
+Component IDs are the exact, explicitly embedded root component names.
+The receipt maps each semantic ID to a private storage key; use the returned ID
+for component, policy and secret commands, not the source filename.
 New storage keys must be portable ASCII filenames: Windows device names,
 trailing dots, path separators, and unsafe secret-filename projections are
 rejected rather than renamed.
+
+Replacement checks both source continuity and the current receipt revision.
+Explicit policies and permission edits survive bundled upgrades. Uninstall
+retains a source/name reservation and secret values, so another source cannot
+take over the slot. Legacy files without receipts remain protected and are not
+automatically loaded or migrated. Producers must embed an unambiguous root
+component name; unnamed binaries are rejected.
 
 **Load from OCI registry:**
 ```bash

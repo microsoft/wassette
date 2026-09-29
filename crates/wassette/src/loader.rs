@@ -1,7 +1,7 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT license.
 
-//! A module for downloading and loading components and policies from various sources.
+//! Private acquisition of component and policy inputs, without live publication.
 use std::path::{Path, PathBuf};
 
 use anyhow::{bail, Context, Result};
@@ -16,8 +16,8 @@ use crate::StorageKey;
 pub(crate) enum DownloadedResource {
     /// A file that already exists on the local filesystem.
     Local(PathBuf),
-    /// A freshly downloaded file inside a temporary directory. Dropping the
-    /// resource deletes the file, so it must be copied somewhere durable.
+    /// A privately downloaded file. Capture its bytes before dropping this
+    /// resource; validated installation belongs to `ComponentStore`.
     Temp((tempfile::TempDir, PathBuf)),
 }
 
@@ -102,118 +102,6 @@ pub(crate) async fn read_optional_file(path: &Path) -> Result<Option<Vec<u8>>> {
         }
         Err(error) => Err(error).with_context(|| format!("Failed to read {}", path.display())),
     }
-}
-
-/// Destination-filesystem staging, owned until promotion finishes.
-pub(crate) struct StagedComponentArtifact {
-    directory: tempfile::TempDir,
-    wasm: PathBuf,
-    policy: PathBuf,
-    wasm_dest: PathBuf,
-    policy_dest: PathBuf,
-}
-
-impl StagedComponentArtifact {
-    async fn new(key: &StorageKey, dest_dir: &Path) -> Result<Self> {
-        let dest = dest_dir.to_path_buf();
-        let directory = tokio::task::spawn_blocking(move || tempfile::tempdir_in(dest)).await??;
-        let wasm_name = format!("{}.wasm", key.as_str());
-        let policy_name = format!("{}.policy.yaml", key.as_str());
-        Ok(Self {
-            wasm: directory.path().join(&wasm_name),
-            policy: directory.path().join(&policy_name),
-            wasm_dest: dest_dir.join(wasm_name),
-            policy_dest: dest_dir.join(policy_name),
-            directory,
-        })
-    }
-
-    pub(crate) async fn from_bytes(
-        key: &StorageKey,
-        wasm: &[u8],
-        policy: Option<&[u8]>,
-        dest_dir: &Path,
-    ) -> Result<Self> {
-        let stage = Self::new(key, dest_dir).await?;
-        tokio::fs::write(&stage.wasm, wasm)
-            .await
-            .context("Failed to stage captured component")?;
-        if let Some(policy) = policy {
-            tokio::fs::write(&stage.policy, policy)
-                .await
-                .context("Failed to stage captured policy")?;
-        }
-        Ok(stage)
-    }
-
-    pub(crate) fn promote(self, retain_unbundled_policy: bool) -> Result<PathBuf> {
-        let old_policy = self.directory.path().join("previous-policy");
-        let has_policy = self.policy.try_exists()?;
-        let had_policy = self.policy_dest.try_exists()?;
-        if had_policy && (has_policy || !retain_unbundled_policy) {
-            std::fs::hard_link(&self.policy_dest, &old_policy).with_context(|| {
-                format!("Failed to back up policy {}", self.policy_dest.display())
-            })?;
-        }
-
-        if has_policy {
-            std::fs::rename(&self.policy, &self.policy_dest).with_context(|| {
-                format!("Failed to install policy {}", self.policy_dest.display())
-            })?;
-        } else if had_policy && !retain_unbundled_policy {
-            std::fs::remove_file(&self.policy_dest).with_context(|| {
-                format!(
-                    "Failed to remove stale policy {}",
-                    self.policy_dest.display()
-                )
-            })?;
-        }
-
-        if let Err(error) = std::fs::rename(&self.wasm, &self.wasm_dest) {
-            if had_policy && (has_policy || !retain_unbundled_policy) {
-                std::fs::rename(&old_policy, &self.policy_dest)
-                    .with_context(|| format!("Failed to restore policy after {error}"))?;
-            } else if has_policy {
-                std::fs::remove_file(&self.policy_dest)
-                    .with_context(|| format!("Failed to remove policy after {error}"))?;
-            }
-            return Err(error)
-                .with_context(|| format!("Failed to install {}", self.wasm_dest.display()));
-        }
-        debug!(path = %self.wasm_dest.display(), "Promoted component artifact");
-        Ok(self.wasm_dest)
-    }
-}
-
-/// Promote a previously validated staged component into `dest_dir`.
-///
-/// The caller must validate the staged WASM (and any co-located policy) before
-/// calling this function. The files are first copied into the destination
-/// filesystem; a failed promotion restores the previous policy and leaves the
-/// old WASM in place. Publishing two separate paths cannot be atomic for
-/// unsynchronized readers, so callers must serialize concurrent loads.
-pub async fn promote_component_artifact(staged_wasm: &Path, dest_dir: &Path) -> Result<PathBuf> {
-    let id = staged_wasm
-        .file_stem()
-        .and_then(|stem| stem.to_str())
-        .context("Path to copy is missing component id")?;
-    let key = StorageKey::parse(id).context("Invalid component storage key")?;
-    let mut stage = StagedComponentArtifact::new(&key, dest_dir).await?;
-    stage.wasm_dest = dest_dir.join(
-        staged_wasm
-            .file_name()
-            .context("Path to copy is missing filename")?,
-    );
-    tokio::fs::copy(staged_wasm, &stage.wasm)
-        .await
-        .with_context(|| format!("Failed to stage component {}", staged_wasm.display()))?;
-    let source_policy = staged_wasm.with_file_name(format!("{id}.policy.yaml"));
-    if tokio::fs::try_exists(&source_policy).await? {
-        tokio::fs::copy(&source_policy, &stage.policy)
-            .await
-            .with_context(|| format!("Failed to stage policy {}", source_policy.display()))?;
-    }
-    tokio::task::spawn_blocking(move || stage.promote(false)).await?
 }
 
 /// A trait for resources that can be loaded from a URI.
@@ -479,106 +367,21 @@ pub(crate) async fn load_resource_with_progress<T: Loadable>(
     }
 }
 
-/// Fetch a WebAssembly component referenced by `uri` and return its portable
-/// storage key (the `.wasm` file stem) together with a local path to it.
-/// This legacy selector is not the semantic [`crate::ComponentId`].
-///
-/// `uri` is one of `file://<absolute path>`, `oci://<reference>` or
-/// `https://<url>`. Local files are used where they are; remote artifacts are
-/// downloaded and persisted into `dest_dir` — the Wassette component directory
-/// — as `<component-id>.wasm`, so a component fetched once is reachable by id
-/// afterwards.
-pub async fn fetch_component(uri: &str, dest_dir: &Path) -> Result<(String, PathBuf)> {
-    let config = crate::LifecycleManager::builder(dest_dir).build_config()?;
-    fetch_component_with_config(uri, &config).await
-}
-
-/// Fetch a component using the HTTP and OCI clients configured by
-/// [`LifecycleBuilder`](crate::LifecycleBuilder).
-///
-/// Remote artifacts are persisted in `config.component_dir()` immediately.
-/// To validate before installation, use a staging directory for this config
-/// and call [`promote_component_artifact`] after validation.
-pub async fn fetch_component_with_config(
-    uri: &str,
-    config: &crate::LifecycleConfig,
-) -> Result<(String, PathBuf)> {
-    fetch_component_with_config_into(uri, config, config.component_dir()).await
-}
-
-/// Fetch with configured clients into a staging directory instead of the
-/// lifecycle manager's live component directory.
-pub async fn fetch_component_with_config_into(
-    uri: &str,
-    config: &crate::LifecycleConfig,
-    dest_dir: &Path,
-) -> Result<(String, PathBuf)> {
-    let oci_client = oci_wasm::WasmClient::from(config.oci_client().clone());
-    fetch_component_with_clients(uri, dest_dir, &oci_client, config.http_client()).await
-}
-
-/// Fetch a component using the clients supplied by a [`LifecycleConfig`](crate::LifecycleConfig).
-///
-/// Pass `oci_wasm::WasmClient::from(config.oci_client().clone())` as
-/// `oci_client` to use the configured OCI registry settings. Remote artifacts
-/// are persisted immediately; to validate before installation, fetch into a
-/// staging directory and call [`promote_component_artifact`] afterwards.
-pub async fn fetch_component_with_clients(
-    uri: &str,
-    dest_dir: &Path,
-    oci_client: &oci_wasm::WasmClient,
-    http_client: &reqwest::Client,
-) -> Result<(String, PathBuf)> {
-    let resource = load_resource::<ComponentResource>(uri, oci_client, http_client)
-        .await
-        .with_context(|| format!("Failed to fetch component from {uri}"))?;
-    let id = resource.storage_key()?.as_str().to_owned();
-    match resource {
-        DownloadedResource::Local(path) => Ok((id, path)),
-        downloaded => {
-            tokio::fs::create_dir_all(dest_dir).await.with_context(|| {
-                format!(
-                    "Failed to create component directory: {}",
-                    dest_dir.display()
-                )
-            })?;
-            let dest = dest_dir.join(format!("{id}.{}", ComponentResource::FILE_EXTENSION));
-            promote_component_artifact(downloaded.as_ref(), dest_dir)
-                .await
-                .with_context(|| format!("Failed to store component in {}", dest_dir.display()))?;
-            Ok((id, dest))
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    async fn promote_resource(resource: DownloadedResource, dest: &Path) -> Result<()> {
-        let captured = resource.capture().await?;
-        let stage = StagedComponentArtifact::from_bytes(
-            &captured.storage_key,
-            &captured.wasm,
-            captured.bundled_policy.as_deref(),
-            dest,
-        )
-        .await?;
-        tokio::task::spawn_blocking(move || stage.promote(true)).await??;
-        Ok(())
-    }
-
     fn test_directory() -> tempfile::TempDir {
         tempfile::Builder::new()
             .prefix("wassette-loader-test-")
-            .tempdir_in(".")
+            .tempdir_in(std::env::current_dir().unwrap())
             .unwrap()
     }
 
     #[cfg(unix)]
     #[tokio::test]
     async fn dangling_policy_is_not_an_absent_policy() -> Result<()> {
-        let root = tempfile::tempdir()?;
+        let root = test_directory();
         let path = root.path().join("component.policy.yaml");
         assert!(read_optional_file(&path).await?.is_none());
         std::os::unix::fs::symlink(root.path().join("missing-policy"), &path)?;
@@ -587,150 +390,67 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn remote_copy_replaces_wasm_and_policy_together() -> Result<()> {
+    async fn capture_freezes_downloaded_wasm_and_policy() -> Result<()> {
         let root = test_directory();
         let source = tempfile::tempdir_in(root.path())?;
-        let dest = root.path().join("components");
-        tokio::fs::create_dir(&dest).await?;
+        let source_path = source.path().to_owned();
         let wasm = source.path().join("agent.wasm");
         tokio::fs::write(&wasm, b"new wasm").await?;
         tokio::fs::write(source.path().join("agent.policy.yaml"), b"new policy").await?;
-        tokio::fs::write(dest.join("agent.wasm"), b"old wasm").await?;
-        tokio::fs::write(dest.join("agent.policy.yaml"), b"old policy").await?;
-
-        promote_resource(DownloadedResource::Temp((source, wasm)), &dest).await?;
-        assert_eq!(tokio::fs::read(dest.join("agent.wasm")).await?, b"new wasm");
+        let captured = DownloadedResource::Temp((source, wasm)).capture().await?;
+        assert!(!source_path.exists());
+        tokio::fs::create_dir(&source_path).await?;
+        tokio::fs::write(source_path.join("agent.wasm"), b"mutated source").await?;
+        assert_eq!(captured.storage_key.as_str(), "agent");
+        assert_eq!(captured.wasm, b"new wasm");
         assert_eq!(
-            tokio::fs::read(dest.join("agent.policy.yaml")).await?,
-            b"new policy"
+            captured.bundled_policy.as_deref(),
+            Some(b"new policy".as_slice())
         );
         Ok(())
     }
 
     #[tokio::test]
-    async fn policy_free_replacement_removes_stale_policy() -> Result<()> {
+    async fn capture_retains_explicit_source_sidecar_absence() -> Result<()> {
         let root = test_directory();
         let source = tempfile::tempdir_in(root.path())?;
-        let dest = root.path().join("components");
-        tokio::fs::create_dir(&dest).await?;
         let wasm = source.path().join("agent.wasm");
         tokio::fs::write(&wasm, b"new wasm").await?;
-        tokio::fs::write(dest.join("agent.wasm"), b"old wasm").await?;
-        tokio::fs::write(dest.join("agent.policy.yaml"), b"old policy").await?;
-
-        promote_component_artifact(&wasm, &dest).await?;
-        assert_eq!(tokio::fs::read(dest.join("agent.wasm")).await?, b"new wasm");
-        assert!(!tokio::fs::try_exists(dest.join("agent.policy.yaml")).await?);
+        let captured = DownloadedResource::Temp((source, wasm)).capture().await?;
+        assert_eq!(captured.wasm, b"new wasm");
+        assert!(captured.bundled_policy.is_none());
         Ok(())
     }
 
     #[tokio::test]
-    async fn lifecycle_copy_retains_explicitly_attached_policy() -> Result<()> {
+    async fn local_capture_does_not_adopt_a_sibling_policy() -> Result<()> {
         let root = test_directory();
-        let source = tempfile::tempdir_in(root.path())?;
-        let dest = root.path().join("components");
-        tokio::fs::create_dir(&dest).await?;
-        let wasm = source.path().join("agent.wasm");
+        let wasm = root.path().join("agent.wasm");
         tokio::fs::write(&wasm, b"new wasm").await?;
-        tokio::fs::write(dest.join("agent.wasm"), b"old wasm").await?;
-        tokio::fs::write(dest.join("agent.policy.yaml"), b"attached policy").await?;
-
-        promote_resource(DownloadedResource::Temp((source, wasm)), &dest).await?;
-        assert_eq!(tokio::fs::read(dest.join("agent.wasm")).await?, b"new wasm");
-        assert_eq!(
-            tokio::fs::read(dest.join("agent.policy.yaml")).await?,
-            b"attached policy"
-        );
+        tokio::fs::write(root.path().join("agent.policy.yaml"), b"malformed: [").await?;
+        let captured = DownloadedResource::Local(wasm.clone()).capture().await?;
+        assert_eq!(captured.wasm, b"new wasm");
+        assert!(captured.bundled_policy.is_none());
+        assert_eq!(tokio::fs::read(&wasm).await?, b"new wasm");
         Ok(())
     }
 
     #[tokio::test]
-    async fn failed_staging_preserves_existing_pair() -> Result<()> {
+    async fn capture_rejects_unreadable_source_sidecar() -> Result<()> {
         let root = test_directory();
         let source = tempfile::tempdir_in(root.path())?;
-        let dest = root.path().join("components");
-        tokio::fs::create_dir(&dest).await?;
         let wasm = source.path().join("agent.wasm");
         tokio::fs::write(&wasm, b"new wasm").await?;
         tokio::fs::create_dir(source.path().join("agent.policy.yaml")).await?;
-        tokio::fs::write(dest.join("agent.wasm"), b"old wasm").await?;
-        tokio::fs::write(dest.join("agent.policy.yaml"), b"old policy").await?;
-
-        assert!(promote_component_artifact(&wasm, &dest).await.is_err());
-        assert_eq!(tokio::fs::read(dest.join("agent.wasm")).await?, b"old wasm");
-        assert_eq!(
-            tokio::fs::read(dest.join("agent.policy.yaml")).await?,
-            b"old policy"
-        );
+        assert!(DownloadedResource::Temp((source, wasm))
+            .capture()
+            .await
+            .is_err());
         Ok(())
     }
 
     #[tokio::test]
-    async fn failed_wasm_publish_rolls_back_policy() -> Result<()> {
-        let root = test_directory();
-        let source = tempfile::tempdir_in(root.path())?;
-        let dest = root.path().join("components");
-        tokio::fs::create_dir(&dest).await?;
-        let wasm = source.path().join("agent.wasm");
-        tokio::fs::write(&wasm, b"new wasm").await?;
-        tokio::fs::write(source.path().join("agent.policy.yaml"), b"new policy").await?;
-        tokio::fs::create_dir(dest.join("agent.wasm")).await?;
-        tokio::fs::write(dest.join("agent.policy.yaml"), b"old policy").await?;
-
-        assert!(promote_component_artifact(&wasm, &dest).await.is_err());
-        assert!(tokio::fs::metadata(dest.join("agent.wasm")).await?.is_dir());
-        assert_eq!(
-            tokio::fs::read(dest.join("agent.policy.yaml")).await?,
-            b"old policy"
-        );
-        Ok(())
-    }
-
-    #[tokio::test]
-    async fn failed_policy_free_publish_restores_stale_policy() -> Result<()> {
-        let root = test_directory();
-        let source = tempfile::tempdir_in(root.path())?;
-        let dest = root.path().join("components");
-        tokio::fs::create_dir(&dest).await?;
-        let wasm = source.path().join("agent.wasm");
-        tokio::fs::write(&wasm, b"new wasm").await?;
-        tokio::fs::create_dir(dest.join("agent.wasm")).await?;
-        tokio::fs::write(dest.join("agent.policy.yaml"), b"old policy").await?;
-
-        assert!(promote_component_artifact(&wasm, &dest).await.is_err());
-        assert!(tokio::fs::metadata(dest.join("agent.wasm")).await?.is_dir());
-        assert_eq!(
-            tokio::fs::read(dest.join("agent.policy.yaml")).await?,
-            b"old policy"
-        );
-        Ok(())
-    }
-
-    #[tokio::test]
-    async fn failed_validation_does_not_promote_staged_artifact() -> Result<()> {
-        let root = test_directory();
-        let source = tempfile::tempdir_in(root.path())?;
-        let dest = root.path().join("components");
-        tokio::fs::create_dir(&dest).await?;
-        let wasm = source.path().join("agent.wasm");
-        tokio::fs::write(&wasm, b"invalid wasm").await?;
-        tokio::fs::write(source.path().join("agent.policy.yaml"), b"new policy").await?;
-        tokio::fs::write(dest.join("agent.wasm"), b"old wasm").await?;
-        tokio::fs::write(dest.join("agent.policy.yaml"), b"old policy").await?;
-
-        assert!(
-            wasmtime::component::Component::from_file(&wasmtime::Engine::default(), &wasm).is_err()
-        );
-        assert_eq!(tokio::fs::read(dest.join("agent.wasm")).await?, b"old wasm");
-        assert_eq!(
-            tokio::fs::read(dest.join("agent.policy.yaml")).await?,
-            b"old policy"
-        );
-        Ok(())
-    }
-
-    #[tokio::test]
-    async fn fetch_with_clients_preserves_local_file() -> Result<()> {
+    async fn load_with_clients_preserves_local_file() -> Result<()> {
         let root = test_directory();
         let source = root.path().join("agent.wasm");
         let dest = root.path().join("components");
@@ -738,21 +458,20 @@ mod tests {
         let oci = oci_wasm::WasmClient::from(oci_client::Client::default());
         let http = reqwest::Client::builder().build()?;
 
-        let (id, path) = fetch_component_with_clients(
+        let resource = load_resource::<ComponentResource>(
             &format!("file://{}", source.display()),
-            &dest,
             &oci,
             &http,
         )
         .await?;
-        assert_eq!(id, "agent");
-        assert_eq!(path, source);
+        assert_eq!(resource.storage_key()?.as_str(), "agent");
+        assert_eq!(resource.as_ref(), source);
         assert!(!tokio::fs::try_exists(&dest).await?);
         Ok(())
     }
 
     #[tokio::test]
-    async fn fetch_with_config_uses_configured_http_client() -> Result<()> {
+    async fn acquisition_uses_configured_http_client() -> Result<()> {
         use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
         let root = test_directory();
@@ -776,11 +495,16 @@ mod tests {
 
         let result = tokio::time::timeout(
             std::time::Duration::from_secs(10),
-            fetch_component_with_config("https://example.invalid/agent.wasm", &config),
+            crate::acquisition::acquire_component(
+                "https://example.invalid/agent.wasm",
+                &config,
+                false,
+            ),
         )
         .await?;
         assert!(result.is_err());
-        let request = proxy_request.await??;
+        let request =
+            tokio::time::timeout(std::time::Duration::from_secs(10), proxy_request).await???;
         assert!(
             request.starts_with("CONNECT example.invalid:443"),
             "{request}"

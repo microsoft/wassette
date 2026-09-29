@@ -747,7 +747,8 @@ fn handle_install_command(
 }
 
 /// Install a component and validate that it implements the host's
-/// currently supported `wassette:acp` world without changing existing artifacts.
+/// currently supported `wassette:acp` world. Transactional installation never
+/// changes the running provider/layer chain.
 async fn run_install(
     factory: &SessionFactory,
     arg: &str,

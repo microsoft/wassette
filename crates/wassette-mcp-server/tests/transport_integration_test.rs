@@ -83,6 +83,7 @@ async fn setup_lifecycle_manager_with_client(
 
     let manager = Arc::new(
         LifecycleManager::builder(tempdir.path())
+            .with_secrets_dir(tempdir.path().join("secrets"))
             .with_environment_vars(std::collections::HashMap::new())
             .with_oci_client(oci_client::Client::new(oci_client::client::ClientConfig {
                 protocol: oci_client::client::ClientProtocol::Http,
@@ -154,11 +155,23 @@ async fn test_fetch_component_workflow() -> Result<()> {
     assert!(response_body.contains("Example Domain"));
     assert!(response_body.contains("This domain is for use in documentation examples"));
 
-    // Copy the component to another name
-    let mut component_path2 = component_path.clone();
-    component_path2.set_file_name("fetch2.wasm");
+    // A filename change does not give the same semantic component another owner.
+    let sources = tempfile::tempdir()?;
+    let component_path2 = sources.path().join("fetch2.wasm");
     tokio::fs::copy(&component_path, &component_path2).await?;
+    assert!(manager
+        .load_component(&format!("file://{}", component_path2.display()))
+        .await
+        .is_err());
+    assert_eq!(manager.get_component_id_for_tool("fetch").await?, id);
 
+    let distinct = wat::parse_str(
+        r#"(component $fetch2
+        (core module $m (func (export "run")))
+        (core instance $i (instantiate $m))
+        (func (export "fetch") (canon lift (core func $i "run"))))"#,
+    )?;
+    tokio::fs::write(&component_path2, distinct).await?;
     manager
         .load_component(&format!("file://{}", component_path2.to_str().unwrap()))
         .await?;
@@ -645,7 +658,9 @@ async fn test_tool_list_notification() -> Result<()> {
     // Start the server with stdio transport (disable logs to avoid stdout pollution)
     let mut child = tokio::process::Command::new(&binary_path)
         .args(["run", &component_dir_arg])
+        .env("WASSETTE_SECRETS_DIR", temp_dir.path().join("secrets"))
         .env("RUST_LOG", "off")
+        .kill_on_drop(true)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
