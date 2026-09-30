@@ -18,18 +18,21 @@ sequenceDiagram
         LM->>LM: Download from URL
     end
     
+    LM->>LM: Capture bytes under the component load guard
     LM->>LM: Inspect root name and artifact kind
     Note over LM: Only ordinary tool candidates enter this runtime
+    LM->>Policy: Prepare captured effective policy
+    Policy->>Policy: Create private WASI State Template
     LM->>Engine: Create Component
     Engine->>Engine: Compile WebAssembly
-    Engine->>Engine: Extract WIT Interface
+    Engine->>Engine: Link imports and prepare tool schemas
+    Note over LM,Policy: Validation failures leave installed files and runtime unchanged
+    LM->>LM: Stage validated bytes, invalidate old caches, promote
+    LM->>Policy: Publish prepared policy template
     
     LM->>Registry: Register Component
-    Registry->>Registry: Generate JSON Schema
+    Registry->>Registry: Publish prepared JSON schemas
     Registry->>Registry: Map Tools to Component
-    
-    LM->>Policy: Apply Default Policy
-    Policy->>Policy: Create WASI State Template
     
     LM-->>Server: Component ID + LoadResult
     Server-->>Client: Success with ID
@@ -51,6 +54,39 @@ sequenceDiagram
     LM-->>Server: JSON Response
     Server-->>Client: Tool Result
 ```
+
+## Safe explicit replacement
+
+`load_component` captures the incoming Wasm and any policy supplied by the
+existing acquisition path before changing installed files. It inspects and
+compiles those bytes directly, links imports, prepares schemas, and validates the
+effective policy without publishing runtime state or caches. An old `.cwasm`
+cannot validate a replacement. Invalid Wasm, unsupported imports, invalid or
+unreadable policy, and private staging failures leave the installed component,
+policy, caches, and loaded tools unchanged.
+
+An unbundled replacement retains an attached policy and its metadata. Existing
+OCI bundles still supply their policy; local files do not automatically acquire
+sibling-policy discovery. Loading the installed Wasm path itself works by
+capturing its bytes first. HTTP/OCI clients, environment, and the configured
+secrets directory are preserved. These guarantees apply to components admitted
+by the inspection and storage-key rules below; this change does not implement
+semantic-only lookup or ownership enforcement.
+
+Promotion uses destination-filesystem staging and the existing per-component
+guard. Old derived caches are invalidated only after preparation and staging
+succeed, without deleting the installed Wasm. A handled promotion failure may
+leave caches absent and attempts to restore the previous policy; a rollback
+failure is reported explicitly. Successful loads reuse the compiled instance.
+Optional cache-write failures are logged, and native caches are published as
+complete files.
+
+Once publication starts, its worker owns the stage and guard even if the
+request is cancelled. Cancellation before publication discards private work.
+This is process-local serialization, **not a cross-process snapshot or a
+crash-atomic multi-file transaction**. Independent managers, direct policy or
+filesystem writers, and in-flight calls do not participate in the load guard;
+disk and runtime publication are not one atomic operation.
 
 ## Component names, storage keys, and runtime kinds
 
