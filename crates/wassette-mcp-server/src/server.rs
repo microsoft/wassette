@@ -600,6 +600,7 @@ mod tests {
             || {
                 runtime.block_on(async {
                     let manager = LifecycleManager::builder(root.path().join("store"))
+                        .with_secrets_dir(root.path().join("secrets"))
                         .with_eager_loading(false)
                         .with_oci_client(oci_client::Client::new(ClientConfig {
                             protocol: ClientProtocol::Http,
@@ -735,10 +736,11 @@ mod tests {
                     let response: Value = serde_json::from_str(&invocation_response).unwrap();
                     assert_eq!(response["id"], 4, "{response}");
                     assert_eq!(response["result"]["isError"], false, "{response}");
-                    assert!(response["result"]["content"][0]["text"]
-                        .as_str()
-                        .unwrap()
-                        .contains('7'));
+                    assert_eq!(response["result"]["content"][0]["text"], "7");
+                    assert_eq!(
+                        response["result"]["structuredContent"],
+                        serde_json::json!({"result": 7})
+                    );
                     tasks.shutdown().await;
                     drop(client);
                     tokio::time::timeout(Duration::from_secs(5), service)
