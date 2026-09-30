@@ -4,7 +4,7 @@ Wassette comes with several built-in tools for managing components and their per
 
 | Tool | Description |
 |------|-------------|
-| `load-component` | Dynamically loads a new tool or component from either the filesystem or OCI registries |
+| `load-component` | Loads a component from a direct path/URI or an explicit wasm.directory package request |
 | `unload-component` | Unloads a tool or component |
 | `list-components` | Lists all currently loaded components or tools |
 | `search-components` | Searches wasm.directory for component packages; results are discovery-only |
@@ -22,7 +22,15 @@ Wassette comes with several built-in tools for managing components and their per
 
 ## load-component
 **Parameters:**
-- `path` (string, required): Path to the component from either filesystem or OCI registries (e.g., `oci://ghcr.io/microsoft/time-server-js:latest` or `/path/to/component.wasm`)
+- Exactly one of:
+  - `path` (string): Direct component source such as `file:///path/to/component.wasm` or `oci://ghcr.io/microsoft/time-server-js:1.2.3`
+  - `package` (string): Canonical wasm.directory identity such as `ghcr.io/microsoft/time-server-js`
+- `version` (string, optional): Exact indexed tag; valid only with `package`
+
+The `package` form resolves the selected tag to an immutable manifest digest
+and explicitly loads an ordinary tool component. Use `wassette registry get`
+for install-only package storage; installation by itself does not expose tools.
+ACP providers/layers cannot be loaded as ordinary MCP tools.
 
 **Returns:**
 ```json
@@ -34,6 +42,8 @@ Wassette comes with several built-in tools for managing components and their per
 ```
 When an existing component is replaced, the `status` value becomes
 `component reloaded successfully`.
+Package loads also return `package`, `requested_version`, `selected_version`,
+`manifest_digest`, `storage_key`, `revision`, and the persisted `receipt`.
 
 ACP providers/layers and unsupported artifact shapes cannot be loaded as
 ordinary tools, including through cached schemas. An ordinary candidate still

@@ -375,7 +375,8 @@ This is particularly useful for:
 
 ## Registry Management
 
-The registry commands provide convenient access to a centralized catalog of commonly used components, making it easy to discover and fetch components without needing to remember their full OCI URIs.
+Registry commands discover and install packages from wasm.directory using
+their canonical `registry/repository` identities.
 
 ### `wassette registry search`
 
@@ -434,45 +435,33 @@ catalog. Direct local component operations remain available offline.
 
 ### `wassette registry get`
 
-Fetch and load a component from the registry by name or URI.
+Install a wasm.directory package by its canonical `registry/repository`
+identity. The selected version is resolved to an OCI manifest digest before
+download; by default, Wassette selects the highest indexed stable semver
+version, falling back to prereleases only when no stable version exists.
 
-**Get by component name:**
 ```bash
-# Fetch and load a component by its name
-wassette registry get "Weather Server"
+# Install the package found by registry search
+wassette registry get ghcr.io/microsoft/get-weather-js
 
-# Names are case-insensitive
-wassette registry get "weather server"
+# Pin an exact indexed tag
+wassette registry get ghcr.io/microsoft/get-weather-js --version 1.2.3
+
+# Select a component storage directory (the old --plugin-dir name remains an alias)
+wassette registry get ghcr.io/microsoft/get-weather-js --component-dir ./components
 ```
 
-**Get by component URI:**
-```bash
-# Fetch by full OCI URI
-wassette registry get "oci://ghcr.io/microsoft/time-server-js:latest"
-```
+Installation validates the downloaded component and records its semantic
+component ID, physical storage key, package/version, manifest digest, and
+provenance. It is install-only: it does not expose tools to MCP or activate an
+ACP provider. To explicitly expose an ordinary tool package through MCP, call
+`load-component` with `package` and optional `version`. The existing
+`wassette component load PATH` command remains the direct path/OCI/HTTPS load
+flow.
 
-**With custom plugin directory:**
-```bash
-# Load to a specific directory
-wassette registry get "Fetch" --plugin-dir /custom/components
-```
-
-This command automatically:
-1. Looks up the component in the registry
-2. Retrieves its OCI URI
-3. Downloads the component using the existing OCI client
-4. Loads it into the component storage
-
-**Error handling:**
-```bash
-# Component not found
-$ wassette registry get "NonExistent"
-Error: Component 'NonExistent' not found in registry. 
-Use 'wassette registry search' to list available components.
-```
-
-**Options:**
-- `--plugin-dir <PATH>`: Component storage directory
+`--version` matches an exact indexed tag (including non-semver tags). Search
+and package resolution require wasm.directory; direct local paths remain
+available offline. There is no fallback to the removed bundled catalog.
 
 ## Policy Management
 
@@ -648,21 +637,22 @@ wassette registry search
 # 2. Search for specific functionality
 wassette registry search weather
 
-# 3. Get detailed information about a component
-wassette registry search "Weather Server" --output-format yaml
+# 3. Inspect metadata and canonical package identity
+wassette registry search weather --output-format yaml
 
-# 4. Fetch and load the component from the registry
-wassette registry get "Weather Server"
+# 4. Install by stable package identity; this does not expose its tools
+wassette registry get ghcr.io/microsoft/get-weather-js --version 1.2.3
 
 # 5. Configure permissions for the component
 wassette permission grant network weather-server api.openweathermap.org
 wassette permission grant memory weather-server 256Mi
 
-# 6. Verify the component is loaded and configured
+# 6. Verify the installed component and configure its permissions
 wassette component list --output-format table
 wassette policy get weather-server --output-format yaml
 
-# 7. Start the local stdio MCP server
+# 7. Start the local stdio MCP server; use MCP load-component with package/version
+#    when the tool should be explicitly exposed
 wassette run
 ```
 

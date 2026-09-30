@@ -159,8 +159,13 @@ async fn start_mock_wasm_directory() -> Result<(String, JoinHandle<()>)> {
                 } else {
                     "[]"
                 };
+                let (status, body) = if request_line.starts_with("get /v1/packages/detail/") {
+                    ("404 Not Found", "{}")
+                } else {
+                    ("200 OK", body)
+                };
                 let response = format!(
-                    "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                    "HTTP/1.1 {status}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
                     body.len(),
                     body
                 );
@@ -319,15 +324,18 @@ async fn test_registry_search_matches_description() -> Result<()> {
 }
 
 #[test(tokio::test)]
-async fn test_registry_get_nonexistent() -> Result<()> {
+async fn test_registry_get_reports_wasm_directory_not_found() -> Result<()> {
     let ctx = RegistryTestContext::new().await?;
 
-    let (stdout, stderr, exit_code) = ctx.run_command(&["registry", "get", "NonExistent"]).await?;
+    let (stdout, stderr, exit_code) = ctx
+        .run_command(&["registry", "get", "ghcr.io/microsoft/nonexistent"])
+        .await?;
 
     assert_ne!(exit_code, 0, "Command should have failed");
     assert!(
-        stderr.contains("not found in registry") || stdout.contains("not found in registry"),
-        "Error message should mention registry"
+        stderr.contains("package detail API returned HTTP 404 Not Found")
+            || stdout.contains("package detail API returned HTTP 404 Not Found"),
+        "Expected wasm.directory package lookup error, got stdout={stdout:?}, stderr={stderr:?}"
     );
 
     Ok(())

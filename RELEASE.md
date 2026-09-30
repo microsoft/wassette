@@ -323,10 +323,10 @@ The [`examples.yml`](.github/workflows/examples.yml) workflow automatically publ
    - The `latest` tag for main branch pushes
 4. Signs all published images using Cosign
 
-Because `component-registry.json` and the documentation reference examples by
-`:latest` with no version, moving that tag on a push to `main` is what makes a
-merged change to `examples/**` reach anyone loading them. Publishing only the
-commit SHA would leave the registry pointing at the previous build.
+The `:latest` tag remains available for direct OCI consumers. wasm.directory
+indexes package tags, and Wassette resolves a selected package version to its
+immutable manifest digest before installation; it does not use `:latest` as an
+implicit fallback version.
 
 Pre-releases are excluded. The `publish-examples` job in `release.yml` skips a
 version containing `-`, and the `publish` job here skips a dispatch whose `tag`

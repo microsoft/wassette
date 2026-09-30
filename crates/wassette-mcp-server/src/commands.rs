@@ -496,12 +496,75 @@ pub enum RegistryCommands {
         #[arg(short = 'o', long = "output-format", default_value = "json")]
         output_format: OutputFormat,
     },
-    /// Fetch and load a component from the registry.
+    /// Install a package from wasm.directory without exposing its tools.
     Get {
-        /// Component name or URI from the registry
+        /// Canonical registry/repository package identity
         component: String,
-        /// Directory where plugins are stored. Defaults to $XDG_DATA_HOME/wassette/components
+        /// Exact indexed package version to install
         #[arg(long)]
+        version: Option<String>,
+        /// Directory where components are stored. Defaults to $XDG_DATA_HOME/wassette/components
+        #[arg(long = "component-dir", visible_alias = "plugin-dir")]
         plugin_dir: Option<PathBuf>,
+        /// Output format
+        #[arg(short = 'o', long = "output-format", default_value = "json")]
+        output_format: OutputFormat,
     },
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn registry_get_accepts_canonical_package_and_exact_version() {
+        let cli = Cli::try_parse_from([
+            "wassette",
+            "registry",
+            "get",
+            "ghcr.io/owner/component",
+            "--version",
+            "1.2.3",
+            "--component-dir",
+            "/tmp/components",
+        ])
+        .unwrap();
+        let Some(Commands::Registry {
+            command:
+                RegistryCommands::Get {
+                    component,
+                    version,
+                    plugin_dir,
+                    ..
+                },
+        }) = cli.command
+        else {
+            panic!("expected registry get command");
+        };
+        assert_eq!(component, "ghcr.io/owner/component");
+        assert_eq!(version.as_deref(), Some("1.2.3"));
+        assert_eq!(
+            plugin_dir.as_deref(),
+            Some(std::path::Path::new("/tmp/components"))
+        );
+
+        let legacy = Cli::try_parse_from([
+            "wassette",
+            "registry",
+            "get",
+            "ghcr.io/owner/component",
+            "--plugin-dir",
+            "/tmp/components",
+        ])
+        .unwrap();
+        assert!(matches!(
+            legacy.command,
+            Some(Commands::Registry {
+                command: RegistryCommands::Get {
+                    plugin_dir: Some(_),
+                    ..
+                }
+            })
+        ));
+    }
 }

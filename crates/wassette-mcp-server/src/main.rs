@@ -21,7 +21,7 @@ use rmcp::transport::streamable_http_server::{StreamableHttpServerConfig, Stream
 use serde_json::{json, Map};
 use tracing_subscriber::layer::SubscriberExt as _;
 use tracing_subscriber::util::SubscriberInitExt as _;
-use wassette::wasm_directory::WasmDirectoryClient;
+use wassette::wasm_directory::{PackageId, WasmDirectoryClient};
 
 mod cli_handlers;
 mod commands;
@@ -30,7 +30,6 @@ mod format;
 mod manifest;
 mod permission_synthesis;
 mod provisioning_controller;
-mod registry;
 mod server;
 mod tools;
 mod utils;
@@ -45,7 +44,7 @@ use commands::{
 use format::{print_result, OutputFormat};
 use server::McpServer;
 use tools::ToolName;
-use utils::{format_build_info, load_component_registry, parse_env_var};
+use utils::{format_build_info, parse_env_var};
 
 // Health and info endpoint handlers
 mod endpoints {
@@ -915,32 +914,42 @@ async fn main() -> Result<()> {
                 }
                 RegistryCommands::Get {
                     component,
+                    version,
                     plugin_dir,
+                    output_format,
                 } => {
-                    let components = load_component_registry()?;
-
-                    // Find the component by name or URI
-                    let registry_component =
-                        registry::find_component_by_name_or_uri(&components, component)
-                            .ok_or_else(|| {
-                                anyhow::anyhow!(
-                                    "Component '{}' not found in registry. Use 'wassette registry search' to list available components.",
-                                    component
-                                )
-                            })?;
-
-                    // Use the existing load-component functionality
+                    let package_id = PackageId::parse(component)
+                        .context("Expected a canonical wasm.directory package identity")?;
                     let plugin_dir = plugin_dir.clone().or_else(|| cli.component_dir.clone());
-                    let lifecycle_manager = create_lifecycle_manager(plugin_dir).await?;
-                    let mut args = Map::new();
-                    args.insert("path".to_string(), json!(registry_component.uri));
-                    handle_tool_cli_command(
-                        &lifecycle_manager,
-                        "load-component",
-                        args,
-                        OutputFormat::Json,
-                    )
-                    .await?;
+                    let lifecycle_manager = create_lifecycle_manager(plugin_dir.clone()).await?;
+                    let directory = WasmDirectoryClient::from_environment()?;
+                    let (resolved, outcome) = lifecycle_manager
+                        .install_package(&directory, &package_id, version.as_deref())
+                        .await?;
+                    let receipt = match &outcome.entry {
+                        wassette::store::StoredEntry::Installed(receipt) => receipt,
+                        wassette::store::StoredEntry::Retired(_) => {
+                            anyhow::bail!("Package install unexpectedly returned a retired receipt")
+                        }
+                    };
+                    let result = json!({
+                        "status": "installed",
+                        "package": resolved.package_id.to_string(),
+                        "requested_version": resolved.requested_version,
+                        "selected_version": resolved.selected_version,
+                        "manifest_digest": resolved.manifest_digest,
+                        "component_id": receipt.component_id.as_str(),
+                        "storage_key": receipt.storage_key.as_str(),
+                        "revision": receipt.revision.to_string(),
+                        "receipt": receipt,
+                        "change": outcome.change,
+                    });
+                    print_result(
+                        &rmcp::model::CallToolResult::success(vec![
+                            rmcp::model::ContentBlock::text(serde_json::to_string_pretty(&result)?),
+                        ]),
+                        *output_format,
+                    )?;
                 }
             },
             Commands::Autocomplete { shell } => {

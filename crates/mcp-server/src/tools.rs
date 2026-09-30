@@ -213,15 +213,35 @@ fn get_builtin_tools() -> Vec<Tool> {
         Tool::new_with_raw(
             Cow::Borrowed("load-component"),
             Some(Cow::Borrowed(
-                "Dynamically loads a new tool or component from either the filesystem or OCI registries.",
+                "Loads a component from a direct path/URI or a wasm.directory package identity. Package inputs are resolved to a digest-pinned version.",
             )),
             Arc::new(
                 serde_json::from_value(json!({
                     "type": "object",
                     "properties": {
-                        "path": {"type": "string"}
+                        "path": {
+                            "type": "string",
+                            "description": "Direct file://, oci://, or https:// component source"
+                        },
+                        "package": {
+                            "type": "string",
+                            "description": "Canonical wasm.directory registry/repository package identity"
+                        },
+                        "version": {
+                            "type": "string",
+                            "description": "Optional exact indexed package tag; valid only with package"
+                        }
                     },
-                    "required": ["path"]
+                    "oneOf": [
+                        {
+                            "required": ["path"],
+                            "not": {"anyOf": [{"required": ["package"]}, {"required": ["version"]}]}
+                        },
+                        {
+                            "required": ["package"],
+                            "not": {"required": ["path"]}
+                        }
+                    ]
                 }))
                 .unwrap_or_default(),
             ),
@@ -930,6 +950,16 @@ mod tests {
         let schema = serde_json::to_value(search_tool).unwrap();
         assert!(schema["inputSchema"]["properties"]["offset"].is_object());
         assert!(schema["inputSchema"]["properties"]["limit"].is_object());
+
+        let load_tool = tools
+            .iter()
+            .find(|tool| tool.name == "load-component")
+            .unwrap();
+        let schema = serde_json::to_value(load_tool).unwrap();
+        assert!(schema["inputSchema"]["properties"]["path"].is_object());
+        assert!(schema["inputSchema"]["properties"]["package"].is_object());
+        assert!(schema["inputSchema"]["properties"]["version"].is_object());
+        assert!(schema["inputSchema"]["oneOf"].is_array());
     }
 
     #[tokio::test]

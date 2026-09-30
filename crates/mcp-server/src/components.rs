@@ -3,13 +3,14 @@
 
 use std::sync::Arc;
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use futures::stream::{self, StreamExt};
 use rmcp::model::{CallToolRequestParams, CallToolResult, ContentBlock, Tool};
 use serde_json::{json, Value};
 use tracing::{debug, error, info, instrument};
 use wassette::schema::canonicalize_output_schema;
 use wassette::tool_result::present_tool_output;
+use wassette::wasm_directory::{PackageId, WasmDirectoryClient};
 use wassette::{format_error_chain, ComponentLoadOutcome, LifecycleManager, LoadResult};
 
 #[instrument(skip(lifecycle_manager))]
@@ -33,35 +34,95 @@ pub(crate) async fn handle_load_component(
     let args = extract_args_from_request(req)?;
     let path = args
         .get("path")
-        .and_then(|v| v.as_str())
-        .ok_or_else(|| anyhow::anyhow!("Missing required argument: 'path'"))?;
+        .map(|value| {
+            value
+                .as_str()
+                .ok_or_else(|| anyhow::anyhow!("Argument 'path' must be a string"))
+        })
+        .transpose()?;
+    let package = args
+        .get("package")
+        .map(|value| {
+            value
+                .as_str()
+                .ok_or_else(|| anyhow::anyhow!("Argument 'package' must be a string"))
+        })
+        .transpose()?;
+    let version = args
+        .get("version")
+        .map(|value| {
+            value
+                .as_str()
+                .ok_or_else(|| anyhow::anyhow!("Argument 'version' must be a string"))
+        })
+        .transpose()?;
 
-    debug!(
-        path = %path,
-        operation = "load-component",
-        "Component load operation started"
-    );
-
-    match lifecycle_manager.load_component(path).await {
-        Ok(outcome) => {
-            info!(
-                path = %path,
-                component_id = %outcome.component_id,
-                operation = "load-component",
-                "Component loaded successfully"
-            );
-            create_load_component_success_result(&outcome)
+    match (path, package) {
+        (Some(_), Some(_)) => {
+            anyhow::bail!("Provide exactly one of 'path' or 'package'");
         }
-        Err(e) => {
-            let e = e.context(format!("Failed to load component: {path}"));
-            error!(
-                path = %path,
+        (Some(path), None) if version.is_none() => {
+            debug!(
+                path,
                 operation = "load-component",
-                error = %format_error_chain(&e),
-                "Component load operation failed"
+                "Component load operation started"
             );
-            Err(e)
+            match lifecycle_manager.load_component(path).await {
+                Ok(outcome) => {
+                    info!(
+                        path,
+                        component_id = %outcome.component_id,
+                        operation = "load-component",
+                        "Component loaded successfully"
+                    );
+                    create_load_component_success_result(&outcome)
+                }
+                Err(error) => {
+                    let error = error.context(format!("Failed to load component: {path}"));
+                    error!(
+                        path,
+                        operation = "load-component",
+                        error = %format_error_chain(&error),
+                        "Component load operation failed"
+                    );
+                    Err(error)
+                }
+            }
         }
+        (Some(_), None) => anyhow::bail!("Argument 'version' requires a 'package'"),
+        (None, Some(package)) => {
+            let package_id = PackageId::parse(package)
+                .context("Argument 'package' must be a canonical registry/repository identity")?;
+            let directory = WasmDirectoryClient::from_environment()?;
+            match lifecycle_manager
+                .load_package(&directory, &package_id, version)
+                .await
+            {
+                Ok((resolved, outcome)) => {
+                    info!(
+                        package = %resolved.package_id,
+                        component_id = %outcome.component_id,
+                        operation = "load-component",
+                        "Package loaded successfully"
+                    );
+                    create_package_load_success_result(&resolved, &outcome)
+                }
+                Err(error) => {
+                    let error = error.context(format!("Failed to load package: {package}"));
+                    error!(
+                        package,
+                        operation = "load-component",
+                        error = %format_error_chain(&error),
+                        "Package load operation failed"
+                    );
+                    Err(error)
+                }
+            }
+        }
+        (None, None) if version.is_some() => {
+            anyhow::bail!("Argument 'version' requires a 'package'")
+        }
+        (None, None) => anyhow::bail!("Provide exactly one of 'path' or 'package'"),
     }
 }
 
@@ -255,6 +316,37 @@ fn create_load_component_success_result(outcome: &ComponentLoadOutcome) -> Resul
     Ok(CallToolResult::success(contents))
 }
 
+fn create_package_load_success_result(
+    resolved: &wassette::wasm_directory::ResolvedPackage,
+    outcome: &ComponentLoadOutcome,
+) -> Result<CallToolResult> {
+    let status = match outcome.status {
+        LoadResult::New => "component loaded successfully",
+        LoadResult::Replaced => "component reloaded successfully",
+    };
+    let receipt = match &outcome.commit.entry {
+        wassette::store::StoredEntry::Installed(receipt) => receipt,
+        wassette::store::StoredEntry::Retired(_) => {
+            anyhow::bail!("Package load unexpectedly returned a retired receipt")
+        }
+    };
+    let status_text = serde_json::to_string(&json!({
+        "status": status,
+        "id": &outcome.component_id,
+        "tools": &outcome.tool_names,
+        "package": resolved.package_id.to_string(),
+        "requested_version": &resolved.requested_version,
+        "selected_version": &resolved.selected_version,
+        "manifest_digest": &resolved.manifest_digest,
+        "storage_key": receipt.storage_key.as_str(),
+        "revision": receipt.revision.to_string(),
+        "receipt": receipt,
+    }))?;
+    Ok(CallToolResult::success(vec![ContentBlock::text(
+        status_text,
+    )]))
+}
+
 /// Create error result for component operations
 fn create_component_error_result(
     operation_name: &str,
@@ -380,6 +472,49 @@ mod tests {
             .with_eager_loading(false)
             .build()
             .await
+    }
+
+    #[tokio::test]
+    async fn load_component_rejects_ambiguous_or_invalid_package_selectors() -> Result<()> {
+        let root = tempfile::tempdir()?;
+        let lifecycle_manager = manager(root.path()).await?;
+
+        let mixed = CallToolRequestParams::new("load-component").with_arguments(
+            serde_json::Map::from_iter([
+                ("path".to_owned(), json!("file:///tmp/component.wasm")),
+                ("package".to_owned(), json!("ghcr.io/owner/component")),
+            ]),
+        );
+        let error = handle_load_component(&mixed, &lifecycle_manager)
+            .await
+            .unwrap_err();
+        assert!(error.to_string().contains("exactly one"));
+
+        let version_without_package = CallToolRequestParams::new("load-component").with_arguments(
+            serde_json::Map::from_iter([("version".to_owned(), json!("1.2.3"))]),
+        );
+        assert!(
+            handle_load_component(&version_without_package, &lifecycle_manager)
+                .await
+                .unwrap_err()
+                .to_string()
+                .contains("requires a 'package'")
+        );
+
+        let malformed_package = CallToolRequestParams::new("load-component").with_arguments(
+            serde_json::Map::from_iter([(
+                "package".to_owned(),
+                json!("oci://ghcr.io/owner/component:latest"),
+            )]),
+        );
+        assert!(
+            handle_load_component(&malformed_package, &lifecycle_manager)
+                .await
+                .unwrap_err()
+                .to_string()
+                .contains("canonical registry/repository")
+        );
+        Ok(())
     }
 
     async fn install(

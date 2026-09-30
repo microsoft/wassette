@@ -7,13 +7,21 @@ use super::*;
 use crate::acquisition::AcquiredComponent;
 use crate::policy_internal::PolicyCommit;
 use crate::store::{
-    ArtifactSnapshot, CommitOutcome, InstallIntent, InstallOptions, InstallOwner, PolicyProvenance,
-    PreparedCache, PreparedInstall, PreparedPolicy, StoredArtifactKind, StoredEntry,
-    ValidationEvidence,
+    ArtifactSnapshot, CommitOutcome, ExpectedEntry, InstallIntent, InstallOptions, InstallOwner,
+    OriginEvidence, PolicyProvenance, PreparedCache, PreparedInstall, PreparedPolicy,
+    StoredArtifactKind, StoredEntry, ValidationEvidence,
 };
 use crate::store_support::{source_binding_key, store_operation};
+use crate::wasm_directory::{PackageId, ResolvedPackage, WasmDirectoryClient};
 
 pub(crate) const CACHE_SCHEMA: &str = "wassette-tools-v1";
+
+struct PreparedAcquiredInstall {
+    expected: ExpectedEntry,
+    guard: tokio::sync::OwnedMutexGuard<()>,
+    prepared: PreparedComponentLoad,
+    install: PreparedInstall,
+}
 
 pub(crate) enum PolicyMutation {
     Attach(String),
@@ -168,6 +176,138 @@ impl LifecycleManager {
         acquired: AcquiredComponent,
         explicit_policy: Option<PreparedPolicy>,
     ) -> Result<ComponentLoadOutcome> {
+        let PreparedAcquiredInstall {
+            expected,
+            guard,
+            prepared,
+            install,
+        } = self
+            .prepare_acquired_install(acquired, explicit_policy, InstallIntent::ExposeTools)
+            .await?;
+        let manager = self.clone();
+        tokio::spawn(async move {
+            let _guard = guard;
+            let outcome = store_operation(&manager.store, move |store| {
+                Ok(store.commit_install(install, expected)?)
+            })
+            .await?;
+            let publication = manager.publish_prepared(prepared, outcome).await;
+            drop(_guard);
+            let refresh = manager
+                .refresh_from_store()
+                .await
+                .context("Component installed, but catalog reconciliation failed");
+            let outcome = publication?;
+            refresh?;
+            Ok(outcome)
+        })
+        .await
+        .context("Component installation worker failed")?
+    }
+
+    /// Resolve and install a wasm.directory package without exposing its tools.
+    ///
+    /// Package search metadata is not trusted for identity or artifact
+    /// classification. The selected version is pulled by its manifest digest
+    /// through this lifecycle's configured OCI client, then inspected,
+    /// runtime-validated, and committed with `InstallOnly` intent.
+    pub async fn install_package(
+        &self,
+        directory: &WasmDirectoryClient,
+        package_id: &PackageId,
+        requested_version: Option<&str>,
+    ) -> Result<(ResolvedPackage, CommitOutcome)> {
+        let (resolved, acquired) = self
+            .acquire_directory_package(directory, package_id, requested_version)
+            .await?;
+        let PreparedAcquiredInstall {
+            expected,
+            guard,
+            install,
+            ..
+        } = self
+            .prepare_acquired_install(acquired, None, InstallIntent::InstallOnly)
+            .await?;
+        let manager = self.clone();
+        let outcome = tokio::spawn(async move {
+            let _guard = guard;
+            let outcome = store_operation(&manager.store, move |store| {
+                Ok(store.commit_install(install, expected)?)
+            })
+            .await?;
+            drop(_guard);
+            manager
+                .refresh_from_store()
+                .await
+                .context("Package installed, but catalog reconciliation failed")?;
+            Ok::<_, anyhow::Error>(outcome)
+        })
+        .await
+        .context("Package installation worker failed")??;
+        Ok((resolved, outcome))
+    }
+
+    /// Resolve and load a wasm.directory package after an explicit load request.
+    ///
+    /// Unlike [`Self::install_package`], this operation deliberately requests
+    /// tool exposure. Installation alone never registers package tools.
+    pub async fn load_package(
+        &self,
+        directory: &WasmDirectoryClient,
+        package_id: &PackageId,
+        requested_version: Option<&str>,
+    ) -> Result<(ResolvedPackage, ComponentLoadOutcome)> {
+        let (resolved, acquired) = self
+            .acquire_directory_package(directory, package_id, requested_version)
+            .await?;
+        let outcome = self.install_acquired(acquired, None).await?;
+        Ok((resolved, outcome))
+    }
+
+    async fn acquire_directory_package(
+        &self,
+        directory: &WasmDirectoryClient,
+        package_id: &PackageId,
+        requested_version: Option<&str>,
+    ) -> Result<(ResolvedPackage, AcquiredComponent)> {
+        let resolved = directory
+            .resolve_package(package_id, requested_version)
+            .await
+            .with_context(|| format!("Failed to resolve wasm.directory package {package_id}"))?;
+        let mut acquired =
+            acquisition::acquire_component(&resolved.oci_reference, &self.config, false)
+                .await
+                .with_context(|| {
+                    format!(
+                        "Failed to acquire {} at {}",
+                        resolved.package_id, resolved.selected_version
+                    )
+                })?;
+        let package_name = resolved
+            .package_id
+            .repository
+            .rsplit('/')
+            .next()
+            .filter(|name| !name.is_empty())
+            .context("Package identity has no repository basename")?;
+        acquired.storage_key = StorageKey::parse(&format!("local_{package_name}"))
+            .context("Package repository basename cannot form a portable storage key")?;
+        acquired.origin = OriginEvidence {
+            location: format!("wasm.directory:{}", resolved.package_id),
+            requested_version: resolved.requested_version.clone(),
+            selected_version: Some(resolved.selected_version.clone()),
+            manifest_digest: Some(resolved.manifest_digest.clone()),
+            immutable_uri: Some(resolved.oci_reference.clone()),
+        };
+        Ok((resolved, acquired))
+    }
+
+    async fn prepare_acquired_install(
+        &self,
+        acquired: AcquiredComponent,
+        explicit_policy: Option<PreparedPolicy>,
+        intent: InstallIntent,
+    ) -> Result<PreparedAcquiredInstall> {
         let inspection = inspect_artifact(&acquired.wasm)?;
         let id = inspection.identity?.as_str().to_owned();
         anyhow::ensure!(
@@ -251,7 +391,7 @@ impl LifecycleManager {
                 source: acquired.source,
                 origin: acquired.origin,
                 owner: InstallOwner::Explicit,
-                intent: InstallIntent::ExposeTools,
+                intent,
                 policy: selected,
                 observation: None,
             },
@@ -264,25 +404,12 @@ impl LifecycleManager {
                 Ok(ValidationEvidence::OrdinaryPrepared { runtime })
             },
         )?;
-        let manager = self.clone();
-        tokio::spawn(async move {
-            let _guard = guard;
-            let outcome = store_operation(&manager.store, move |store| {
-                Ok(store.commit_install(install, expected)?)
-            })
-            .await?;
-            let publication = manager.publish_prepared(prepared, outcome).await;
-            drop(_guard);
-            let refresh = manager
-                .refresh_from_store()
-                .await
-                .context("Component installed, but catalog reconciliation failed");
-            let outcome = publication?;
-            refresh?;
-            Ok(outcome)
+        Ok(PreparedAcquiredInstall {
+            expected,
+            guard,
+            prepared,
+            install,
         })
-        .await
-        .context("Component installation worker failed")?
     }
 
     pub(crate) async fn store_snapshot(&self, id: &str) -> Result<ArtifactSnapshot> {
