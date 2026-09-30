@@ -35,6 +35,7 @@ mod sandbox;
 mod secrets;
 mod secrets_impl;
 mod state;
+mod tool_broker;
 mod translate;
 mod wasi_log;
 mod wasm;
@@ -84,6 +85,7 @@ mod layer_bindings {
             "wassette:acp/filesystem": crate::wassette::acp::filesystem,
             "wassette:acp/agent": crate::wassette::acp::agent,
             "wassette:acp/client": crate::wassette::acp::client,
+            "wassette:component-tools/tools@0.1.0": crate::wassette::component_tools::tools,
             "wasmcloud:secrets/store@2.1.0": crate::wasmcloud::secrets::store,
             "wasmcloud:secrets/reveal@2.1.0": crate::wasmcloud::secrets::reveal,
         },
@@ -186,6 +188,11 @@ pub struct AcpArgs {
     /// `--log-filter "wassette_acp=debug,agent_client_protocol=trace"`.
     #[arg(long)]
     pub log_filter: Option<String>,
+
+    /// Expose tools belonging to this installed semantic component id to the
+    /// ACP provider. Repeat to expose more than one component.
+    #[arg(long = "tool", value_name = "COMPONENT_ID")]
+    pub tools: Vec<String>,
 }
 
 /// Coarse verbosity for the host's own logs.
@@ -264,11 +271,11 @@ pub async fn run(args: AcpArgs) -> Result<()> {
     );
 
     let data_root = init_data_root()?;
-    let resolver = Arc::new(Resolver::with_config(
-        ::wassette::LifecycleManager::builder(component_dir)
-            .with_secrets_dir(secrets_dir)
-            .build_config()?,
-    ));
+    let lifecycle_config = ::wassette::LifecycleManager::builder(component_dir)
+        .with_secrets_dir(secrets_dir)
+        .build_config()?;
+    let resolver = Arc::new(Resolver::with_config(lifecycle_config.clone()));
+    let tool_manager = Arc::new(::wassette::LifecycleManager::from_config(lifecycle_config).await?);
 
     let secrets = Arc::new(crate::secrets::SecretsRegistry::new(resolver.secrets_dir()));
 
@@ -342,6 +349,14 @@ pub async fn run(args: AcpArgs) -> Result<()> {
                 &secrets,
             )
             .await?;
+            let tool_broker = Arc::new(tool_broker::ToolBroker::new(
+                tool_manager,
+                args.tools.iter().cloned(),
+                providers
+                    .iter()
+                    .chain(&layers)
+                    .map(|stage| stage.component_id.clone()),
+            ));
 
             let (outbound_tx, outbound_rx) = mpsc::channel(64);
             let factory = Arc::new(
@@ -353,6 +368,7 @@ pub async fn run(args: AcpArgs) -> Result<()> {
                     data_root,
                     secrets,
                     resolver,
+                    tool_broker,
                 )
                 .with_shared_provider_data(args.allow_shared_grants),
             );
@@ -398,6 +414,40 @@ fn default_component_dir() -> Result<PathBuf> {
 fn default_secrets_dir() -> Result<PathBuf> {
     let strategy = etcetera::choose_base_strategy().context("unable to get home directory")?;
     Ok(strategy.config_dir().join("wassette").join("secrets"))
+}
+
+#[cfg(test)]
+mod tool_args_tests {
+    use clap::Parser;
+
+    use super::*;
+
+    #[derive(Parser)]
+    struct TestCli {
+        #[command(flatten)]
+        acp: AcpArgs,
+    }
+
+    #[test]
+    fn tool_exposure_is_explicit_and_repeatable() {
+        let parsed = TestCli::try_parse_from([
+            "test",
+            "--provider",
+            "provider",
+            "--tool",
+            "filesystem-rs",
+            "--tool",
+            "time-server",
+        ])
+        .unwrap();
+        assert_eq!(parsed.acp.tools, ["filesystem-rs", "time-server"]);
+    }
+
+    #[test]
+    fn tools_are_not_exposed_by_default() {
+        let parsed = TestCli::try_parse_from(["test", "--provider", "provider"]).unwrap();
+        assert!(parsed.acp.tools.is_empty());
+    }
 }
 
 /// Pin a validated component and its admitted policy/identity for the stage's

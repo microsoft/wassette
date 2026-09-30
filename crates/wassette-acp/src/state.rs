@@ -29,6 +29,7 @@ use wasmtime_wasi_http::p2::{WasiHttpCtxView, WasiHttpView};
 
 use crate::http_policy::HttpPolicyHooks;
 use crate::secrets::SecretsRegistry;
+use crate::tool_broker::ToolBroker;
 use crate::{Layer, Provider};
 
 /// Events the wasm-side `client::Host` impl sends out to the bridge
@@ -143,6 +144,8 @@ pub struct HostState {
     /// (see [`crate::group`]). When `false` the host refuses to spawn any
     /// process and surfaces that to the guest.
     pub terminal_enabled: bool,
+    /// Explicitly exposed ordinary Wassette tools.
+    pub tool_broker: Option<Arc<ToolBroker>>,
 }
 
 impl HostState {
@@ -225,3 +228,4 @@ impl crate::wassette::acp::tools::Host for HostState {}
 impl crate::wassette::acp::prompts::Host for HostState {}
 impl crate::wassette::acp::filesystem::Host for HostState {}
 impl crate::wassette::acp::init::Host for HostState {}
+impl crate::wassette::component_tools::tools::Host for HostState {}

@@ -141,6 +141,13 @@ wassette acp --provider <PATH|URI|COMPONENT_ID>
 * `/install` privately captures local, OCI and HTTPS inputs, validates them with
   the ACP engine, and commits them through the shared transactional store.
   Installation does not automatically select or activate a provider.
+* `--tool <COMPONENT_ID>` explicitly exposes an installed ordinary component
+  to the ACP provider. The guest imports
+  `wassette:component-tools/tools@0.1.0` to list revision-bound descriptors,
+  wait for catalog changes and invoke exact exports. Calls use the same
+  captured artifact, policy, schema and secrets as MCP. They ask the editor for
+  permission and emit `tool_call` / `tool_call_update` notifications. Tools are
+  off by default; layers and the active provider/layer components are excluded.
 * `RUST_LOG=debug` or `RUST_LOG=trace` logs full JSON-RPC payloads, including prompt text and any secrets a guest emits; enable it only when appropriate.
 
 Point an ACP-speaking editor at it the same way you would point one at
@@ -201,9 +208,11 @@ protected legacy inventory, not filename aliases.
   or deny them. The example layer's terminal exports are unfinished.
 * `authenticate` uses a throwaway component instance. Authentication stored
   only in guest memory does not persist into a session.
-* Guest-created tool-call resources are not implemented and can trap.
-  The host's `/install` notifications do not provide guest tool-call
-  lifecycle support or let ACP agents call Wassette Wasm tools.
+* Guest-created `wassette:acp/tools.tool-call` resources are not implemented
+  and can trap. Ordinary Wassette tool calls use the separate
+  `wassette:component-tools/tools` import and host-owned lifecycle updates.
+  Cancellation is soft: a non-yielding tool can retain its bounded execution
+  permit until it actually exits.
 * `initialize` omits the provider's session list/resume/close capabilities
   and authentication methods. The bridge does not support those lifecycle
   methods or stateful authentication; advertising them would mislead editors.

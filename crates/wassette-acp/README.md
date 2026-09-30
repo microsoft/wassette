@@ -53,3 +53,13 @@ crates.
 `wit/acp/deps/wasmcloud-secrets/secrets.wit` is `wasmcloud:secrets@2.1.0`,
 copied from [`wit/secrets/wit/world.wit`](https://github.com/wasmCloud/wasmCloud/blob/e598479/wit/secrets/wit/world.wit)
 in the wasmCloud repository.
+
+## Ordinary Wassette tools
+
+`wassette acp --tool <COMPONENT_ID>` explicitly exposes an installed ordinary
+tool component to the provider. Providers import
+`wassette:component-tools/tools@0.1.0` to list revision-bound tools and invoke
+them with JSON arguments. The host asks the editor for permission, emits ACP
+tool-call updates, and executes the pinned artifact and policy through
+`LifecycleManager`. Tools are off by default; layers and active chain stages
+cannot call them.

@@ -164,12 +164,14 @@ pub(super) async fn handle_new_session(
         group_entries,
         factory.boolean_config_supported(),
     );
+    // Host imports, including ordinary Wassette tool calls, need a stable
+    // editor-facing session id even for a single-provider group.
+    group.bind_editor_session_ids().await;
 
     let schema_resp = if group.is_multi_provider() {
         // Route every provider chain's outbound updates through the group id
         // so a switched (non-first) provider's notifications still reach the
         // editor. Single-provider stays a verbatim passthrough (not bound).
-        group.bind_editor_session_ids().await;
         translate::new_session_response_with_config_options(
             &session_id,
             group.config_options(),
@@ -249,8 +251,8 @@ pub(super) async fn handle_load_session(
         factory.boolean_config_supported(),
     );
 
+    group.bind_editor_session_ids().await;
     let schema_resp = if group.is_multi_provider() {
-        group.bind_editor_session_ids().await;
         translate::load_session_response_with_config_options(
             group.config_options(),
             group.terminal_option(),

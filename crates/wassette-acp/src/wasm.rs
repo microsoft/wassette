@@ -53,6 +53,7 @@ use crate::sandbox::{ChainSandbox, Sandbox};
 use crate::secrets::SecretsRegistry;
 use crate::secrets_impl::{add_labeled_secrets_to_linker, check_labeled_secrets, labeled_secrets};
 use crate::state::{Bindings, ClientSink, HostState, OutboundEvent, StageData, StageKind};
+use crate::tool_broker::ToolBroker;
 use crate::wassette::acp::errors::Error;
 use crate::wassette::acp::init::{AuthenticateRequest, InitializeRequest, InitializeResponse};
 use crate::wassette::acp::prompts::PromptResponse;
@@ -97,6 +98,7 @@ pub struct SessionFactory {
     /// Resolves component references for the host-side `/install` slash
     /// command against the Wassette component directory.
     resolver: Arc<Resolver>,
+    tool_broker: Arc<ToolBroker>,
     /// Whether the client advertised support for boolean session config
     /// options (`session.configOptions.boolean` in `initialize`). Read
     /// when building `session/new` and `session/load` responses to decide
@@ -110,6 +112,7 @@ pub struct SessionFactory {
 }
 
 impl SessionFactory {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         engine: Engine,
         providers: Vec<Stage>,
@@ -118,6 +121,7 @@ impl SessionFactory {
         data_root: PathBuf,
         secrets: Arc<SecretsRegistry>,
         resolver: Arc<Resolver>,
+        tool_broker: Arc<ToolBroker>,
     ) -> Self {
         assert!(!providers.is_empty(), "SessionFactory needs >= 1 provider");
         Self {
@@ -128,6 +132,7 @@ impl SessionFactory {
             data_root,
             secrets,
             resolver,
+            tool_broker,
             allow_shared_grants: false,
             boolean_config_supported: std::sync::atomic::AtomicBool::new(false),
             load_session_supported: std::sync::atomic::AtomicBool::new(false),
@@ -327,6 +332,7 @@ impl SessionFactory {
             next_downstream_rep: 1,
             editor_session_id: None,
             terminal_enabled: false,
+            tool_broker: Some(self.tool_broker.clone()),
         };
         let mut store = Store::new(&self.engine, state);
 
@@ -1790,6 +1796,7 @@ mod terminal_tests {
             next_downstream_rep: 1,
             editor_session_id: None,
             terminal_enabled: false,
+            tool_broker: None,
         }
     }
 
