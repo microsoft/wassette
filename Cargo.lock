@@ -5341,7 +5341,6 @@ version = "0.8.0"
 dependencies = [
  "agent-client-protocol",
  "anyhow",
- "bytes",
  "clap",
  "etcetera",
  "futures-concurrency",

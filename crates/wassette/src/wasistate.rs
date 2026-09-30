@@ -42,11 +42,16 @@ impl PermissionError {
                 )
             }
             PermissionError::StorageDenied { path, access_type } => {
+                let grant_access = if access_type == "write" {
+                    "read,write"
+                } else {
+                    access_type.as_str()
+                };
                 format!(
                     "Storage permission denied: Component '{}' attempted to {} '{}' but does not have permission.\n\n\
                     To grant storage access, use:\n  \
                     grant-storage-permission --component-id=\"{}\" --uri=\"{}\" --access=\"{}\"",
-                    component_id, access_type, path, component_id, path, access_type
+                    component_id, access_type, path, component_id, path, grant_access
                 )
             }
         }
@@ -447,6 +452,17 @@ permissions:
             calculate_permissions(&access_types).unwrap(),
             Some(FsPerms::ReadOnly)
         );
+    }
+
+    #[test]
+    fn test_storage_write_error_suggests_read_write_grant() {
+        let error = PermissionError::StorageDenied {
+            path: "fs://workspace".to_string(),
+            access_type: "write".to_string(),
+        };
+        assert!(error
+            .to_user_message("component")
+            .contains("--access=\"read,write\""));
     }
 
     #[test]

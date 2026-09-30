@@ -763,9 +763,9 @@ Error: Component 'nonexistent' not found
 $ wassette component load invalid://path
 Error: Unsupported URI scheme 'invalid'. Use 'file://' or 'oci://'
 
-# Permission denied
-$ wassette permission grant storage my-component /restricted --access write
-Error: Permission denied: cannot grant write access to /restricted
+# Unsupported write-only grant; use --access read,write instead
+$ wassette permission grant storage my-component fs:///restricted --access write
+Error: Failed to grant storage permission to component my-component: Storage grants must include read access; write-only access is not supported
 ```
 
 ## Output Formats

@@ -158,6 +158,14 @@ wassette permission grant storage weather-tool fs://config/app.yaml --access rea
 Storage grants must include `read` when they include `write`. The WASI filesystem
 does not support write-only preopens, so Wassette rejects those policies rather
 than granting read access implicitly.
+Replace existing write-only grants with `["read", "write"]` only when the
+component should also be allowed to read that location. Rejected grants or
+policy attachments with unsupported access leave the existing policy and
+permissions unchanged.
+
+Rust callers inspecting `WasiStateTemplate::preopened_dirs` must use each
+entry's `perms` field with `wasmtime_wasi::FsPerms::ReadOnly` or `ReadWrite`
+instead of the former `dir_perms` and `file_perms` fields.
 
 **Grant network access:**
 ```bash

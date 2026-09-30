@@ -9,7 +9,6 @@ readme = "README.md"
 [dependencies]
 agent-client-protocol = { workspace = true }
 anyhow = { workspace = true }
-bytes = "1"
 clap = { version = "4.5", features = ["derive"] }
 etcetera = { workspace = true }
 futures-concurrency = { workspace = true }

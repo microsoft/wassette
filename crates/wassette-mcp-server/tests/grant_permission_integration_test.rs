@@ -171,12 +171,12 @@ async fn test_grant_permission_storage_access_merging() -> Result<()> {
         )
         .await;
 
-    // Grant write access to the same URI
+    // Extend the same URI's grant to read/write access.
     let write_result = manager
         .grant_permission(
             &component_id,
             "storage",
-            &serde_json::json!({"uri": "fs:///tmp/test", "access": ["write"]}),
+            &serde_json::json!({"uri": "fs:///tmp/test", "access": ["read", "write"]}),
         )
         .await;
 
@@ -469,7 +469,7 @@ async fn test_grant_permission_complex_storage_permissions() -> Result<()> {
     // Grant different storage permissions
     let storage_configs = vec![
         ("fs:///tmp/cache", vec!["read"]),
-        ("fs:///tmp/output", vec!["write"]),
+        ("fs:///tmp/output", vec!["read", "write"]),
         ("fs:///tmp/workspace", vec!["read", "write"]),
     ];
 
@@ -496,6 +496,19 @@ async fn test_grant_permission_complex_storage_permissions() -> Result<()> {
             assert!(policy_content.contains(access_type));
         }
     }
+
+    let result = manager
+        .grant_permission(
+            &component_id,
+            "storage",
+            &serde_json::json!({"uri": "fs:///tmp/write-only", "access": ["write"]}),
+        )
+        .await;
+    assert!(result.unwrap_err().to_string().contains("write-only"));
+    assert_eq!(
+        tokio::fs::read_to_string(&policy_info.local_path).await?,
+        policy_content
+    );
 
     Ok(())
 }
