@@ -22,7 +22,9 @@ async fn setup_lifecycle_manager() -> Result<(Arc<LifecycleManager>, TempDir)> {
     let component_dir = temp_dir.path().join("components");
     tokio::fs::create_dir_all(&component_dir).await?;
 
-    let manager = LifecycleManager::new(&component_dir)
+    let manager = LifecycleManager::builder(&component_dir)
+        .with_secrets_dir(temp_dir.path().join("secrets"))
+        .build()
         .await
         .context("Failed to create lifecycle manager")?;
 

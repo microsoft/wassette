@@ -50,6 +50,7 @@ impl Drop for ServerGuard {
 
 async fn spawn_server(port: u16, component_dir: &Path, extra_args: &[&str]) -> Result<ServerGuard> {
     let bind_address = format!("127.0.0.1:{port}");
+    let secrets_dir = component_dir.join("secrets");
     let component_dir = format!("--component-dir={}", component_dir.display());
     let mut args = vec![
         "serve",
@@ -62,6 +63,7 @@ async fn spawn_server(port: u16, component_dir: &Path, extra_args: &[&str]) -> R
 
     let child = Command::new(env!("CARGO_BIN_EXE_wassette"))
         .args(&args)
+        .env("WASSETTE_SECRETS_DIR", secrets_dir)
         .env("RUST_LOG", "error")
         .stdin(Stdio::null())
         .stdout(Stdio::null())

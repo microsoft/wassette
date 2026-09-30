@@ -30,6 +30,9 @@ use serde_json::{Value, json};
 use wiremock::matchers::{header, method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
+mod common;
+use common::NamedFixture;
+
 const LINE_TIMEOUT: Duration = Duration::from_secs(60);
 
 fn wassette_binary() -> Option<PathBuf> {
@@ -48,18 +51,18 @@ fn wassette_binary() -> Option<PathBuf> {
 }
 
 /// `components/<dir>/target/wasm32-wasip2/release/<file>.wasm`.
-fn component(dir: &str, file: &str) -> Option<PathBuf> {
+fn component(dir: &str, file: &str) -> Option<NamedFixture> {
     let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("../../components")
         .join(dir)
         .join("target/wasm32-wasip2/release")
         .join(format!("{file}.wasm"));
-    path.is_file().then_some(path)
+    path.is_file().then(|| NamedFixture::copy(&path))
 }
 
 /// The `wassette` binary and the provider, or `None` (outside CI) with an
 /// explanation of what to build.
-fn artifacts(dir: &str, file: &str) -> Option<(PathBuf, PathBuf)> {
+fn artifacts(dir: &str, file: &str) -> Option<(PathBuf, NamedFixture)> {
     let found = wassette_binary().zip(component(dir, file));
     if found.is_none() {
         assert!(
@@ -341,11 +344,7 @@ fn copilot_provider_uses_the_stored_secret_and_reports_cost() {
     });
 
     let secrets = tempfile::tempdir().unwrap();
-    std::fs::write(
-        secrets.path().join("acp_copilot_provider.yaml"),
-        format!("github_token: {TOKEN}\n"),
-    )
-    .unwrap();
+    common::seed_secrets(&wasm, secrets.path(), &[("github_token", TOKEN)]);
     let base_url = server.uri();
     let token_url = format!("{base_url}/copilot_internal/v2/token");
     let mut h = Harness::start(

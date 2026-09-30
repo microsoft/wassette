@@ -3,53 +3,117 @@
 
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-use wasm_encoder::Encode;
+use wasm_encoder::{ComponentSection, Encode};
 
 use super::*;
 
 pub(crate) fn ordinary_component() -> Vec<u8> {
-    wat::parse_str(
-        r#"(component $ordinary
+    named_ordinary("ordinary")
+}
+
+fn named_ordinary(name: &str) -> Vec<u8> {
+    wat::parse_str(format!(
+        r#"(component $"{name}"
             (core module $m (func (export "run")))
             (core instance $i (instantiate $m))
             (func (export "run") (canon lift (core func $i "run")))
-        )"#,
-    )
+        )"#
+    ))
     .unwrap()
 }
 
-fn provider_component() -> Vec<u8> {
-    wat::parse_str(
-        r#"(component $provider
+fn provider_component(name: &str) -> Vec<u8> {
+    wat::parse_str(format!(
+        r#"(component $"{name}"
             (instance $agent)
             (export "wassette:acp/agent@7.0.0" (instance $agent))
-        )"#,
-    )
+        )"#
+    ))
     .unwrap()
 }
 
-async fn cache_metadata(manager: &LifecycleManager, id: &str) -> Result<()> {
-    manager
-        .storage
-        .write_metadata(&ComponentMetadata {
-            component_id: id.to_owned(),
-            tool_schemas: vec![serde_json::json!({
-                "name": "run",
-                "inputSchema": { "type": "object" }
-            })],
-            function_identifiers: vec![FunctionIdentifier {
-                package_name: None,
-                interface_name: None,
-                function_name: "run".to_owned(),
-            }],
-            tool_names: vec!["run".to_owned()],
-            validation_stamp: manager
-                .storage
-                .create_validation_stamp(&manager.component_path(id), false)
-                .await?,
-            created_at: 0,
-        })
+fn test_dir() -> Result<tempfile::TempDir> {
+    Ok(tempfile::Builder::new()
+        .prefix(".kind-gate-")
+        .tempdir_in(std::env::current_dir()?)?)
+}
+
+async fn manager(root: &Path) -> Result<LifecycleManager> {
+    LifecycleManager::builder(root.join("components"))
+        .with_secrets_dir(root.join("secrets"))
+        .with_eager_loading(false)
+        .build()
         .await
+}
+
+async fn resource(key: &str, bytes: &[u8]) -> Result<DownloadedResource> {
+    let directory = test_dir()?;
+    let path = directory.path().join(format!("{key}.wasm"));
+    tokio::fs::write(&path, bytes).await?;
+    Ok(DownloadedResource::Temp((directory, path)))
+}
+
+async fn install_tool(
+    manager: &LifecycleManager,
+    key: &str,
+    bytes: &[u8],
+) -> Result<ComponentLoadOutcome> {
+    manager
+        .load_component_resource(resource(key, bytes).await?)
+        .await
+}
+
+async fn publish_metadata(
+    manager: &LifecycleManager,
+    id: &str,
+    metadata: &ComponentMetadata,
+    native: Vec<u8>,
+) -> Result<()> {
+    let snapshot = manager.store_snapshot(id).await?;
+    manager.component_store().publish_cache(
+        id,
+        &snapshot.receipt.revision,
+        store::PreparedCache {
+            artifact_sha256: snapshot.receipt.artifact_sha256,
+            engine: manager.cache_engine(),
+            schema: store_runtime::CACHE_SCHEMA.into(),
+            metadata: serde_json::to_value(metadata)?,
+            native,
+        },
+    )?;
+    Ok(())
+}
+
+async fn write_legacy_metadata(manager: &LifecycleManager, key: &str) -> Result<()> {
+    let file = tokio::fs::metadata(manager.component_path(key)).await?;
+    let metadata = ComponentMetadata {
+        component_id: key.to_owned(),
+        tool_schemas: vec![serde_json::json!({
+            "name": "run",
+            "inputSchema": { "type": "object" }
+        })],
+        function_identifiers: vec![FunctionIdentifier {
+            package_name: None,
+            interface_name: None,
+            function_name: "run".to_owned(),
+        }],
+        tool_names: vec!["run".to_owned()],
+        validation_stamp: ValidationStamp {
+            file_size: file.len(),
+            mtime: file
+                .modified()?
+                .duration_since(std::time::UNIX_EPOCH)?
+                .as_secs(),
+            content_hash: None,
+        },
+        created_at: 0,
+    };
+    tokio::fs::write(
+        manager.storage.metadata_path(&StorageKey::parse(key)?),
+        serde_json::to_vec(&metadata)?,
+    )
+    .await?;
+    Ok(())
 }
 
 fn pad(bytes: &mut Vec<u8>) {
@@ -62,107 +126,184 @@ fn pad(bytes: &mut Vec<u8>) {
     .encode(bytes);
 }
 
+fn explicitly_named_fixture(mut bytes: Vec<u8>, name: &str) -> Result<Vec<u8>> {
+    match inspect_artifact(&bytes)?.identity {
+        Ok(_) => {}
+        Err(IdentityError::Missing) => {
+            let mut names = wasm_encoder::ComponentNameSection::new();
+            names.component(name);
+            bytes.push(names.id());
+            names.encode(&mut bytes);
+        }
+        Err(error) => return Err(error.into()),
+    }
+    Ok(bytes)
+}
+
 #[tokio::test]
 async fn current_shape_gates_same_stamp_metadata_and_all_restore_paths() -> Result<()> {
-    let root = tempfile::tempdir()?;
-    let manager = LifecycleManager::new_unloaded(root.path()).await?;
-    let path = manager.component_path("agent");
-    let mut ordinary = ordinary_component();
-    let mut provider = provider_component();
+    let root = test_dir()?;
+    let manager = manager(root.path()).await?;
+    let key = "agent-private";
+    let mut ordinary = named_ordinary("agent");
+    let mut provider = provider_component("agent");
     pad(&mut ordinary);
     pad(&mut provider);
     assert_eq!(ordinary.len(), provider.len());
-    tokio::fs::write(&path, &ordinary).await?;
-    cache_metadata(&manager, "agent").await?;
-    let modified = std::fs::metadata(&path)?.modified()?;
-    let cached_native = manager.runtime.precompile_component(&ordinary)?;
-    manager
-        .storage
-        .write_precompiled("agent", &cached_native)
-        .await?;
+    install_tool(&manager, key, &ordinary).await?;
+    manager.registry.remove_component("agent").await;
+    let path = manager.component_path(key);
+    let old_metadata = std::fs::metadata(&path)?;
+    let modified = old_metadata.modified()?;
+    let cached_native = tokio::fs::read(manager.component_precompiled_path(key)).await?;
 
+    // This deliberate external edit defeats the old size/mtime gate, not the receipt hash.
     tokio::fs::write(&path, &provider).await?;
     std::fs::File::options()
         .write(true)
         .open(&path)?
         .set_times(std::fs::FileTimes::new().set_modified(modified))?;
-    let metadata = manager.storage.read_metadata("agent").await?.unwrap();
-    assert!(ComponentStorage::validate_stamp(&path, &metadata.validation_stamp).await);
-
+    let changed_metadata = std::fs::metadata(&path)?;
+    assert_eq!(changed_metadata.len(), old_metadata.len());
+    assert_eq!(changed_metadata.modified()?, modified);
+    assert!(manager.store_snapshot("agent").await.is_err());
     assert!(manager.get_component_schema("agent").await.is_none());
-    manager.populate_registry_from_metadata().await?;
+    assert!(manager.populate_registry_from_metadata().await.is_err());
     assert!(manager.list_tools().await.is_empty());
     manager.load_all_components().await?;
     assert!(manager.list_components().await.is_empty());
     let notifications = Arc::new(AtomicUsize::new(0));
     let notified = Arc::clone(&notifications);
-    manager
+    assert!(manager
         .load_existing_components_async(
             Some(1),
             Some(move || {
                 notified.fetch_add(1, Ordering::Relaxed);
             }),
         )
-        .await?;
+        .await
+        .is_err());
     assert_eq!(notifications.load(Ordering::Relaxed), 0);
     let error = manager.ensure_component_loaded("agent").await.unwrap_err();
-    assert!(format!("{error:#}").contains("Cannot load ACP or unsupported"));
+    assert!(format!("{error:#}").contains("artifact hash"), "{error:#}");
     assert!(manager.list_tools().await.is_empty());
     assert_eq!(
-        tokio::fs::read(manager.component_precompiled_path("agent")).await?,
+        tokio::fs::read(manager.component_precompiled_path(key)).await?,
         cached_native
     );
     Ok(())
 }
 
 #[tokio::test]
+async fn receipted_acp_artifacts_never_enter_ordinary_restore_paths() -> Result<()> {
+    let root = test_dir()?;
+    let manager = manager(root.path()).await?;
+    let wasm = provider_component("agent");
+    let key = StorageKey::parse("agent-private")?;
+    let source = store::SourceIdentity::File(root.path().join("agent-source.wasm"));
+    let expected = manager.component_store().observe("agent", &key, &source)?;
+    let prepared = store::PreparedInstall::prepare(
+        wasm,
+        store::InstallOptions {
+            storage_key: key,
+            source,
+            origin: store::OriginEvidence {
+                location: "test-fixture:agent".into(),
+                requested_version: None,
+                selected_version: None,
+                manifest_digest: None,
+                immutable_uri: None,
+            },
+            owner: store::InstallOwner::Explicit,
+            intent: store::InstallIntent::InstallOnly,
+            policy: store::PreparedPolicy::absent(store::PolicyProvenance::Default),
+            observation: None,
+        },
+        |bytes, inspection, _| {
+            Component::new(manager.runtime.as_ref(), bytes)?;
+            anyhow::ensure!(
+                inspection.acp_exports == ["wassette:acp/agent@7.0.0"],
+                "unexpected test ACP export"
+            );
+            Ok(store::ValidationEvidence::AcpCompiledAndExportChecked {
+                runtime: "test-fixture-acp-v7".into(),
+            })
+        },
+    )?;
+    manager
+        .component_store()
+        .commit_install(prepared, expected)?;
+    assert!(manager.get_component_schema("agent").await.is_none());
+    manager.populate_registry_from_metadata().await?;
+    manager.load_all_components().await?;
+    manager
+        .load_existing_components_async(Some(1), None::<fn()>)
+        .await?;
+    assert!(manager.list_components_known().await.is_empty());
+    assert!(manager.list_components().await.is_empty());
+    assert!(manager.list_tools().await.is_empty());
+    let error = manager.ensure_component_loaded("agent").await.unwrap_err();
+    assert!(
+        format!("{error:#}").contains("Cannot load ACP or unsupported"),
+        "{error:#}"
+    );
+    Ok(())
+}
+
+#[tokio::test]
 async fn ordinary_source_discards_stale_acp_native_cache() -> Result<()> {
-    let root = tempfile::tempdir()?;
-    let manager = LifecycleManager::new_unloaded(root.path()).await?;
-    tokio::fs::write(manager.component_path("ordinary"), ordinary_component()).await?;
+    let root = test_dir()?;
+    let manager = manager(root.path()).await?;
+    let key = "ordinary-private";
+    install_tool(&manager, key, &ordinary_component()).await?;
+    let metadata = manager.load_component_metadata("ordinary").await?.unwrap();
     let provider_cache = manager
         .runtime
-        .precompile_component(&provider_component())?;
-    manager
-        .storage
-        .write_precompiled("ordinary", &provider_cache)
-        .await?;
+        .precompile_component(&provider_component("provider"))?;
+    publish_metadata(&manager, "ordinary", &metadata, provider_cache.clone()).await?;
+    manager.registry.remove_component("ordinary").await;
+
     manager.ensure_component_loaded("ordinary").await?;
+
     assert_eq!(manager.get_component_id_for_tool("run").await?, "ordinary");
     assert_ne!(
-        tokio::fs::read(manager.component_precompiled_path("ordinary")).await?,
+        tokio::fs::read(manager.component_precompiled_path(key)).await?,
         provider_cache
+    );
+    assert_eq!(
+        manager.store_snapshot("ordinary").await?.wasm,
+        ordinary_component()
     );
     Ok(())
 }
 
 #[tokio::test]
 async fn non_tool_replacement_is_rejected_before_staging() -> Result<()> {
-    let root = tempfile::tempdir()?;
-    let source = tempfile::tempdir()?;
-    let manager = LifecycleManager::new_unloaded(root.path()).await?;
-    let path = manager.component_path("agent");
-    tokio::fs::write(&path, ordinary_component()).await?;
-    manager.ensure_component_loaded("agent").await?;
-    let old_metadata = tokio::fs::read(manager.storage.metadata_path("agent")).await?;
-    let old_native = tokio::fs::read(manager.component_precompiled_path("agent")).await?;
-    let replacement = source.path().join("agent.wasm");
-    tokio::fs::write(&replacement, provider_component()).await?;
+    let root = test_dir()?;
+    let manager = manager(root.path()).await?;
+    let key = "agent-private";
+    install_tool(&manager, key, &named_ordinary("agent")).await?;
+    let before = manager.store_snapshot("agent").await?;
+    let old_metadata =
+        tokio::fs::read(manager.storage.metadata_path(&StorageKey::parse(key)?)).await?;
+    let old_native = tokio::fs::read(manager.component_precompiled_path(key)).await?;
     let error = manager
-        .load_component(&format!("file://{}", replacement.display()))
+        .load_component_resource(resource(key, &provider_component("agent")).await?)
         .await
         .unwrap_err();
     assert!(
         format!("{error:#}").contains("Cannot load ACP or unsupported"),
         "{error:#}"
     );
-    assert_eq!(tokio::fs::read(&path).await?, ordinary_component());
+    let after = manager.store_snapshot("agent").await?;
+    assert_eq!(before.receipt, after.receipt);
+    assert_eq!(before.wasm, after.wasm);
     assert_eq!(
-        tokio::fs::read(manager.storage.metadata_path("agent")).await?,
+        tokio::fs::read(manager.storage.metadata_path(&StorageKey::parse(key)?)).await?,
         old_metadata
     );
     assert_eq!(
-        tokio::fs::read(manager.component_precompiled_path("agent")).await?,
+        tokio::fs::read(manager.component_precompiled_path(key)).await?,
         old_native
     );
     assert_eq!(manager.get_component_id_for_tool("run").await?, "agent");
@@ -170,18 +311,26 @@ async fn non_tool_replacement_is_rejected_before_staging() -> Result<()> {
 }
 
 #[tokio::test]
-async fn non_runnable_and_missing_artifacts_never_publish_cached_tools() -> Result<()> {
+async fn non_runnable_and_missing_legacy_artifacts_never_publish_cached_tools() -> Result<()> {
     for wat in [
         "(module)",
         "(component)",
-        "(component (type (func)))",
-        r#"(component (instance $client) (export "wassette:acp/client@7.0.0" (instance $client)))"#,
+        "(component $named-empty (type (func)))",
+        r#"(component $client (instance $client) (export "wassette:acp/client@7.0.0" (instance $client)))"#,
+        r#"(component $named-tool (instance $empty) (export "empty" (instance $empty)))"#,
     ] {
-        let root = tempfile::tempdir()?;
-        let manager = LifecycleManager::new_unloaded(root.path()).await?;
+        let root = test_dir()?;
+        let manager = manager(root.path()).await?;
         let path = manager.component_path("test");
         tokio::fs::write(&path, wat::parse_str(wat)?).await?;
-        cache_metadata(&manager, "test").await?;
+        write_legacy_metadata(&manager, "test").await?;
+        let inventory = manager
+            .component_store()
+            .snapshot_if_changed(None)?
+            .unwrap();
+        assert!(inventory.entries.is_empty());
+        assert_eq!(inventory.protected.len(), 1);
+        assert!(inventory.protected[0].diagnostic.is_some());
         assert!(manager.get_component_schema("test").await.is_none());
         manager.populate_registry_from_metadata().await?;
         assert!(manager.list_tools().await.is_empty(), "{wat}");
@@ -200,19 +349,26 @@ async fn real_async_acp_components_are_inspected_without_the_ordinary_engine() -
         ("acp-echo-provider", ArtifactShape::AcpProvider),
         ("acp-uppercase-layer", ArtifactShape::AcpLayer),
     ] {
-        let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+        let fixture = Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("../../components")
             .join(name)
             .join("target/wasm32-wasip2/release")
             .join(format!("{}.wasm", name.replace('-', "_")));
-        let bytes = tokio::fs::read(&path)
-            .await
-            .context("Build ACP fixtures with `just build-acp-examples`")?;
-        assert_eq!(inspect_artifact(&bytes)?.shape, expected);
-        let root = tempfile::tempdir()?;
-        let manager = LifecycleManager::new_unloaded(root.path()).await?;
+        let bytes = explicitly_named_fixture(
+            tokio::fs::read(&fixture)
+                .await
+                .context("Build ACP fixtures with `just build-acp-examples`")?,
+            name,
+        )?;
+        let inspection = inspect_artifact(&bytes)?;
+        assert!(inspection.identity.is_ok());
+        assert_eq!(inspection.shape, expected);
+        let root = test_dir()?;
+        let manager = manager(root.path()).await?;
+        let source = root.path().join(format!("{name}.wasm"));
+        tokio::fs::write(&source, bytes).await?;
         let error = manager
-            .load_component(&format!("file://{}", path.display()))
+            .load_component(&format!("file://{}", source.display()))
             .await
             .unwrap_err();
         assert!(
@@ -229,10 +385,8 @@ async fn async_non_acp_shape_does_not_promise_ordinary_runtime_compatibility() -
     let path = Path::new(env!("CARGO_MANIFEST_DIR")).join(
         "../../components/acp-echo-provider/target/wasm32-wasip2/release/acp_echo_provider.wasm",
     );
-    let mut bytes = tokio::fs::read(path).await?;
-    // Use the source-built async fixture under a different interface namespace.
-    // Equal-length names keep the binary framing intact; the async engine below
-    // verifies that this remains a valid component rather than malformed input.
+    let mut bytes = explicitly_named_fixture(tokio::fs::read(path).await?, "async-tool")?;
+    // Equal-length namespace substitution retains a valid async type graph.
     let from = b"wassette:acp/";
     let to = b"examplex:acp/";
     for offset in 0..=bytes.len() - from.len() {
@@ -255,53 +409,58 @@ async fn async_non_acp_shape_does_not_promise_ordinary_runtime_compatibility() -
         inspect_artifact(&bytes)?.shape,
         ArtifactShape::ToolCandidate
     );
-    let root = tempfile::tempdir()?;
-    let manager = LifecycleManager::new_unloaded(root.path()).await?;
-    tokio::fs::write(manager.component_path("async-tool"), bytes).await?;
+    let root = test_dir()?;
+    let manager = manager(root.path()).await?;
+    let source = root.path().join("async-tool.wasm");
+    tokio::fs::write(&source, bytes).await?;
     let error = manager
-        .ensure_component_loaded("async-tool")
+        .load_component(&format!("file://{}", source.display()))
         .await
         .unwrap_err();
     let diagnostic = format!("{error:#}");
     assert!(
-        diagnostic.contains("Failed to compile component")
+        diagnostic.contains("Failed to compile captured component")
             || diagnostic.contains("failed to instantiate component"),
         "{diagnostic}"
     );
     assert!(manager.list_tools().await.is_empty());
+    assert!(manager
+        .component_store()
+        .snapshot_if_changed(None)?
+        .unwrap()
+        .entries
+        .is_empty());
     Ok(())
 }
 
 #[tokio::test]
 async fn cached_acp_identifiers_and_mismatched_keys_are_not_published() -> Result<()> {
-    let root = tempfile::tempdir()?;
-    let manager = LifecycleManager::new_unloaded(root.path()).await?;
-    tokio::fs::write(manager.component_path("ordinary"), ordinary_component()).await?;
-    cache_metadata(&manager, "ordinary").await?;
-    let metadata = manager.storage.read_metadata("ordinary").await?.unwrap();
+    let root = test_dir()?;
+    let manager = manager(root.path()).await?;
+    let key = "ordinary-private";
+    install_tool(&manager, key, &ordinary_component()).await?;
+    let metadata = manager.load_component_metadata("ordinary").await?.unwrap();
+    let native = tokio::fs::read(manager.component_precompiled_path(key)).await?;
+    manager.registry.remove_component("ordinary").await;
     let mut acp = metadata.clone();
     acp.function_identifiers[0].package_name = Some("wassette:acp".to_owned());
     acp.function_identifiers[0].interface_name = Some("agent".to_owned());
-    manager.storage.write_metadata(&acp).await?;
+    publish_metadata(&manager, "ordinary", &acp, native.clone()).await?;
     assert!(manager.get_component_schema("ordinary").await.is_none());
-    manager.populate_registry_from_metadata().await?;
+    assert!(manager.populate_registry_from_metadata().await.is_err());
     assert!(manager.list_tools().await.is_empty());
     let mut mismatched = metadata.clone();
     mismatched.component_id = "different".to_owned();
-    tokio::fs::write(
-        manager.storage.metadata_path("ordinary"),
-        serde_json::to_vec(&mismatched)?,
-    )
-    .await?;
+    publish_metadata(&manager, "ordinary", &mismatched, native.clone()).await?;
     assert!(manager.get_component_schema("ordinary").await.is_none());
-    manager.populate_registry_from_metadata().await?;
+    assert!(manager.populate_registry_from_metadata().await.is_err());
     assert!(manager.list_tools().await.is_empty());
     assert!(!is_acp_identifier(&FunctionIdentifier {
         package_name: None,
         interface_name: None,
         function_name: "wassette-acp-agent".to_owned(),
     }));
-    manager.storage.write_metadata(&metadata).await?;
+    publish_metadata(&manager, "ordinary", &metadata, native).await?;
     manager.populate_registry_from_metadata().await?;
     assert_eq!(manager.get_component_id_for_tool("run").await?, "ordinary");
     Ok(())

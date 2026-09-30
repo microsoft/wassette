@@ -70,7 +70,6 @@ pub struct ProvisioningController<'a> {
     lifecycle_manager: &'a LifecycleManager,
     #[allow(dead_code)] // Reserved for future use in secrets seeding
     secrets_manager: &'a SecretsManager,
-    plugin_dir: &'a Path,
 }
 
 impl<'a> ProvisioningController<'a> {
@@ -79,13 +78,12 @@ impl<'a> ProvisioningController<'a> {
         manifest: &'a ProvisioningManifest,
         lifecycle_manager: &'a LifecycleManager,
         secrets_manager: &'a SecretsManager,
-        plugin_dir: &'a Path,
+        _plugin_dir: &'a Path,
     ) -> Self {
         Self {
             manifest,
             lifecycle_manager,
             secrets_manager,
-            plugin_dir,
         }
     }
 
@@ -137,32 +135,22 @@ impl<'a> ProvisioningController<'a> {
         self.seed_secrets(component)
             .context("Failed to seed secrets")?;
 
-        // Step 2: Load the component to obtain its authoritative component ID
-        let load_outcome = self
-            .lifecycle_manager
-            .load_component(&component.uri)
-            .await
-            .with_context(|| format!("Failed to load component from URI: {}", component.uri))?;
-
-        // Step 3: Synthesize and attach a policy when permissions were declared
-        if has_synthesizable_permissions(component) {
-            self.synthesize_policy(component, &load_outcome.component_id)
+        // Prepare declared permissions before installing or exposing the artifact.
+        let load_result = if has_synthesizable_permissions(component) {
+            let policy_yaml = permission_synthesis::synthesize_policy_yaml(
+                &component.permissions,
+                component.name.as_deref(),
+            )
+            .context("Failed to synthesize policy from inline permissions")?;
+            self.lifecycle_manager
+                .load_component_with_policy(&component.uri, &policy_yaml, "manifest:inline")
                 .await
-                .context("Failed to synthesize and attach policy")?;
-
-            if self
-                .lifecycle_manager
-                .get_policy_info(&load_outcome.component_id)
-                .await
-                .is_none()
-            {
-                tracing::warn!(
-                    component_id = %load_outcome.component_id,
-                    component_uri = %component.uri,
-                    "Component manifest declared permissions but no policy is attached after provisioning"
-                );
-            }
-        }
+        } else {
+            self.lifecycle_manager.load_component(&component.uri).await
+        };
+        load_result.with_context(|| {
+            format!("Failed to provision component from URI: {}", component.uri)
+        })?;
 
         // Step 4: Verify digest if specified
         if let Some(digest) = &component.digest {
@@ -216,59 +204,6 @@ impl<'a> ProvisioningController<'a> {
         // from the URI, or we could load the component first and then set secrets.
 
         Ok(())
-    }
-
-    /// Synthesize and attach a policy from inline permissions
-    async fn synthesize_policy(
-        &self,
-        component: &ComponentDeclaration,
-        component_id: &str,
-    ) -> Result<()> {
-        let policy_yaml = permission_synthesis::synthesize_policy_yaml(
-            &component.permissions,
-            component.name.as_deref(),
-        )
-        .context("Failed to synthesize policy from inline permissions")?;
-
-        let policy_source_path = self
-            .plugin_dir
-            .join(format!("{component_id}.manifest-policy.yaml"));
-        tokio::fs::write(&policy_source_path, policy_yaml)
-            .await
-            .with_context(|| {
-                format!(
-                    "Failed to write synthesized policy to: {}",
-                    policy_source_path.display()
-                )
-            })?;
-
-        let policy_uri = format!("file://{}", policy_source_path.display());
-        let attach_result = self
-            .lifecycle_manager
-            .attach_policy(component_id, &policy_uri)
-            .await;
-        let cleanup_result = tokio::fs::remove_file(&policy_source_path).await;
-
-        match (attach_result, cleanup_result) {
-            (Ok(()), Ok(())) => Ok(()),
-            (Err(attach_error), Ok(())) => Err(attach_error).with_context(|| {
-                format!("Failed to attach synthesized policy to component {component_id}")
-            }),
-            (Ok(()), Err(cleanup_error)) => {
-                tracing::warn!(
-                    path = %policy_source_path.display(),
-                    error = %cleanup_error,
-                    "Failed to remove synthesized policy source after attaching policy"
-                );
-                Ok(())
-            }
-            (Err(attach_error), Err(cleanup_error)) => Err(attach_error).with_context(|| {
-                format!(
-                    "Failed to attach synthesized policy to component {component_id}; also failed to remove {}: {cleanup_error}",
-                    policy_source_path.display()
-                )
-            }),
-        }
     }
 
     /// Verify component digest (SHA-256)

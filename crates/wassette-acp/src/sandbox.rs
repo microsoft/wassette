@@ -13,11 +13,10 @@
 //!
 //! # Where a stage's policy comes from
 //!
-//! Same convention as the rest of Wassette: `<component-id>.policy.yaml`,
-//! looked up first in the component directory (where `wassette policy
-//! attach` and `wassette component load` put it) and then next to the
-//! `.wasm` itself, so a `--provider ./target/…/agent.wasm` picks up a
-//! policy sitting beside it without being installed first.
+//! The resolver selects effective policy during installation, retaining an
+//! existing stored policy ahead of source sidecars. Sandboxing consumes only
+//! the admitted snapshot's bytes, never a live filename. Local source sidecars
+//! are captured during acquisition; explicit local inputs are installed too.
 //!
 //! A stage with **no** policy gets [`WasiStateTemplate::default`]: no
 //! network, no preopens, no environment. Its only filesystem access is
@@ -47,12 +46,8 @@ use tracing::{info, warn};
 use wasmtime_wasi::{DirPerms, FilePerms, WasiCtx, WasiCtxBuilder};
 use wassette::{WasiStateTemplate, create_wasi_state_template_from_policy};
 
+use crate::install::ResolvedComponent;
 use crate::secrets::SecretsRegistry;
-
-/// Filename holding a component's policy, e.g. `agent.policy.yaml`.
-fn policy_file_name(component_id: &str) -> String {
-    format!("{component_id}.policy.yaml")
-}
 
 /// The capabilities one stage is allowed, before they are merged into a
 /// chain-wide [`ChainSandbox`].
@@ -95,20 +90,16 @@ impl Sandbox {
         }
     }
 
-    /// Resolve the sandbox for one stage.
-    ///
-    /// `component_dir` is the Wassette component directory: it is both
-    /// where policies are looked up and the root that relative `fs://`
-    /// storage grants are resolved against (matching
-    /// [`wassette::create_wasi_state_template_from_policy`]'s contract in
-    /// the MCP server).
+    /// Resolve grants from one admitted snapshot. Relative `fs://` storage
+    /// grants still resolve against `component_dir`, not the source directory.
     pub async fn load(
         allow_all: bool,
-        component_id: &str,
-        wasm_path: &Path,
+        resolved: &ResolvedComponent,
         component_dir: &Path,
         secrets: &SecretsRegistry,
     ) -> Result<Self> {
+        let component_id = &resolved.component_id;
+        let component_secrets = secrets.snapshot(component_id).await?;
         if allow_all {
             warn!(
                 component = component_id,
@@ -117,7 +108,7 @@ impl Sandbox {
             return Ok(Sandbox::AllowAll);
         }
 
-        let Some(policy_path) = find_policy(component_id, wasm_path, component_dir) else {
+        let Some(content) = &resolved.snapshot.policy else {
             info!(
                 component = component_id,
                 "no policy found: stage gets no network and no filesystem beyond its own /data"
@@ -129,11 +120,12 @@ impl Sandbox {
             })));
         };
 
-        let content = tokio::fs::read_to_string(&policy_path)
-            .await
-            .with_context(|| format!("reading policy {}", policy_path.display()))?;
-        let policy = PolicyParser::parse_str(&content)
-            .with_context(|| format!("parsing policy {}", policy_path.display()))?;
+        let policy_path = component_dir.join(format!(
+            "{}.policy.yaml",
+            resolved.snapshot.receipt.storage_key.as_str()
+        ));
+        let policy = PolicyParser::parse_bytes(content)
+            .with_context(|| format!("parsing captured policy for `{component_id}`"))?;
         let has_policy_grants = policy
             .permissions
             .network
@@ -156,13 +148,12 @@ impl Sandbox {
         // Secrets are injected as environment variables the same way the
         // MCP path does it, so `wassette secret set <id> KEY=…` reaches
         // an ACP stage through its policy too.
-        let component_secrets = secrets.snapshot(component_id).await;
         let host_env: std::collections::HashMap<String, String> = std::env::vars().collect();
         let template = create_wasi_state_template_from_policy(
             &policy,
             component_dir,
             &host_env,
-            component_secrets.as_ref(),
+            Some(&component_secrets),
         )
         .with_context(|| format!("building a sandbox from {}", policy_path.display()))?;
 
@@ -192,19 +183,15 @@ impl Sandbox {
     }
 }
 
-/// Look for `<component-id>.policy.yaml` in the component directory, then
-/// beside the `.wasm` file.
-fn find_policy(component_id: &str, wasm_path: &Path, component_dir: &Path) -> Option<PathBuf> {
-    let name = policy_file_name(component_id);
-    let in_store = component_dir.join(&name);
-    if in_store.is_file() {
-        return Some(in_store);
+/// Validate captured policy syntax and template construction before admission.
+pub(crate) fn validate_policy(bytes: Option<&[u8]>, component_dir: &Path) -> Result<()> {
+    if let Some(bytes) = bytes {
+        let policy = PolicyParser::parse_bytes(bytes).context("parsing captured ACP policy")?;
+        let host_env = std::env::vars().collect();
+        create_wasi_state_template_from_policy(&policy, component_dir, &host_env, None)
+            .context("validating captured ACP policy template")?;
     }
-    let beside = wasm_path.parent()?.join(&name);
-    if beside.is_file() {
-        return Some(beside);
-    }
-    None
+    Ok(())
 }
 
 /// The union of every stage's grants in one chain — what the chain's
@@ -467,11 +454,15 @@ permissions:
     }
 
     #[tokio::test]
-    async fn policy_is_found_beside_the_wasm() {
+    async fn captured_policy_is_used_after_live_policy_replacement() {
         let store = tempfile::tempdir().unwrap();
         let beside = tempfile::tempdir().unwrap();
         let wasm = beside.path().join("agent.wasm");
-        std::fs::write(&wasm, b"\0asm").unwrap();
+        std::fs::write(
+            &wasm,
+            crate::install::named_fixture("semantic:agent", false),
+        )
+        .unwrap();
         std::fs::write(
             beside.path().join("agent.policy.yaml"),
             r#"
@@ -485,7 +476,10 @@ permissions:
         )
         .unwrap();
         let secrets = SecretsRegistry::new(store.path());
-        let sandbox = Sandbox::load(false, "agent", &wasm, store.path(), &secrets)
+        let resolved = resolve(store.path(), &wasm, &secrets).await;
+        std::fs::write(store.path().join("agent.policy.yaml"), "not: [valid").unwrap();
+        std::fs::write(beside.path().join("agent.policy.yaml"), "not: [valid").unwrap();
+        let sandbox = Sandbox::load(false, &resolved, store.path(), &secrets)
             .await
             .unwrap();
         assert!(sandbox.describe().contains("agent.policy.yaml"));
@@ -504,13 +498,11 @@ permissions:
         let store = tempfile::tempdir().unwrap();
         let beside = tempfile::tempdir().unwrap();
         let wasm = beside.path().join("agent.wasm");
-        std::fs::write(&wasm, b"\0asm").unwrap();
-        for (dir, host) in [
-            (store.path(), "store.example.com"),
-            (beside.path(), "beside.example.com"),
-        ] {
+        std::fs::write(&wasm, crate::install::named_fixture("agent", false)).unwrap();
+        let secrets = SecretsRegistry::new(store.path());
+        for host in ["store.example.com", "beside.example.com"] {
             std::fs::write(
-                dir.join("agent.policy.yaml"),
+                beside.path().join("agent.policy.yaml"),
                 format!(
                     r#"
 version: "1.0"
@@ -523,9 +515,10 @@ permissions:
                 ),
             )
             .unwrap();
+            resolve(store.path(), &wasm, &secrets).await;
         }
-        let secrets = SecretsRegistry::new(store.path());
-        let sandbox = Sandbox::load(false, "agent", &wasm, store.path(), &secrets)
+        let resolved = resolve(store.path(), &wasm, &secrets).await;
+        let sandbox = Sandbox::load(false, &resolved, store.path(), &secrets)
             .await
             .unwrap();
         let mut chain = ChainSandbox::default();
@@ -541,10 +534,12 @@ permissions:
     #[tokio::test]
     async fn a_stage_without_a_policy_is_denied_everything() {
         let store = tempfile::tempdir().unwrap();
-        let wasm = store.path().join("agent.wasm");
-        std::fs::write(&wasm, b"\0asm").unwrap();
+        let source = tempfile::tempdir().unwrap();
+        let wasm = source.path().join("agent.wasm");
+        std::fs::write(&wasm, crate::install::named_fixture("agent", false)).unwrap();
         let secrets = SecretsRegistry::new(store.path());
-        let sandbox = Sandbox::load(false, "agent", &wasm, store.path(), &secrets)
+        let resolved = resolve(store.path(), &wasm, &secrets).await;
+        let sandbox = Sandbox::load(false, &resolved, store.path(), &secrets)
             .await
             .unwrap();
         assert_eq!(sandbox.describe(), "no policy (deny-all)");
@@ -556,17 +551,49 @@ permissions:
     #[tokio::test]
     async fn an_unset_environment_grant_still_requires_opt_in() {
         let store = tempfile::tempdir().unwrap();
-        let wasm = store.path().join("agent.wasm");
-        std::fs::write(&wasm, b"\0asm").unwrap();
+        let source = tempfile::tempdir().unwrap();
+        let wasm = source.path().join("agent.wasm");
+        std::fs::write(&wasm, crate::install::named_fixture("agent", false)).unwrap();
         std::fs::write(
-            store.path().join("agent.policy.yaml"),
+            source.path().join("agent.policy.yaml"),
             "version: '1.0'\npermissions:\n  environment:\n    allow:\n      - key: WASSETTE_TEST_MISSING_ENV_770\n",
         )
         .unwrap();
         let secrets = SecretsRegistry::new(store.path());
-        let sandbox = Sandbox::load(false, "agent", &wasm, store.path(), &secrets)
+        let resolved = resolve(store.path(), &wasm, &secrets).await;
+        let sandbox = Sandbox::load(false, &resolved, store.path(), &secrets)
             .await
             .unwrap();
         assert!(sandbox.has_shared_grants());
+    }
+
+    #[tokio::test]
+    async fn malformed_secrets_fail_even_without_policy_or_with_allow_all() {
+        let store = tempfile::tempdir().unwrap();
+        let source = tempfile::tempdir().unwrap();
+        let wasm = source.path().join("agent.wasm");
+        std::fs::write(&wasm, crate::install::named_fixture("agent", false)).unwrap();
+        let secrets = SecretsRegistry::new(store.path());
+        let resolved = resolve(store.path(), &wasm, &secrets).await;
+        std::fs::write(store.path().join("agent.yaml"), "TOKEN: orphan\n").unwrap();
+        for allow_all in [false, true] {
+            assert!(
+                Sandbox::load(allow_all, &resolved, store.path(), &secrets)
+                    .await
+                    .is_err()
+            );
+        }
+    }
+
+    async fn resolve(store: &Path, wasm: &Path, secrets: &SecretsRegistry) -> ResolvedComponent {
+        let resolved = crate::install::Resolver::new(store)
+            .unwrap()
+            .install_validated(wasm.to_str().unwrap(), None, &wasmtime::Engine::default())
+            .await
+            .unwrap();
+        secrets
+            .register(resolved.snapshot.receipt.secret_binding().unwrap())
+            .unwrap();
+        resolved
     }
 }

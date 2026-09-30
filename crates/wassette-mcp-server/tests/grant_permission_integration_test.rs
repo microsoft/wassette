@@ -23,7 +23,9 @@ async fn setup_lifecycle_manager() -> Result<(Arc<LifecycleManager>, TempDir)> {
     let tempdir = tempfile::tempdir()?;
 
     let manager = Arc::new(
-        LifecycleManager::new(&tempdir)
+        LifecycleManager::builder(tempdir.path())
+            .with_secrets_dir(tempdir.path().join("secrets"))
+            .build()
             .await
             .context("Failed to create LifecycleManager")?,
     );
@@ -377,7 +379,10 @@ async fn test_grant_permission_policy_persistence() -> Result<()> {
     assert!(policy_info.is_some());
 
     // Create a new manager with the same directory to test persistence
-    let new_manager = wassette::LifecycleManager::new(_tempdir.path()).await?;
+    let new_manager = wassette::LifecycleManager::builder(_tempdir.path())
+        .with_secrets_dir(_tempdir.path().join("secrets"))
+        .build()
+        .await?;
 
     // Load the same component
     let new_component_id = new_manager

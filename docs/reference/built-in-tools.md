@@ -37,9 +37,13 @@ When an existing component is replaced, the `status` value becomes
 
 ACP providers/layers and unsupported artifact shapes cannot be loaded as
 ordinary tools, including through cached schemas. An ordinary candidate still
-needs runtime validation. The returned `id` remains the storage-key selector,
-not an embedded semantic name; policies and secrets retain their existing keys.
-Nonportable storage keys are rejected without automatic renaming.
+needs runtime validation. The returned `id` is the exact embedded root component
+name. Use it for policy and secret operations; the receipt separately preserves
+their private storage keys. Missing or ambiguous root names and nonportable
+storage keys are rejected without filename fallback or automatic renaming.
+Artifact, effective policy and receipt are committed together for cooperating
+readers. Failed validation preserves the installed revision; conflicting
+ownership or revisions require an explicit retry, not an overwrite.
 
 ## unload-component
 **Parameters:**

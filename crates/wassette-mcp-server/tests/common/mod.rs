@@ -1,7 +1,7 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT license.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Once;
 
 use anyhow::{Context, Result};
@@ -59,7 +59,7 @@ pub async fn build_fetch_component() -> Result<PathBuf> {
         );
     }
 
-    Ok(component_path)
+    named_test_component(&top_level, &component_path, "fetch_rs")
 }
 
 /// Ensure filesystem-rs component is built exactly once for all tests
@@ -112,5 +112,34 @@ pub async fn build_filesystem_component() -> Result<PathBuf> {
         );
     }
 
-    Ok(component_path)
+    named_test_component(&top_level, &component_path, "filesystem")
+}
+
+/// Give a test-only copy its fixture identity without changing the producer's name.
+fn named_test_component(root: &Path, source: &Path, name: &str) -> Result<PathBuf> {
+    let directory = root.join("target").join("named-test-components");
+    std::fs::create_dir_all(&directory)?;
+    let destination = directory.join(format!("{name}.wasm"));
+    let staged = tempfile::NamedTempFile::new_in(directory)?;
+    let status = std::process::Command::new("wasm-tools")
+        .args(["metadata", "add", "--name", name])
+        .arg(source)
+        .arg("--output")
+        .arg(staged.path())
+        .status()
+        .context("Failed to name the isolated test copy")?;
+    anyhow::ensure!(status.success(), "Failed to name the isolated test copy");
+    let bytes = std::fs::read(staged.path())?;
+    anyhow::ensure!(
+        wassette::inspect_artifact(&bytes)?.identity?.as_str() == name,
+        "test fixture did not retain its declared component name"
+    );
+    match std::fs::read(&destination) {
+        Ok(existing) if existing == bytes => return Ok(destination),
+        Ok(_) => {}
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Err(error) => return Err(error.into()),
+    }
+    staged.persist(&destination)?;
+    Ok(destination)
 }

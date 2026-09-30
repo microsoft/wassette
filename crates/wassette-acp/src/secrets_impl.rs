@@ -201,16 +201,20 @@ pub fn add_labeled_secrets_to_linker<'a>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::secrets::SecretsRegistry;
+    use crate::secrets::{SecretsRegistry, test_binding};
 
     #[tokio::test]
     async fn failed_lookup_does_not_expose_other_secret_in_error() {
         const VALUE: &str = "never-include-this-secret-in-errors";
         let dir = tempfile::tempdir().unwrap();
         let registry = SecretsRegistry::new(dir.path());
+        registry.register(test_binding("comp-error")).unwrap();
         let manager = wassette::SecretsManager::new(dir.path().to_path_buf());
         manager
-            .set_component_secrets("comp-error", &[("api_key".into(), VALUE.into())])
+            .set_bound_component_secrets(
+                &test_binding("comp-error"),
+                &[("api_key".into(), VALUE.into())],
+            )
             .await
             .unwrap();
 
@@ -227,6 +231,10 @@ mod tests {
         const VALUE: &str = "never-include-this-secret-in-parse-errors";
         let dir = tempfile::tempdir().unwrap();
         let manager = wassette::SecretsManager::new(dir.path().to_path_buf());
+        manager
+            .set_bound_component_secrets(&test_binding("comp-invalid"), &[])
+            .await
+            .unwrap();
         tokio::fs::write(
             manager.get_component_secrets_path("comp-invalid"),
             format!("api_key: {VALUE}\ninvalid: [\n"),
@@ -235,6 +243,7 @@ mod tests {
         .unwrap();
 
         let registry = SecretsRegistry::new(dir.path());
+        registry.register(test_binding("comp-invalid")).unwrap();
         let error = registry
             .resolve("comp-invalid", "api_key")
             .await
@@ -309,10 +318,14 @@ mod tests {
     async fn labeled_secret_import_resolves_the_label_for_the_calling_component() {
         let dir = tempfile::tempdir().unwrap();
         wassette::SecretsManager::new(dir.path().to_path_buf())
-            .set_component_secrets("comp-labeled", &[("api-key".into(), "s3cr3t".into())])
+            .set_bound_component_secrets(
+                &test_binding("comp-labeled"),
+                &[("api-key".into(), "s3cr3t".into())],
+            )
             .await
             .unwrap();
         let registry = SecretsRegistry::new(dir.path());
+        registry.register(test_binding("comp-labeled")).unwrap();
 
         let engine = engine();
         let component = Component::new(&engine, LABELED_SECRET_COMPONENT).unwrap();
@@ -345,6 +358,7 @@ mod tests {
     async fn missing_labeled_secret_is_reported_before_instantiation() {
         let dir = tempfile::tempdir().unwrap();
         let registry = SecretsRegistry::new(dir.path());
+        registry.register(test_binding("comp-missing")).unwrap();
         let error = check_labeled_secrets(&registry, "comp-missing", &["api-key".to_string()])
             .await
             .unwrap_err()

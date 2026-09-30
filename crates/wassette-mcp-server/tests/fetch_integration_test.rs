@@ -10,7 +10,10 @@ use common::build_fetch_component;
 
 async fn setup_lifecycle_manager() -> Result<(LifecycleManager, TempDir)> {
     let tempdir = tempfile::tempdir().context("Failed to create temporary directory")?;
-    let manager = LifecycleManager::new(&tempdir).await?;
+    let manager = LifecycleManager::builder(tempdir.path())
+        .with_secrets_dir(tempdir.path().join("secrets"))
+        .build()
+        .await?;
     Ok((manager, tempdir))
 }
 

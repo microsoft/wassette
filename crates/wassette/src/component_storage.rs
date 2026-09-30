@@ -1,320 +1,92 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT license.
 
-//! Filesystem helpers that manage component artifacts, metadata, and cache
-//! layout for the lifecycle manager.
+//! Private physical layout, not a component-store publication or read protocol.
 
-use std::io::{BufReader, Read, Write};
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
 
-use anyhow::{anyhow, Context, Result};
-use sha2::{Digest, Sha256};
-use tokio::sync::{OwnedSemaphorePermit, Semaphore};
-use tokio::task::spawn_blocking;
+use anyhow::{Context, Result};
 
-use crate::loader::{CapturedComponent, StagedComponentArtifact};
-use crate::{ComponentMetadata, ValidationStamp};
+use crate::StorageKey;
 
-/// Handles filesystem layout and metadata persistence for components.
+/// Resolves validated physical keys without inferring semantic component names.
 #[derive(Clone)]
-pub struct ComponentStorage {
+pub(crate) struct ComponentStorage {
     root: PathBuf,
-    downloads_dir: PathBuf,
-    downloads_semaphore: Arc<Semaphore>,
 }
 
 impl ComponentStorage {
-    /// Create a new storage manager rooted at the component directory.
-    pub async fn new(root: impl Into<PathBuf>, max_concurrent_downloads: usize) -> Result<Self> {
+    /// Create the component directory; transactions are owned by `ComponentStore`.
+    pub(crate) async fn new(root: impl Into<PathBuf>) -> Result<Self> {
         let root = root.into();
-        let downloads_dir = root.join(crate::DOWNLOADS_DIR);
-
         tokio::fs::create_dir_all(&root).await.with_context(|| {
             format!("Failed to create component directory at {}", root.display())
         })?;
-
-        tokio::fs::create_dir_all(&downloads_dir)
-            .await
-            .with_context(|| {
-                format!(
-                    "Failed to create downloads directory at {}",
-                    downloads_dir.display()
-                )
-            })?;
-
-        Ok(Self {
-            root,
-            downloads_dir,
-            downloads_semaphore: Arc::new(Semaphore::new(max_concurrent_downloads.max(1))),
-        })
+        Ok(Self { root })
     }
 
-    /// Root component directory containing components.
-    pub fn root(&self) -> &Path {
+    /// Root directory for the shared store and private runtime data.
+    pub(crate) fn root(&self) -> &Path {
         &self.root
     }
 
-    /// Directory used for staging downloaded artifacts.
-    #[allow(dead_code)]
-    pub fn downloads_dir(&self) -> &Path {
-        &self.downloads_dir
+    /// Policy location for reporting an already-resolved receipt binding.
+    pub(crate) fn policy_path(&self, key: &StorageKey) -> PathBuf {
+        self.root.join(format!("{}.policy.yaml", key.as_str()))
     }
 
-    async fn acquire_download_permit(&self) -> OwnedSemaphorePermit {
-        self.downloads_semaphore
-            .clone()
-            .acquire_owned()
-            .await
-            .expect("Semaphore closed")
+    #[cfg(test)]
+    pub(crate) fn component_path(&self, key: &StorageKey) -> PathBuf {
+        self.root.join(format!("{}.wasm", key.as_str()))
     }
 
-    /// Absolute path to the component `.wasm` file.
-    pub fn component_path(&self, component_id: &str) -> PathBuf {
-        self.root.join(format!("{component_id}.wasm"))
+    #[cfg(test)]
+    pub(crate) fn metadata_path(&self, key: &StorageKey) -> PathBuf {
+        self.root.join(format!("{}.metadata.json", key.as_str()))
     }
 
-    /// Absolute path to the policy file associated with a component.
-    pub fn policy_path(&self, component_id: &str) -> PathBuf {
-        self.root.join(format!("{component_id}.policy.yaml"))
+    #[cfg(test)]
+    pub(crate) fn precompiled_path(&self, key: &StorageKey) -> PathBuf {
+        self.root.join(format!("{}.cwasm", key.as_str()))
     }
 
-    /// Absolute path to the metadata JSON for a component.
-    pub fn metadata_path(&self, component_id: &str) -> PathBuf {
-        self.root
-            .join(format!("{component_id}.{}", crate::METADATA_EXT))
-    }
-
-    /// Absolute path to the precompiled component cache file.
-    pub fn precompiled_path(&self, component_id: &str) -> PathBuf {
-        self.root
-            .join(format!("{component_id}.{}", crate::PRECOMPILED_EXT))
-    }
-
-    /// Absolute path to the policy metadata JSON for a component.
-    pub fn policy_metadata_path(&self, component_id: &str) -> PathBuf {
-        self.root.join(format!("{component_id}.policy.meta.json"))
-    }
-
-    /// Stage captured bytes on the destination filesystem without changing installed files.
-    pub(crate) async fn stage_component_artifact(
-        &self,
-        captured: &CapturedComponent,
-        policy: Option<&[u8]>,
-    ) -> Result<StagedComponentArtifact> {
-        let _permit = self.acquire_download_permit().await;
-        StagedComponentArtifact::from_bytes(
-            &captured.storage_key,
-            &captured.wasm,
-            policy,
-            self.root(),
-        )
-        .await
-    }
-
-    /// Remove persisted component artifacts (wasm, metadata, cache) if they exist.
-    pub async fn remove_component_artifacts(&self, component_id: &str) -> Result<()> {
-        self.remove_if_exists(
-            &self.component_path(component_id),
-            "component file",
-            component_id,
-        )
-        .await?;
-        self.invalidate_component_caches(component_id).await
-    }
-
-    /// Invalidate derived files without removing the authoritative Wasm.
-    pub(crate) async fn invalidate_component_caches(&self, component_id: &str) -> Result<()> {
-        self.remove_if_exists(
-            &self.metadata_path(component_id),
-            "component metadata file",
-            component_id,
-        )
-        .await?;
-        self.remove_if_exists(
-            &self.precompiled_path(component_id),
-            "precompiled component file",
-            component_id,
-        )
-        .await?;
-        Ok(())
-    }
-
-    /// Persist component metadata to disk.
-    pub async fn write_metadata(&self, metadata: &ComponentMetadata) -> Result<()> {
-        let path = self.metadata_path(&metadata.component_id);
-        let json = serde_json::to_string_pretty(metadata)
-            .context("Failed to serialize component metadata")?;
-        tokio::fs::write(&path, json)
-            .await
-            .with_context(|| format!("Failed to write component metadata to {}", path.display()))
-    }
-
-    /// Load component metadata from disk if present.
-    pub async fn read_metadata(&self, component_id: &str) -> Result<Option<ComponentMetadata>> {
-        let path = self.metadata_path(component_id);
-        if !path.exists() {
-            return Ok(None);
-        }
-
-        let file = tokio::fs::File::open(&path)
-            .await
-            .with_context(|| format!("Failed to open component metadata at {}", path.display()))?;
-
-        let file = file.into_std().await;
-
-        let metadata = spawn_blocking(move || {
-            let reader = BufReader::new(file);
-            serde_json::from_reader(reader).context("Failed to deserialize component metadata")
-        })
-        .await??;
-        Ok(Some(metadata))
-    }
-
-    /// Write precompiled component bytes to disk.
-    pub async fn write_precompiled(&self, component_id: &str, bytes: &[u8]) -> Result<()> {
-        let path = self.precompiled_path(component_id);
-        let root = self.root.clone();
-        let bytes = bytes.to_vec();
-        spawn_blocking(move || {
-            let mut file = tempfile::NamedTempFile::new_in(root)?;
-            file.write_all(&bytes)?;
-            file.persist(&path).with_context(|| {
-                format!(
-                    "Failed to publish precompiled component to {}",
-                    path.display()
-                )
-            })?;
-            Ok(())
-        })
-        .await?
-    }
-
-    /// Remove a file if it exists, translating IO errors into `anyhow`.
-    pub async fn remove_if_exists(
-        &self,
-        path: &Path,
-        description: &str,
-        component_id: &str,
-    ) -> Result<()> {
-        match tokio::fs::remove_file(path).await {
-            Ok(()) => {
-                tracing::debug!(component_id = %component_id, path = %path.display(), "Removed {}", description);
-            }
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
-                tracing::debug!(component_id = %component_id, path = %path.display(), "{} already absent", description);
-            }
-            Err(e) => {
-                return Err(anyhow!(
-                    "Failed to remove {} at {}: {}",
-                    description,
-                    path.display(),
-                    e
-                ));
-            }
-        }
-        Ok(())
-    }
-
-    /// Create a validation stamp for a component artifact to track stale data on disk.
-    ///
-    /// When `include_hash` is `true` the SHA-256 hash of the file is
-    /// recorded in addition to size and modification time so changes can be
-    /// detected even when timestamps are unreliable.
-    pub async fn create_validation_stamp(
-        &self,
-        path: &Path,
-        include_hash: bool,
-    ) -> Result<ValidationStamp> {
-        let metadata = tokio::fs::metadata(path)
-            .await
-            .with_context(|| format!("Failed to read metadata for {}", path.display()))?;
-
-        let file_size = metadata.len();
-        let mtime = metadata
-            .modified()
-            .map_err(|_| std::io::Error::from(std::io::ErrorKind::Other))
-            .and_then(|t| {
-                t.duration_since(std::time::UNIX_EPOCH)
-                    .map_err(|_| std::io::Error::from(std::io::ErrorKind::Other))
-            })?
-            .as_secs();
-
-        let content_hash = if include_hash {
-            Some(compute_file_hash(path).await?)
-        } else {
-            None
-        };
-
-        Ok(ValidationStamp {
-            file_size,
-            mtime,
-            content_hash,
-        })
-    }
-
-    /// Check if the validation stamp matches the current file on disk.
-    pub async fn validate_stamp(path: &Path, stamp: &ValidationStamp) -> bool {
-        let metadata = match tokio::fs::metadata(path).await {
-            Ok(metadata) => metadata,
-            Err(_) => return false,
-        };
-
-        if metadata.len() != stamp.file_size {
-            return false;
-        }
-
-        if let Some(expected_hash) = &stamp.content_hash {
-            match compute_file_hash(path).await {
-                Ok(actual_hash) => return actual_hash == *expected_hash,
-                Err(_) => return false,
-            }
-        }
-
-        let mtime = match metadata
-            .modified()
-            .map_err(|_| std::io::Error::from(std::io::ErrorKind::Other))
-            .and_then(|t| {
-                t.duration_since(std::time::UNIX_EPOCH)
-                    .map_err(|_| std::io::Error::from(std::io::ErrorKind::Other))
-            })
-            .map(|d| d.as_secs())
-        {
-            Ok(mtime) => mtime,
-            Err(_) => return false,
-        };
-
-        if mtime != stamp.mtime {
-            return false;
-        }
-
-        true
+    #[cfg(test)]
+    pub(crate) fn policy_metadata_path(&self, key: &StorageKey) -> PathBuf {
+        self.root.join(format!("{}.policy.meta.json", key.as_str()))
     }
 }
 
-async fn compute_file_hash(path: &Path) -> Result<String> {
-    let file = tokio::fs::File::open(path)
-        .await
-        .with_context(|| format!("Failed to open {} for hashing", path.display()))?;
+#[cfg(test)]
+mod tests {
+    use super::*;
 
-    let file = file.into_std().await;
-
-    let path = path.to_path_buf();
-    spawn_blocking(move || -> Result<String> {
-        let mut reader = BufReader::new(file);
-        let mut hasher = Sha256::new();
-        let mut buffer = [0; 8192];
-
-        loop {
-            let bytes_read = reader.read(&mut buffer)?;
-            if bytes_read == 0 {
-                break;
-            }
-            hasher.update(&buffer[..bytes_read]);
-        }
-
-        Ok(hex::encode(hasher.finalize()))
-    })
-    .await?
-    .with_context(|| format!("Failed to hash file {}", path.display()))
+    #[tokio::test]
+    async fn layout_preserves_validated_private_keys() -> Result<()> {
+        let directory = tempfile::Builder::new()
+            .prefix(".component-layout-")
+            .tempdir_in(std::env::current_dir()?)?;
+        let root = directory.path().join("components");
+        let storage = ComponentStorage::new(&root).await?;
+        let key = StorageKey::parse("Private_Key")?;
+        assert_eq!(storage.root(), root);
+        assert_eq!(storage.component_path(&key), root.join("Private_Key.wasm"));
+        assert_eq!(
+            storage.policy_path(&key),
+            root.join("Private_Key.policy.yaml")
+        );
+        assert_eq!(
+            storage.metadata_path(&key),
+            root.join("Private_Key.metadata.json")
+        );
+        assert_eq!(
+            storage.precompiled_path(&key),
+            root.join("Private_Key.cwasm")
+        );
+        assert_eq!(
+            storage.policy_metadata_path(&key),
+            root.join("Private_Key.policy.meta.json")
+        );
+        assert_eq!(std::fs::read_dir(root)?.count(), 0);
+        Ok(())
+    }
 }

@@ -7,7 +7,8 @@ use tempfile::TempDir;
 
 use super::*;
 
-const ID: &str = "safe-replacement";
+const ID: &str = "declared-replacement-name";
+const KEY: &str = "safe-replacement";
 const WAIT: Duration = Duration::from_secs(30);
 const POLICY: &str = r#"
 version: "1.0"
@@ -19,6 +20,10 @@ permissions:
     allow:
       - key: "REPLACEMENT_CONFIG"
 "#;
+
+fn storage_key() -> StorageKey {
+    StorageKey::parse(KEY).expect("portable fixture key")
+}
 
 fn test_dir() -> Result<TempDir> {
     Ok(tempfile::Builder::new()
@@ -88,7 +93,7 @@ impl Fixture {
     }
 
     async fn source(&self, bytes: &[u8]) -> Result<PathBuf> {
-        let path = self.source.path().join(format!("{ID}.wasm"));
+        let path = self.source.path().join(format!("{KEY}.wasm"));
         tokio::fs::write(&path, bytes).await?;
         Ok(path)
     }
@@ -96,6 +101,16 @@ impl Fixture {
     async fn load(&self, value: u32) -> Result<ComponentLoadOutcome> {
         let source = self.source(&component(value)?).await?;
         self.manager.load_component(&file_uri(&source)).await
+    }
+
+    async fn load_downloaded(
+        &self,
+        value: u32,
+        policy: Option<&[u8]>,
+    ) -> Result<ComponentLoadOutcome> {
+        self.manager
+            .load_component_resource(downloaded(&component(value)?, policy).await?)
+            .await
     }
 
     async fn attach_policy(&self) -> Result<()> {
@@ -107,10 +122,10 @@ impl Fixture {
 
 async fn downloaded(bytes: &[u8], policy: Option<&[u8]>) -> Result<DownloadedResource> {
     let directory = test_dir()?;
-    let path = directory.path().join(format!("{ID}.wasm"));
+    let path = directory.path().join(format!("{KEY}.wasm"));
     tokio::fs::write(&path, bytes).await?;
     if let Some(policy) = policy {
-        tokio::fs::write(directory.path().join(format!("{ID}.policy.yaml")), policy).await?;
+        tokio::fs::write(directory.path().join(format!("{KEY}.policy.yaml")), policy).await?;
     }
     Ok(DownloadedResource::Temp((directory, path)))
 }
@@ -125,22 +140,24 @@ async fn assert_call(manager: &LifecycleManager, value: u32) -> Result<()> {
 }
 
 struct InstalledState {
-    files: Vec<(PathBuf, Vec<u8>)>,
+    files: Vec<(PathBuf, Option<Vec<u8>>)>,
     schema: Value,
-    template: Arc<WasiStateTemplate>,
+    instance: ComponentInstance,
+    receipt: store::InstallReceipt,
 }
 
 impl InstalledState {
     async fn capture(manager: &LifecycleManager) -> Result<Self> {
         let mut files = Vec::new();
         for path in [
-            manager.component_path(ID),
-            manager.storage.policy_path(ID),
-            manager.storage.policy_metadata_path(ID),
-            manager.storage.metadata_path(ID),
-            manager.component_precompiled_path(ID),
+            manager.component_path(KEY),
+            manager.storage.policy_path(&storage_key()),
+            manager.storage.policy_metadata_path(&storage_key()),
+            manager.storage.metadata_path(&storage_key()),
+            manager.component_precompiled_path(KEY),
+            manager.component_root().join(format!("{KEY}.install.json")),
         ] {
-            files.push((path.clone(), tokio::fs::read(path).await?));
+            files.push((path.clone(), loader::read_optional_file(&path).await?));
         }
         Ok(Self {
             files,
@@ -148,26 +165,43 @@ impl InstalledState {
                 .get_component_schema(ID)
                 .await
                 .context("installed component has no schema")?,
-            template: manager.policy_manager.template_for_component(ID).await,
+            instance: manager
+                .get_component(ID)
+                .await
+                .context("missing runtime instance")?,
+            receipt: manager.store_snapshot(ID).await?.receipt,
         })
     }
 
-    async fn assert_unchanged(&self, manager: &LifecycleManager) -> Result<()> {
+    async fn assert_pinned_unchanged(&self, manager: &LifecycleManager) -> Result<()> {
         for (path, expected) in &self.files {
             assert!(
-                tokio::fs::read(path).await? == *expected,
+                loader::read_optional_file(path).await? == *expected,
                 "replacement changed {}",
                 path.display()
             );
         }
+        let current = manager
+            .get_component(ID)
+            .await
+            .context("missing pinned instance")?;
+        assert!(Arc::ptr_eq(&self.instance.component, &current.component));
+        assert!(Arc::ptr_eq(
+            &self.instance.policy_template,
+            &current.policy_template
+        ));
+        assert_eq!(current.revision.as_ref(), Some(&self.receipt.revision));
+        assert_eq!(current.effective_policy, self.instance.effective_policy);
+        Ok(())
+    }
+
+    async fn assert_unchanged(&self, manager: &LifecycleManager) -> Result<()> {
+        self.assert_pinned_unchanged(manager).await?;
+        assert_eq!(manager.store_snapshot(ID).await?.receipt, self.receipt);
         assert_eq!(
             manager.get_component_schema(ID).await.as_ref(),
             Some(&self.schema)
         );
-        assert!(Arc::ptr_eq(
-            &self.template,
-            &manager.policy_manager.template_for_component(ID).await
-        ));
         assert_eq!(manager.get_component_id_for_tool("run").await?, ID);
         assert_call(manager, 1).await
     }
@@ -227,8 +261,7 @@ async fn safe_replacement_invalid_bundled_policy_preserves_installed_state() -> 
         overflowing_memory.as_slice(),
     ] {
         let fixture = Fixture::new().await?;
-        fixture.load(1).await?;
-        fixture.attach_policy().await?;
+        fixture.load_downloaded(1, None).await?;
         let before = InstalledState::capture(&fixture.manager).await?;
         let resource = downloaded(&component(2)?, Some(policy)).await?;
 
@@ -246,13 +279,13 @@ async fn safe_replacement_invalid_bundled_policy_preserves_installed_state() -> 
 #[tokio::test]
 async fn safe_replacement_unreadable_bundled_policy_preserves_installed_state() -> Result<()> {
     let fixture = Fixture::new().await?;
-    fixture.load(1).await?;
+    fixture.load_downloaded(1, None).await?;
     fixture.attach_policy().await?;
     let before = InstalledState::capture(&fixture.manager).await?;
     let resource = downloaded(&component(2)?, None).await?;
     let policy_path = resource
         .as_ref()
-        .with_file_name(format!("{ID}.policy.yaml"));
+        .with_file_name(format!("{KEY}.policy.yaml"));
     tokio::fs::create_dir(&policy_path).await?;
     tokio::fs::write(policy_path.join("blocker"), b"not a policy file").await?;
 
@@ -265,6 +298,46 @@ async fn safe_replacement_unreadable_bundled_policy_preserves_installed_state() 
     before.assert_unchanged(&fixture.manager).await
 }
 
+#[cfg(unix)]
+#[tokio::test]
+async fn safe_replacement_dangling_bundled_policy_is_not_absence() -> Result<()> {
+    let fixture = Fixture::new().await?;
+    fixture.load_downloaded(1, None).await?;
+    let before = InstalledState::capture(&fixture.manager).await?;
+    let resource = downloaded(&component(2)?, None).await?;
+    let policy_path = resource.as_ref().with_extension("policy.yaml");
+    std::os::unix::fs::symlink(
+        policy_path.with_file_name("missing-policy.yaml"),
+        &policy_path,
+    )?;
+    assert!(fixture
+        .manager
+        .load_component_resource(resource)
+        .await
+        .is_err());
+    before.assert_unchanged(&fixture.manager).await
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn safe_replacement_dangling_acquired_policy_is_not_absence() -> Result<()> {
+    let fixture = Fixture::new().await?;
+    fixture.load(1).await?;
+    let before = InstalledState::capture(&fixture.manager).await?;
+    let source = fixture.source(&component(2)?).await?;
+    let policy_path = source.with_extension("policy.yaml");
+    std::os::unix::fs::symlink(
+        policy_path.with_file_name("missing-policy.yaml"),
+        &policy_path,
+    )?;
+    assert!(
+        acquisition::acquire_component(&file_uri(&source), &fixture.manager.config, true)
+            .await
+            .is_err()
+    );
+    before.assert_unchanged(&fixture.manager).await
+}
+
 #[tokio::test]
 async fn safe_replacement_malformed_or_unreadable_retained_policy_is_fatal() -> Result<()> {
     for directory in [false, true] {
@@ -272,7 +345,7 @@ async fn safe_replacement_malformed_or_unreadable_retained_policy_is_fatal() -> 
         fixture.load(1).await?;
         fixture.attach_policy().await?;
         let mut before = InstalledState::capture(&fixture.manager).await?;
-        let policy_path = fixture.manager.storage.policy_path(ID);
+        let policy_path = fixture.manager.storage.policy_path(&storage_key());
         before.files.retain(|(path, _)| path != &policy_path);
         let malformed = b"version: [";
         if directory {
@@ -285,7 +358,13 @@ async fn safe_replacement_malformed_or_unreadable_retained_policy_is_fatal() -> 
 
         assert!(fixture.load(2).await.is_err());
 
-        before.assert_unchanged(&fixture.manager).await?;
+        before.assert_pinned_unchanged(&fixture.manager).await?;
+        assert!(fixture.manager.get_component_schema(ID).await.is_none());
+        assert!(fixture
+            .manager
+            .execute_component_call(ID, "run", "{}")
+            .await
+            .is_err());
         if directory {
             assert!(policy_path.is_dir());
             assert_eq!(
@@ -303,10 +382,14 @@ async fn safe_replacement_malformed_or_unreadable_retained_policy_is_fatal() -> 
 async fn safe_replacement_unbundled_replacement_retains_explicit_policy() -> Result<()> {
     for remote in [false, true] {
         let fixture = Fixture::new().await?;
-        fixture.load(1).await?;
+        if remote {
+            fixture.load_downloaded(1, None).await?;
+        } else {
+            fixture.load(1).await?;
+        }
         fixture.attach_policy().await?;
-        let policy_path = fixture.manager.storage.policy_path(ID);
-        let metadata_path = fixture.manager.storage.policy_metadata_path(ID);
+        let policy_path = fixture.manager.storage.policy_path(&storage_key());
+        let metadata_path = fixture.manager.storage.policy_metadata_path(&storage_key());
         let old_policy = tokio::fs::read(&policy_path).await?;
         let old_metadata = tokio::fs::read(&metadata_path).await?;
         let old_info = fixture.manager.get_policy_info(ID).await.unwrap();
@@ -335,9 +418,10 @@ async fn safe_replacement_unbundled_replacement_retains_explicit_policy() -> Res
         );
         let template = fixture
             .manager
-            .policy_manager
-            .template_for_component(ID)
-            .await;
+            .get_component(ID)
+            .await
+            .context("missing replacement instance")?
+            .policy_template;
         assert!(template.allowed_hosts.contains("retained.example.invalid"));
         assert!(template.network_perms.allow_tcp);
         assert_call(&fixture.manager, 2).await?;
@@ -346,34 +430,25 @@ async fn safe_replacement_unbundled_replacement_retains_explicit_policy() -> Res
 }
 
 #[tokio::test]
-async fn safe_replacement_installed_path_can_replace_itself() -> Result<()> {
+async fn safe_replacement_installed_path_cannot_impersonate_original_source() -> Result<()> {
     let fixture = Fixture::new().await?;
     fixture.load(1).await?;
     fixture.attach_policy().await?;
-    let installed = fixture.manager.component_path(ID);
-    let policy_metadata = fixture.manager.storage.policy_metadata_path(ID);
-    let old_metadata = tokio::fs::read(&policy_metadata).await?;
-
-    let outcome = fixture
+    let installed = fixture.manager.component_path(KEY);
+    let before = InstalledState::capture(&fixture.manager).await?;
+    let error = fixture
         .manager
         .load_component(&file_uri(&installed))
-        .await?;
-
-    assert_eq!(outcome.status, LoadResult::Replaced);
-    assert_eq!(outcome.component_id, ID);
-    assert_eq!(tokio::fs::read(installed).await?, component(1)?);
-    assert_eq!(
-        tokio::fs::read(fixture.manager.storage.policy_path(ID)).await?,
-        POLICY.as_bytes()
-    );
-    assert_eq!(tokio::fs::read(policy_metadata).await?, old_metadata);
-    assert_call(&fixture.manager, 1).await
+        .await
+        .unwrap_err();
+    assert!(format!("{error:#}").contains("reserved"), "{error:#}");
+    before.assert_unchanged(&fixture.manager).await
 }
 
 #[tokio::test]
 async fn safe_replacement_local_sibling_policy_is_not_adopted() -> Result<()> {
     let fixture = Fixture::new().await?;
-    let sibling = fixture.source.path().join(format!("{ID}.policy.yaml"));
+    let sibling = fixture.source.path().join(format!("{KEY}.policy.yaml"));
     tokio::fs::write(&sibling, POLICY).await?;
     fixture.load(1).await?;
     assert!(fixture.manager.get_policy_info(ID).await.is_none());
@@ -381,13 +456,20 @@ async fn safe_replacement_local_sibling_policy_is_not_adopted() -> Result<()> {
     tokio::fs::write(&sibling, b"version: [").await?;
     fixture.load(2).await?;
 
-    assert!(!fixture.manager.storage.policy_path(ID).exists());
-    assert!(!fixture.manager.storage.policy_metadata_path(ID).exists());
+    assert!(!fixture.manager.storage.policy_path(&storage_key()).exists());
+    let snapshot = fixture.manager.store_snapshot(ID).await?;
+    assert!(snapshot.policy.is_none());
+    assert!(snapshot.receipt.policy.metadata.is_none());
+    assert_eq!(
+        snapshot.receipt.policy.provenance,
+        store::PolicyProvenance::Default
+    );
     assert!(fixture
         .manager
-        .policy_manager
-        .template_for_component(ID)
+        .get_component(ID)
         .await
+        .unwrap()
+        .policy_template
         .allowed_hosts
         .is_empty());
     assert_eq!(tokio::fs::read(sibling).await?, b"version: [");
@@ -397,12 +479,11 @@ async fn safe_replacement_local_sibling_policy_is_not_adopted() -> Result<()> {
 #[tokio::test]
 async fn safe_replacement_success_publishes_new_runtime_policy_and_native_cache() -> Result<()> {
     let fixture = Fixture::new().await?;
-    let first = fixture.load(1).await?;
+    let first = fixture.load_downloaded(1, None).await?;
     assert_eq!(first.status, LoadResult::New);
     assert_eq!(first.component_id, ID);
     assert_call(&fixture.manager, 1).await?;
-    fixture.attach_policy().await?;
-    let old_native = tokio::fs::read(fixture.manager.component_precompiled_path(ID)).await?;
+    let old_native = tokio::fs::read(fixture.manager.component_precompiled_path(KEY)).await?;
     let replacement_policy = POLICY.replace("retained.example.invalid", "new.example.invalid");
     let candidate = component(2)?;
 
@@ -416,33 +497,57 @@ async fn safe_replacement_success_publishes_new_runtime_policy_and_native_cache(
     assert_eq!(outcome.tool_names, ["run"]);
     assert_eq!(fixture.manager.list_components().await, [ID]);
     assert_eq!(
-        tokio::fs::read(fixture.manager.component_path(ID)).await?,
+        tokio::fs::read(fixture.manager.component_path(KEY)).await?,
         candidate
     );
     assert_ne!(
-        tokio::fs::read(fixture.manager.component_precompiled_path(ID)).await?,
+        tokio::fs::read(fixture.manager.component_precompiled_path(KEY)).await?,
         old_native
     );
-    let metadata = fixture.manager.storage.read_metadata(ID).await?.unwrap();
-    assert!(
-        ComponentStorage::validate_stamp(
-            &fixture.manager.component_path(ID),
-            &metadata.validation_stamp
-        )
-        .await
+    let metadata = fixture.manager.load_component_metadata(ID).await?.unwrap();
+    let snapshot = fixture.manager.store_snapshot(ID).await?;
+    assert_eq!(
+        metadata.validation_stamp.content_hash.as_deref(),
+        Some(snapshot.receipt.artifact_sha256.as_str())
     );
     assert_eq!(metadata.tool_names, ["run"]);
     assert_eq!(
-        tokio::fs::read(fixture.manager.storage.policy_path(ID)).await?,
+        tokio::fs::read(fixture.manager.storage.policy_path(&storage_key())).await?,
         replacement_policy.as_bytes()
     );
     let template = fixture
         .manager
-        .policy_manager
-        .template_for_component(ID)
-        .await;
+        .get_component(ID)
+        .await
+        .context("missing replacement instance")?
+        .policy_template;
     assert!(template.allowed_hosts.contains("new.example.invalid"));
     assert!(!template.allowed_hosts.contains("retained.example.invalid"));
+    assert_call(&fixture.manager, 2).await
+}
+
+#[tokio::test]
+async fn safe_replacement_bundle_preserves_explicit_policy_grants() -> Result<()> {
+    let fixture = Fixture::new().await?;
+    fixture.load_downloaded(1, None).await?;
+    fixture.attach_policy().await?;
+    let before = fixture.manager.store_snapshot(ID).await?;
+    let incoming = POLICY.replace("retained.example.invalid", "incoming.example.invalid");
+    fixture
+        .load_downloaded(2, Some(incoming.as_bytes()))
+        .await?;
+    let after = fixture.manager.store_snapshot(ID).await?;
+    assert_ne!(before.receipt.revision, after.receipt.revision);
+    assert_eq!(before.policy, after.policy);
+    assert_eq!(before.receipt.policy, after.receipt.policy);
+    let template = fixture
+        .manager
+        .get_component(ID)
+        .await
+        .unwrap()
+        .policy_template;
+    assert!(template.allowed_hosts.contains("retained.example.invalid"));
+    assert!(!template.allowed_hosts.contains("incoming.example.invalid"));
     assert_call(&fixture.manager, 2).await
 }
 
@@ -467,11 +572,15 @@ async fn safe_replacement_invalid_first_install_leaves_no_live_entry() -> Result
         assert!(fixture.manager.list_tools().await.is_empty());
         assert!(fixture.manager.get_component_schema(ID).await.is_none());
         for path in [
-            fixture.manager.component_path(ID),
-            fixture.manager.storage.metadata_path(ID),
-            fixture.manager.component_precompiled_path(ID),
-            fixture.manager.storage.policy_path(ID),
-            fixture.manager.storage.policy_metadata_path(ID),
+            fixture.manager.component_path(KEY),
+            fixture.manager.storage.metadata_path(&storage_key()),
+            fixture.manager.component_precompiled_path(KEY),
+            fixture.manager.storage.policy_path(&storage_key()),
+            fixture.manager.storage.policy_metadata_path(&storage_key()),
+            fixture
+                .manager
+                .component_root()
+                .join(format!("{KEY}.install.json")),
         ] {
             assert!(!path.exists(), "failed install left {}", path.display());
         }
@@ -485,14 +594,14 @@ async fn safe_replacement_invalid_first_install_leaves_no_live_entry() -> Result
 }
 
 #[tokio::test]
-async fn safe_replacement_cache_invalidation_failure_preserves_old_runtime() -> Result<()> {
+async fn safe_replacement_cache_obstruction_preserves_receipt_and_pinned_runtime() -> Result<()> {
     for native in [false, true] {
         let fixture = Fixture::new().await?;
         fixture.load(1).await?;
         fixture.attach_policy().await?;
         let mut before = InstalledState::capture(&fixture.manager).await?;
-        let metadata = fixture.manager.storage.metadata_path(ID);
-        let precompiled = fixture.manager.component_precompiled_path(ID);
+        let metadata = fixture.manager.storage.metadata_path(&storage_key());
+        let precompiled = fixture.manager.component_precompiled_path(KEY);
         before
             .files
             .retain(|(path, _)| path != &metadata && path != &precompiled);
@@ -508,7 +617,12 @@ async fn safe_replacement_cache_invalidation_failure_preserves_old_runtime() -> 
             tokio::fs::read(blocked_path.join("blocker")).await?,
             b"keep this directory"
         );
-        before.assert_unchanged(&fixture.manager).await?;
+        before.assert_pinned_unchanged(&fixture.manager).await?;
+        assert!(fixture
+            .manager
+            .execute_component_call(ID, "run", "{}")
+            .await
+            .is_err());
     }
     Ok(())
 }
@@ -534,9 +648,10 @@ async fn safe_replacement_preserves_configured_environment_and_refreshes_default
 
         let template = fixture
             .manager
-            .policy_manager
-            .template_for_component(ID)
-            .await;
+            .get_component(ID)
+            .await
+            .context("missing replacement instance")?
+            .policy_template;
         assert_eq!(
             template
                 .config_vars
@@ -559,11 +674,18 @@ async fn safe_replacement_preserves_configured_environment_and_refreshes_default
                     &[("REPLACEMENT_SECRET".into(), "updated-test-value".into())],
                 )
                 .await?;
+            let instance = fixture.manager.get_component(ID).await.unwrap();
             let fresh = fixture
                 .manager
                 .policy_manager
-                .template_for_component(ID)
-                .await;
+                .prepare_bound_template(
+                    instance
+                        .secret_binding
+                        .as_ref()
+                        .context("missing secret binding")?,
+                    instance.effective_policy.as_deref(),
+                )
+                .await?;
             assert_eq!(
                 fresh
                     .config_vars
@@ -599,7 +721,7 @@ async fn safe_replacement_cancelled_caller_does_not_cancel_publication() -> Resu
 
     let promoted = tokio::time::timeout(WAIT, async {
         loop {
-            if tokio::fs::read(fixture.manager.component_path(ID)).await? == candidate {
+            if fixture.manager.store_snapshot(ID).await?.wasm == candidate {
                 return Ok::<_, anyhow::Error>(());
             }
             if caller.is_finished() {
@@ -624,58 +746,44 @@ async fn safe_replacement_cancelled_caller_does_not_cancel_publication() -> Resu
         .context("replacement worker did not finish after registry unlock")?;
     drop(finished);
     assert_eq!(fixture.manager.list_components().await, [ID]);
-    assert!(fixture.manager.storage.read_metadata(ID).await?.is_some());
-    assert!(fixture.manager.component_precompiled_path(ID).is_file());
+    assert!(fixture.manager.load_component_metadata(ID).await?.is_some());
+    assert!(fixture.manager.component_precompiled_path(KEY).is_file());
     assert_call(&fixture.manager, 2).await
 }
 
 #[tokio::test]
-async fn safe_replacement_prepared_input_is_frozen_before_staging() -> Result<()> {
+async fn safe_replacement_captured_input_is_frozen_before_transactional_install() -> Result<()> {
     let fixture = Fixture::new().await?;
     fixture.load(1).await?;
-    fixture.attach_policy().await?;
     let before = InstalledState::capture(&fixture.manager).await?;
-    let directory = tempfile::tempdir_in(fixture.source.path())?;
-    let source_dir = directory.path().to_path_buf();
-    let source_wasm = source_dir.join(format!("{ID}.wasm"));
-    let source_policy = source_dir.join(format!("{ID}.policy.yaml"));
     let captured_wasm = component(2)?;
+    let source_wasm = fixture.source(&captured_wasm).await?;
+    let source_policy = fixture.source.path().join(format!("{KEY}.policy.yaml"));
     let captured_policy = POLICY.replace("retained.example.invalid", "captured.example.invalid");
-    tokio::fs::write(&source_wasm, &captured_wasm).await?;
     tokio::fs::write(&source_policy, &captured_policy).await?;
-    let resource = DownloadedResource::Temp((directory, source_wasm.clone()));
-    let guard = fixture.manager.load_guard(ID).await.lock_owned().await;
-
-    let captured = resource.capture().await?;
-    let prepared = fixture.manager.prepare_component_load(captured).await?;
+    let acquired =
+        acquisition::acquire_component(&file_uri(&source_wasm), &fixture.manager.config, true)
+            .await?;
+    assert_eq!(acquired.wasm, captured_wasm);
+    assert_eq!(acquired.policy.as_deref(), Some(captured_policy.as_bytes()));
     before.assert_unchanged(&fixture.manager).await?;
 
-    // Capture consumes the download directory; recreate its paths with different inputs.
-    tokio::fs::create_dir_all(&source_dir).await?;
     let mutated_wasm = component(3)?;
     let mutated_policy = POLICY.replace("retained.example.invalid", "mutated.example.invalid");
     tokio::fs::write(&source_wasm, &mutated_wasm).await?;
     tokio::fs::write(&source_policy, &mutated_policy).await?;
-    let stage = fixture
-        .manager
-        .storage
-        .stage_component_artifact(&prepared.captured, prepared.effective_policy.as_deref())
-        .await?;
     before.assert_unchanged(&fixture.manager).await?;
 
-    let outcome = fixture
-        .manager
-        .publish_component_load(prepared, stage, guard)
-        .await?;
+    let outcome = fixture.manager.install_acquired(acquired, None).await?;
 
     assert_eq!(outcome.status, LoadResult::Replaced);
     assert_eq!(outcome.component_id, ID);
     assert_eq!(
-        tokio::fs::read(fixture.manager.component_path(ID)).await?,
+        tokio::fs::read(fixture.manager.component_path(KEY)).await?,
         captured_wasm
     );
     assert_eq!(
-        tokio::fs::read(fixture.manager.storage.policy_path(ID)).await?,
+        tokio::fs::read(fixture.manager.storage.policy_path(&storage_key())).await?,
         captured_policy.as_bytes()
     );
     assert_eq!(tokio::fs::read(source_wasm).await?, mutated_wasm);
@@ -685,9 +793,10 @@ async fn safe_replacement_prepared_input_is_frozen_before_staging() -> Result<()
     );
     let template = fixture
         .manager
-        .policy_manager
-        .template_for_component(ID)
-        .await;
+        .get_component(ID)
+        .await
+        .context("missing replacement instance")?
+        .policy_template;
     assert!(template.allowed_hosts.contains("captured.example.invalid"));
     assert!(!template.allowed_hosts.contains("mutated.example.invalid"));
     assert!(!template.allowed_hosts.contains("retained.example.invalid"));
@@ -730,27 +839,27 @@ async fn safe_replacement_oci_bundle_uses_configured_http_client() -> Result<()>
             ("application/json".to_owned(), b"{}".to_vec()),
         ),
         (
-            format!("/v2/{ID}/manifests/latest"),
+            format!("/v2/{KEY}/manifests/latest"),
             (
                 oci_wasm::WASM_MANIFEST_MEDIA_TYPE.to_owned(),
                 manifest_bytes.clone(),
             ),
         ),
         (
-            format!("/v2/{ID}/manifests/{manifest_digest}"),
+            format!("/v2/{KEY}/manifests/{manifest_digest}"),
             (
                 oci_wasm::WASM_MANIFEST_MEDIA_TYPE.to_owned(),
                 manifest_bytes,
             ),
         ),
         (
-            format!("/v2/{ID}/blobs/{}", manifest.config.digest),
+            format!("/v2/{KEY}/blobs/{}", manifest.config.digest),
             (config.media_type, config.data.to_vec()),
         ),
     ]);
     for layer in layers {
         routes.insert(
-            format!("/v2/{ID}/blobs/{}", layer.sha256_digest()),
+            format!("/v2/{KEY}/blobs/{}", layer.sha256_digest()),
             (layer.media_type, layer.data.to_vec()),
         );
     }
@@ -800,7 +909,7 @@ async fn safe_replacement_oci_bundle_uses_configured_http_client() -> Result<()>
         }
     });
 
-    let uri = format!("oci://{address}/{ID}:latest");
+    let uri = format!("oci://{address}/{KEY}:latest");
     let loaded = tokio::time::timeout(WAIT, manager.load_component(&uri)).await;
     server.abort();
     match server.await {
@@ -811,14 +920,14 @@ async fn safe_replacement_oci_bundle_uses_configured_http_client() -> Result<()>
     assert_eq!(outcome.component_id, ID);
     assert_eq!(outcome.status, LoadResult::New);
     assert_eq!(
-        tokio::fs::read(manager.component_path(ID)).await?,
+        tokio::fs::read(manager.component_path(KEY)).await?,
         component(2)?
     );
     assert_eq!(
-        tokio::fs::read(manager.storage.policy_path(ID)).await?,
+        tokio::fs::read(manager.storage.policy_path(&storage_key())).await?,
         POLICY.as_bytes()
     );
-    let template = manager.policy_manager.template_for_component(ID).await;
+    let template = manager.get_component(ID).await.unwrap().policy_template;
     assert!(template.allowed_hosts.contains("retained.example.invalid"));
     assert!(template.network_perms.allow_tcp);
     assert_call(&manager, 2).await

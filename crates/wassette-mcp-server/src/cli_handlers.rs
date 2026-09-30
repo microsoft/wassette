@@ -81,38 +81,23 @@ pub async fn handle_tool_cli_command(
 /// initializes engine/linker without compiling/scanning all components.
 /// Component metadata or lazy loads are used by individual handlers.
 pub async fn create_lifecycle_manager(component_dir: Option<PathBuf>) -> Result<LifecycleManager> {
-    let config = if let Some(dir) = component_dir {
-        config::Config {
-            component_dir: dir,
-            secrets_dir: config::get_secrets_dir().unwrap_or_else(|_| {
-                eprintln!("WARN: Unable to determine default secrets directory, using `secrets` directory in the current working directory");
-                PathBuf::from("./secrets")
-            }),
-            environment_vars: std::collections::HashMap::new(),
-            bind_address: "127.0.0.1:9001".to_string(),
+    let config = config::Config::from_serve(
+        &crate::commands::Serve {
+            component_dir,
+            transport: Default::default(),
+            env_vars: vec![],
+            env_file: None,
+            disable_builtin_tools: false,
+            bind_address: None,
+            manifest: None,
+            continue_on_provisioning_failure: false,
             allowed_hosts: None,
-            legacy_sessions: true,
-            json_response: false,
-        }
-    } else {
-        config::Config::from_serve(
-            &crate::commands::Serve {
-                component_dir: None,
-                transport: Default::default(),
-                env_vars: vec![],
-                env_file: None,
-                disable_builtin_tools: false,
-                bind_address: None,
-                manifest: None,
-                continue_on_provisioning_failure: false,
-                allowed_hosts: None,
-                legacy_sessions: None,
-                json_response: None,
-            },
-            None,
-        )
-        .context("Failed to load configuration")?
-    };
+            legacy_sessions: None,
+            json_response: None,
+        },
+        None,
+    )
+    .context("Failed to load configuration")?;
 
     // Use unloaded manager for fast CLI startup, but preserve custom secrets dir
     let config::Config {
@@ -183,48 +168,25 @@ mod tests {
         component_id: &str,
         tool_name: &str,
     ) -> Result<()> {
-        let artifact = dir.join(format!("{component_id}.wasm"));
-        let bytes = wat::parse_str(
-            r#"(component
+        let sources = dir.join(".test-sources");
+        tokio::fs::create_dir_all(&sources).await?;
+        let artifact = sources.join(format!("{component_id}.wasm"));
+        let bytes = wat::parse_str(format!(
+            r#"(component ${component_id}
                 (core module $m (func (export "run")))
                 (core instance $i (instantiate $m))
-                (func (export "run") (canon lift (core func $i "run")))
+                (func (export "{tool_name}") (canon lift (core func $i "run")))
             )"#,
-        )?;
+        ))?;
         tokio::fs::write(&artifact, bytes).await?;
-
-        let file_metadata = tokio::fs::metadata(&artifact).await?;
-        let mtime = file_metadata
-            .modified()?
-            .duration_since(std::time::UNIX_EPOCH)?
-            .as_secs();
-
-        let cached = serde_json::json!({
-            "component_id": component_id,
-            "tool_schemas": [{
-                "name": tool_name,
-                "description": "a cached tool",
-                "inputSchema": { "type": "object" },
-            }],
-            "function_identifiers": [{
-                "package_name": null,
-                "interface_name": null,
-                "function_name": tool_name,
-            }],
-            "tool_names": [tool_name],
-            "validation_stamp": {
-                "file_size": file_metadata.len(),
-                "mtime": mtime,
-                "content_hash": null,
-            },
-            "created_at": 0,
-        });
-
-        tokio::fs::write(
-            dir.join(format!("{component_id}.metadata.json")),
-            serde_json::to_vec(&cached)?,
-        )
-        .await?;
+        let manager = LifecycleManager::builder(dir)
+            .with_secrets_dir(dir.join("secrets"))
+            .with_eager_loading(false)
+            .build()
+            .await?;
+        manager
+            .load_component(&format!("file://{}", artifact.display()))
+            .await?;
 
         Ok(())
     }
