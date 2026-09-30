@@ -442,11 +442,15 @@ mod tests {
     use std::time::Duration;
 
     use axum::http::Request;
+    use oci_client::client::{ClientConfig, ClientProtocol, Config, ImageLayer};
     use rmcp::model::{ClientCapabilities, Implementation, RequestId, RequestMetaObject};
     use rmcp::ServiceExt;
     use serde_json::Value;
-    use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader, DuplexStream};
+    use sha2::{Digest, Sha256};
+    use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader, DuplexStream};
+    use tokio::net::TcpListener;
     use tokio::task::JoinSet;
+    use wassette::wasm_directory::WasmDirectoryClient;
 
     use super::*;
 
@@ -471,6 +475,280 @@ mod tests {
         .unwrap();
         tokio::fs::write(&path, bytes).await.unwrap();
         format!("file://{}", path.display())
+    }
+
+    async fn package_fixture(root: &Path) -> (String, String, String, tokio::task::JoinHandle<()>) {
+        let component_uri = component_uri(root, 7).await;
+        let bytes = tokio::fs::read(component_uri.strip_prefix("file://").unwrap())
+            .await
+            .unwrap();
+        let layer = ImageLayer::new(bytes, oci_wasm::WASM_LAYER_MEDIA_TYPE.into(), None);
+        let config = Config::new(
+            serde_json::to_vec(&serde_json::json!({
+                "created": "1970-01-01T00:00:00Z",
+                "architecture": oci_wasm::WASM_ARCHITECTURE,
+                "os": oci_wasm::COMPONENT_OS,
+                "layerDigests": [layer.sha256_digest()],
+                "component": {"exports": ["run"], "imports": [], "target": null}
+            }))
+            .unwrap(),
+            oci_wasm::WASM_MANIFEST_CONFIG_MEDIA_TYPE.into(),
+            None,
+        );
+        let mut manifest = oci_client::manifest::OciImageManifest::build(
+            std::slice::from_ref(&layer),
+            &config,
+            None,
+        );
+        manifest.media_type = Some(oci_wasm::WASM_MANIFEST_MEDIA_TYPE.into());
+        let manifest_bytes = serde_json::to_vec(&manifest).unwrap();
+        let digest = format!("sha256:{}", hex::encode(Sha256::digest(&manifest_bytes)));
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let registry = listener.local_addr().unwrap().to_string();
+        let package = format!("{registry}/owner/catalog-fixture");
+        let api_listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let api_url = format!("http://{}", api_listener.local_addr().unwrap());
+        let detail = serde_json::to_vec(&serde_json::json!({
+            "registry": registry,
+            "repository": "owner/catalog-fixture",
+            "kind": "component",
+            "versions": [{"tag": "1.2.3", "digest": digest}]
+        }))
+        .unwrap();
+        let routes = std::collections::HashMap::from([
+            (
+                "/v2/".to_owned(),
+                ("application/json".to_owned(), b"{}".to_vec()),
+            ),
+            (
+                format!("/v2/owner/catalog-fixture/manifests/{digest}"),
+                (
+                    oci_wasm::WASM_MANIFEST_MEDIA_TYPE.to_owned(),
+                    manifest_bytes,
+                ),
+            ),
+            (
+                format!("/v2/owner/catalog-fixture/blobs/{}", manifest.config.digest),
+                (config.media_type, config.data.to_vec()),
+            ),
+            (
+                format!("/v2/owner/catalog-fixture/blobs/{}", layer.sha256_digest()),
+                (layer.media_type, layer.data.to_vec()),
+            ),
+        ]);
+        let task = tokio::spawn(async move {
+            loop {
+                tokio::select! {
+                    accepted = listener.accept() => {
+                        let (socket, _) = accepted.unwrap();
+                        let routes = routes.clone();
+                        tokio::spawn(async move {
+                            reply_fixture(socket, |path| routes.get(path).cloned()).await;
+                        });
+                    }
+                    accepted = api_listener.accept() => {
+                        let (socket, _) = accepted.unwrap();
+                        let detail = detail.clone();
+                        tokio::spawn(async move {
+                            reply_fixture(socket, |_| Some(("application/json".to_owned(), detail.clone()))).await;
+                        });
+                    }
+                }
+            }
+        });
+        (api_url, package, digest, task)
+    }
+
+    async fn reply_fixture(
+        mut socket: tokio::net::TcpStream,
+        route: impl Fn(&str) -> Option<(String, Vec<u8>)>,
+    ) {
+        let mut request = Vec::new();
+        let mut buffer = [0; 1024];
+        while !request.windows(4).any(|bytes| bytes == b"\r\n\r\n") {
+            let count = socket.read(&mut buffer).await.unwrap();
+            assert!(count > 0 && request.len() + count < 8192);
+            request.extend_from_slice(&buffer[..count]);
+        }
+        let request = String::from_utf8(request).unwrap();
+        let mut words = request.split_whitespace();
+        let method = words.next().unwrap();
+        let path = words.next().unwrap();
+        let (media_type, body) = route(path).unwrap_or_else(|| panic!("unexpected route: {path}"));
+        let headers = format!(
+            "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nContent-Type: {media_type}\r\n\
+             Docker-Content-Digest: sha256:{}\r\nConnection: close\r\n\r\n",
+            body.len(),
+            hex::encode(Sha256::digest(&body))
+        );
+        socket.write_all(headers.as_bytes()).await.unwrap();
+        if method != "HEAD" {
+            socket.write_all(&body).await.unwrap();
+        }
+    }
+
+    #[test]
+    fn registry_get_then_mcp_package_load_exposes_one_catalog_generation() {
+        let runtime = tokio::runtime::Builder::new_multi_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        let root = test_root();
+        let (api_url, package, digest, fixture) = runtime.block_on(package_fixture(root.path()));
+        temp_env::with_vars(
+            [("WASSETTE_WASM_DIRECTORY_URL", Some(api_url.as_str()))],
+            || {
+                runtime.block_on(async {
+                    let manager = LifecycleManager::builder(root.path().join("store"))
+                        .with_eager_loading(false)
+                        .with_oci_client(oci_client::Client::new(ClientConfig {
+                            protocol: ClientProtocol::Http,
+                            ..Default::default()
+                        }))
+                        .build()
+                        .await
+                        .unwrap();
+                    let server = McpServer::new(manager.clone(), false, true).await.unwrap();
+                    let mut receiver = server.subscribe_tool_list_changed();
+                    let mut tasks = watch_catalog(&server);
+                    let directory = WasmDirectoryClient::from_environment().unwrap();
+                    let installed = crate::install_registry_package(
+                        &manager,
+                        &directory,
+                        &package,
+                        Some("1.2.3"),
+                    )
+                    .await
+                    .unwrap();
+                    assert_eq!(installed["status"], "installed");
+                    assert_eq!(installed["package"], package);
+                    assert_eq!(installed["selected_version"], "1.2.3");
+                    assert_eq!(installed["manifest_digest"], digest);
+                    assert_eq!(installed["component_id"], "catalog-fixture");
+                    assert_eq!(installed["storage_key"], "local_catalog-fixture");
+                    assert_eq!(installed["receipt"]["intent"], "InstallOnly");
+                    assert_eq!(installed["receipt"]["origin"]["selected_version"], "1.2.3");
+                    assert!(installed["revision"].is_string());
+                    assert!(!installed["change"].is_null());
+                    assert!(server
+                        .lifecycle_manager
+                        .catalog()
+                        .await
+                        .unwrap()
+                        .tools
+                        .is_empty());
+                    expect_no_subscription_change(&mut receiver).await;
+
+                    let (_peer, mut client, service) = connect_peer(server.clone()).await;
+                    let request = serde_json::json!({
+                        "jsonrpc": "2.0", "id": 2, "method": "tools/call",
+                        "params": {"name": "load-component", "arguments": {
+                            "package": package, "version": "1.2.3"
+                        }}
+                    });
+                    client
+                        .get_mut()
+                        .write_all(format!("{request}\n").as_bytes())
+                        .await
+                        .unwrap();
+                    client.get_mut().flush().await.unwrap();
+                    expect_tool_list_changed(&mut client).await;
+                    expect_subscription_change(&mut receiver).await;
+                    let mut response = String::new();
+                    tokio::time::timeout(Duration::from_secs(20), client.read_line(&mut response))
+                        .await
+                        .unwrap()
+                        .unwrap();
+                    let response: Value = serde_json::from_str(&response).unwrap();
+                    assert_eq!(response["id"], 2, "{response}");
+                    let result: Value = serde_json::from_str(
+                        response["result"]["content"][0]["text"].as_str().unwrap(),
+                    )
+                    .unwrap();
+                    assert_eq!(result["id"], "catalog-fixture");
+                    assert_eq!(result["package"], package);
+                    assert_eq!(result["selected_version"], "1.2.3");
+                    assert_eq!(result["manifest_digest"], digest);
+                    assert_eq!(result["storage_key"], "local_catalog-fixture");
+                    assert_eq!(result["receipt"]["intent"], "ExposeTools");
+                    assert_eq!(result["receipt"]["origin"]["selected_version"], "1.2.3");
+                    let catalog = manager.catalog().await.unwrap();
+                    assert_eq!(catalog.tools.len(), 1);
+                    assert_eq!(
+                        catalog.tools[0].tool.key.component_id.as_str(),
+                        "catalog-fixture"
+                    );
+                    expect_no_subscription_change(&mut receiver).await;
+                    let mut extra = String::new();
+                    assert!(
+                        tokio::time::timeout(
+                            Duration::from_millis(100),
+                            client.read_line(&mut extra),
+                        )
+                        .await
+                        .is_err(),
+                        "duplicate peer notification: {extra}"
+                    );
+
+                    let list = serde_json::json!({
+                        "jsonrpc": "2.0", "id": 3, "method": "tools/list", "params": {}
+                    });
+                    client
+                        .get_mut()
+                        .write_all(format!("{list}\n").as_bytes())
+                        .await
+                        .unwrap();
+                    client.get_mut().flush().await.unwrap();
+                    let mut list_response = String::new();
+                    tokio::time::timeout(
+                        Duration::from_secs(20),
+                        client.read_line(&mut list_response),
+                    )
+                    .await
+                    .unwrap()
+                    .unwrap();
+                    let list_response: Value = serde_json::from_str(&list_response).unwrap();
+                    assert!(list_response["result"]["tools"]
+                        .as_array()
+                        .unwrap()
+                        .iter()
+                        .any(|tool| tool["name"] == "run"));
+
+                    let request = serde_json::json!({
+                        "jsonrpc": "2.0", "id": 4, "method": "tools/call",
+                        "params": {"name": "run", "arguments": {}}
+                    });
+                    client
+                        .get_mut()
+                        .write_all(format!("{request}\n").as_bytes())
+                        .await
+                        .unwrap();
+                    client.get_mut().flush().await.unwrap();
+                    let mut invocation_response = String::new();
+                    tokio::time::timeout(
+                        Duration::from_secs(20),
+                        client.read_line(&mut invocation_response),
+                    )
+                    .await
+                    .unwrap()
+                    .unwrap();
+                    let response: Value = serde_json::from_str(&invocation_response).unwrap();
+                    assert_eq!(response["id"], 4, "{response}");
+                    assert_eq!(response["result"]["isError"], false, "{response}");
+                    assert!(response["result"]["content"][0]["text"]
+                        .as_str()
+                        .unwrap()
+                        .contains('7'));
+                    tasks.shutdown().await;
+                    drop(client);
+                    tokio::time::timeout(Duration::from_secs(5), service)
+                        .await
+                        .unwrap()
+                        .unwrap();
+                });
+            },
+        );
+        fixture.abort();
     }
 
     async fn publish_component(server: &McpServer, root: &Path, value: u32) {

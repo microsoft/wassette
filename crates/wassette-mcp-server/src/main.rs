@@ -46,6 +46,37 @@ use server::McpServer;
 use tools::ToolName;
 use utils::{format_build_info, parse_env_var};
 
+async fn install_registry_package(
+    lifecycle_manager: &LifecycleManager,
+    directory: &WasmDirectoryClient,
+    component: &str,
+    version: Option<&str>,
+) -> Result<serde_json::Value> {
+    let package_id = PackageId::parse(component)
+        .context("Expected a canonical wasm.directory package identity")?;
+    let (resolved, outcome) = lifecycle_manager
+        .install_package(directory, &package_id, version)
+        .await?;
+    let receipt = match &outcome.entry {
+        wassette::store::StoredEntry::Installed(receipt) => receipt,
+        wassette::store::StoredEntry::Retired(_) => {
+            bail!("Package install unexpectedly returned a retired receipt")
+        }
+    };
+    Ok(json!({
+        "status": "installed",
+        "package": resolved.package_id.to_string(),
+        "requested_version": resolved.requested_version,
+        "selected_version": resolved.selected_version,
+        "manifest_digest": resolved.manifest_digest,
+        "component_id": receipt.component_id.as_str(),
+        "storage_key": receipt.storage_key.as_str(),
+        "revision": receipt.revision.to_string(),
+        "receipt": receipt,
+        "change": outcome.change,
+    }))
+}
+
 // Health and info endpoint handlers
 mod endpoints {
     use axum::http::StatusCode;
@@ -918,32 +949,16 @@ async fn main() -> Result<()> {
                     plugin_dir,
                     output_format,
                 } => {
-                    let package_id = PackageId::parse(component)
-                        .context("Expected a canonical wasm.directory package identity")?;
                     let plugin_dir = plugin_dir.clone().or_else(|| cli.component_dir.clone());
-                    let lifecycle_manager = create_lifecycle_manager(plugin_dir.clone()).await?;
+                    let lifecycle_manager = create_lifecycle_manager(plugin_dir).await?;
                     let directory = WasmDirectoryClient::from_environment()?;
-                    let (resolved, outcome) = lifecycle_manager
-                        .install_package(&directory, &package_id, version.as_deref())
-                        .await?;
-                    let receipt = match &outcome.entry {
-                        wassette::store::StoredEntry::Installed(receipt) => receipt,
-                        wassette::store::StoredEntry::Retired(_) => {
-                            anyhow::bail!("Package install unexpectedly returned a retired receipt")
-                        }
-                    };
-                    let result = json!({
-                        "status": "installed",
-                        "package": resolved.package_id.to_string(),
-                        "requested_version": resolved.requested_version,
-                        "selected_version": resolved.selected_version,
-                        "manifest_digest": resolved.manifest_digest,
-                        "component_id": receipt.component_id.as_str(),
-                        "storage_key": receipt.storage_key.as_str(),
-                        "revision": receipt.revision.to_string(),
-                        "receipt": receipt,
-                        "change": outcome.change,
-                    });
+                    let result = install_registry_package(
+                        &lifecycle_manager,
+                        &directory,
+                        component,
+                        version.as_deref(),
+                    )
+                    .await?;
                     print_result(
                         &rmcp::model::CallToolResult::success(vec![
                             rmcp::model::ContentBlock::text(serde_json::to_string_pretty(&result)?),
