@@ -30,6 +30,7 @@ struct BrokerState {
     generation: u64,
     core_generation: Option<CatalogGeneration>,
     handles: HashMap<String, ToolDescriptor>,
+    decisions: Vec<(ToolRef, bool)>,
 }
 
 pub struct ToolBroker {
@@ -82,6 +83,17 @@ impl ToolBroker {
 
         let mut state = self.state.lock().await;
         if state.core_generation.as_ref() != Some(&snapshot.generation) {
+            let unchanged = state.handles.len() == visible.len()
+                && visible.iter().all(|descriptor| {
+                    state
+                        .handles
+                        .values()
+                        .any(|old| old.reference == descriptor.reference)
+                });
+            state.core_generation = Some(snapshot.generation);
+            if unchanged {
+                return Ok(catalog_from_state(&state));
+            }
             let previous = std::mem::take(&mut state.handles);
             state.handles = visible
                 .into_iter()
@@ -97,18 +109,9 @@ impl ToolBroker {
                     (handle, descriptor)
                 })
                 .collect();
-            state.core_generation = Some(snapshot.generation);
             state.generation = state.generation.wrapping_add(1).max(1);
         }
-
-        Ok(Catalog {
-            generation: state.generation,
-            tools: state
-                .handles
-                .iter()
-                .map(|(handle, descriptor)| descriptor_to_wit(handle, descriptor))
-                .collect(),
-        })
+        Ok(catalog_from_state(&state))
     }
 
     pub async fn wait_for_change(&self, after: u64) -> Result<u64, ToolError> {
@@ -163,6 +166,21 @@ impl ToolBroker {
                     .collect(),
             )),
         }
+    }
+
+    async fn remembered_decision(&self, reference: &ToolRef) -> Option<bool> {
+        self.state
+            .lock()
+            .await
+            .decisions
+            .iter()
+            .find_map(|(known, allowed)| (known == reference).then_some(*allowed))
+    }
+
+    async fn remember_decision(&self, reference: ToolRef, allowed: bool) {
+        let mut state = self.state.lock().await;
+        state.decisions.retain(|(known, _)| known != &reference);
+        state.decisions.push((reference, allowed));
     }
 
     pub async fn prepare_call(
@@ -234,6 +252,7 @@ impl ToolBroker {
             .with(|mut access| access.get().editor_session_id.clone())
             .ok_or(ToolError::SessionNotBound)?;
         let call = broker.prepare_call(reference, &arguments_json).await?;
+        let reference = call.descriptor.reference.clone();
         let title = format!(
             "Run {}",
             call.descriptor.tool.schema["name"]
@@ -257,31 +276,34 @@ impl ToolBroker {
             SessionUpdate::ToolCall(snapshot(ToolCallStatus::Pending, None)),
         )
         .await;
-        let permission = crate::client_impl::request_permission(
-            accessor,
-            RequestPermissionRequest {
-                session_id: session_id.clone(),
-                tool_call: snapshot(ToolCallStatus::Pending, None),
-                options: vec![
-                    PermissionOption {
-                        id: "allow-once".to_owned(),
-                        name: "Allow once".to_owned(),
-                        kind: PermissionOptionKind::AllowOnce,
+        let allowed = match broker.remembered_decision(&reference).await {
+            Some(allowed) => allowed,
+            None => {
+                let permission = crate::client_impl::request_permission(
+                    accessor,
+                    RequestPermissionRequest {
+                        session_id: session_id.clone(),
+                        tool_call: snapshot(ToolCallStatus::Pending, None),
+                        options: permission_options(),
                     },
-                    PermissionOption {
-                        id: "reject-once".to_owned(),
-                        name: "Reject".to_owned(),
-                        kind: PermissionOptionKind::RejectOnce,
-                    },
-                ],
-            },
-        )
-        .await
-        .map_err(|error| ToolError::Unavailable(error.message))?;
-        if !matches!(
-            permission.outcome,
-            PermissionOutcome::Selected(ref id) if id == "allow-once"
-        ) {
+                )
+                .await
+                .map_err(|error| ToolError::Unavailable(error.message))?;
+                match permission.outcome {
+                    PermissionOutcome::Selected(id) if id == "allow-once" => true,
+                    PermissionOutcome::Selected(id) if id == "allow-always" => {
+                        broker.remember_decision(reference.clone(), true).await;
+                        true
+                    }
+                    PermissionOutcome::Selected(id) if id == "reject-always" => {
+                        broker.remember_decision(reference.clone(), false).await;
+                        false
+                    }
+                    _ => false,
+                }
+            }
+        };
+        if !allowed {
             crate::client_impl::notify_session(
                 accessor,
                 session_id,
@@ -290,6 +312,7 @@ impl ToolBroker {
             .await;
             return Err(ToolError::PermissionDenied);
         }
+
         crate::client_impl::notify_session(
             accessor,
             session_id.clone(),
@@ -309,6 +332,42 @@ impl ToolBroker {
         .await;
         result
     }
+}
+
+fn catalog_from_state(state: &BrokerState) -> Catalog {
+    Catalog {
+        generation: state.generation,
+        tools: state
+            .handles
+            .iter()
+            .map(|(handle, descriptor)| descriptor_to_wit(handle, descriptor))
+            .collect(),
+    }
+}
+
+fn permission_options() -> Vec<PermissionOption> {
+    vec![
+        PermissionOption {
+            id: "allow-once".to_owned(),
+            name: "Allow once".to_owned(),
+            kind: PermissionOptionKind::AllowOnce,
+        },
+        PermissionOption {
+            id: "allow-always".to_owned(),
+            name: "Always allow this revision".to_owned(),
+            kind: PermissionOptionKind::AllowAlways,
+        },
+        PermissionOption {
+            id: "reject-once".to_owned(),
+            name: "Reject".to_owned(),
+            kind: PermissionOptionKind::RejectOnce,
+        },
+        PermissionOption {
+            id: "reject-always".to_owned(),
+            name: "Always reject this revision".to_owned(),
+            kind: PermissionOptionKind::RejectAlways,
+        },
+    ]
 }
 
 fn descriptor_to_wit(handle: &str, descriptor: &ToolDescriptor) -> WitToolDescriptor {
