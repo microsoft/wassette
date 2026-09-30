@@ -333,6 +333,7 @@ impl SessionFactory {
             editor_session_id: None,
             terminal_enabled: false,
             tool_broker: Some(self.tool_broker.clone()),
+            tool_decisions: Vec::new(),
         };
         let mut store = Store::new(&self.engine, state);
 
@@ -1797,6 +1798,7 @@ mod terminal_tests {
             editor_session_id: None,
             terminal_enabled: false,
             tool_broker: None,
+            tool_decisions: Vec::new(),
         }
     }
 

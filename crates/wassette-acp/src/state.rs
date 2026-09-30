@@ -26,6 +26,7 @@ use wasmtime::component::ResourceTable;
 use wasmtime_wasi::{WasiCtx, WasiCtxView, WasiView};
 use wasmtime_wasi_http::WasiHttpCtx;
 use wasmtime_wasi_http::p2::{WasiHttpCtxView, WasiHttpView};
+use wassette::ToolRef;
 
 use crate::http_policy::HttpPolicyHooks;
 use crate::secrets::SecretsRegistry;
@@ -146,6 +147,8 @@ pub struct HostState {
     pub terminal_enabled: bool,
     /// Explicitly exposed ordinary Wassette tools.
     pub tool_broker: Option<Arc<ToolBroker>>,
+    /// Editor permission decisions, scoped to this session and exact revision.
+    pub tool_decisions: Vec<(ToolRef, bool)>,
 }
 
 impl HostState {

@@ -30,7 +30,6 @@ struct BrokerState {
     generation: u64,
     core_generation: Option<CatalogGeneration>,
     handles: HashMap<String, ToolDescriptor>,
-    decisions: Vec<(ToolRef, bool)>,
 }
 
 pub struct ToolBroker {
@@ -168,21 +167,6 @@ impl ToolBroker {
         }
     }
 
-    async fn remembered_decision(&self, reference: &ToolRef) -> Option<bool> {
-        self.state
-            .lock()
-            .await
-            .decisions
-            .iter()
-            .find_map(|(known, allowed)| (known == reference).then_some(*allowed))
-    }
-
-    async fn remember_decision(&self, reference: ToolRef, allowed: bool) {
-        let mut state = self.state.lock().await;
-        state.decisions.retain(|(known, _)| known != &reference);
-        state.decisions.push((reference, allowed));
-    }
-
     pub async fn prepare_call(
         &self,
         reference: ToolRef,
@@ -276,7 +260,14 @@ impl ToolBroker {
             SessionUpdate::ToolCall(snapshot(ToolCallStatus::Pending, None)),
         )
         .await;
-        let allowed = match broker.remembered_decision(&reference).await {
+        let remembered = accessor.with(|mut access| {
+            access
+                .get()
+                .tool_decisions
+                .iter()
+                .find_map(|(known, allowed)| (known == &reference).then_some(*allowed))
+        });
+        let allowed = match remembered {
             Some(allowed) => allowed,
             None => {
                 let permission = crate::client_impl::request_permission(
@@ -292,13 +283,14 @@ impl ToolBroker {
                 match permission.outcome {
                     PermissionOutcome::Selected(id) if id == "allow-once" => true,
                     PermissionOutcome::Selected(id) if id == "allow-always" => {
-                        broker.remember_decision(reference.clone(), true).await;
+                        remember_decision(accessor, reference.clone(), true);
                         true
                     }
                     PermissionOutcome::Selected(id) if id == "reject-always" => {
-                        broker.remember_decision(reference.clone(), false).await;
+                        remember_decision(accessor, reference.clone(), false);
                         false
                     }
+
                     _ => false,
                 }
             }
@@ -332,6 +324,18 @@ impl ToolBroker {
         .await;
         result
     }
+}
+
+fn remember_decision<T: Send>(
+    accessor: &Accessor<T, HasSelf<HostState>>,
+    reference: ToolRef,
+    allowed: bool,
+) {
+    accessor.with(|mut access| {
+        let decisions = &mut access.get().tool_decisions;
+        decisions.retain(|(known, _)| known != &reference);
+        decisions.push((reference, allowed));
+    });
 }
 
 fn catalog_from_state(state: &BrokerState) -> Catalog {

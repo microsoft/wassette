@@ -312,6 +312,7 @@ mod tests {
             editor_session_id: None,
             terminal_enabled: false,
             tool_broker: None,
+            tool_decisions: Vec::new(),
         }
     }
 
