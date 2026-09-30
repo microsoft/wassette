@@ -7,6 +7,7 @@ use std::future::Future;
 use std::pin::Pin;
 use std::sync::{Arc, Mutex};
 
+use mcp_server::tools::is_builtin_tool;
 use mcp_server::{
     handle_prompts_list, handle_resources_list, handle_tools_call, handle_tools_list,
     LifecycleManager,
@@ -19,19 +20,14 @@ use rmcp::model::{
 };
 use rmcp::service::{RequestContext, RoleServer, SubscriptionContext, SubscriptionSendError};
 use rmcp::ServerHandler;
-use tokio::sync::broadcast;
+use tokio::sync::{broadcast, Mutex as AsyncMutex};
+use wassette::{CatalogGeneration, CatalogRefreshError, CatalogSnapshot};
 
 /// Buffered tool-list changes per subscriber.
 ///
-/// Every change carries the same "go re-read the list" payload, so a subscriber
-/// that falls behind only ever needs one more notification to catch up.
+/// Each event identifies an observed generation. Lagging subscribers resume at
+/// the retained generations rather than synthesizing another invalidation.
 const TOOL_LIST_CHANGED_CAPACITY: usize = 16;
-
-/// Built-in tools that change which tools the server exposes.
-///
-/// Calling one of these has to reach `subscriptions/listen` streams, which
-/// belong to clients other than the one making the call.
-const TOOL_LIST_MUTATING_TOOLS: [&str; 2] = ["load-component", "unload-component"];
 
 const MCP_SESSION_ID_HEADER: &str = "mcp-session-id";
 
@@ -41,6 +37,21 @@ fn supports_cache_hints(context: &RequestContext<RoleServer>) -> bool {
         .is_some_and(|version| version >= ProtocolVersion::V_2026_07_28)
 }
 
+fn observed_generation(
+    snapshot: anyhow::Result<CatalogSnapshot>,
+) -> anyhow::Result<CatalogGeneration> {
+    match snapshot {
+        Ok(snapshot) => Ok(snapshot.generation),
+        Err(error) => match error.downcast_ref::<CatalogRefreshError>() {
+            Some(refresh) => {
+                tracing::warn!("Catalog refresh published unavailable entries: {error:#}");
+                Ok(refresh.report.generation.clone())
+            }
+            None => Err(error),
+        },
+    }
+}
+
 /// A security-oriented runtime that runs WebAssembly Components via MCP.
 #[derive(Clone)]
 pub struct McpServer {
@@ -48,7 +59,8 @@ pub struct McpServer {
     peer: Arc<Mutex<Option<rmcp::Peer<rmcp::RoleServer>>>>,
     disable_builtin_tools: bool,
     legacy_sessions: bool,
-    tool_list_changed: broadcast::Sender<()>,
+    tool_list_changed: broadcast::Sender<CatalogGeneration>,
+    catalog_generation: Arc<AsyncMutex<CatalogGeneration>>,
 }
 
 impl McpServer {
@@ -58,18 +70,24 @@ impl McpServer {
     /// * `lifecycle_manager` - The lifecycle manager for handling component operations
     /// * `disable_builtin_tools` - Whether to disable built-in tools
     /// * `legacy_sessions` - Whether the pre-`2026-07-28` session lifecycle is served
-    pub fn new(
+    ///
+    /// The initial catalog establishes the notification baseline without
+    /// invalidating it. Unavailable entries still establish a baseline so the
+    /// server can accept repairs; errors without a publication fail construction.
+    pub async fn new(
         lifecycle_manager: LifecycleManager,
         disable_builtin_tools: bool,
         legacy_sessions: bool,
-    ) -> Self {
-        Self {
+    ) -> anyhow::Result<Self> {
+        let generation = observed_generation(lifecycle_manager.catalog().await)?;
+        Ok(Self {
             lifecycle_manager,
             peer: Arc::new(Mutex::new(None)),
             disable_builtin_tools,
             legacy_sessions,
             tool_list_changed: broadcast::channel(TOOL_LIST_CHANGED_CAPACITY).0,
-        }
+            catalog_generation: Arc::new(AsyncMutex::new(generation)),
+        })
     }
 
     /// Whether this request's peer outlives the request that carried it.
@@ -99,37 +117,81 @@ impl McpServer {
                 .is_some_and(|version| version < ProtocolVersion::V_2026_07_28)
     }
 
-    /// Announce that the tool list changed to every client shape.
+    /// Forward in-memory catalog publications until this future is dropped.
     ///
-    /// A stateless client (protocol revision 2026-07-28 and later) has no
-    /// long-lived peer, so it learns about changes by holding open a
-    /// `subscriptions/listen` stream; a legacy client is told through its
-    /// session peer. Callers should not have to know which one is attached, so
-    /// this feeds both.
-    pub fn publish_tool_list_changed(&self) {
-        // An error here only means nobody is subscribed right now.
-        let _ = self.tool_list_changed.send(());
-
-        if let Some(peer) = self.get_peer() {
-            tokio::spawn(async move {
-                if let Err(e) = peer.notify_tool_list_changed().await {
-                    tracing::warn!("Failed to notify tool list changed: {}", e);
+    /// The transport owner must retain and cancel the task running this future.
+    /// Waiting does not poll or refresh the shared store.
+    pub async fn watch_catalog_changes(&self) {
+        loop {
+            let previous = self.catalog_generation.lock().await.clone();
+            let generation = match self.lifecycle_manager.wait_changed(&previous).await {
+                Ok(generation) => generation,
+                Err(error) => {
+                    tracing::error!("Catalog subscription failed: {error:#}");
+                    return;
                 }
+            };
+            let mut published = self.catalog_generation.lock().await;
+            // A direct request may have published a newer generation while the
+            // waiter was waking. Never republish its now-stale observation.
+            if *published != previous {
+                continue;
+            }
+            self.publish_catalog_generation(&mut published, generation, None)
+                .await;
+        }
+    }
+
+    async fn observe_catalog(
+        &self,
+        published: &mut CatalogGeneration,
+        request_peer: Option<&rmcp::Peer<RoleServer>>,
+    ) {
+        match observed_generation(self.lifecycle_manager.catalog().await) {
+            Ok(generation) => {
+                self.publish_catalog_generation(published, generation, request_peer)
+                    .await;
+            }
+            Err(error) => tracing::warn!("Failed to observe catalog generation: {error:#}"),
+        }
+    }
+
+    async fn publish_catalog_generation(
+        &self,
+        published: &mut CatalogGeneration,
+        generation: CatalogGeneration,
+        request_peer: Option<&rmcp::Peer<RoleServer>>,
+    ) {
+        if *published == generation {
+            return;
+        }
+        *published = generation.clone();
+        let _ = self.tool_list_changed.send(generation);
+
+        if let Some(peer) = request_peer {
+            if let Err(error) = peer.notify_tool_list_changed().await {
+                tracing::warn!("Failed to notify requesting peer of catalog change: {error}");
+            }
+        }
+        if let Some(peer) = self.get_peer() {
+            // Clones of a legacy peer share their handshake allocation. Compare
+            // its identity, not client metadata (distinct clients can match).
+            let already_notified = request_peer.is_some_and(|request_peer| {
+                peer.peer_info()
+                    .zip(request_peer.peer_info())
+                    .is_some_and(|(stored, requesting)| Arc::ptr_eq(&stored, &requesting))
             });
+            if !already_notified {
+                if let Err(error) = peer.notify_tool_list_changed().await {
+                    tracing::warn!("Failed to notify persistent peer of catalog change: {error}");
+                }
+            }
         }
     }
 
     /// Subscribe to tool-list changes for one `subscriptions/listen` stream.
-    pub fn subscribe_tool_list_changed(&self) -> broadcast::Receiver<()> {
+    pub fn subscribe_tool_list_changed(&self) -> broadcast::Receiver<CatalogGeneration> {
         self.tool_list_changed.subscribe()
-    }
-
-    /// Announce a tool-list change to subscription streams only.
-    ///
-    /// Used after a built-in tool mutated the tool list, where the calling
-    /// peer has already been notified by the tool handler itself.
-    fn broadcast_tool_list_changed(&self) {
-        let _ = self.tool_list_changed.send(());
     }
 
     /// Track a persistent peer used for background notifications.
@@ -200,28 +262,21 @@ Key points:
         self.track_peer(&ctx);
 
         let disable_builtin_tools = self.disable_builtin_tools;
-        let mutates_tool_list =
-            !disable_builtin_tools && TOOL_LIST_MUTATING_TOOLS.contains(&params.name.as_ref());
         Box::pin(async move {
-            let result = handle_tools_call(
-                params,
-                &self.lifecycle_manager,
-                peer_clone,
-                disable_builtin_tools,
-            )
-            .await;
-            // A failing tool is reported as `Ok` carrying `isError: true`, not as
-            // `Err`, so testing `is_ok` alone would announce a load or unload that
-            // never changed the tool list.
-            let tool_list_mutated = mutates_tool_list
-                && result.as_ref().is_ok_and(|value| {
-                    value.get("isError") != Some(&serde_json::Value::Bool(true))
-                });
-            if tool_list_mutated {
-                // The tool handler already told the calling peer; subscription
-                // streams belong to other clients and still need telling.
-                self.broadcast_tool_list_changed();
-            }
+            let mut published = self.catalog_generation.lock().await;
+            self.observe_catalog(&mut published, None).await;
+            // Lifecycle mutations run in built-in dispatch. Keep their
+            // publication before the response, but do not serialize arbitrary
+            // guest execution behind the notification mutex.
+            let published = is_builtin_tool(params.name.as_ref()).then_some(published);
+            let result =
+                handle_tools_call(params, &self.lifecycle_manager, disable_builtin_tools).await;
+            let mut published = match published {
+                Some(published) => published,
+                None => self.catalog_generation.lock().await,
+            };
+            self.observe_catalog(&mut published, Some(&peer_clone))
+                .await;
             match result {
                 Ok(value) => serde_json::from_value(value)
                     .map(CallToolResponse::Complete)
@@ -243,7 +298,9 @@ Key points:
 
         let disable_builtin_tools = self.disable_builtin_tools;
         Box::pin(async move {
+            let mut published = self.catalog_generation.lock().await;
             let result = handle_tools_list(&self.lifecycle_manager, disable_builtin_tools).await;
+            self.observe_catalog(&mut published, None).await;
             match result {
                 Ok(value) => {
                     let mut result: ListToolsResult =
@@ -357,11 +414,8 @@ Key points:
                     _ = context.cancelled() => return Ok(()),
                     changed = receiver.recv() => {
                         match changed {
-                            Ok(()) => {}
-                            // The stream only ever says "re-read the list", so a
-                            // subscriber that fell behind is caught up by one
-                            // notification.
-                            Err(broadcast::error::RecvError::Lagged(_)) => {}
+                            Ok(_) => {}
+                            Err(broadcast::error::RecvError::Lagged(_)) => continue,
                             Err(broadcast::error::RecvError::Closed) => return Ok(()),
                         }
 
@@ -384,6 +438,7 @@ Key points:
 
 #[cfg(test)]
 mod tests {
+    use std::path::Path;
     use std::time::Duration;
 
     use axum::http::Request;
@@ -391,10 +446,62 @@ mod tests {
     use rmcp::ServiceExt;
     use serde_json::Value;
     use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader, DuplexStream};
+    use tokio::task::JoinSet;
 
     use super::*;
 
     const LEGACY_PROTOCOL_VERSION: &str = "2025-06-18";
+
+    fn test_root() -> tempfile::TempDir {
+        tempfile::tempdir_in(std::env::current_dir().unwrap()).unwrap()
+    }
+
+    async fn component_uri(root: &Path, value: u32) -> String {
+        let source_dir = root.join("source");
+        tokio::fs::create_dir_all(&source_dir).await.unwrap();
+        let path = source_dir.join("catalog-fixture.wasm");
+        let bytes = wat::parse_str(format!(
+            r#"(component $catalog-fixture
+                (core module $m
+                    (func (export "run") (result i32) i32.const {value}))
+                (core instance $i (instantiate $m))
+                (func $run (result u32) (canon lift (core func $i "run")))
+                (export "run" (func $run)))"#
+        ))
+        .unwrap();
+        tokio::fs::write(&path, bytes).await.unwrap();
+        format!("file://{}", path.display())
+    }
+
+    async fn publish_component(server: &McpServer, root: &Path, value: u32) {
+        let uri = component_uri(root, value).await;
+        server.lifecycle_manager.load_component(&uri).await.unwrap();
+        let mut published = server.catalog_generation.lock().await;
+        server.observe_catalog(&mut published, None).await;
+    }
+
+    fn watch_catalog(server: &McpServer) -> JoinSet<()> {
+        let mut tasks = JoinSet::new();
+        let server = server.clone();
+        tasks.spawn(async move { server.watch_catalog_changes().await });
+        tasks
+    }
+
+    async fn expect_subscription_change(receiver: &mut broadcast::Receiver<CatalogGeneration>) {
+        tokio::time::timeout(Duration::from_secs(5), receiver.recv())
+            .await
+            .expect("catalog publication should wake subscribers")
+            .expect("subscription should remain open");
+    }
+
+    async fn expect_no_subscription_change(receiver: &mut broadcast::Receiver<CatalogGeneration>) {
+        assert!(
+            tokio::time::timeout(Duration::from_millis(100), receiver.recv())
+                .await
+                .is_err(),
+            "an unchanged catalog must not be invalidated again"
+        );
+    }
 
     fn initialize_request(protocol_version: &str) -> String {
         format!(
@@ -496,11 +603,13 @@ mod tests {
     /// inject an unsolicited notification into an ordinary response.
     #[tokio::test]
     async fn stateless_request_with_a_stale_session_header_is_not_tracked() {
-        let temp_dir = tempfile::tempdir().expect("temporary component directory should exist");
+        let temp_dir = test_root();
         let lifecycle_manager = LifecycleManager::new(temp_dir.path())
             .await
             .expect("lifecycle manager should be created");
-        let server = McpServer::new(lifecycle_manager, false, true);
+        let server = McpServer::new(lifecycle_manager, false, true)
+            .await
+            .unwrap();
 
         let (peer, client, service) = connect_peer(server.clone()).await;
         let mut context = http_request_context(peer, 1, Some("left-over-session"));
@@ -537,11 +646,13 @@ mod tests {
     /// session header it obtained before the flag was flipped.
     #[tokio::test]
     async fn no_http_peer_is_tracked_when_legacy_sessions_are_disabled() {
-        let temp_dir = tempfile::tempdir().expect("temporary component directory should exist");
+        let temp_dir = test_root();
         let lifecycle_manager = LifecycleManager::new(temp_dir.path())
             .await
             .expect("lifecycle manager should be created");
-        let server = McpServer::new(lifecycle_manager, false, false);
+        let server = McpServer::new(lifecycle_manager, false, false)
+            .await
+            .unwrap();
 
         let (peer, client, service) = connect_peer(server.clone()).await;
         let context = http_request_context(peer, 1, Some("session-from-before"));
@@ -564,11 +675,13 @@ mod tests {
 
     #[tokio::test]
     async fn only_session_http_requests_track_their_peer() {
-        let temp_dir = tempfile::tempdir().expect("temporary component directory should exist");
+        let temp_dir = test_root();
         let lifecycle_manager = LifecycleManager::new(temp_dir.path())
             .await
             .expect("lifecycle manager should be created");
-        let server = McpServer::new(lifecycle_manager, false, true);
+        let server = McpServer::new(lifecycle_manager, false, true)
+            .await
+            .unwrap();
 
         let (stateless_peer, stateless_client, stateless_service) =
             connect_peer(server.clone()).await;
@@ -593,7 +706,7 @@ mod tests {
             server.get_peer().is_some(),
             "a legacy session peer should be retained"
         );
-        server.publish_tool_list_changed();
+        publish_component(&server, temp_dir.path(), 7).await;
         expect_tool_list_changed(&mut session_client).await;
 
         drop(stateless_client);
@@ -610,16 +723,18 @@ mod tests {
     /// persistent peer can remain cached. Neither state should suppress
     /// notifications to subscriptions or the next live peer.
     #[tokio::test]
-    async fn publish_tool_list_changed_handles_peer_lifecycle() {
-        let temp_dir = tempfile::tempdir().expect("temporary component directory should exist");
+    async fn catalog_publication_handles_peer_lifecycle() {
+        let temp_dir = test_root();
         let lifecycle_manager = LifecycleManager::new(temp_dir.path())
             .await
             .expect("lifecycle manager should be created");
-        let server = McpServer::new(lifecycle_manager, false, true);
+        let server = McpServer::new(lifecycle_manager, false, true)
+            .await
+            .unwrap();
         let mut subscription = server.subscribe_tool_list_changed();
 
         assert!(server.get_peer().is_none());
-        server.publish_tool_list_changed();
+        publish_component(&server, temp_dir.path(), 7).await;
         subscription
             .recv()
             .await
@@ -630,7 +745,7 @@ mod tests {
             RequestId::Number(1),
             first_peer.clone(),
         ));
-        server.publish_tool_list_changed();
+        publish_component(&server, temp_dir.path(), 8).await;
         expect_tool_list_changed(&mut first_client).await;
 
         drop(first_client);
@@ -651,7 +766,7 @@ mod tests {
                 .is_some_and(|peer| !peer.is_transport_closed()),
             "a live peer should replace the stale peer"
         );
-        server.publish_tool_list_changed();
+        publish_component(&server, temp_dir.path(), 9).await;
         expect_tool_list_changed(&mut second_client).await;
 
         drop(second_client);
@@ -664,5 +779,282 @@ mod tests {
             server.get_peer().is_none(),
             "get_peer should remove a peer whose transport has closed"
         );
+    }
+
+    #[tokio::test]
+    async fn catalog_waiter_notifies_once_per_generation_and_not_for_runtime_restore() {
+        let root = test_root();
+        let manager = LifecycleManager::new(root.path().join("store"))
+            .await
+            .unwrap();
+        let server = McpServer::new(manager.clone(), false, true).await.unwrap();
+        let mut receiver = server.subscribe_tool_list_changed();
+        let mut tasks = watch_catalog(&server);
+
+        let uri = component_uri(root.path(), 7).await;
+        manager.load_component(&uri).await.unwrap();
+        expect_subscription_change(&mut receiver).await;
+        let initial = manager.catalog().await.unwrap();
+
+        assert!(!manager.refresh_from_store().await.unwrap().changed);
+        assert!(!manager.resnapshot_from_store().await.unwrap().changed);
+        manager
+            .load_existing_components_async(None, None::<fn()>)
+            .await
+            .unwrap();
+        assert_eq!(
+            manager.catalog().await.unwrap().generation,
+            initial.generation
+        );
+        expect_no_subscription_change(&mut receiver).await;
+
+        let uri = component_uri(root.path(), 8).await;
+        manager.load_component(&uri).await.unwrap();
+        expect_subscription_change(&mut receiver).await;
+        let replaced = manager.catalog().await.unwrap();
+        assert_ne!(replaced.generation, initial.generation);
+        assert_eq!(replaced.tools.len(), initial.tools.len());
+        assert_eq!(
+            replaced.tools[0].tool.schema, initial.tools[0].tool.schema,
+            "a revision change must invalidate even when the tool schema is unchanged"
+        );
+        expect_no_subscription_change(&mut receiver).await;
+
+        manager.unload_component("catalog-fixture").await.unwrap();
+        expect_subscription_change(&mut receiver).await;
+        expect_no_subscription_change(&mut receiver).await;
+        tasks.shutdown().await;
+    }
+
+    #[tokio::test]
+    async fn refresh_errors_retain_their_published_generation() {
+        let root = test_root();
+        let manager = LifecycleManager::new(root.path().join("store"))
+            .await
+            .unwrap();
+        let mut report = manager.refresh_from_store().await.unwrap();
+        let generation = report.generation.clone();
+        report.diagnostics.push(wassette::CatalogDiagnostic {
+            component_id: None,
+            message: "Unavailable test entry".to_string(),
+        });
+        let error = anyhow::Error::new(CatalogRefreshError { report });
+        assert_eq!(
+            observed_generation(Err(error)).unwrap(),
+            generation,
+            "unavailability can be published even when refreshing fails"
+        );
+        assert!(observed_generation(Err(anyhow::anyhow!("store could not be read"))).is_err());
+    }
+
+    #[tokio::test]
+    async fn catalog_waiter_requires_explicit_external_refresh_and_stops_with_owner() {
+        let root = test_root();
+        let store = root.path().join("store");
+        let manager = LifecycleManager::new(&store).await.unwrap();
+        let server = McpServer::new(manager.clone(), false, true).await.unwrap();
+        let mut receiver = server.subscribe_tool_list_changed();
+        let mut tasks = watch_catalog(&server);
+        let writer = LifecycleManager::new(&store).await.unwrap();
+        let uri = component_uri(root.path(), 7).await;
+        writer.load_component(&uri).await.unwrap();
+
+        expect_no_subscription_change(&mut receiver).await;
+        assert!(manager.refresh_from_store().await.unwrap().changed);
+        expect_subscription_change(&mut receiver).await;
+        assert!(!manager.refresh_from_store().await.unwrap().changed);
+        expect_no_subscription_change(&mut receiver).await;
+
+        let uri = component_uri(root.path(), 8).await;
+        writer.load_component(&uri).await.unwrap();
+        assert!(manager.resnapshot_from_store().await.unwrap().changed);
+        expect_subscription_change(&mut receiver).await;
+        assert!(!manager.resnapshot_from_store().await.unwrap().changed);
+        expect_no_subscription_change(&mut receiver).await;
+
+        tasks.shutdown().await;
+        assert!(tasks.is_empty());
+        manager.unload_component("catalog-fixture").await.unwrap();
+        expect_no_subscription_change(&mut receiver).await;
+    }
+
+    #[tokio::test]
+    async fn cold_runtime_restore_does_not_invalidate_an_unchanged_catalog() {
+        let root = test_root();
+        let store = root.path().join("store");
+        let writer = LifecycleManager::new(&store).await.unwrap();
+        let uri = component_uri(root.path(), 7).await;
+        writer.load_component(&uri).await.unwrap();
+        let manager = LifecycleManager::builder(&store)
+            .with_secrets_dir(root.path().join("secrets"))
+            .with_eager_loading(false)
+            .build()
+            .await
+            .unwrap();
+        let server = McpServer::new(manager.clone(), false, true).await.unwrap();
+        let mut receiver = server.subscribe_tool_list_changed();
+        let mut tasks = watch_catalog(&server);
+        assert!(manager.list_components().await.is_empty());
+        manager
+            .load_existing_components_async(None, None::<fn()>)
+            .await
+            .unwrap();
+        expect_no_subscription_change(&mut receiver).await;
+        tasks.shutdown().await;
+    }
+
+    #[tokio::test]
+    async fn direct_publication_does_not_replay_a_waiters_stale_generation() {
+        let root = test_root();
+        let manager = LifecycleManager::new(root.path().join("store"))
+            .await
+            .unwrap();
+        let server = McpServer::new(manager.clone(), false, true).await.unwrap();
+        let mut receiver = server.subscribe_tool_list_changed();
+        let mut tasks = watch_catalog(&server);
+        tokio::task::yield_now().await;
+
+        let mut published = server.catalog_generation.lock().await;
+        for value in [7, 8] {
+            let uri = component_uri(root.path(), value).await;
+            manager.load_component(&uri).await.unwrap();
+        }
+        server.observe_catalog(&mut published, None).await;
+        drop(published);
+
+        expect_subscription_change(&mut receiver).await;
+        expect_no_subscription_change(&mut receiver).await;
+        tasks.shutdown().await;
+    }
+
+    #[tokio::test]
+    async fn direct_mutations_notify_before_response_without_waiter_duplicates() {
+        let root = test_root();
+        let manager = LifecycleManager::new(root.path().join("store"))
+            .await
+            .unwrap();
+        let server = McpServer::new(manager, false, true).await.unwrap();
+        let mut receiver = server.subscribe_tool_list_changed();
+        let mut tasks = watch_catalog(&server);
+        let (_peer, mut client, service) = connect_peer(server.clone()).await;
+        let uri = component_uri(root.path(), 7).await;
+        let missing_uri = format!("file://{}", root.path().join("missing.wasm").display());
+
+        for (id, name, arguments, changed, is_error) in [
+            (
+                2,
+                "load-component",
+                serde_json::json!({"path": uri}),
+                true,
+                false,
+            ),
+            (
+                3,
+                "load-component",
+                serde_json::json!({"path": missing_uri}),
+                false,
+                true,
+            ),
+            (4, "list-components", serde_json::json!({}), false, false),
+            (
+                5,
+                "unload-component",
+                serde_json::json!({"id": "catalog-fixture"}),
+                true,
+                false,
+            ),
+        ] {
+            let request = serde_json::json!({
+                "jsonrpc": "2.0",
+                "id": id,
+                "method": "tools/call",
+                "params": {"name": name, "arguments": arguments},
+            });
+            client
+                .get_mut()
+                .write_all(format!("{request}\n").as_bytes())
+                .await
+                .unwrap();
+            client.get_mut().flush().await.unwrap();
+            if changed {
+                expect_tool_list_changed(&mut client).await;
+                expect_subscription_change(&mut receiver).await;
+            }
+            let mut response = String::new();
+            tokio::time::timeout(Duration::from_secs(5), client.read_line(&mut response))
+                .await
+                .unwrap()
+                .unwrap();
+            let response: Value = serde_json::from_str(&response).unwrap();
+            assert_eq!(response["id"], id, "{response}");
+            assert_eq!(response["result"]["isError"], is_error, "{response}");
+            expect_no_subscription_change(&mut receiver).await;
+            let mut extra = String::new();
+            assert!(
+                tokio::time::timeout(Duration::from_millis(100), client.read_line(&mut extra))
+                    .await
+                    .is_err(),
+                "one catalog generation must produce only one peer notification: {extra}"
+            );
+        }
+
+        tasks.shutdown().await;
+        drop(client);
+        tokio::time::timeout(Duration::from_secs(5), service)
+            .await
+            .unwrap()
+            .unwrap();
+    }
+
+    #[tokio::test]
+    async fn stateless_mutation_notifies_the_caller_and_the_persistent_peer_once() {
+        let root = test_root();
+        let manager = LifecycleManager::new(root.path().join("store"))
+            .await
+            .unwrap();
+        let server = McpServer::new(manager, false, true).await.unwrap();
+        let mut receiver = server.subscribe_tool_list_changed();
+        let mut tasks = watch_catalog(&server);
+        let (persistent_peer, mut persistent_client, persistent_service) =
+            connect_peer(server.clone()).await;
+        server.track_peer(&RequestContext::new(
+            RequestId::Number(1),
+            persistent_peer.clone(),
+        ));
+        let (request_peer, mut request_client, request_service) =
+            connect_peer(server.clone()).await;
+        let context = http_request_context(request_peer, 2, None);
+        let uri = component_uri(root.path(), 7).await;
+        let result = server
+            .call_tool(
+                CallToolRequestParams::new("load-component").with_arguments(
+                    serde_json::Map::from_iter([("path".to_string(), serde_json::json!(uri))]),
+                ),
+                context,
+            )
+            .await
+            .unwrap();
+        let CallToolResponse::Complete(result) = result else {
+            panic!("loading a component should complete immediately");
+        };
+        assert_eq!(result.is_error, Some(false));
+        expect_tool_list_changed(&mut request_client).await;
+        expect_tool_list_changed(&mut persistent_client).await;
+        expect_subscription_change(&mut receiver).await;
+        expect_no_subscription_change(&mut receiver).await;
+        assert!(Arc::ptr_eq(
+            &server.get_peer().unwrap().peer_info().unwrap(),
+            &persistent_peer.peer_info().unwrap(),
+        ));
+
+        tasks.shutdown().await;
+        drop(request_client);
+        drop(persistent_client);
+        for service in [request_service, persistent_service] {
+            tokio::time::timeout(Duration::from_secs(5), service)
+                .await
+                .unwrap()
+                .unwrap();
+        }
     }
 }

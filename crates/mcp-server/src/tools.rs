@@ -8,7 +8,6 @@ use std::time::Instant;
 
 use anyhow::{Context, Result};
 use rmcp::model::{CallToolRequestParams, CallToolResult, ContentBlock, Tool};
-use rmcp::{Peer, RoleServer};
 use serde_json::{json, Value};
 use tracing::{debug, error, info, instrument, warn};
 use wassette::{format_error_chain, LifecycleManager};
@@ -44,7 +43,7 @@ pub async fn handle_tools_list(
 }
 
 /// Check if a tool name is a builtin tool
-fn is_builtin_tool(name: &str) -> bool {
+pub fn is_builtin_tool(name: &str) -> bool {
     matches!(
         name,
         "load-component"
@@ -108,12 +107,11 @@ fn sanitize_args_for_logging(args: &Option<serde_json::Map<String, Value>>) -> S
     }
 }
 
-/// Handles a tool call request.
+/// Handles a tool call request without transport-specific notifications.
 #[instrument(skip_all, fields(method_name = %req.name))]
 pub async fn handle_tools_call(
     req: CallToolRequestParams,
     lifecycle_manager: &LifecycleManager,
-    server_peer: Peer<RoleServer>,
     disable_builtin_tools: bool,
 ) -> Result<Value> {
     let start_time = Instant::now();
@@ -137,10 +135,10 @@ pub async fn handle_tools_call(
         // Handle builtin tools (if enabled) or component calls
         match req.name.as_ref() {
             "load-component" if !disable_builtin_tools => {
-                handle_load_component(&req, lifecycle_manager, server_peer).await
+                handle_load_component(&req, lifecycle_manager).await
             }
             "unload-component" if !disable_builtin_tools => {
-                handle_unload_component(&req, lifecycle_manager, server_peer).await
+                handle_unload_component(&req, lifecycle_manager).await
             }
             "list-components" if !disable_builtin_tools => {
                 handle_list_components(lifecycle_manager).await

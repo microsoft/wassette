@@ -131,8 +131,8 @@ Stale compilation cannot overwrite a new installation or resurrect a removal.
 Invalidating a cache never deletes installed Wasm. Cache failures are logged and
 can require rebuilding. `snapshot_if_changed(None)` always returns full inventory;
 a known cursor detects changes from other processes without relying on an
-in-process notification. General catalog refresh and protocol update feeds are
-separate runtime responsibilities, not a filesystem watcher in this layer.
+in-process notification. The runtime catalog consumes this cursor; it is not a
+second durable generation file or a filesystem watcher.
 
 Explicit uninstall records a retired reservation and preserves secrets.
 Managed-source cleanup additionally compares exact ownership and revision, so
@@ -200,8 +200,9 @@ Classification does not validate imports, promise compatibility, or authorize
 execution; those remain the selected runtime's responsibilities.
 
 Lazy restoration reads the current receipt and replaces a stale runtime revision
-from one coherent snapshot. It does not add a background cross-process catalog
-refresh driver or promise immediate tool-list notifications.
+from one coherent snapshot. Catalog reads validate current captured bytes even
+when the store cursor has not advanced, so caches cannot hide a missing semantic
+name, changed runtime kind, or damaged artifact.
 
 ## Component-scoped tools
 
@@ -209,15 +210,16 @@ refresh driver or promise immediate tool-list notifications.
 (package, interface and function spelling). `list_tool_descriptors` and
 `list_tools_for_component` return these keys with the existing tool schemas;
 `describe_scoped_tool` selects an exact export, and `invoke_scoped_tool` calls it.
-Listing uses receipt-bound metadata when available and lazy restoration otherwise.
+Listing uses receipt-bound metadata when available and validated cold compilation otherwise.
 Install-only and ACP receipts cannot enter these APIs, including through caches.
-The inventory is not an atomic cross-component catalog snapshot.
+These compatibility APIs drop revision references from the atomic catalog;
+use `catalog()` when a consumer must retain permission-relevant identity.
 
 Exact keys distinguish exports with the same normalized tool name, both across
 components and within a component. The legacy `execute_component_call` resolves
 a unique normalized name **only within the requested component**. The MCP
 consumer uses `invoke_unique_tool`, which retains global collision refusal and
-rechecks it after lazy loading. Neither path silently picks the first match or
+rechecks it at final admission. Neither path silently picks the first match or
 renames colliding tools.
 
 Invocation clones the component instance, exact export and descriptor together.
@@ -227,9 +229,100 @@ Every call still creates a fresh Wasmtime store with the selected instance's
 policy and bound component secrets; no registry or store lock spans execution.
 
 These keys and descriptors are **unversioned**, not permission tokens. Reusing
-a key after replacement can invoke new code. Revision-bound handles, final
-permission admission, catalog refresh feeds and execution supervision belong to
-the next runtime layer; this API does not promise them or hard cancellation.
+a key after replacement can invoke new code. Use the revision-bound interface
+below across a permission prompt or an admission queue.
+
+## Revision-bound catalog and admission
+
+```rust
+use serde_json::Value;
+use wassette::{LifecycleManager, ToolInvocationError, ToolOutput, ToolRef};
+
+async fn invoke_approved(
+    manager: &LifecycleManager,
+    reference: &ToolRef,
+    arguments: &Value,
+) -> Result<ToolOutput, ToolInvocationError> {
+    // The caller retains the reference originally shown for approval.
+    manager.prepare_invocation(reference, arguments).await?.run().await
+}
+```
+
+`catalog()` returns one `CatalogSnapshot` of `ToolDescriptor` values. Each contains
+the complete canonical schema and an opaque `ToolRef`: semantic component ID,
+exact export, opaque `EntryRevision`, and a descriptor-contract fingerprint.
+Remove/reinstall and store recreation invalidate old references even when bytes
+and schemas are identical. A reference is not itself authorization. Equal names
+do not bypass source continuity or the receipt's private storage/secret binding.
+
+`prepare_invocation` captures immutable code, schema, effective policy, private
+configuration/secrets and fresh call resources without executing guest code.
+The owned `Send + 'static` `PreparedInvocation` can move into the caller's job.
+`run` starts with a short cursor/revision admission check; name-based convenience
+calls also verify uniqueness in the complete eligible catalog. Stale references
+fail before guest side effects rather than selecting replacement code.
+
+No load, store or registry lock spans execution. Once admitted, a call completes
+using its original code, policy, secrets and output schema. Later replacement,
+removal or policy narrowing rejects new stale admissions but **does not revoke
+an already-admitted call**. Secret values are not included in reference hashes;
+secret edits do not independently invalidate approval references. Each preparation
+captures the current bound secrets, and read/parse failure is not treated as absence.
+
+Host failures are typed as `ToolInvocationError`: `NotFound`, `Stale`,
+`InvalidArguments`, `PolicyDenied`, `ExecutionFailed` and `Unavailable`, with
+contextual sources. Initial alias lookup retains `ToolLookupError::NotFound` and
+`Ambiguous`; an issued reference whose entry disappears is stale. A known host
+policy denial is distinct from a guest trap or a returned WIT `err`.
+
+### Refresh and notification ownership
+
+`refresh_from_store()` checks the durable cursor; first use always hydrates.
+`resnapshot_from_store()` forces a full observation after lost hints or an epoch
+change. Concurrent callers share the manager's refresh gate. Compilation,
+metadata rebuilding and policy preparation happen outside filesystem locks.
+The complete candidate is published only after a final checked cursor comparison.
+Old preparation cannot resurrect removed entries or overwrite current caches.
+Cold name lookup rebuilds hashless/missing metadata synchronously; it does not
+depend on a background loader or return an empty-success fallback.
+
+Refresh failure does not acknowledge the attempted cursor. It reports errors
+and unavailable entries; partial hydration cannot make an ambiguous name appear
+unique. `CatalogRefreshError::report` exposes availability diagnostics without
+captured policy/secret contents. Exact unaffected references can still be
+prepared and admitted against their own current receipt.
+
+`CatalogGeneration` identifies a runtime instance and its in-memory publication
+sequence, not a store revision. Clones share it; independent managers do not.
+Only changes to references, descriptors, membership or availability advance it.
+Cache warming alone does not. Retired and InstallOnly receipts never contribute
+callable tools; `ExposeTools` eligibility still does not grant permission.
+
+`wait_changed(&generation)` observes **in-memory publications only**. A foreign
+token returns immediately so the caller can resnapshot; lagging consumers read
+the latest snapshot rather than replaying a durable event log. Reads and own
+commits (including no-ops) reconcile the catalog. For idle external commits, a
+host can run `run_refresh_driver(interval, shutdown)` in a task it owns and reaps.
+The interval must be nonzero; there is no default polling task or new CLI flag.
+Driver errors are returned to the owner, not swallowed. Catalog publication and
+admission retry contention at most eight times before returning an error.
+
+The driver only polls the installed store. It cannot discover a new source file
+that has not been installed; local source scanning/watching and reconciliation
+remain separate. A source watcher and store polling may coexist. Neither may
+disable post-reconcile freshness. MCP deduplicates list-change notifications by
+published generation, after publication and before a direct mutation response.
+
+### Execution supervision
+
+Core does not spawn invocation jobs. An ACP broker or other supervisor owns the
+actual job, its handle and its concurrency permit; a guest waits on a separate
+response receiver. Dropping the receiver must not release the permit while the
+job continues. The permit is released on actual completion.
+
+Tokio cancellation/timeouts do not interrupt CPU-bound Wasm that does not yield.
+This interface adds no fuel, epoch interruption, hard deadline or rollback of
+completed side effects, and does not establish a global MCP concurrency limit.
 
 ## Tool result presentation
 

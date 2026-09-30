@@ -204,7 +204,8 @@ async fn unnamed_legacy_files_are_protected_not_filename_named_tools() -> Result
     let legacy = wat::parse_str("(component)")?;
     tokio::fs::write(store.join("private-key.wasm"), &legacy).await?;
     let manager = manager(root.path()).await?;
-    manager.load_all_components().await?;
+    assert!(manager.load_all_components().await.is_err());
+    assert!(manager.catalog().await.is_err());
     assert!(manager.list_tools().await.is_empty());
     let source = root.path().join("private-key.wasm");
     tokio::fs::write(&source, named_tool("semantic", 1)?).await?;

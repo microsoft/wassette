@@ -207,13 +207,14 @@ mod tests {
         )
         .await?;
         assert!(
-            builtin.list_tools().await.is_empty(),
-            "invoking a built-in must not scan and validate every installed component's metadata"
+            builtin.refresh_from_store().await?.changed,
+            "a built-in must leave catalog hydration to the first explicit refresh"
         );
 
         let component_tool =
             create_lifecycle_manager_for_tool_invoke(Some(dir.path().to_path_buf()), "cached-tool")
                 .await?;
+        assert!(!component_tool.refresh_from_store().await?.changed);
         assert_eq!(
             component_tool
                 .get_component_id_for_tool("cached-tool")

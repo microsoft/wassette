@@ -20,9 +20,8 @@ use std::time::Instant;
 
 use anyhow::{anyhow, bail, Context, Result};
 use component2json::{
-    component_exports_to_json_schema, component_exports_to_json_schema_with_docs,
     component_exports_to_tools, component_exports_to_tools_with_docs, create_placeholder_results,
-    extract_package_docs, json_to_vals, vals_to_json, FunctionIdentifier, ToolMetadata,
+    extract_package_docs, vals_to_json, FunctionIdentifier, ToolMetadata,
 };
 use etcetera::BaseStrategy;
 use serde::{Deserialize, Serialize};
@@ -59,6 +58,7 @@ mod store_integration_tests;
 mod store_runtime;
 mod store_support;
 pub mod tool;
+pub mod tool_catalog;
 pub mod tool_result;
 #[cfg(test)]
 mod tool_tests;
@@ -77,8 +77,11 @@ use policy_internal::PolicyManager;
 pub use policy_internal::{PermissionGrantRequest, PermissionRule, PolicyInfo};
 use runtime_context::RuntimeContext;
 pub use secrets::{SecretBinding, SecretsManager};
-use tool::ToolSelector;
 pub use tool::{ScopedToolDescriptor, ScopedToolOutput, ToolKey, ToolLookupError};
+pub use tool_catalog::{
+    CatalogDiagnostic, CatalogGeneration, CatalogRefreshError, CatalogSnapshot, PreparedInvocation,
+    RefreshReport, ToolDescriptor, ToolInvocationError, ToolOutput, ToolRef,
+};
 use wasistate::WasiState;
 pub use wasistate::{
     create_wasi_state_template_from_policy, CustomResourceLimiter, PermissionError,
@@ -201,6 +204,8 @@ struct ComponentRegistryState {
     components: HashMap<String, ComponentInstance>,
     tool_map: HashMap<String, Vec<ToolInfo>>,
     component_map: HashMap<String, Vec<String>>,
+    // Warming an instance changes the registry without changing the store cursor.
+    modification: Arc<()>,
 }
 
 impl std::fmt::Debug for ComponentRegistryState {
@@ -265,6 +270,7 @@ impl ComponentRegistry {
         ids
     }
 
+    #[cfg(test)]
     async fn list_tools(&self) -> Vec<Value> {
         let state = self.state.read().await;
         state
@@ -300,6 +306,7 @@ impl ComponentRegistryState {
     }
 
     fn unregister_tools(&mut self, component_id: &str) {
+        self.modification = Arc::new(());
         if let Some(tools) = self.component_map.remove(component_id) {
             for tool_name in tools {
                 if let Some(tool_infos) = self.tool_map.get_mut(&tool_name) {
@@ -334,6 +341,7 @@ impl ComponentRegistryState {
     }
 
     fn register_tools_only(&mut self, component_id: &str, tools: Vec<ToolMetadata>) {
+        self.modification = Arc::new(());
         let incoming_names: Vec<String> = tools
             .iter()
             .map(|tool| tool.normalized_name.clone())
@@ -388,6 +396,7 @@ pub struct LifecycleManager {
     config: LifecycleConfig,
     policy_manager: PolicyManager,
     secrets_manager: Arc<SecretsManager>,
+    catalog_runtime: Arc<tool_catalog::CatalogRuntime>,
 }
 
 /// A representation of a loaded component instance. It contains both the base component info and a
@@ -396,7 +405,6 @@ pub struct LifecycleManager {
 pub struct ComponentInstance {
     component: Arc<Component>,
     instance_pre: Arc<InstancePre<WassetteWasiState<WasiState>>>,
-    package_docs: Option<Value>,
     policy_template: Arc<WasiStateTemplate>,
     revision: Option<store::EntryRevision>,
     artifact_sha256: String,
@@ -470,6 +478,7 @@ impl LifecycleManager {
             config,
             policy_manager,
             secrets_manager,
+            catalog_runtime: Arc::new(tool_catalog::CatalogRuntime::new()?),
         })
     }
 
@@ -488,6 +497,7 @@ impl LifecycleManager {
         }
 
         info!("LifecycleManager finished loading components");
+        self.refresh_from_store().await?;
         Ok(())
     }
 
@@ -516,7 +526,6 @@ impl LifecycleManager {
         let component_instance = ComponentInstance {
             component: Arc::new(component),
             instance_pre: Arc::new(instance_pre),
-            package_docs: package_docs.clone(),
             policy_template: Arc::new(WasiStateTemplate::default()),
             revision: None,
             artifact_sha256: String::new(),
@@ -646,19 +655,27 @@ impl LifecycleManager {
                 .entries
                 .into_iter()
                 .find(|entry| entry.component_id().as_str() == id);
-            let Some(store::StoredEntry::Installed(receipt)) = selected else {
-                return manager.unregister_at_cursor(&id, &snapshot.cursor).await;
+            let publication = if let Some(store::StoredEntry::Installed(receipt)) = selected {
+                let selected_id = id.clone();
+                let outcome = store_support::store_operation(&manager.store, move |store| {
+                    Ok(store.remove(
+                        &selected_id,
+                        &receipt.revision,
+                        store::RemovalAuthority::Explicit,
+                    )?)
+                })
+                .await?;
+                manager.publish_removal(outcome).await
+            } else {
+                manager.unregister_at_cursor(&id, &snapshot.cursor).await
             };
-            let selected_id = id.clone();
-            let outcome = store_support::store_operation(&manager.store, move |store| {
-                Ok(store.remove(
-                    &selected_id,
-                    &receipt.revision,
-                    store::RemovalAuthority::Explicit,
-                )?)
-            })
-            .await?;
-            manager.publish_removal(outcome).await?;
+            drop(_guard);
+            let refresh = manager
+                .refresh_from_store()
+                .await
+                .context("Uninstall completed, but catalog reconciliation failed");
+            publication?;
+            refresh?;
             info!(component_id = %id, "Component unloaded successfully");
             Ok(())
         })
@@ -670,20 +687,29 @@ impl LifecycleManager {
     /// If there are multiple components with the same tool name, returns an error.
     #[instrument(skip(self))]
     pub async fn get_component_id_for_tool(&self, tool_name: &str) -> Result<String> {
-        let state = self.registry.state.read().await;
-        Ok(state
-            .resolve_tool(ToolSelector::Name {
-                component_id: None,
-                name: tool_name,
-            })?
+        let catalog = self.catalog().await?;
+        Ok(tool_catalog::resolve_name(&catalog.tools, None, tool_name)?
+            .tool
+            .key
             .component_id
-            .clone())
+            .as_str()
+            .to_owned())
     }
 
     /// Lists all available tools across all components
     #[instrument(skip(self))]
     pub async fn list_tools(&self) -> Vec<Value> {
-        self.registry.list_tools().await
+        match self.catalog().await {
+            Ok(catalog) => catalog
+                .tools
+                .into_iter()
+                .map(|tool| tool.tool.schema)
+                .collect(),
+            Err(error) => {
+                warn!(error = %format_error_chain(&error), "Cannot list current tools; use catalog() for a fallible result");
+                Vec::new()
+            }
+        }
     }
 
     /// Returns the schema for a unique normalized name owned by a component.
@@ -694,12 +720,15 @@ impl LifecycleManager {
         component_id: &str,
         tool_name: &str,
     ) -> Option<Value> {
-        let state = self.registry.state.read().await;
-        match state.resolve_tool(ToolSelector::Name {
-            component_id: Some(component_id),
-            name: tool_name,
-        }) {
-            Ok(info) => Some(info.schema.clone()),
+        let catalog = match self.catalog().await {
+            Ok(catalog) => catalog,
+            Err(error) => {
+                warn!(%component_id, error = %format_error_chain(&error), "Cannot read current tool schema");
+                return None;
+            }
+        };
+        match tool_catalog::resolve_name(&catalog.tools, Some(component_id), tool_name) {
+            Ok(tool) => Some(tool.tool.schema.clone()),
             Err(error) => {
                 if matches!(error, ToolLookupError::Ambiguous { .. }) {
                     warn!(%component_id, %tool_name, %error, "Cannot select an ambiguous tool schema");
@@ -736,53 +765,22 @@ impl LifecycleManager {
     /// Gets the schema for a specific component
     #[instrument(skip(self))]
     pub async fn get_component_schema(&self, component_id: &str) -> Option<Value> {
-        let snapshot = match self.store_snapshot(component_id).await {
-            Ok(snapshot) if snapshot.receipt.requests_tool_exposure() => snapshot,
+        match self.store_snapshot(component_id).await {
+            Ok(snapshot) if snapshot.receipt.requests_tool_exposure() => {}
             Ok(_) => return None,
             Err(error) => {
                 warn!(%component_id, error = %format_error_chain(&error), "Cannot read component schema binding");
                 return None;
             }
-        };
-        // Prefer live component schema if loaded
-        if let Some(component_instance) = self
-            .get_component(component_id)
-            .await
-            .filter(|instance| instance.revision.as_ref() == Some(&snapshot.receipt.revision))
-        {
-            return Some(
-                if let Some(ref package_docs) = component_instance.package_docs {
-                    component_exports_to_json_schema_with_docs(
-                        &component_instance.component,
-                        self.runtime.as_ref(),
-                        true,
-                        package_docs,
-                    )
-                } else {
-                    component_exports_to_json_schema(
-                        &component_instance.component,
-                        self.runtime.as_ref(),
-                        true,
-                    )
-                },
-            );
         }
-
-        // Fallback to metadata-based schema without compiling the component
-        match self.load_component_metadata(component_id).await {
-            Ok(Some(metadata)) => {
-                let tools: Vec<Value> = metadata
-                    .tool_schemas
-                    .into_iter()
-                    .map(|schema| schema::canonicalize_tool_schema(&schema))
-                    .collect();
-                Some(serde_json::json!({
-                    "tools": tools
-                }))
-            }
-            Ok(None) => None,
+        match self.catalog().await {
+            Ok(catalog) => Some(serde_json::json!({
+                "tools": catalog.tools.into_iter()
+                    .filter(|tool| tool.tool.key.component_id.as_str() == component_id)
+                    .map(|tool| tool.tool.schema).collect::<Vec<_>>()
+            })),
             Err(error) => {
-                warn!(%component_id, error = %format_error_chain(&error), "Cannot read cached component schema");
+                warn!(%component_id, error = %format_error_chain(&error), "Cannot read current component schema");
                 None
             }
         }
@@ -941,6 +939,7 @@ impl LifecycleManager {
     }
 
     /// Load component metadata from disk
+    #[cfg(test)]
     async fn load_component_metadata(
         &self,
         component_id: &str,
@@ -961,6 +960,7 @@ impl LifecycleManager {
         self.wasi_state_for_instance(&component).await
     }
 
+    #[cfg(test)]
     async fn wasi_state_for_instance(
         &self,
         component: &ComponentInstance,
@@ -973,6 +973,12 @@ impl LifecycleManager {
             .policy_manager
             .prepare_bound_template(binding, component.effective_policy.as_deref())
             .await?;
+        Self::wasi_state_from_template(&policy_template)
+    }
+
+    fn wasi_state_from_template(
+        policy_template: &WasiStateTemplate,
+    ) -> Result<(WassetteWasiState<WasiState>, Option<CustomResourceLimiter>)> {
         let wasi_state = policy_template.build()?;
         let allowed_hosts = policy_template.allowed_hosts.clone();
         let resource_limiter = wasi_state.resource_limiter.clone();
@@ -993,19 +999,9 @@ impl LifecycleManager {
         function_name: &str,
         parameters: &str,
     ) -> Result<String> {
-        self.ensure_component_loaded(component_id).await?;
-        let (component, descriptor) = self
-            .select_loaded_tool(ToolSelector::Name {
-                component_id: Some(component_id),
-                name: function_name,
-            })
-            .await
-            .with_context(|| {
-                format!("Failed to resolve tool '{function_name}' in '{component_id}'")
-            })?;
         let arguments = serde_json::from_str(parameters)?;
         Ok(self
-            .execute_tool_call(component, descriptor, &arguments)
+            .invoke_catalog_name(Some(component_id), function_name, &arguments)
             .await?
             .raw_result)
     }
@@ -1014,13 +1010,14 @@ impl LifecycleManager {
         &self,
         component: ComponentInstance,
         descriptor: ScopedToolDescriptor,
-        arguments: &Value,
+        argument_vals: Vec<wasmtime::component::Val>,
+        prepared_state: (WassetteWasiState<WasiState>, Option<CustomResourceLimiter>),
     ) -> Result<ScopedToolOutput> {
         let start_time = Instant::now();
         let component_id = descriptor.key.component_id.as_str();
         let function_id = &descriptor.key.export;
         debug!(%component_id, ?function_id, "Starting WebAssembly component execution");
-        let (state, resource_limiter) = self.wasi_state_for_instance(&component).await?;
+        let (state, resource_limiter) = prepared_state;
 
         let mut store = Store::new(self.runtime.as_ref(), state);
 
@@ -1086,12 +1083,6 @@ impl LifecycleManager {
         };
 
         let func_type = func.ty(&store);
-        let parameter_types = func_type
-            .params()
-            .map(|(name, ty)| (name.to_string(), ty))
-            .collect::<Vec<_>>();
-        let argument_vals = json_to_vals(arguments, &parameter_types)?;
-
         let result_types = func_type.results().collect::<Vec<_>>();
         let mut results = create_placeholder_results(&result_types);
 
@@ -1109,7 +1100,10 @@ impl LifecycleManager {
             // Check if there was a permission error recorded during execution
             if let Some(perm_error) = store.data().get_last_permission_error() {
                 // Return a more informative error with instructions
-                return Err(anyhow!(perm_error.to_user_message(component_id)));
+                return Err(ToolInvocationError::PolicyDenied(anyhow!(
+                    perm_error.to_user_message(component_id)
+                ))
+                .into());
             }
             // Otherwise, return the original WASM execution error
             return Err(e.into());
@@ -1192,14 +1186,15 @@ impl LifecycleManager {
         Ok(())
     }
 
-    /// Populate the tool registry from receipt-bound caches without compilation.
+    /// Populate the current registry from receipt-bound metadata or validated cold compilation.
     ///
     /// The whole batch is published while the expected store cursor is held by a checked
     /// read scope. A concurrent mutation causes a retryable error, not partial hydration
-    /// or resurrection of an uninstalled entry. Missing caches are left for lazy/background
-    /// restoration. General catalog refresh and adapter notifications are separate concerns.
+    /// or resurrection of an uninstalled entry. Missing/invalid caches are rebuilt here,
+    /// including for one-shot callers without a background loader.
     pub async fn populate_registry_from_metadata(&self) -> Result<()> {
-        self.hydrate_cached_registry().await
+        self.refresh_from_store().await?;
+        Ok(())
     }
 }
 
@@ -1993,7 +1988,7 @@ mod tests {
 
         let manager = LifecycleManager::from_config(config).await?;
         assert!(manager.list_components().await.is_empty());
-        assert!(manager.list_tools().await.is_empty());
+        assert!(manager.registry.list_tools().await.is_empty());
 
         Ok(TestLifecycleManager {
             manager,
@@ -2072,7 +2067,7 @@ mod tests {
         for _ in 0..20 {
             tokio::time::sleep(std::time::Duration::from_millis(50)).await;
             assert!(
-                manager.list_tools().await.is_empty(),
+                manager.registry.list_tools().await.is_empty(),
                 "hydration must not register tools while another load holds the component's guard"
             );
         }
@@ -2122,10 +2117,7 @@ mod tests {
         )?;
         drop(held);
 
-        assert!(
-            hydrate.await?.is_err(),
-            "a stale hydration must report its conflict"
-        );
+        hydrate.await??;
 
         assert!(
             manager.list_tools().await.is_empty(),
@@ -2197,7 +2189,7 @@ mod tests {
                 .with_eager_loading(false)
                 .build()
                 .await?;
-            assert!(manager.list_tools().await.is_empty());
+            assert!(manager.registry.list_tools().await.is_empty());
 
             // Stand in for a concurrent load or unload of this component. Hydration reaches it
             // and waits, with the other component either already handled or still to come.
@@ -2208,20 +2200,20 @@ mod tests {
                 let manager = manager.clone();
                 async move { manager.populate_registry_from_metadata().await }
             });
+            let resolve = tokio::spawn({
+                let manager = manager.clone();
+                async move { manager.get_component_id_for_tool(COLLIDING_TOOL).await }
+            });
 
             for _ in 0..10 {
                 tokio::time::sleep(std::time::Duration::from_millis(50)).await;
                 assert!(
-                    manager.list_tools().await.is_empty(),
+                    manager.registry.list_tools().await.is_empty(),
                     "hydration blocked on {blocked} must not publish part of the registry"
                 );
                 assert!(
-                    manager
-                        .get_component_id_for_tool(COLLIDING_TOOL)
-                        .await
-                        .is_err(),
-                    "a tool exported by two installed components must not resolve to one of \
-                     them while hydration is blocked on {blocked}"
+                    !resolve.is_finished(),
+                    "name resolution must wait for complete hydration of {blocked}"
                 );
             }
             assert!(
@@ -2232,9 +2224,8 @@ mod tests {
             drop(held);
             hydrate.await??;
 
-            let error = manager
-                .get_component_id_for_tool(COLLIDING_TOOL)
-                .await
+            let error = resolve
+                .await?
                 .expect_err("the collision must be reported once hydration has finished");
             assert!(
                 error.to_string().contains("Multiple components"),

@@ -6,7 +6,6 @@ use std::sync::Arc;
 use anyhow::Result;
 use futures::stream::{self, StreamExt};
 use rmcp::model::{CallToolRequestParams, CallToolResult, ContentBlock, Tool};
-use rmcp::{Peer, RoleServer};
 use serde_json::{json, Value};
 use tracing::{debug, error, info, instrument};
 use wassette::schema::canonicalize_output_schema;
@@ -30,7 +29,6 @@ pub(crate) async fn get_component_tools(lifecycle_manager: &LifecycleManager) ->
 pub(crate) async fn handle_load_component(
     req: &CallToolRequestParams,
     lifecycle_manager: &LifecycleManager,
-    server_peer: Peer<RoleServer>,
 ) -> Result<CallToolResult> {
     let args = extract_args_from_request(req)?;
     let path = args
@@ -52,7 +50,6 @@ pub(crate) async fn handle_load_component(
                 operation = "load-component",
                 "Component loaded successfully"
             );
-            handle_tool_list_notification(Some(server_peer), &outcome.component_id, "load").await;
             create_load_component_success_result(&outcome)
         }
         Err(e) => {
@@ -72,7 +69,6 @@ pub(crate) async fn handle_load_component(
 pub(crate) async fn handle_unload_component(
     req: &CallToolRequestParams,
     lifecycle_manager: &LifecycleManager,
-    server_peer: Peer<RoleServer>,
 ) -> Result<CallToolResult> {
     let args = extract_args_from_request(req)?;
     let id = args
@@ -93,7 +89,6 @@ pub(crate) async fn handle_unload_component(
                 operation = "unload-component",
                 "Component unloaded successfully"
             );
-            handle_tool_list_notification(Some(server_peer), id, "unload").await;
             create_component_success_result("unload", id)
         }
         Err(e) => {
@@ -280,27 +275,7 @@ fn create_component_error_result(
     CallToolResult::error(contents)
 }
 
-/// Handle tool list change notification
-async fn handle_tool_list_notification(
-    server_peer: Option<Peer<RoleServer>>,
-    component_id: &str,
-    operation_name: &str,
-) {
-    if let Some(peer) = server_peer {
-        if let Err(e) = peer.notify_tool_list_changed().await {
-            error!(error = %e, "Failed to send tool list change notification");
-        } else {
-            info!(
-                component_id = %component_id,
-                "Sent tool list changed notification after {}ing component", operation_name
-            );
-        }
-    } else {
-        info!(component_id = %component_id, "Component {}ed successfully in CLI mode", operation_name);
-    }
-}
-
-/// CLI-specific version of handle_load_component that doesn't require server peer notifications
+/// Load a component without transport-specific notifications.
 #[instrument(skip(lifecycle_manager))]
 pub async fn handle_load_component_cli(
     req: &CallToolRequestParams,
@@ -315,10 +290,7 @@ pub async fn handle_load_component_cli(
     info!(path, "Loading component (CLI mode)");
 
     match lifecycle_manager.load_component(path).await {
-        Ok(outcome) => {
-            handle_tool_list_notification(None, &outcome.component_id, "load").await;
-            create_load_component_success_result(&outcome)
-        }
+        Ok(outcome) => create_load_component_success_result(&outcome),
         Err(e) => {
             let e = e.context(format!("Failed to load component: {path}"));
             error!(error = %format_error_chain(&e), path, "Failed to load component");
@@ -327,7 +299,7 @@ pub async fn handle_load_component_cli(
     }
 }
 
-/// CLI-specific version of handle_unload_component that doesn't require server peer notifications
+/// Unload a component without transport-specific notifications.
 #[instrument(skip(lifecycle_manager))]
 pub async fn handle_unload_component_cli(
     req: &CallToolRequestParams,
@@ -342,10 +314,7 @@ pub async fn handle_unload_component_cli(
     info!(component_id = %id, "Unloading component (CLI mode)");
 
     match lifecycle_manager.unload_component(id).await {
-        Ok(()) => {
-            handle_tool_list_notification(None, id, "unload").await;
-            create_component_success_result("unload", id)
-        }
+        Ok(()) => create_component_success_result("unload", id),
         Err(e) => {
             error!(error = %format_error_chain(&e), "Failed to unload component");
             Ok(create_component_error_result("unload", id, &e))
