@@ -1,4 +1,4 @@
-package wassette:acp@7.0.0;
+package wassette:acp@0.8.0;
 
 /// Session lifecycle types: identifiers, MCP server configuration, modes, and
 /// new/load/list/resume payloads.
