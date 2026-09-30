@@ -19965,6 +19965,457 @@ pub mod wassette {
             }
         }
     }
+    pub mod component_generation {
+        /// Explicit host-authorized generation, independent of an agent protocol.
+        ///
+        /// This package is canonical. Host WIT dependency trees link to this directory;
+        /// they must not maintain independent copies. No WASI or async ABI is required.
+        #[allow(dead_code, async_fn_in_trait, unused_imports, clippy::all)]
+        pub mod builder {
+            #[used]
+            #[doc(hidden)]
+            static __FORCE_SECTION_REF: fn() = super::super::super::__link_custom_section_describing_imports;
+            use super::super::super::_rt;
+            /// What the host actually made available after the shared-store operation.
+            #[repr(u8)]
+            #[derive(Clone, Copy, Eq, Ord, PartialEq, PartialOrd)]
+            pub enum Disposition {
+                /// Installed without making tools eligible for execution.
+                Installed,
+                /// Ordinary tools are eligible; no agent-session exposure is implied.
+                ToolsEligible,
+                /// Ordinary tools were also added to the requesting agent session.
+                SessionTools,
+                /// An ACP layer was installed; later explicit selection is required.
+                LaterSelectionRequired,
+                /// A durable commit occurred, but the requested publication did not finish.
+                CommittedNotExposed,
+            }
+            impl ::core::fmt::Debug for Disposition {
+                fn fmt(
+                    &self,
+                    f: &mut ::core::fmt::Formatter<'_>,
+                ) -> ::core::fmt::Result {
+                    match self {
+                        Disposition::Installed => {
+                            f.debug_tuple("Disposition::Installed").finish()
+                        }
+                        Disposition::ToolsEligible => {
+                            f.debug_tuple("Disposition::ToolsEligible").finish()
+                        }
+                        Disposition::SessionTools => {
+                            f.debug_tuple("Disposition::SessionTools").finish()
+                        }
+                        Disposition::LaterSelectionRequired => {
+                            f.debug_tuple("Disposition::LaterSelectionRequired").finish()
+                        }
+                        Disposition::CommittedNotExposed => {
+                            f.debug_tuple("Disposition::CommittedNotExposed").finish()
+                        }
+                    }
+                }
+            }
+            impl Disposition {
+                #[doc(hidden)]
+                pub unsafe fn _lift(val: u8) -> Disposition {
+                    if !cfg!(debug_assertions) {
+                        return unsafe { ::core::mem::transmute(val) };
+                    }
+                    match val {
+                        0 => Disposition::Installed,
+                        1 => Disposition::ToolsEligible,
+                        2 => Disposition::SessionTools,
+                        3 => Disposition::LaterSelectionRequired,
+                        4 => Disposition::CommittedNotExposed,
+                        _ => panic!("invalid enum discriminant"),
+                    }
+                }
+            }
+            /// Canonical core outcome plus protocol-local publication information.
+            #[derive(Clone)]
+            pub struct GenerationReport {
+                /// JSON from the core generation outcome, including its actual receipt.
+                pub report_json: _rt::String,
+                /// Actual publication, never an inferred rollback after commit.
+                pub disposition: Disposition,
+                /// Host-issued handles in the requesting session only; empty for layers.
+                pub tool_handles: _rt::Vec<_rt::String>,
+            }
+            impl ::core::fmt::Debug for GenerationReport {
+                fn fmt(
+                    &self,
+                    f: &mut ::core::fmt::Formatter<'_>,
+                ) -> ::core::fmt::Result {
+                    f.debug_struct("GenerationReport")
+                        .field("report-json", &self.report_json)
+                        .field("disposition", &self.disposition)
+                        .field("tool-handles", &self.tool_handles)
+                        .finish()
+                }
+            }
+            /// Typed management failures. Source bodies and compiler diagnostics are not logs.
+            #[derive(Clone)]
+            pub enum GenerationError {
+                /// The operator has not enabled this capability.
+                Disabled,
+                /// There is no authenticated host session/caller binding.
+                SessionNotBound,
+                /// Operator authority or this call's UI approval denied an operation.
+                PermissionDenied,
+                /// Cancelled before the host accepted a durable commit.
+                Cancelled,
+                /// All bounded supervised worker slots are occupied.
+                Busy,
+                /// Malformed or oversized input, never a host configuration path.
+                InvalidRequest(_rt::String),
+                /// The requested or committed revision is no longer current.
+                Stale(_rt::String),
+                /// Compilation or validation failed.
+                BuildFailed(_rt::String),
+                /// A host service is unavailable.
+                Unavailable(_rt::String),
+                /// A durable commit exists; inspect the receipt before retrying.
+                Committed(GenerationReport),
+                /// Commit completion needs recovery; JSON identifies the store operation
+                /// and includes a canonical observed receipt only when established.
+                RecoveryRequired(_rt::String),
+            }
+            impl ::core::fmt::Debug for GenerationError {
+                fn fmt(
+                    &self,
+                    f: &mut ::core::fmt::Formatter<'_>,
+                ) -> ::core::fmt::Result {
+                    match self {
+                        GenerationError::Disabled => {
+                            f.debug_tuple("GenerationError::Disabled").finish()
+                        }
+                        GenerationError::SessionNotBound => {
+                            f.debug_tuple("GenerationError::SessionNotBound").finish()
+                        }
+                        GenerationError::PermissionDenied => {
+                            f.debug_tuple("GenerationError::PermissionDenied").finish()
+                        }
+                        GenerationError::Cancelled => {
+                            f.debug_tuple("GenerationError::Cancelled").finish()
+                        }
+                        GenerationError::Busy => {
+                            f.debug_tuple("GenerationError::Busy").finish()
+                        }
+                        GenerationError::InvalidRequest(e) => {
+                            f.debug_tuple("GenerationError::InvalidRequest")
+                                .field(e)
+                                .finish()
+                        }
+                        GenerationError::Stale(e) => {
+                            f.debug_tuple("GenerationError::Stale").field(e).finish()
+                        }
+                        GenerationError::BuildFailed(e) => {
+                            f.debug_tuple("GenerationError::BuildFailed")
+                                .field(e)
+                                .finish()
+                        }
+                        GenerationError::Unavailable(e) => {
+                            f.debug_tuple("GenerationError::Unavailable")
+                                .field(e)
+                                .finish()
+                        }
+                        GenerationError::Committed(e) => {
+                            f.debug_tuple("GenerationError::Committed").field(e).finish()
+                        }
+                        GenerationError::RecoveryRequired(e) => {
+                            f.debug_tuple("GenerationError::RecoveryRequired")
+                                .field(e)
+                                .finish()
+                        }
+                    }
+                }
+            }
+            impl ::core::fmt::Display for GenerationError {
+                fn fmt(
+                    &self,
+                    f: &mut ::core::fmt::Formatter<'_>,
+                ) -> ::core::fmt::Result {
+                    write!(f, "{:?}", self)
+                }
+            }
+            impl ::core::error::Error for GenerationError {}
+            #[allow(unused_unsafe, clippy::all)]
+            /// Request a bounded build, then separately authorized install and exposure.
+            ///
+            /// UTF-8 JSON is limited to 4 MiB and follows the core GenerationRequest
+            /// schema. Requests contain no permission grants, source ids, paths, compiler
+            /// arguments, or host limits. Providers and layers may request generation;
+            /// generated outputs may only be ordinary tools or ACP layers.
+            ///
+            /// The synchronous Component Model ABI also works in ordinary WASIp2 hosts.
+            /// Hosts may suspend their implementation while awaiting permission or a VM.
+            #[allow(async_fn_in_trait)]
+            pub fn generate(
+                request_json: &str,
+            ) -> ::core::result::Result<GenerationReport, GenerationError> {
+                unsafe {
+                    #[cfg_attr(target_pointer_width = "64", repr(align(8)))]
+                    #[cfg_attr(target_pointer_width = "32", repr(align(4)))]
+                    struct RetArea(
+                        [::core::mem::MaybeUninit<
+                            u8,
+                        >; 7 * ::core::mem::size_of::<*const u8>()],
+                    );
+                    let mut ret_area = RetArea(
+                        [::core::mem::MaybeUninit::uninit(); 7
+                            * ::core::mem::size_of::<*const u8>()],
+                    );
+                    let vec0 = request_json;
+                    let ptr0 = vec0.as_ptr().cast::<u8>();
+                    let len0 = vec0.len();
+                    let ptr1 = ret_area.0.as_mut_ptr().cast::<u8>();
+                    #[cfg(target_arch = "wasm32")]
+                    #[link(
+                        wasm_import_module = "wassette:component-generation/builder@0.1.0"
+                    )]
+                    unsafe extern "C" {
+                        #[link_name = "generate"]
+                        fn wit_import2(_: *mut u8, _: usize, _: *mut u8);
+                    }
+                    #[cfg(not(target_arch = "wasm32"))]
+                    unsafe extern "C" fn wit_import2(_: *mut u8, _: usize, _: *mut u8) {
+                        unreachable!()
+                    }
+                    wit_import2(ptr0.cast_mut(), len0, ptr1);
+                    let l3 = i32::from(*ptr1.add(0).cast::<u8>());
+                    let result41 = match l3 {
+                        0 => {
+                            let e = {
+                                let l4 = *ptr1
+                                    .add(::core::mem::size_of::<*const u8>())
+                                    .cast::<*mut u8>();
+                                let l5 = *ptr1
+                                    .add(2 * ::core::mem::size_of::<*const u8>())
+                                    .cast::<usize>();
+                                let len6 = l5;
+                                let bytes6 = _rt::Vec::from_raw_parts(
+                                    l4.cast(),
+                                    len6,
+                                    len6,
+                                );
+                                let l7 = i32::from(
+                                    *ptr1
+                                        .add(3 * ::core::mem::size_of::<*const u8>())
+                                        .cast::<u8>(),
+                                );
+                                let l8 = *ptr1
+                                    .add(4 * ::core::mem::size_of::<*const u8>())
+                                    .cast::<*mut u8>();
+                                let l9 = *ptr1
+                                    .add(5 * ::core::mem::size_of::<*const u8>())
+                                    .cast::<usize>();
+                                let base13 = l8;
+                                let len13 = l9;
+                                let mut result13 = _rt::Vec::with_capacity(len13);
+                                for i in 0..len13 {
+                                    let base = base13
+                                        .add(i * (2 * ::core::mem::size_of::<*const u8>()));
+                                    let e13 = {
+                                        let l10 = *base.add(0).cast::<*mut u8>();
+                                        let l11 = *base
+                                            .add(::core::mem::size_of::<*const u8>())
+                                            .cast::<usize>();
+                                        let len12 = l11;
+                                        let bytes12 = _rt::Vec::from_raw_parts(
+                                            l10.cast(),
+                                            len12,
+                                            len12,
+                                        );
+                                        _rt::string_lift(bytes12)
+                                    };
+                                    result13.push(e13);
+                                }
+                                _rt::cabi_dealloc(
+                                    base13,
+                                    len13 * (2 * ::core::mem::size_of::<*const u8>()),
+                                    ::core::mem::size_of::<*const u8>(),
+                                );
+                                GenerationReport {
+                                    report_json: _rt::string_lift(bytes6),
+                                    disposition: Disposition::_lift(l7 as u8),
+                                    tool_handles: result13,
+                                }
+                            };
+                            Ok(e)
+                        }
+                        1 => {
+                            let e = {
+                                let l14 = i32::from(
+                                    *ptr1.add(::core::mem::size_of::<*const u8>()).cast::<u8>(),
+                                );
+                                let v40 = match l14 {
+                                    0 => GenerationError::Disabled,
+                                    1 => GenerationError::SessionNotBound,
+                                    2 => GenerationError::PermissionDenied,
+                                    3 => GenerationError::Cancelled,
+                                    4 => GenerationError::Busy,
+                                    5 => {
+                                        let e40 = {
+                                            let l15 = *ptr1
+                                                .add(2 * ::core::mem::size_of::<*const u8>())
+                                                .cast::<*mut u8>();
+                                            let l16 = *ptr1
+                                                .add(3 * ::core::mem::size_of::<*const u8>())
+                                                .cast::<usize>();
+                                            let len17 = l16;
+                                            let bytes17 = _rt::Vec::from_raw_parts(
+                                                l15.cast(),
+                                                len17,
+                                                len17,
+                                            );
+                                            _rt::string_lift(bytes17)
+                                        };
+                                        GenerationError::InvalidRequest(e40)
+                                    }
+                                    6 => {
+                                        let e40 = {
+                                            let l18 = *ptr1
+                                                .add(2 * ::core::mem::size_of::<*const u8>())
+                                                .cast::<*mut u8>();
+                                            let l19 = *ptr1
+                                                .add(3 * ::core::mem::size_of::<*const u8>())
+                                                .cast::<usize>();
+                                            let len20 = l19;
+                                            let bytes20 = _rt::Vec::from_raw_parts(
+                                                l18.cast(),
+                                                len20,
+                                                len20,
+                                            );
+                                            _rt::string_lift(bytes20)
+                                        };
+                                        GenerationError::Stale(e40)
+                                    }
+                                    7 => {
+                                        let e40 = {
+                                            let l21 = *ptr1
+                                                .add(2 * ::core::mem::size_of::<*const u8>())
+                                                .cast::<*mut u8>();
+                                            let l22 = *ptr1
+                                                .add(3 * ::core::mem::size_of::<*const u8>())
+                                                .cast::<usize>();
+                                            let len23 = l22;
+                                            let bytes23 = _rt::Vec::from_raw_parts(
+                                                l21.cast(),
+                                                len23,
+                                                len23,
+                                            );
+                                            _rt::string_lift(bytes23)
+                                        };
+                                        GenerationError::BuildFailed(e40)
+                                    }
+                                    8 => {
+                                        let e40 = {
+                                            let l24 = *ptr1
+                                                .add(2 * ::core::mem::size_of::<*const u8>())
+                                                .cast::<*mut u8>();
+                                            let l25 = *ptr1
+                                                .add(3 * ::core::mem::size_of::<*const u8>())
+                                                .cast::<usize>();
+                                            let len26 = l25;
+                                            let bytes26 = _rt::Vec::from_raw_parts(
+                                                l24.cast(),
+                                                len26,
+                                                len26,
+                                            );
+                                            _rt::string_lift(bytes26)
+                                        };
+                                        GenerationError::Unavailable(e40)
+                                    }
+                                    9 => {
+                                        let e40 = {
+                                            let l27 = *ptr1
+                                                .add(2 * ::core::mem::size_of::<*const u8>())
+                                                .cast::<*mut u8>();
+                                            let l28 = *ptr1
+                                                .add(3 * ::core::mem::size_of::<*const u8>())
+                                                .cast::<usize>();
+                                            let len29 = l28;
+                                            let bytes29 = _rt::Vec::from_raw_parts(
+                                                l27.cast(),
+                                                len29,
+                                                len29,
+                                            );
+                                            let l30 = i32::from(
+                                                *ptr1
+                                                    .add(4 * ::core::mem::size_of::<*const u8>())
+                                                    .cast::<u8>(),
+                                            );
+                                            let l31 = *ptr1
+                                                .add(5 * ::core::mem::size_of::<*const u8>())
+                                                .cast::<*mut u8>();
+                                            let l32 = *ptr1
+                                                .add(6 * ::core::mem::size_of::<*const u8>())
+                                                .cast::<usize>();
+                                            let base36 = l31;
+                                            let len36 = l32;
+                                            let mut result36 = _rt::Vec::with_capacity(len36);
+                                            for i in 0..len36 {
+                                                let base = base36
+                                                    .add(i * (2 * ::core::mem::size_of::<*const u8>()));
+                                                let e36 = {
+                                                    let l33 = *base.add(0).cast::<*mut u8>();
+                                                    let l34 = *base
+                                                        .add(::core::mem::size_of::<*const u8>())
+                                                        .cast::<usize>();
+                                                    let len35 = l34;
+                                                    let bytes35 = _rt::Vec::from_raw_parts(
+                                                        l33.cast(),
+                                                        len35,
+                                                        len35,
+                                                    );
+                                                    _rt::string_lift(bytes35)
+                                                };
+                                                result36.push(e36);
+                                            }
+                                            _rt::cabi_dealloc(
+                                                base36,
+                                                len36 * (2 * ::core::mem::size_of::<*const u8>()),
+                                                ::core::mem::size_of::<*const u8>(),
+                                            );
+                                            GenerationReport {
+                                                report_json: _rt::string_lift(bytes29),
+                                                disposition: Disposition::_lift(l30 as u8),
+                                                tool_handles: result36,
+                                            }
+                                        };
+                                        GenerationError::Committed(e40)
+                                    }
+                                    n => {
+                                        debug_assert_eq!(n, 10, "invalid enum discriminant");
+                                        let e40 = {
+                                            let l37 = *ptr1
+                                                .add(2 * ::core::mem::size_of::<*const u8>())
+                                                .cast::<*mut u8>();
+                                            let l38 = *ptr1
+                                                .add(3 * ::core::mem::size_of::<*const u8>())
+                                                .cast::<usize>();
+                                            let len39 = l38;
+                                            let bytes39 = _rt::Vec::from_raw_parts(
+                                                l37.cast(),
+                                                len39,
+                                                len39,
+                                            );
+                                            _rt::string_lift(bytes39)
+                                        };
+                                        GenerationError::RecoveryRequired(e40)
+                                    }
+                                };
+                                v40
+                            };
+                            Err(e)
+                        }
+                        _ => _rt::invalid_enum_discriminant(),
+                    };
+                    result41
+                }
+            }
+        }
+    }
     pub mod component_tools {
         #[allow(dead_code, async_fn_in_trait, unused_imports, clippy::all)]
         pub mod tools {
@@ -31793,9 +32244,9 @@ macro_rules! __export_layer_impl {
         : () = { #[rustfmt::skip] #[cfg(target_arch = "wasm32")] #[unsafe (link_section =
         "component-type:wit-bindgen:0.62.0:wassette:acp@7.0.0:layer:imports and exports")]
         #[doc(hidden)] #[allow(clippy::octal_escapes)] pub static
-        __WIT_BINDGEN_COMPONENT_TYPE : [u8; 10904] = *
+        __WIT_BINDGEN_COMPONENT_TYPE : [u8; 11356] = *
         b"\
-\0asm\x0d\0\x01\0\0\x19\x16wit-component-encoding\x04\0\x07\x9cT\x01A\x02\x01AA\x01\
+\0asm\x0d\0\x01\0\0\x19\x16wit-component-encoding\x04\0\x07\xe0W\x01A\x02\x01AC\x01\
 B\x04\x01q\x08\x0bparse-error\0\0\x0finvalid-request\0\0\x10method-not-found\0\0\
 \x0einvalid-params\0\0\x0einternal-error\0\0\x0dauth-required\0\0\x12resource-no\
 t-found\0\0\x05other\x01z\0\x04\0\x0aerror-code\x03\0\0\x01r\x02\x04code\x01\x07\
@@ -31978,56 +32429,64 @@ bound\0\0\x04busy\0\0\x09cancelled\0\0\x04\0\x0atool-error\x03\0\x0b\x01kw\x01j\
 j\x01w\x01\x0c\x01C\x01\x05afterw\0\x10\x04\0\x0fwait-for-change\x01\x11\x01j\x01\
 \x09\x01\x0c\x01C\x02\x06handles\x0earguments-jsons\0\x12\x04\0\x09call-tool\x01\
 \x13\x01C\x02\x04names\x0earguments-jsons\0\x12\x04\0\x11call-tool-by-name\x01\x14\
-\x03\0$wassette:component-tools/tools@0.1.0\x05+\x01B\x0a\x01q\x03\x08upstream\x01\
-s\0\x02io\x01s\0\x09not-found\0\0\x04\0\x0dsecrets-error\x03\0\0\x01p}\x01q\x02\x06\
-string\x01s\0\x05bytes\x01\x02\0\x04\0\x0csecret-value\x03\0\x03\x04\0\x06secret\
-\x03\x01\x01i\x05\x01j\x01\x06\x01\x01\x01C\x01\x03keys\0\x07\x04\0\x03get\x01\x08\
-\x03\0\x1dwasmcloud:secrets/store@2.1.0\x05,\x02\x03\0\x0b\x06secret\x02\x03\0\x0b\
-\x0csecret-value\x01B\x07\x02\x03\x02\x01-\x04\0\x06secret\x03\0\0\x02\x03\x02\x01\
-.\x04\0\x0csecret-value\x03\0\x02\x01h\x01\x01C\x01\x01s\x04\0\x03\x04\0\x06reve\
-al\x01\x05\x03\0\x1ewasmcloud:secrets/reveal@2.1.0\x05/\x01BJ\x02\x03\x02\x01\x0f\
-\x04\0\x05error\x03\0\0\x02\x03\x02\x01\x10\x04\0\x12initialize-request\x03\0\x02\
-\x02\x03\x02\x01\x11\x04\0\x13initialize-response\x03\0\x04\x02\x03\x02\x01\x12\x04\
-\0\x14authenticate-request\x03\0\x06\x02\x03\x02\x01\x0a\x04\0\x0fsession-mode-i\
-d\x03\0\x08\x02\x03\x02\x01\x13\x04\0\x10session-model-id\x03\0\x0a\x02\x03\x02\x01\
-\x14\x04\0\x11session-config-id\x03\0\x0c\x02\x03\x02\x01\x15\x04\0\x17session-c\
-onfig-value-id\x03\0\x0e\x02\x03\x02\x01\x16\x04\0\x15session-config-option\x03\0\
-\x10\x02\x03\x02\x01\x17\x04\0\x13new-session-request\x03\0\x12\x02\x03\x02\x01\x18\
-\x04\0\x14new-session-response\x03\0\x14\x02\x03\x02\x01\x19\x04\0\x14load-sessi\
-on-request\x03\0\x16\x02\x03\x02\x01\x1a\x04\0\x15load-session-response\x03\0\x18\
-\x02\x03\x02\x01\x1b\x04\0\x15list-sessions-request\x03\0\x1a\x02\x03\x02\x01\x1c\
-\x04\0\x16list-sessions-response\x03\0\x1c\x02\x03\x02\x01\x1d\x04\0\x16resume-s\
-ession-request\x03\0\x1e\x02\x03\x02\x01\x1e\x04\0\x17resume-session-response\x03\
-\0\x20\x02\x03\x02\x01\x07\x04\0\x0dcontent-block\x03\0\"\x02\x03\x02\x01\x1f\x04\
-\0\x0fprompt-response\x03\0$\x04\0\x07session\x03\x01\x01h&\x01p#\x01j\x01%\x01\x01\
-\x01C\x02\x04self'\x06prompt(\0)\x04\0\x16[method]session.prompt\x01*\x01j\0\x01\
-\x01\x01C\x02\x04self'\x07mode-id\x09\0+\x04\0\x18[method]session.set-mode\x01,\x01\
-C\x02\x04self'\x08model-id\x0b\0+\x04\0\x1c[method]session.select-model\x01-\x01\
-p\x11\x01j\x01.\x01\x01\x01C\x03\x04self'\x09config-id\x0d\x05value\x0f\0/\x04\0\
-![method]session.set-config-option\x010\x01j\x01\x05\x01\x01\x01C\x01\x03req\x03\
-\01\x04\0\x0ainitialize\x012\x01C\x01\x03req\x07\0+\x04\0\x0cauthenticate\x013\x01\
-i&\x01o\x024\x15\x01j\x015\x01\x01\x01C\x01\x03req\x13\06\x04\0\x0bnew-session\x01\
-7\x01o\x024\x19\x01j\x018\x01\x01\x01C\x01\x03req\x17\09\x04\0\x0cload-session\x01\
-:\x01j\x01\x1d\x01\x01\x01C\x01\x03req\x1b\0;\x04\0\x0dlist-sessions\x01<\x01o\x02\
-4!\x01j\x01=\x01\x01\x01C\x01\x03req\x1f\0>\x04\0\x0eresume-session\x01?\x04\0\x18\
-wassette:acp/agent@7.0.0\x050\x01B*\x02\x03\x02\x01\x0f\x04\0\x05error\x03\0\0\x02\
-\x03\x02\x01\x04\x04\0\x0asession-id\x03\0\x02\x02\x03\x02\x01\"\x04\0\x0esessio\
-n-update\x03\0\x04\x02\x03\x02\x01#\x04\0\x1arequest-permission-request\x03\0\x06\
-\x02\x03\x02\x01$\x04\0\x1brequest-permission-response\x03\0\x08\x02\x03\x02\x01\
-%\x04\0\x16read-text-file-request\x03\0\x0a\x02\x03\x02\x01&\x04\0\x17read-text-\
-file-response\x03\0\x0c\x02\x03\x02\x01'\x04\0\x17write-text-file-request\x03\0\x0e\
-\x02\x03\x02\x01(\x04\0\x17create-terminal-request\x03\0\x10\x02\x03\x02\x01)\x04\
-\0\x14terminal-exit-status\x03\0\x12\x04\0\x08terminal\x03\x01\x01i\x14\x01@\x01\
-\x03req\x11\0\x15\x04\0\x15[constructor]terminal\x01\x16\x01h\x14\x01f\x01}\x01C\
-\x01\x04self\x17\0\x18\x04\0\x17[method]terminal.output\x01\x19\x01j\x01\x13\x01\
-\x01\x01C\x01\x04self\x17\0\x1a\x04\0\x1e[method]terminal.wait-for-exit\x01\x1b\x01\
-C\x02\x0asession-id\x03\x06update\x05\x01\0\x04\0\x0enotify-session\x01\x1c\x01j\
-\x01\x09\x01\x01\x01C\x01\x03req\x07\0\x1d\x04\0\x12request-permission\x01\x1e\x01\
-j\x01\x0d\x01\x01\x01C\x01\x03req\x0b\0\x1f\x04\0\x0eread-text-file\x01\x20\x01j\
-\0\x01\x01\x01C\x01\x03req\x0f\0!\x04\0\x0fwrite-text-file\x01\"\x04\0\x19wasset\
-te:acp/client@7.0.0\x051\x04\0\x18wassette:acp/layer@7.0.0\x04\0\x0b\x0b\x01\0\x05\
-layer\x03\0\0\0G\x09producers\x01\x0cprocessed-by\x02\x0dwit-component\x070.259.\
-0\x10wit-bindgen-rust\x060.62.0";
+\x03\0$wassette:component-tools/tools@0.1.0\x05+\x01B\x0a\x01m\x05\x09installed\x0e\
+tools-eligible\x0dsession-tools\x18later-selection-required\x15committed-not-exp\
+osed\x04\0\x0bdisposition\x03\0\0\x01ps\x01r\x03\x0breport-jsons\x0bdisposition\x01\
+\x0ctool-handles\x02\x04\0\x11generation-report\x03\0\x03\x01q\x0b\x08disabled\0\
+\0\x11session-not-bound\0\0\x11permission-denied\0\0\x09cancelled\0\0\x04busy\0\0\
+\x0finvalid-request\x01s\0\x05stale\x01s\0\x0cbuild-failed\x01s\0\x0bunavailable\
+\x01s\0\x09committed\x01\x04\0\x11recovery-required\x01s\0\x04\0\x10generation-e\
+rror\x03\0\x05\x01j\x01\x04\x01\x06\x01@\x01\x0crequest-jsons\0\x07\x04\0\x08gen\
+erate\x01\x08\x03\0+wassette:component-generation/builder@0.1.0\x05,\x01B\x0a\x01\
+q\x03\x08upstream\x01s\0\x02io\x01s\0\x09not-found\0\0\x04\0\x0dsecrets-error\x03\
+\0\0\x01p}\x01q\x02\x06string\x01s\0\x05bytes\x01\x02\0\x04\0\x0csecret-value\x03\
+\0\x03\x04\0\x06secret\x03\x01\x01i\x05\x01j\x01\x06\x01\x01\x01C\x01\x03keys\0\x07\
+\x04\0\x03get\x01\x08\x03\0\x1dwasmcloud:secrets/store@2.1.0\x05-\x02\x03\0\x0c\x06\
+secret\x02\x03\0\x0c\x0csecret-value\x01B\x07\x02\x03\x02\x01.\x04\0\x06secret\x03\
+\0\0\x02\x03\x02\x01/\x04\0\x0csecret-value\x03\0\x02\x01h\x01\x01C\x01\x01s\x04\
+\0\x03\x04\0\x06reveal\x01\x05\x03\0\x1ewasmcloud:secrets/reveal@2.1.0\x050\x01B\
+J\x02\x03\x02\x01\x0f\x04\0\x05error\x03\0\0\x02\x03\x02\x01\x10\x04\0\x12initia\
+lize-request\x03\0\x02\x02\x03\x02\x01\x11\x04\0\x13initialize-response\x03\0\x04\
+\x02\x03\x02\x01\x12\x04\0\x14authenticate-request\x03\0\x06\x02\x03\x02\x01\x0a\
+\x04\0\x0fsession-mode-id\x03\0\x08\x02\x03\x02\x01\x13\x04\0\x10session-model-i\
+d\x03\0\x0a\x02\x03\x02\x01\x14\x04\0\x11session-config-id\x03\0\x0c\x02\x03\x02\
+\x01\x15\x04\0\x17session-config-value-id\x03\0\x0e\x02\x03\x02\x01\x16\x04\0\x15\
+session-config-option\x03\0\x10\x02\x03\x02\x01\x17\x04\0\x13new-session-request\
+\x03\0\x12\x02\x03\x02\x01\x18\x04\0\x14new-session-response\x03\0\x14\x02\x03\x02\
+\x01\x19\x04\0\x14load-session-request\x03\0\x16\x02\x03\x02\x01\x1a\x04\0\x15lo\
+ad-session-response\x03\0\x18\x02\x03\x02\x01\x1b\x04\0\x15list-sessions-request\
+\x03\0\x1a\x02\x03\x02\x01\x1c\x04\0\x16list-sessions-response\x03\0\x1c\x02\x03\
+\x02\x01\x1d\x04\0\x16resume-session-request\x03\0\x1e\x02\x03\x02\x01\x1e\x04\0\
+\x17resume-session-response\x03\0\x20\x02\x03\x02\x01\x07\x04\0\x0dcontent-block\
+\x03\0\"\x02\x03\x02\x01\x1f\x04\0\x0fprompt-response\x03\0$\x04\0\x07session\x03\
+\x01\x01h&\x01p#\x01j\x01%\x01\x01\x01C\x02\x04self'\x06prompt(\0)\x04\0\x16[met\
+hod]session.prompt\x01*\x01j\0\x01\x01\x01C\x02\x04self'\x07mode-id\x09\0+\x04\0\
+\x18[method]session.set-mode\x01,\x01C\x02\x04self'\x08model-id\x0b\0+\x04\0\x1c\
+[method]session.select-model\x01-\x01p\x11\x01j\x01.\x01\x01\x01C\x03\x04self'\x09\
+config-id\x0d\x05value\x0f\0/\x04\0![method]session.set-config-option\x010\x01j\x01\
+\x05\x01\x01\x01C\x01\x03req\x03\01\x04\0\x0ainitialize\x012\x01C\x01\x03req\x07\
+\0+\x04\0\x0cauthenticate\x013\x01i&\x01o\x024\x15\x01j\x015\x01\x01\x01C\x01\x03\
+req\x13\06\x04\0\x0bnew-session\x017\x01o\x024\x19\x01j\x018\x01\x01\x01C\x01\x03\
+req\x17\09\x04\0\x0cload-session\x01:\x01j\x01\x1d\x01\x01\x01C\x01\x03req\x1b\0\
+;\x04\0\x0dlist-sessions\x01<\x01o\x024!\x01j\x01=\x01\x01\x01C\x01\x03req\x1f\0\
+>\x04\0\x0eresume-session\x01?\x04\0\x18wassette:acp/agent@7.0.0\x051\x01B*\x02\x03\
+\x02\x01\x0f\x04\0\x05error\x03\0\0\x02\x03\x02\x01\x04\x04\0\x0asession-id\x03\0\
+\x02\x02\x03\x02\x01\"\x04\0\x0esession-update\x03\0\x04\x02\x03\x02\x01#\x04\0\x1a\
+request-permission-request\x03\0\x06\x02\x03\x02\x01$\x04\0\x1brequest-permissio\
+n-response\x03\0\x08\x02\x03\x02\x01%\x04\0\x16read-text-file-request\x03\0\x0a\x02\
+\x03\x02\x01&\x04\0\x17read-text-file-response\x03\0\x0c\x02\x03\x02\x01'\x04\0\x17\
+write-text-file-request\x03\0\x0e\x02\x03\x02\x01(\x04\0\x17create-terminal-requ\
+est\x03\0\x10\x02\x03\x02\x01)\x04\0\x14terminal-exit-status\x03\0\x12\x04\0\x08\
+terminal\x03\x01\x01i\x14\x01@\x01\x03req\x11\0\x15\x04\0\x15[constructor]termin\
+al\x01\x16\x01h\x14\x01f\x01}\x01C\x01\x04self\x17\0\x18\x04\0\x17[method]termin\
+al.output\x01\x19\x01j\x01\x13\x01\x01\x01C\x01\x04self\x17\0\x1a\x04\0\x1e[meth\
+od]terminal.wait-for-exit\x01\x1b\x01C\x02\x0asession-id\x03\x06update\x05\x01\0\
+\x04\0\x0enotify-session\x01\x1c\x01j\x01\x09\x01\x01\x01C\x01\x03req\x07\0\x1d\x04\
+\0\x12request-permission\x01\x1e\x01j\x01\x0d\x01\x01\x01C\x01\x03req\x0b\0\x1f\x04\
+\0\x0eread-text-file\x01\x20\x01j\0\x01\x01\x01C\x01\x03req\x0f\0!\x04\0\x0fwrit\
+e-text-file\x01\"\x04\0\x19wassette:acp/client@7.0.0\x052\x04\0\x18wassette:acp/\
+layer@7.0.0\x04\0\x0b\x0b\x01\0\x05layer\x03\0\0\0G\x09producers\x01\x0cprocesse\
+d-by\x02\x0dwit-component\x070.259.0\x10wit-bindgen-rust\x060.62.0";
         };
     };
 }
@@ -32040,8 +32499,8 @@ pub use __export_layer_impl as export;
 )]
 #[doc(hidden)]
 #[allow(clippy::octal_escapes)]
-pub static __WIT_BINDGEN_COMPONENT_TYPE: [u8; 9274] = *b"\
-\0asm\x0d\0\x01\0\0\x19\x16wit-component-encoding\x04\0\x07\x9eG\x01A\x02\x01A=\x01\
+pub static __WIT_BINDGEN_COMPONENT_TYPE: [u8; 9726] = *b"\
+\0asm\x0d\0\x01\0\0\x19\x16wit-component-encoding\x04\0\x07\xe2J\x01A\x02\x01A?\x01\
 B\x04\x01q\x08\x0bparse-error\0\0\x0finvalid-request\0\0\x10method-not-found\0\0\
 \x0einvalid-params\0\0\x0einternal-error\0\0\x0dauth-required\0\0\x12resource-no\
 t-found\0\0\x05other\x01z\0\x04\0\x0aerror-code\x03\0\0\x01r\x02\x04code\x01\x07\
@@ -32224,17 +32683,25 @@ bound\0\0\x04busy\0\0\x09cancelled\0\0\x04\0\x0atool-error\x03\0\x0b\x01kw\x01j\
 j\x01w\x01\x0c\x01C\x01\x05afterw\0\x10\x04\0\x0fwait-for-change\x01\x11\x01j\x01\
 \x09\x01\x0c\x01C\x02\x06handles\x0earguments-jsons\0\x12\x04\0\x09call-tool\x01\
 \x13\x01C\x02\x04names\x0earguments-jsons\0\x12\x04\0\x11call-tool-by-name\x01\x14\
-\x03\0$wassette:component-tools/tools@0.1.0\x05+\x01B\x0a\x01q\x03\x08upstream\x01\
-s\0\x02io\x01s\0\x09not-found\0\0\x04\0\x0dsecrets-error\x03\0\0\x01p}\x01q\x02\x06\
-string\x01s\0\x05bytes\x01\x02\0\x04\0\x0csecret-value\x03\0\x03\x04\0\x06secret\
-\x03\x01\x01i\x05\x01j\x01\x06\x01\x01\x01C\x01\x03keys\0\x07\x04\0\x03get\x01\x08\
-\x03\0\x1dwasmcloud:secrets/store@2.1.0\x05,\x02\x03\0\x0b\x06secret\x02\x03\0\x0b\
-\x0csecret-value\x01B\x07\x02\x03\x02\x01-\x04\0\x06secret\x03\0\0\x02\x03\x02\x01\
-.\x04\0\x0csecret-value\x03\0\x02\x01h\x01\x01C\x01\x01s\x04\0\x03\x04\0\x06reve\
-al\x01\x05\x03\0\x1ewasmcloud:secrets/reveal@2.1.0\x05/\x04\08wassette:acp/layer\
--with-all-of-its-exports-removed@7.0.0\x04\0\x0b+\x01\0%layer-with-all-of-its-ex\
-ports-removed\x03\0\0\0G\x09producers\x01\x0cprocessed-by\x02\x0dwit-component\x07\
-0.259.0\x10wit-bindgen-rust\x060.62.0";
+\x03\0$wassette:component-tools/tools@0.1.0\x05+\x01B\x0a\x01m\x05\x09installed\x0e\
+tools-eligible\x0dsession-tools\x18later-selection-required\x15committed-not-exp\
+osed\x04\0\x0bdisposition\x03\0\0\x01ps\x01r\x03\x0breport-jsons\x0bdisposition\x01\
+\x0ctool-handles\x02\x04\0\x11generation-report\x03\0\x03\x01q\x0b\x08disabled\0\
+\0\x11session-not-bound\0\0\x11permission-denied\0\0\x09cancelled\0\0\x04busy\0\0\
+\x0finvalid-request\x01s\0\x05stale\x01s\0\x0cbuild-failed\x01s\0\x0bunavailable\
+\x01s\0\x09committed\x01\x04\0\x11recovery-required\x01s\0\x04\0\x10generation-e\
+rror\x03\0\x05\x01j\x01\x04\x01\x06\x01@\x01\x0crequest-jsons\0\x07\x04\0\x08gen\
+erate\x01\x08\x03\0+wassette:component-generation/builder@0.1.0\x05,\x01B\x0a\x01\
+q\x03\x08upstream\x01s\0\x02io\x01s\0\x09not-found\0\0\x04\0\x0dsecrets-error\x03\
+\0\0\x01p}\x01q\x02\x06string\x01s\0\x05bytes\x01\x02\0\x04\0\x0csecret-value\x03\
+\0\x03\x04\0\x06secret\x03\x01\x01i\x05\x01j\x01\x06\x01\x01\x01C\x01\x03keys\0\x07\
+\x04\0\x03get\x01\x08\x03\0\x1dwasmcloud:secrets/store@2.1.0\x05-\x02\x03\0\x0c\x06\
+secret\x02\x03\0\x0c\x0csecret-value\x01B\x07\x02\x03\x02\x01.\x04\0\x06secret\x03\
+\0\0\x02\x03\x02\x01/\x04\0\x0csecret-value\x03\0\x02\x01h\x01\x01C\x01\x01s\x04\
+\0\x03\x04\0\x06reveal\x01\x05\x03\0\x1ewasmcloud:secrets/reveal@2.1.0\x050\x04\0\
+8wassette:acp/layer-with-all-of-its-exports-removed@7.0.0\x04\0\x0b+\x01\0%layer\
+-with-all-of-its-exports-removed\x03\0\0\0G\x09producers\x01\x0cprocessed-by\x02\
+\x0dwit-component\x070.259.0\x10wit-bindgen-rust\x060.62.0";
 #[inline(never)]
 #[doc(hidden)]
 pub fn __link_custom_section_describing_imports() {

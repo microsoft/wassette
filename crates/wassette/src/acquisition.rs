@@ -85,6 +85,7 @@ fn source_evidence(uri: &str) -> Result<(Option<SourceIdentity>, OriginEvidence)
         selected_version: None,
         manifest_digest: None,
         immutable_uri: None,
+        generation: None,
     };
     let source = match scheme {
         "file" => None,

@@ -31,6 +31,8 @@ mod cli_handlers;
 mod commands;
 mod config;
 mod format;
+#[cfg(feature = "component-generation")]
+mod generation;
 mod manifest;
 mod permission_synthesis;
 mod provisioning_controller;
@@ -157,6 +159,13 @@ async fn main() -> Result<()> {
         let Some(Commands::Acp(args)) = cli.command else {
             unreachable!("just matched")
         };
+        #[cfg(feature = "component-generation")]
+        let args = {
+            let mut args = args;
+            args.generation_config =
+                config::resolve_generation_config(args.generation_config.as_deref())?;
+            args
+        };
         let local_config = config::resolve_local_source(
             &config::LocalSourceOverrides {
                 local_component_dir: args.local_component_dir.clone(),
@@ -208,6 +217,8 @@ async fn main() -> Result<()> {
                 // Build the lifecycle manager without eagerly loading components so the
                 // background loader is the single source of tool registration.
                 let config::Config {
+                    #[cfg(feature = "component-generation")]
+                    generation_config,
                     component_dir,
                     secrets_dir,
                     environment_vars,
@@ -226,6 +237,9 @@ async fn main() -> Result<()> {
                     .build()
                     .await?;
 
+                #[cfg(feature = "component-generation")]
+                generation::configure(&lifecycle_manager, generation_config.as_deref())?;
+
                 let mut background_tasks = tokio::task::JoinSet::new();
                 let local_cancel = CancellationToken::new();
                 start_local_discovery(
@@ -241,6 +255,9 @@ async fn main() -> Result<()> {
                     legacy_sessions,
                 )
                 .await?;
+
+                #[cfg(feature = "component-generation")]
+                let generation_jobs = server.generation_jobs();
 
                 let server_clone = server.clone();
                 background_tasks.spawn(async move {
@@ -261,8 +278,25 @@ async fn main() -> Result<()> {
                 let transport = stdio_transport();
                 let running_service = serve_server(server, transport).await?;
 
-                tokio::signal::ctrl_c().await?;
-                let _ = running_service.cancel().await;
+                #[cfg(feature = "component-generation")]
+                {
+                    let service_cancel = running_service.cancellation_token();
+                    let waiting = running_service.waiting();
+                    tokio::pin!(waiting);
+                    tokio::select! {
+                        _ = &mut waiting => {}
+                        _ = tokio::signal::ctrl_c() => {
+                            service_cancel.cancel();
+                            let _ = waiting.await;
+                        }
+                    }
+                    generation_jobs.shutdown().await;
+                }
+                #[cfg(not(feature = "component-generation"))]
+                {
+                    tokio::signal::ctrl_c().await?;
+                    let _ = running_service.cancel().await;
+                }
                 local_cancel.cancel();
                 background_tasks.shutdown().await;
 
@@ -316,6 +350,8 @@ async fn main() -> Result<()> {
                 // Build the lifecycle manager without eagerly loading components so the
                 // background loader is the single source of tool registration.
                 let config::Config {
+                    #[cfg(feature = "component-generation")]
+                    generation_config,
                     component_dir,
                     secrets_dir,
                     environment_vars,
@@ -336,6 +372,9 @@ async fn main() -> Result<()> {
                     .with_eager_loading(false)
                     .build()
                     .await?;
+
+                #[cfg(feature = "component-generation")]
+                generation::configure(&lifecycle_manager, generation_config.as_deref())?;
 
                 // Provision components from manifest if provided
                 if let Some(manifest) = &manifest {
@@ -385,6 +424,9 @@ async fn main() -> Result<()> {
                     legacy_sessions,
                 )
                 .await?;
+
+                #[cfg(feature = "component-generation")]
+                let generation_jobs = server.generation_jobs();
 
                 let server_clone = server.clone();
                 background_tasks.spawn(async move {
@@ -444,10 +486,14 @@ async fn main() -> Result<()> {
                         let tcp_listener = tokio::net::TcpListener::bind(&bind_address).await?;
 
                         // Spawn the server in a background task
+                        #[cfg(feature = "component-generation")]
+                        let generation_jobs_for_signal = generation_jobs.clone();
                         let server_handle = tokio::spawn(async move {
                             axum::serve(tcp_listener, router)
-                                .with_graceful_shutdown(async {
-                                    tokio::signal::ctrl_c().await.unwrap()
+                                .with_graceful_shutdown(async move {
+                                    tokio::signal::ctrl_c().await.unwrap();
+                                    #[cfg(feature = "component-generation")]
+                                    generation_jobs_for_signal.shutdown().await;
                                 })
                                 .await
                         });
@@ -468,11 +514,26 @@ async fn main() -> Result<()> {
                     }
                 }
 
+                #[cfg(feature = "component-generation")]
+                generation_jobs.shutdown().await;
                 local_cancel.cancel();
                 background_tasks.shutdown().await;
                 tracing::info!("MCP server shutting down");
             }
             Commands::Component { command } => match command {
+                #[cfg(feature = "component-generation")]
+                ComponentCommands::Build {
+                    request,
+                    component_dir,
+                    generation_config,
+                } => {
+                    generation::component_build(
+                        request,
+                        component_dir.clone().or_else(|| cli.component_dir.clone()),
+                        generation_config.clone(),
+                    )
+                    .await?;
+                }
                 ComponentCommands::Load {
                     path,
                     component_dir,

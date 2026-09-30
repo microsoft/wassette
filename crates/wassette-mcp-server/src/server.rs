@@ -44,7 +44,11 @@ fn observed_generation(
         Ok(snapshot) => Ok(snapshot.generation),
         Err(error) => match error.downcast_ref::<CatalogRefreshError>() {
             Some(refresh) => {
-                tracing::warn!("Catalog refresh published unavailable entries: {error:#}");
+                tracing::warn!(
+                    phase = "catalog-refresh",
+                    code = "catalog-unavailable",
+                    "Catalog refresh published unavailable entries"
+                );
                 Ok(refresh.report.generation.clone())
             }
             None => Err(error),
@@ -61,6 +65,8 @@ pub struct McpServer {
     legacy_sessions: bool,
     tool_list_changed: broadcast::Sender<CatalogGeneration>,
     catalog_generation: Arc<AsyncMutex<CatalogGeneration>>,
+    #[cfg(feature = "component-generation")]
+    generation_jobs: mcp_server::generation::GenerationJobs,
 }
 
 impl McpServer {
@@ -87,7 +93,15 @@ impl McpServer {
             legacy_sessions,
             tool_list_changed: broadcast::channel(TOOL_LIST_CHANGED_CAPACITY).0,
             catalog_generation: Arc::new(AsyncMutex::new(generation)),
+            #[cfg(feature = "component-generation")]
+            generation_jobs: mcp_server::generation::GenerationJobs::default(),
         })
+    }
+
+    /// Retain the generation job owner until transport shutdown and helper reaping complete.
+    #[cfg(feature = "component-generation")]
+    pub fn generation_jobs(&self) -> mcp_server::generation::GenerationJobs {
+        self.generation_jobs.clone()
     }
 
     /// Whether this request's peer outlives the request that carried it.
@@ -126,8 +140,12 @@ impl McpServer {
             let previous = self.catalog_generation.lock().await.clone();
             let generation = match self.lifecycle_manager.wait_changed(&previous).await {
                 Ok(generation) => generation,
-                Err(error) => {
-                    tracing::error!("Catalog subscription failed: {error:#}");
+                Err(_) => {
+                    tracing::error!(
+                        phase = "catalog-subscription",
+                        code = "subscription-failed",
+                        "Catalog subscription failed"
+                    );
                     return;
                 }
             };
@@ -152,7 +170,11 @@ impl McpServer {
                 self.publish_catalog_generation(published, generation, request_peer)
                     .await;
             }
-            Err(error) => tracing::warn!("Failed to observe catalog generation: {error:#}"),
+            Err(_) => tracing::warn!(
+                phase = "catalog-observation",
+                code = "observation-failed",
+                "Failed to observe catalog generation"
+            ),
         }
     }
 
@@ -263,6 +285,26 @@ Key points:
 
         let disable_builtin_tools = self.disable_builtin_tools;
         Box::pin(async move {
+            #[cfg(feature = "component-generation")]
+            if params.name == "build-component" {
+                // No catalog mutex is held while the VM runs. The existing observer
+                // and subscription share the same deduplication baseline after commit.
+                let result = self
+                    .generation_jobs
+                    .call_tool(
+                        params,
+                        &self.lifecycle_manager,
+                        disable_builtin_tools,
+                        ctx.ct,
+                    )
+                    .await;
+                let mut published = self.catalog_generation.lock().await;
+                self.observe_catalog(&mut published, Some(&peer_clone))
+                    .await;
+                return result
+                    .map(CallToolResponse::Complete)
+                    .map_err(|error| ErrorData::internal_error(error.to_string(), None));
+            }
             let mut published = self.catalog_generation.lock().await;
             self.observe_catalog(&mut published, None).await;
             // Lifecycle mutations run in built-in dispatch. Keep their
@@ -781,6 +823,40 @@ mod tests {
                 .is_err(),
             "an unchanged catalog must not be invalidated again"
         );
+    }
+
+    #[cfg(feature = "component-generation")]
+    #[tokio::test]
+    async fn rejected_generation_does_not_publish_catalog_notifications() {
+        let temp_dir = test_root();
+        let manager = LifecycleManager::builder(temp_dir.path())
+            .with_eager_loading(false)
+            .build()
+            .await
+            .unwrap();
+        let server = McpServer::new(manager, false, true).await.unwrap();
+        let mut subscription = server.subscribe_tool_list_changed();
+        let mut watcher = watch_catalog(&server);
+        let (peer, client, service) = connect_peer(server.clone()).await;
+        let response = server
+            .call_tool(
+                CallToolRequestParams::new("build-component"),
+                RequestContext::new(RequestId::Number(2), peer),
+            )
+            .await
+            .unwrap();
+        match response {
+            CallToolResponse::Complete(result) => {
+                assert_eq!(result.is_error, Some(true));
+                assert_eq!(result.structured_content.unwrap()["code"], "disabled");
+            }
+            _ => panic!("generation returned a non-complete tool result"),
+        }
+        expect_no_subscription_change(&mut subscription).await;
+        drop(client);
+        service.await.unwrap();
+        server.generation_jobs().shutdown().await;
+        watcher.shutdown().await;
     }
 
     fn initialize_request(protocol_version: &str) -> String {

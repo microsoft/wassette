@@ -4,6 +4,8 @@
 pub use wassette::LifecycleManager;
 
 pub mod components;
+#[cfg(feature = "component-generation")]
+pub mod generation;
 pub mod prompts;
 pub mod resources;
 pub mod tools;

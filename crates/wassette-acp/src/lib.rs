@@ -29,6 +29,7 @@ use wasmtime::{Config, Engine};
 mod bridge;
 mod client_impl;
 mod data;
+mod generation;
 mod group;
 mod http_policy;
 mod install;
@@ -57,10 +58,13 @@ mod wasm;
 // `Host` traits we implement; exported interfaces (`agent`) become
 // callable methods on the wrapper struct.
 wasmtime::component::bindgen!({
-    path: "wit/acp",
-    world: "provider",
+    path: ["../../wit/component-generation", "wit/acp"],
+    world: "wassette:acp/provider@7.0.0",
     imports: { default: async },
     exports: { default: async },
+    with: {
+        "wassette:component-generation/builder@0.1.0": crate::generation::builder,
+    },
 });
 
 mod layer_bindings {
@@ -71,8 +75,8 @@ mod layer_bindings {
     // root, and a single set of `Host` impls on `HostState` satisfies
     // both linkers.
     wasmtime::component::bindgen!({
-        path: "wit/acp",
-        world: "layer",
+        path: ["../../wit/component-generation", "wit/acp"],
+        world: "wassette:acp/layer@7.0.0",
         imports: { default: async },
         exports: { default: async },
         with: {
@@ -87,6 +91,7 @@ mod layer_bindings {
             "wassette:acp/agent": crate::wassette::acp::agent,
             "wassette:acp/client": crate::wassette::acp::client,
             "wassette:component-tools/tools@0.1.0": crate::wassette::component_tools::tools,
+            "wassette:component-generation/builder@0.1.0": crate::wassette::component_generation::builder,
             "wasmcloud:secrets/store@2.1.0": crate::wasmcloud::secrets::store,
             "wasmcloud:secrets/reveal@2.1.0": crate::wasmcloud::secrets::reveal,
         },
@@ -202,6 +207,11 @@ pub struct AcpArgs {
     /// Local component discovery: off, startup, or watch.
     #[arg(long, value_enum)]
     pub local_components: Option<AcpLocalComponentsMode>,
+
+    /// Trusted operator generation profile. Never inferred from a guest request.
+    #[cfg(feature = "component-generation")]
+    #[arg(long, value_name = "PATH")]
+    pub generation_config: Option<PathBuf>,
 }
 
 /// Coarse verbosity for the host's own logs.
@@ -225,6 +235,33 @@ pub enum AcpLocalComponentsMode {
     Off,
     Startup,
     Watch,
+}
+
+fn acp_engine() -> Result<Engine> {
+    let mut config = Config::new();
+    config.wasm_component_model(true);
+    config.wasm_component_model_async(true);
+    config.wasm_component_model_more_async_builtins(true);
+    config.wasm_component_model_async_stackful(true);
+    config.wasm_component_model_implements(true);
+    config.wasm_features(wasmtime::WasmFeatures::CM_ASYNC, true);
+    config.wasm_features(wasmtime::WasmFeatures::CM_MORE_ASYNC_BUILTINS, true);
+    config.wasm_features(wasmtime::WasmFeatures::CM_ASYNC_STACKFUL, true);
+    Ok(Engine::new(&config)?)
+}
+
+/// Validate generated ACP layers with the same engine and policy checks as ACP.
+///
+/// This compiles and checks exports; it does not instantiate a guest, establish
+/// full host-link compatibility, select a layer, or change a running chain.
+#[cfg(feature = "component-generation")]
+pub fn generation_validator(
+    component_dir: PathBuf,
+) -> Result<Arc<dyn ::wassette::local_source::LocalValidator>> {
+    Ok(Arc::new(AcpLocalValidator::new(
+        acp_engine()?,
+        component_dir,
+    )))
 }
 
 impl LogLevel {
@@ -265,16 +302,7 @@ pub async fn run(
 
     init_logging(&args)?;
 
-    let mut config = Config::new();
-    config.wasm_component_model(true);
-    config.wasm_component_model_async(true);
-    config.wasm_component_model_more_async_builtins(true);
-    config.wasm_component_model_async_stackful(true);
-    config.wasm_component_model_implements(true);
-    config.wasm_features(wasmtime::WasmFeatures::CM_ASYNC, true);
-    config.wasm_features(wasmtime::WasmFeatures::CM_MORE_ASYNC_BUILTINS, true);
-    config.wasm_features(wasmtime::WasmFeatures::CM_ASYNC_STACKFUL, true);
-    let engine = Engine::new(&config)?;
+    let engine = acp_engine()?;
 
     let component_dir = match args.component_dir.clone() {
         Some(dir) => dir,
@@ -296,6 +324,16 @@ pub async fn run(
         .build_config()?;
     let resolver = Arc::new(Resolver::with_config(lifecycle_config.clone()));
     let tool_manager = Arc::new(::wassette::LifecycleManager::from_config(lifecycle_config).await?);
+    #[cfg(feature = "component-generation")]
+    if let Some(path) = &args.generation_config {
+        let service = ::wassette::generation::GenerationConfig::read(path)?
+            .into_service()?
+            .with_validator(Arc::new(AcpLocalValidator::new(
+                engine.clone(),
+                component_dir.clone(),
+            )));
+        tool_manager.enable_generation(service)?;
+    }
     let local_source = if local_source_config.mode == ::wassette::local_source::LocalMode::Off {
         None
     } else {
@@ -389,10 +427,17 @@ pub async fn run(
                 &secrets,
             )
             .await?;
-            if !layers.is_empty() && !args.tools.is_empty() && !args.allow_shared_grants {
+            #[cfg(feature = "component-generation")]
+            let generation_enabled = args.generation_config.is_some();
+            #[cfg(not(feature = "component-generation"))]
+            let generation_enabled = false;
+            if !layers.is_empty()
+                && (!args.tools.is_empty() || generation_enabled)
+                && !args.allow_shared_grants
+            {
                 anyhow::bail!(
-                    "Layered chains with ordinary tools require --allow-shared-grants; \
-                     layers can intercept tool permissions and share the provider's store"
+                    "Layered chains with ordinary tools or generation require --allow-shared-grants; \
+                     layers can intercept permissions and share the provider's store"
                 );
             }
             let tool_broker = Arc::new(tool_broker::ToolBroker::new(
@@ -690,6 +735,40 @@ mod classification_tests {
                 ""
             ))
             .is_err()
+        );
+    }
+
+    #[cfg(feature = "component-generation")]
+    #[test]
+    fn generation_validator_compiles_without_starting_or_installing_a_layer() {
+        let root = tempfile::tempdir().unwrap();
+        let component_dir = root.path().join("not-created");
+        let validator = generation_validator(component_dir.clone()).unwrap();
+        let wasm = wat::parse_str(
+            r#"(component $generated-layer
+                (core module $m (func $start unreachable) (start $start))
+                (core instance $i (instantiate $m))
+                (instance $empty)
+                (export "wassette:acp/agent@7.0.0" (instance $empty))
+                (export "wassette:acp/client@7.0.0" (instance $empty)))"#,
+        )
+        .unwrap();
+        let inspection = ::wassette::inspect_artifact(&wasm).unwrap();
+        assert!(matches!(inspection.shape, ArtifactShape::AcpLayer));
+        assert!(matches!(
+            validator.validate(&wasm, &inspection, None).unwrap(),
+            ::wassette::store::ValidationEvidence::AcpCompiledAndExportChecked { .. }
+        ));
+        assert!(!component_dir.exists());
+        let ordinary = wat::parse_str("(component $ordinary)").unwrap();
+        assert!(
+            validator
+                .validate(
+                    &ordinary,
+                    &::wassette::inspect_artifact(&ordinary).unwrap(),
+                    None,
+                )
+                .is_err()
         );
     }
 }

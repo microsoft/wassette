@@ -4,6 +4,10 @@ version = "0.1.0"
 edition = "2021"
 license.workspace = true
 
+[features]
+default = []
+component-generation = ["wassette/component-generation", "dep:tokio", "dep:tokio-util"]
+
 [dependencies]
 serde_json = { workspace = true }
 anyhow = { workspace = true }
@@ -11,6 +15,8 @@ rmcp = { workspace = true }
 wassette = { workspace = true }
 tracing = { workspace = true, features = ["attributes"] }
 futures = { workspace = true }
+tokio = { workspace = true, features = ["rt", "macros"], optional = true }
+tokio-util = { workspace = true, features = ["rt"], optional = true }
 
 [dev-dependencies]
 tokio-test = { workspace = true }

@@ -211,7 +211,11 @@ impl ComponentStore {
         }
         let revision = EntryRevision(capture.head.next_cursor()?);
         let receipt = InstallReceipt {
-            schema: 1,
+            schema: if prepared.options.origin.generation.is_some() {
+                2
+            } else {
+                1
+            },
             component_id: prepared.component_id,
             storage_key: prepared.options.storage_key,
             source: prepared.options.source,
@@ -675,6 +679,11 @@ impl ComponentStore {
         let _ = point;
         Ok(())
     }
+
+    #[cfg(all(test, feature = "component-generation"))]
+    pub(crate) fn fail_next_commit_for_test(&self, point: &'static str) {
+        *self.failpoint.lock().expect("test failpoint mutex") = Some((point, false));
+    }
 }
 
 enum Mutation {
@@ -887,7 +896,12 @@ fn validate_record(entry: &StoredEntry, head: &Head) -> Result<()> {
         ValidationEvidence::OrdinaryPrepared { runtime } => (true, runtime),
         ValidationEvidence::AcpCompiledAndExportChecked { runtime } => (false, runtime),
     };
-    if receipt.schema != 1
+    let expected_schema = if receipt.origin.generation.is_some() {
+        2
+    } else {
+        1
+    };
+    if receipt.schema != expected_schema
         || !valid_revision(entry.revision())
         || !valid_revision(&receipt.revision)
         || !hash(&receipt.artifact_sha256)
@@ -908,6 +922,12 @@ fn validate_record(entry: &StoredEntry, head: &Head) -> Result<()> {
     }
     receipt.source.validate()?;
     receipt.origin.validate()?;
+    types::validate_generation_binding(
+        &receipt.source,
+        &receipt.origin,
+        &receipt.kind,
+        &receipt.owner,
+    )?;
     if let Some(metadata) = &receipt.policy.metadata {
         metadata.validate()?;
     }

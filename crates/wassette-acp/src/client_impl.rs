@@ -111,19 +111,7 @@ pub(crate) async fn notify_session<T: Send>(
             let session_id = accessor
                 .with(|mut a| a.get().editor_session_id.clone())
                 .unwrap_or(session_id);
-            let guest_install = translate::guest_advertises_install(&update);
-            let Some(notif) = translate::session_update_wit_to_schema(session_id, update) else {
-                return;
-            };
-            let (ack_tx, ack_rx) = tokio::sync::oneshot::channel();
-            if outbound
-                .send(OutboundEvent::SessionUpdate(notif, guest_install, ack_tx))
-                .await
-                .is_err()
-            {
-                return;
-            }
-            let _ = ack_rx.await;
+            notify_editor_session(&outbound, session_id, update).await;
         }
         Routing::Upstream { idx, bindings } => {
             let res = spawn_upstream(accessor, idx, "notify-session", |reply| NotifySessionTask {
@@ -141,26 +129,51 @@ pub(crate) async fn notify_session<T: Send>(
     }
 }
 
+pub(crate) async fn notify_editor_session(
+    outbound: &mpsc::Sender<OutboundEvent>,
+    session_id: SessionId,
+    update: SessionUpdate,
+) {
+    let guest_install = translate::guest_advertises_install(&update);
+    let Some(notif) = translate::session_update_wit_to_schema(session_id, update) else {
+        return;
+    };
+    let (ack_tx, ack_rx) = oneshot::channel();
+    if outbound
+        .send(OutboundEvent::SessionUpdate(notif, guest_install, ack_tx))
+        .await
+        .is_err()
+    {
+        return;
+    }
+    let _ = ack_rx.await;
+}
+
+pub(crate) async fn request_editor_permission(
+    outbound: &mpsc::Sender<OutboundEvent>,
+    req: RequestPermissionRequest,
+) -> Result<RequestPermissionResponse, Error> {
+    let Some(schema_req) = translate::request_permission_request_wit_to_schema(req) else {
+        return Err(translate::internal_error(
+            "request-permission: could not translate request",
+        ));
+    };
+    let resp = send_and_await(
+        outbound,
+        |tx| OutboundEvent::RequestPermission(schema_req, tx),
+        "session/request_permission",
+        None,
+    )
+    .await?;
+    Ok(translate::request_permission_response_schema_to_wit(resp))
+}
+
 pub(crate) async fn request_permission<T: Send>(
     accessor: &Accessor<T, HasSelf<HostState>>,
     req: RequestPermissionRequest,
 ) -> Result<RequestPermissionResponse, Error> {
     match routing(accessor) {
-        Routing::Outbound(outbound) => {
-            let Some(schema_req) = translate::request_permission_request_wit_to_schema(req) else {
-                return Err(translate::internal_error(
-                    "request-permission: could not translate request",
-                ));
-            };
-            let resp = send_and_await(
-                &outbound,
-                |tx| OutboundEvent::RequestPermission(schema_req, tx),
-                "session/request_permission",
-                None,
-            )
-            .await?;
-            Ok(translate::request_permission_response_schema_to_wit(resp))
-        }
+        Routing::Outbound(outbound) => request_editor_permission(&outbound, req).await,
         Routing::Upstream { idx, bindings } => {
             let res = spawn_upstream(accessor, idx, "request-permission", |reply| {
                 RequestPermissionTask {

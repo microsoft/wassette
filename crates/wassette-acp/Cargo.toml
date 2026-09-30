@@ -6,6 +6,9 @@ license.workspace = true
 description = "Experimental Agent Client Protocol host for Wassette: runs ACP agents as WebAssembly components"
 readme = "README.md"
 
+[features]
+component-generation = ["wassette/component-generation", "dep:hex", "dep:sha2"]
+
 [dependencies]
 agent-client-protocol = { workspace = true }
 anyhow = { workspace = true }
@@ -13,6 +16,7 @@ bytes = "1"
 clap = { version = "4.5", features = ["derive"] }
 etcetera = { workspace = true }
 futures-concurrency = { workspace = true }
+hex = { version = "0.4", optional = true }
 http = "1.4"
 http-body-util = "0.1"
 policy = { workspace = true }
@@ -20,6 +24,7 @@ rustls = { workspace = true }
 semver = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
+sha2 = { workspace = true, optional = true }
 tokio = { workspace = true, features = ["full"] }
 tokio-util = { workspace = true, features = ["compat"] }
 tracing = { workspace = true }

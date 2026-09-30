@@ -4,11 +4,15 @@ version = "0.1.0"
 edition = "2021"
 license.workspace = true
 
+[features]
+component-generation = ["dep:wassette-builder", "dep:getrandom"]
+
 [dependencies]
 anyhow = { workspace = true }
 component2json = { path = "../component2json" }
 etcetera = { workspace = true }
 futures = { workspace = true }
+getrandom = { version = "0.4", optional = true }
 hex = "0.4"
 http = "1.4"
 num_cpus = "1.0"
@@ -34,6 +38,7 @@ wasmtime = { workspace = true }
 wasmtime-wasi = { workspace = true }
 wasmtime-wasi-http = { workspace = true }
 wasmtime-wasi-config = { workspace = true }
+wassette-builder = { path = "../wassette-builder", optional = true }
 
 [dev-dependencies]
 proptest = "1.10"

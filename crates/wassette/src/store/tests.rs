@@ -4,6 +4,8 @@
 use std::process::Command;
 use std::sync::{Arc, Barrier, OnceLock};
 
+use sha2::Digest;
+
 use super::*;
 
 fn directory() -> tempfile::TempDir {
@@ -48,6 +50,7 @@ fn options(key: &str) -> InstallOptions {
             selected_version: Some("1".into()),
             manifest_digest: Some("sha256:manifest-not-artifact".into()),
             immutable_uri: None,
+            generation: None,
         },
         owner: InstallOwner::Explicit,
         intent: InstallIntent::InstallOnly,
@@ -1180,4 +1183,173 @@ fn checked_scope_releases_lock_on_drop_and_rejects_stale_entries() {
         .is_err());
     let writer_after_error = journal::open_lock(directory.path()).unwrap();
     writer_after_error.try_lock().unwrap();
+}
+
+fn generated_options(lineage: &str) -> InstallOptions {
+    let mut input = options("generated_private_key");
+    input.source = SourceIdentity::Generated { id: lineage.into() };
+    input.origin = OriginEvidence {
+        location: format!("generated://{lineage}"),
+        requested_version: None,
+        selected_version: None,
+        manifest_digest: None,
+        immutable_uri: None,
+        generation: Some(GenerationEvidence {
+            source_sha256: "11".repeat(32),
+            wit_sha256: "22".repeat(32),
+            wit_dependencies_sha256: "55".repeat(32),
+            builder_initrd_sha256: "33".repeat(32),
+            builder_helper_sha256: "66".repeat(32),
+            builder_manifest_digest: None,
+            profile: "rust-std-v1".into(),
+            profile_sha256: "77".repeat(32),
+            compiler: "rustc 1.98.1".into(),
+            bindgen: "0.62.0".into(),
+            binding_runtime: "inline-v1".into(),
+            vm_runtime: "hyperlight-unikraft-0.17.0".into(),
+            world: "tool".into(),
+            target: "wasm32-wasip2".into(),
+            host_platform: "aarch64-macos".into(),
+        }),
+    };
+    input
+}
+
+#[test]
+fn generated_receipt_roundtrips_and_preserves_noop_retirement_and_cas() {
+    let root = directory();
+    let store = ComponentStore::open(root.path()).unwrap();
+    let input = generated_options(&"ab".repeat(16));
+    let first = install(&store, "actual:generated/name", input.clone());
+    assert_eq!(receipt(&first).schema, 2);
+    assert_eq!(
+        store.read("actual:generated/name").unwrap().receipt,
+        *receipt(&first)
+    );
+    let unchanged = install(&store, "actual:generated/name", input.clone());
+    assert!(unchanged.change.is_none());
+    assert_eq!(first.cursor, unchanged.cursor);
+
+    let expected = store
+        .observe("actual:generated/name", &input.storage_key, &input.source)
+        .unwrap();
+    let changed = store
+        .update_policy(
+            "actual:generated/name",
+            &receipt(&first).revision,
+            PreparedPolicy::absent(PolicyProvenance::PermissionEdit),
+        )
+        .unwrap();
+    assert!(matches!(
+        store.commit_install(prepare("actual:generated/name", input.clone()), expected),
+        Err(StoreError::Conflict(_))
+    ));
+    let retired = store
+        .remove(
+            "actual:generated/name",
+            changed.entry.revision(),
+            RemovalAuthority::Explicit,
+        )
+        .unwrap();
+    let mut reinstall = input;
+    reinstall.policy = PreparedPolicy::absent(PolicyProvenance::PermissionEdit);
+    let installed = install(&store, "actual:generated/name", reinstall);
+    assert_ne!(installed.entry.revision(), retired.entry.revision());
+    assert_eq!(
+        receipt(&first).secret_binding().unwrap(),
+        receipt(&installed).secret_binding().unwrap()
+    );
+    assert!(store
+        .observe(
+            "actual:generated/name",
+            &StorageKey::parse("another_key").unwrap(),
+            &SourceIdentity::Generated {
+                id: "cd".repeat(16)
+            },
+        )
+        .is_err());
+}
+
+#[test]
+fn generated_evidence_is_not_a_package_or_identity_override() {
+    let good = generated_options(&"ab".repeat(16));
+    let mut wrong_location = good.clone();
+    wrong_location.origin.location = "generated://someone-else".into();
+    let mut package = good.clone();
+    package.origin.manifest_digest = Some(format!("sha256:{}", "44".repeat(32)));
+    let mut file = good.clone();
+    file.source = SourceIdentity::File(std::path::absolute("unrelated.wasm").unwrap());
+    let mut absent = good.clone();
+    absent.origin.generation = None;
+    let mut invalid_id = good.clone();
+    invalid_id.source = SourceIdentity::Generated {
+        id: "caller-chosen-label".into(),
+    };
+    let mut huge = good;
+    huge.origin.generation.as_mut().unwrap().world = "x".repeat(513);
+    for input in [wrong_location, package, file, absent, invalid_id, huge] {
+        assert!(PreparedInstall::prepare(wasm("generated"), input, validator).is_err());
+    }
+}
+
+#[test]
+fn generation_receipt_schema_and_binding_tampering_fail_closed() {
+    let root = directory();
+    let store = ComponentStore::open(root.path()).unwrap();
+    let installed = install(&store, "generated", generated_options(&"ab".repeat(16)));
+    let record_path = root.path().join("generated_private_key.install.json");
+    let bytes = std::fs::read(&record_path).unwrap();
+    let mut value: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+    // Use the actual stored enum representation instead of a parallel receipt format.
+    let current = value.get_mut("Installed").unwrap();
+    current["schema"] = serde_json::json!(1);
+    std::fs::write(&record_path, serde_json::to_vec(&value).unwrap()).unwrap();
+    assert!(store.read("generated").is_err());
+    std::fs::write(&record_path, &bytes).unwrap();
+    assert_eq!(
+        store.read("generated").unwrap().receipt,
+        *receipt(&installed)
+    );
+    let mut value: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+    let current = value.get_mut("Installed").unwrap();
+    current["origin"]
+        .as_object_mut()
+        .unwrap()
+        .remove("generation");
+    std::fs::write(&record_path, serde_json::to_vec(&value).unwrap()).unwrap();
+    assert!(store.read("generated").is_err());
+}
+
+#[test]
+fn existing_source_serialization_and_secret_binding_are_unchanged() {
+    let old_source = source();
+    let encoding = serde_json::to_string(&old_source).unwrap();
+    assert_eq!(encoding, r#"{"OciRepository":"ghcr.io/example/tool"}"#);
+    let expected_binding = hex::encode(sha2::Sha256::digest(encoding.as_bytes()));
+    assert_eq!(
+        crate::store_support::source_binding_key(&old_source).unwrap(),
+        expected_binding
+    );
+    let origin = options("key").origin;
+    let encoded = serde_json::to_value(&origin).unwrap();
+    assert!(encoded.get("generation").is_none());
+    assert_eq!(
+        serde_json::from_value::<OriginEvidence>(encoded).unwrap(),
+        origin
+    );
+
+    #[derive(serde::Deserialize)]
+    enum LegacySource {
+        OciRepository(String),
+    }
+    let old: LegacySource = serde_json::from_str(&encoding).unwrap();
+    let LegacySource::OciRepository(repository) = old;
+    assert_eq!(repository, "ghcr.io/example/tool");
+    assert!(serde_json::from_value::<LegacySource>(
+        serde_json::to_value(SourceIdentity::Generated {
+            id: "ab".repeat(16)
+        },)
+        .unwrap()
+    )
+    .is_err());
 }

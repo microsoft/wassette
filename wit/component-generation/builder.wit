@@ -1,0 +1,74 @@
+package wassette:component-generation@0.1.0;
+
+/// Explicit host-authorized generation, independent of an agent protocol.
+///
+/// This package is canonical. Host WIT dependency trees link to this directory;
+/// they must not maintain independent copies. No WASI or async ABI is required.
+interface builder {
+    /// What the host actually made available after the shared-store operation.
+    enum disposition {
+        /// Installed without making tools eligible for execution.
+        installed,
+        /// Ordinary tools are eligible; no agent-session exposure is implied.
+        tools-eligible,
+        /// Ordinary tools were also added to the requesting agent session.
+        session-tools,
+        /// An ACP layer was installed; later explicit selection is required.
+        later-selection-required,
+        /// A durable commit occurred, but the requested publication did not finish.
+        committed-not-exposed,
+    }
+
+    /// Canonical core outcome plus protocol-local publication information.
+    record generation-report {
+        /// JSON from the core generation outcome, including its actual receipt.
+        report-json: string,
+        /// Actual publication, never an inferred rollback after commit.
+        disposition: disposition,
+        /// Host-issued handles in the requesting session only; empty for layers.
+        tool-handles: list<string>,
+    }
+
+    /// Typed management failures. Source bodies and compiler diagnostics are not logs.
+    variant generation-error {
+        /// The operator has not enabled this capability.
+        disabled,
+        /// There is no authenticated host session/caller binding.
+        session-not-bound,
+        /// Operator authority or this call's UI approval denied an operation.
+        permission-denied,
+        /// Cancelled before the host accepted a durable commit.
+        cancelled,
+        /// All bounded supervised worker slots are occupied.
+        busy,
+        /// Malformed or oversized input, never a host configuration path.
+        invalid-request(string),
+        /// The requested or committed revision is no longer current.
+        stale(string),
+        /// Compilation or validation failed.
+        build-failed(string),
+        /// A host service is unavailable.
+        unavailable(string),
+        /// A durable commit exists; inspect the receipt before retrying.
+        committed(generation-report),
+        /// Commit completion needs recovery; JSON identifies the store operation
+        /// and includes a canonical observed receipt only when established.
+        recovery-required(string),
+    }
+
+    /// Request a bounded build, then separately authorized install and exposure.
+    ///
+    /// UTF-8 JSON is limited to 4 MiB and follows the core GenerationRequest
+    /// schema. Requests contain no permission grants, source ids, paths, compiler
+    /// arguments, or host limits. Providers and layers may request generation;
+    /// generated outputs may only be ordinary tools or ACP layers.
+    ///
+    /// The synchronous Component Model ABI also works in ordinary WASIp2 hosts.
+    /// Hosts may suspend their implementation while awaiting permission or a VM.
+    generate: func(request-json: string) -> result<generation-report, generation-error>;
+}
+
+/// Imports for a component requesting generation from its configured host.
+world imports {
+    import builder;
+}

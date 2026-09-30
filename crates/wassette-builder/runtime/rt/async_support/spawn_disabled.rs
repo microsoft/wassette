@@ -1,0 +1,34 @@
+// Copyright (c) Microsoft Corporation.
+// Licensed under the MIT license.
+// Vendored from wit-bindgen 0.62.0; see ../../LICENSE-MIT.
+
+use crate::rt::async_support::BoxFuture;
+use core::task::{Context, Poll};
+
+#[derive(Default)]
+pub struct Tasks<'a> {
+    future: Option<BoxFuture<'a>>,
+}
+
+impl<'a> Tasks<'a> {
+    pub fn new(root: BoxFuture<'a>) -> Tasks<'a> {
+        Tasks { future: Some(root) }
+    }
+
+    pub fn poll_next(&mut self, cx: &mut Context<'_>) -> Poll<()> {
+        if let Some(future) = self.future.as_mut() {
+            if future.as_mut().poll(cx).is_ready() {
+                self.future = None;
+            }
+        }
+        if self.is_empty() {
+            Poll::Ready(())
+        } else {
+            Poll::Pending
+        }
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.future.is_none()
+    }
+}

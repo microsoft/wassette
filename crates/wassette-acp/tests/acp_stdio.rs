@@ -37,6 +37,10 @@ use wassette::store::{
 mod common;
 use common::NamedFixture;
 
+#[cfg(feature = "component-generation")]
+#[path = "acp_stdio/generation.rs"]
+mod generation;
+
 /// How long to wait for any single line of output. Generous: the first
 /// response includes compiling the provider component.
 const LINE_TIMEOUT: Duration = Duration::from_secs(60);
@@ -147,6 +151,7 @@ struct Harness {
     _xdg: tempfile::TempDir,
     local_drop: Option<PathBuf>,
     next_id: i64,
+    line_timeout: Duration,
 }
 
 impl Harness {
@@ -230,6 +235,7 @@ impl Harness {
             .env("WASSETTE_CONFIG_FILE", config.join("config.toml"))
             .env_remove("WASSETTE_LOCAL_COMPONENT_DIR")
             .env_remove("WASSETTE_LOCAL_COMPONENTS")
+            .env_remove("WASSETTE_GENERATION_CONFIG")
             // The host prefers RUST_LOG over --log-level; clear it so a
             // developer's ambient value cannot change what is logged.
             .env_remove("RUST_LOG")
@@ -270,6 +276,7 @@ impl Harness {
             _xdg: xdg,
             local_drop,
             next_id: 0,
+            line_timeout: LINE_TIMEOUT,
         }
     }
 
@@ -361,13 +368,14 @@ impl Harness {
 
     /// Read one line of stdout, recording it.
     fn next_line(&mut self) -> String {
-        match self.lines.recv_timeout(LINE_TIMEOUT) {
+        match self.lines.recv_timeout(self.line_timeout) {
             Ok(line) => {
                 self.seen.push(line.clone());
                 line
             }
             Err(RecvTimeoutError::Timeout) => panic!(
-                "timed out after {LINE_TIMEOUT:?} waiting for output; saw so far:\n{}\nstderr:\n{}",
+                "timed out after {:?} waiting for output; saw so far:\n{}\nstderr:\n{}",
+                self.line_timeout,
                 self.seen.join("\n"),
                 self.stderr.lock().unwrap()
             ),
@@ -883,6 +891,23 @@ fn install_local_path_reports_receipt_backed_installation() {
             .join("data/wassette/components/acp_echo_provider.wasm")
             .exists(),
         "local input was not transactionally installed"
+    );
+}
+
+#[test]
+fn generation_import_is_disabled_without_an_operator_profile() {
+    let Some((bin, provider)) = artifacts() else {
+        return;
+    };
+    let mut h = Harness::start(&bin, &provider, &[]);
+    let sid = h.open_session();
+    let id = h.prompt(&sid, "/generate {}");
+    let (messages, response) = h.await_response_with_permission(id, "allow-once");
+    assert_eq!(response["stopReason"], "end_turn");
+    assert_eq!(permission_count(&messages), 0);
+    assert!(
+        response_text(&messages).contains("Disabled"),
+        "{messages:?}"
     );
 }
 

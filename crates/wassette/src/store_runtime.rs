@@ -298,6 +298,7 @@ impl LifecycleManager {
             selected_version: Some(resolved.selected_version.clone()),
             manifest_digest: Some(resolved.manifest_digest.clone()),
             immutable_uri: Some(resolved.oci_reference.clone()),
+            generation: None,
         };
         Ok((resolved, acquired))
     }
@@ -467,7 +468,7 @@ impl LifecycleManager {
         Ok(Some(metadata))
     }
 
-    async fn publish_prepared(
+    pub(crate) async fn publish_prepared(
         &self,
         mut prepared: PreparedComponentLoad,
         outcome: CommitOutcome,
@@ -738,7 +739,7 @@ fn incoming_policy(bytes: Option<Vec<u8>>) -> Result<PreparedPolicy> {
     })
 }
 
-fn policy_from_snapshot(snapshot: &ArtifactSnapshot) -> Result<PreparedPolicy> {
+pub(crate) fn policy_from_snapshot(snapshot: &ArtifactSnapshot) -> Result<PreparedPolicy> {
     let policy = match snapshot.policy.clone() {
         Some(bytes) => PreparedPolicy::parse(bytes, snapshot.receipt.policy.provenance.clone())?,
         None => PreparedPolicy::absent(snapshot.receipt.policy.provenance.clone()),

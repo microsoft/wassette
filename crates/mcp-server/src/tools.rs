@@ -30,6 +30,10 @@ pub async fn handle_tools_list(
     let mut tools = get_component_tools(lifecycle_manager).await?;
     if !disable_builtin_tools {
         tools.extend(get_builtin_tools());
+        #[cfg(feature = "component-generation")]
+        if crate::generation::is_available(lifecycle_manager) {
+            tools.push(crate::generation::tool());
+        }
     }
     debug!(num_tools = %tools.len(), "Retrieved tools");
 
@@ -43,6 +47,10 @@ pub async fn handle_tools_list(
 
 /// Check if a tool name is a builtin tool
 pub fn is_builtin_tool(name: &str) -> bool {
+    #[cfg(feature = "component-generation")]
+    if name == "build-component" {
+        return true;
+    }
     matches!(
         name,
         "load-component"
@@ -113,6 +121,22 @@ pub async fn handle_tools_call(
     lifecycle_manager: &LifecycleManager,
     disable_builtin_tools: bool,
 ) -> Result<Value> {
+    // Generation inputs and diagnostics must never enter the general argument/error logger.
+    #[cfg(feature = "component-generation")]
+    if req.name == "build-component" {
+        let jobs = crate::generation::GenerationJobs::default();
+        let result = jobs
+            .call_tool(
+                req,
+                lifecycle_manager,
+                disable_builtin_tools,
+                tokio_util::sync::CancellationToken::new(),
+            )
+            .await;
+        jobs.shutdown().await;
+        return Ok(serde_json::to_value(result?)?);
+    }
+
     let start_time = Instant::now();
     let tool_name = req.name.to_string();
     let sanitized_args = sanitize_args_for_logging(&req.arguments);
@@ -1332,4 +1356,15 @@ mod tests {
         assert!(error.to_string().contains("between 1 and 100"));
         Ok(())
     }
+}
+#[test]
+fn generation_builtin_is_feature_gated_and_not_enabled_by_compilation() {
+    assert_eq!(
+        is_builtin_tool("build-component"),
+        cfg!(feature = "component-generation")
+    );
+    assert!(!get_builtin_tools()
+        .iter()
+        .any(|tool| tool.name == "build-component"));
+    assert!(is_builtin_tool("load-component"));
 }

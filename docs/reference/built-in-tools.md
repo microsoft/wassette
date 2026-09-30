@@ -1,6 +1,6 @@
 # Built-in Tools
 
-Wassette comes with several built-in tools for managing components and their permissions. These tools are available immediately when you start the MCP server.
+Wassette comes with several built-in tools for managing components and their permissions. These tools are available immediately when you start the MCP server, unless `--disable-builtin-tools` is set. Component generation additionally requires the opt-in feature and operator configuration described below.
 
 | Tool | Description |
 |------|-------------|
@@ -19,6 +19,83 @@ Wassette comes with several built-in tools for managing components and their per
 
 <details>
 <summary><strong>Component Management Tools</strong></summary>
+
+## build-component (opt-in)
+
+This combined native management operation builds, validates, and installs a
+component. It is listed only when the binary includes `component-generation`,
+the operator configures a generation service, and its trusted profile grants
+both `allow_build` and `allow_install`. `--disable-builtin-tools` hides it and
+rejects invocation even when a profile is configured.
+
+**Parameters:**
+- `build` (object, required):
+  - `component_name` (string): Expected embedded component name, up to 512 UTF-8 bytes; exact spelling is preserved
+  - `source` (string): Inline Rust source, up to 256 KiB
+  - `wit` (string): Inline WIT, up to 256 KiB
+  - `world` (string): Selected WIT world, up to 256 UTF-8 bytes; exact spelling is preserved
+  - `kind`: `Tool` or `AcpLayer` (case-sensitive builder enum); providers are not supported
+- `target` (object, optional): `{"mode":"new"}` by default, or
+  `{"mode":"rebuild","expected_revision":"<opaque revision from prior report>"}`
+- `intent` (optional): `InstallOnly` by default, or `ExposeTools`
+- `reinstall_policy` (string, optional): Exact previous policy YAML, up to
+  128 KiB, only when reinstalling a retired generated lineage; never new grants
+
+Unknown fields are rejected. The 2 MiB encoded-request cap and 256 KiB decoded
+source/WIT caps are independent **adapter transport restrictions**, not builder
+defaults. JSON escaping can exceed the total cap even when every decoded field
+fits its byte limit. Revision tokens cannot exceed 256 bytes. The builder
+defaults to a 1 MiB source budget and a 256 KiB budget shared by request WIT and
+the operator's pinned WIT dependencies; operator-configured limits can be lower.
+No profile path, initrd, helper executable, host filesystem path, compiler flags,
+environment, source identity, or storage key can be selected in this request.
+
+The operator's profile is the permission ceiling for this native operation.
+Client approval to invoke the combined management tool is outside the server:
+there is **no second per-request approval dialog** between building and
+installing. Keep `allow_expose` and `allow_rebuild` false unless those operations
+are intended. Request intent is not a permission grant. Denied install, exposure,
+or rebuild permissions are checked before compilation.
+
+`InstallOnly` does not expose ordinary tools. An `AcpLayer` must use
+`InstallOnly`; its report sets `requires_selection: true` and explains that a
+later ACP session must explicitly select it. No active layers are changed, and
+agent/client interfaces are never exposed as MCP tools.
+
+**Returns:** Text and structured JSON carrying the canonical `commit` receipt
+(component ID, private storage key, provenance and revision), `refresh`,
+`preview` (actual kind/name, Wasm hash, evidence and bounded diagnostics), and
+an opaque `revision` string suitable for a later rebuild. The adapter does not
+write a second receipt or emit a second catalog notification.
+
+Each error, builder-diagnostic, or preview-diagnostic string is capped at 16 KiB of encoded JSON,
+including control-character escaping, and marked when truncated. Diagnostics
+are returned only to the caller, not written to transport logs.
+Typed builder failures return `phase: "build"`, `code: "builder-error"`, and
+`build_error_kind`. Request, WIT, compilation, and output-validation failures
+may also include the builder's sanitized `diagnostic` for correcting the input.
+Unavailable/internal failures do not disclose host or configuration details.
+
+Failures before commit have `status: "failed"`. A refresh failure after commit
+has `status: "committed-refresh-failed"`, retains the actual `commit`, and has
+`refresh: null`. This is not a rollback: refresh the catalog rather
+than retrying as a new generation.
+
+An interrupted store commit can instead return `status: "commit-unknown"` or,
+when core observes the exact operation's committed receipt,
+`status: "committed-recovery-required"`. Both remain MCP errors with
+`phase: "commit-recovery"`, an `operation` ID, the canonical optional `commit`,
+and `refresh: null`. Neither means the operation rolled back. Inspect and
+recover that existing store operation before continuing; do not retry it as a
+new generation or infer the outcome from an artifact hash.
+
+Request cancellation or transport closure
+cancels precommit work; jobs remain owned until helper reaping and any accepted
+transaction finish.
+
+The separate `wassette-builder` helper uses a trusted digest-pinned local
+initrd only. No OCI builder-image download/distribution or host compiler/Cargo
+fallback is provided. See [generation configuration](configuration-files.md#generation_config).
 
 ## load-component
 **Parameters:**

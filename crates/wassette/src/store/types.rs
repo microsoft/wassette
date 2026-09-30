@@ -68,6 +68,11 @@ impl std::fmt::Display for EntryRevision {
 /// Equal names, owners, downloaded bytes, or release hashes do not establish it.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum SourceIdentity {
+    /// Host-issued lineage for explicitly authorized generated-component rebuilds.
+    Generated {
+        /// Lower-case hexadecimal 128-bit identifier; not a bearer credential.
+        id: String,
+    },
     /// Canonical OCI registry/repository, excluding tags and digest selectors.
     OciRepository(String),
     /// An absolute, canonical local source path captured by the adapter.
@@ -82,8 +87,14 @@ pub enum SourceIdentity {
 }
 
 impl SourceIdentity {
-    pub(super) fn validate(&self) -> Result<()> {
+    pub(crate) fn validate(&self) -> Result<()> {
         let valid = match self {
+            Self::Generated { id } => {
+                id.len() == 32
+                    && id
+                        .bytes()
+                        .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+            }
             Self::File(path) => path.is_absolute(),
             Self::Https {
                 location,
@@ -113,7 +124,7 @@ impl SourceIdentity {
         };
         if !valid {
             return Err(StoreError::Invalid(anyhow::anyhow!(
-                "source identity is not an absolute file, canonical OCI repository, or HTTPS URL"
+                "source identity is not a generated lineage, absolute file, canonical OCI repository, or HTTPS URL"
             )));
         }
         Ok(())
@@ -133,6 +144,9 @@ pub struct OriginEvidence {
     pub manifest_digest: Option<String>,
     /// Immutable pull URI, when supplied by a resolver.
     pub immutable_uri: Option<String>,
+    /// Bounded host-observed build evidence, never source text or credentials.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub generation: Option<GenerationEvidence>,
 }
 
 impl OriginEvidence {
@@ -141,7 +155,121 @@ impl OriginEvidence {
         {
             validate_evidence_location(location)?;
         }
+        if let Some(generation) = &self.generation {
+            generation.validate()?;
+            if self.requested_version.is_some()
+                || self.selected_version.is_some()
+                || self.manifest_digest.is_some()
+                || self.immutable_uri.is_some()
+            {
+                return Err(StoreError::Invalid(anyhow::anyhow!(
+                    "generated origin must not impersonate a component package acquisition"
+                )));
+            }
+        }
         Ok(())
+    }
+}
+
+/// Non-secret evidence for a compiler run, subordinate to the receipt's Wasm hash.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct GenerationEvidence {
+    /// SHA-256 of the exact source supplied to the builder.
+    pub source_sha256: String,
+    /// SHA-256 of the exact WIT supplied to the builder.
+    pub wit_sha256: String,
+    /// Digest of the pinned host-supplied WIT dependency graph.
+    pub wit_dependencies_sha256: String,
+    /// SHA-256 of the verified builder initrd, not the generated artifact.
+    pub builder_initrd_sha256: String,
+    /// Digest of the exact packaged helper executable.
+    pub builder_helper_sha256: String,
+    /// Immutable builder OCI manifest digest, when the profile provides one.
+    pub builder_manifest_digest: Option<String>,
+    /// Versioned fixed build profile and inline-runtime identity.
+    pub profile: String,
+    /// Digest binding the exact profile, including runtime support.
+    pub profile_sha256: String,
+    /// Pinned native compiler version.
+    pub compiler: String,
+    /// Pinned host bindgen version.
+    pub bindgen: String,
+    /// Inline binding-runtime identity.
+    pub binding_runtime: String,
+    /// Hyperlight/unikraft runtime identity.
+    pub vm_runtime: String,
+    /// Selected WIT world.
+    pub world: String,
+    /// Compiler target, independent of the helper's host architecture.
+    pub target: String,
+    /// Platform on which the helper ran.
+    pub host_platform: String,
+}
+
+impl GenerationEvidence {
+    pub(super) fn validate(&self) -> Result<()> {
+        let hash = |value: &str| {
+            value.len() == 64
+                && value
+                    .bytes()
+                    .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+        };
+        let label = |value: &str| {
+            !value.trim().is_empty() && value.len() <= 512 && !value.chars().any(char::is_control)
+        };
+        if !hash(&self.source_sha256)
+            || !hash(&self.wit_sha256)
+            || !hash(&self.wit_dependencies_sha256)
+            || !hash(&self.builder_initrd_sha256)
+            || !hash(&self.builder_helper_sha256)
+            || !hash(&self.profile_sha256)
+            || self
+                .builder_manifest_digest
+                .as_ref()
+                .is_some_and(|digest| !digest.strip_prefix("sha256:").is_some_and(hash))
+            || ![
+                &self.profile,
+                &self.compiler,
+                &self.bindgen,
+                &self.binding_runtime,
+                &self.vm_runtime,
+                &self.world,
+                &self.target,
+                &self.host_platform,
+            ]
+            .into_iter()
+            .all(|value| label(value))
+        {
+            return Err(StoreError::Invalid(anyhow::anyhow!(
+                "invalid generated-component build evidence"
+            )));
+        }
+        Ok(())
+    }
+}
+
+pub(super) fn validate_generation_binding(
+    source: &SourceIdentity,
+    origin: &OriginEvidence,
+    kind: &StoredArtifactKind,
+    owner: &InstallOwner,
+) -> Result<()> {
+    match (source, &origin.generation) {
+        (SourceIdentity::Generated { id }, Some(_))
+            if origin.location == format!("generated://{id}")
+                && *owner == InstallOwner::Explicit
+                && matches!(
+                    kind,
+                    StoredArtifactKind::Tool | StoredArtifactKind::AcpLayer
+                ) =>
+        {
+            Ok(())
+        }
+        (SourceIdentity::Generated { .. }, _) | (_, Some(_)) => Err(StoreError::Invalid(
+            anyhow::anyhow!("generation evidence, source, owner, and artifact kind disagree"),
+        )),
+        _ => Ok(()),
     }
 }
 
@@ -440,6 +568,7 @@ impl PreparedInstall {
                 )));
             }
         };
+        validate_generation_binding(&options.source, &options.origin, &kind, &options.owner)?;
         let validation = validator(&wasm, &inspection, options.policy.bytes())?;
         let (ordinary, runtime) = match &validation {
             ValidationEvidence::OrdinaryPrepared { runtime } => (true, runtime),
@@ -684,7 +813,7 @@ pub struct StoreChange {
 }
 
 /// Successful commit or exact no-op; both return enough state for fresh hydration.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub struct CommitOutcome {
     /// Current installed or retired record.
     pub entry: StoredEntry,

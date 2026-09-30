@@ -30,10 +30,15 @@ COMPONENTS=(
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
 
+cp -R "$WIT" "$TMP/wit"
+mkdir -p "$TMP/wit/deps/wassette-component-generation"
+cp "$REPO_ROOT/wit/component-generation/builder.wit" \
+    "$TMP/wit/deps/wassette-component-generation/builder.wit"
+
 for entry in "${COMPONENTS[@]}"; do
     dir="${entry%%:*}"
     world="${entry##*:}"
-    wit-bindgen rust "$WIT" \
+    wit-bindgen rust "$TMP/wit" \
         --world "$world" \
         --runtime-path wit_bindgen::rt \
         --pub-export-macro \
