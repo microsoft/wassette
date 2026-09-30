@@ -63,9 +63,15 @@ acp-bindgen:
 # They drive the built `wassette` binary over stdio, so build it first.
 test-acp:
     just build-acp-examples
+    just build-acp-tool-fixture
     (cd components/acp-copilot-provider && cargo test)
     cargo build -p wassette-mcp-server
     cargo test -p wassette-acp -- --nocapture
+
+# Ordinary tool used by the ACP guest-import end-to-end tests.
+build-acp-tool-fixture:
+    (cd examples/filesystem-rs && cargo build --release --target wasm32-wasip2)
+    just name-component examples/filesystem-rs examples/filesystem-rs/target/wasm32-wasip2/release/filesystem.wasm
 
 build mode="debug":
     mkdir -p bin

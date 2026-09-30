@@ -20,6 +20,7 @@
 //! --workspace` on a machine without the `wasm32-wasip2` target stays green.
 //! In CI, missing artifacts fail the tests rather than silently reducing coverage.
 
+use std::borrow::Cow;
 use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Child, ChildStdin, Command, Stdio};
@@ -28,6 +29,10 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use serde_json::{Value, json};
+use wasm_encoder::{ComponentSection, CustomSection, Encode};
+use wassette::store::{
+    ComponentStore, EntryRevision, InstallOwner, StoredArtifactKind, ValidationEvidence,
+};
 
 mod common;
 use common::NamedFixture;
@@ -83,6 +88,24 @@ fn uppercase_layer() -> Option<NamedFixture> {
     path.is_file().then(|| NamedFixture::copy(&path))
 }
 
+fn filesystem_tool() -> Option<NamedFixture> {
+    let target_dir = std::env::var_os("CARGO_TARGET_DIR")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| {
+            PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../examples/filesystem-rs/target")
+        });
+    let path = target_dir.join("wasm32-wasip2/release/filesystem.wasm");
+    if path.is_file() {
+        return Some(NamedFixture::copy(&path));
+    }
+    assert!(
+        std::env::var_os("CI").is_none(),
+        "CI requires filesystem-rs; run `just build-acp-tool-fixture`"
+    );
+    eprintln!("skipping: filesystem-rs is not built; run `just build-acp-tool-fixture`");
+    None
+}
+
 /// Both artifacts, or `None` with an explanation of what to build.
 fn artifacts() -> Option<(PathBuf, NamedFixture)> {
     let Some(bin) = wassette_binary() else {
@@ -122,6 +145,7 @@ struct Harness {
     /// reads and writes, redirected away from the developer's real
     /// component store.
     _xdg: tempfile::TempDir,
+    local_drop: Option<PathBuf>,
     next_id: i64,
 }
 
@@ -130,6 +154,64 @@ impl Harness {
     /// directories.
     fn start(bin: &Path, wasm: &Path, extra: &[&str]) -> Harness {
         let xdg = tempfile::tempdir().expect("tempdir");
+        Self::spawn(bin, wasm, extra, xdg, None)
+    }
+
+    fn start_with_local_tool(
+        bin: &Path,
+        provider: &Path,
+        tool: &Path,
+        mode: &str,
+        expose: bool,
+    ) -> Harness {
+        let exposed = if expose {
+            vec!["microsoft:filesystem-rs"]
+        } else {
+            Vec::new()
+        };
+        Self::start_with_local_source(bin, provider, Some(tool), mode, &exposed, &[])
+    }
+
+    fn start_with_local_source(
+        bin: &Path,
+        provider: &Path,
+        tool: Option<&Path>,
+        mode: &str,
+        exposed: &[&str],
+        extra_args: &[&str],
+    ) -> Harness {
+        let xdg = tempfile::tempdir().expect("tempdir");
+        let drops = xdg.path().join("local-components");
+        std::fs::create_dir_all(&drops).expect("create local component drop");
+        let output = xdg.path().join("tool-output");
+        std::fs::create_dir_all(&output).expect("create isolated tool output");
+        if let Some(tool) = tool {
+            write_local_tool(&drops, tool, &output);
+        }
+        let mut extra = vec![
+            "--local-component-dir".to_string(),
+            drops.to_str().expect("utf-8 drop directory").to_string(),
+            "--local-components".to_string(),
+            mode.to_string(),
+        ];
+        for component in exposed {
+            extra.extend(["--tool".to_string(), component.to_string()]);
+        }
+        extra.extend(extra_args.iter().map(|arg| arg.to_string()));
+        Self::spawn(bin, provider, &extra, xdg, Some(drops.clone()))
+    }
+
+    fn spawn<I, S>(
+        bin: &Path,
+        wasm: &Path,
+        extra: I,
+        xdg: tempfile::TempDir,
+        local_drop: Option<PathBuf>,
+    ) -> Harness
+    where
+        I: IntoIterator<Item = S>,
+        S: AsRef<std::ffi::OsStr>,
+    {
         let data = xdg.path().join("data");
         let config = xdg.path().join("config");
         let state = xdg.path().join("state");
@@ -145,6 +227,9 @@ impl Harness {
             .env("XDG_DATA_HOME", &data)
             .env("XDG_CONFIG_HOME", &config)
             .env("XDG_STATE_HOME", &state)
+            .env("WASSETTE_CONFIG_FILE", config.join("config.toml"))
+            .env_remove("WASSETTE_LOCAL_COMPONENT_DIR")
+            .env_remove("WASSETTE_LOCAL_COMPONENTS")
             // The host prefers RUST_LOG over --log-level; clear it so a
             // developer's ambient value cannot change what is logged.
             .env_remove("RUST_LOG")
@@ -183,6 +268,7 @@ impl Harness {
             seen: Vec::new(),
             stderr: stderr_output,
             _xdg: xdg,
+            local_drop,
             next_id: 0,
         }
     }
@@ -203,6 +289,58 @@ impl Harness {
         let stdin = self.stdin.as_mut().expect("stdin is open");
         writeln!(stdin, "{msg}").expect("write notification");
         stdin.flush().expect("flush notification");
+    }
+
+    fn prompt(&mut self, session_id: &str, text: &str) -> i64 {
+        self.request(
+            "session/prompt",
+            json!({
+                "sessionId": session_id,
+                "prompt": [{"type": "text", "text": text}],
+            }),
+        )
+    }
+
+    fn store(&self) -> ComponentStore {
+        ComponentStore::open(self._xdg.path().join("data/wassette/components")).unwrap()
+    }
+
+    fn write_command(&self, content: &str) -> String {
+        let path = self
+            ._xdg
+            .path()
+            .join("tool-output")
+            .canonicalize()
+            .unwrap()
+            .join("written.txt");
+        format!(
+            "/tool write-file {}",
+            json!({"path": path, "content": content})
+        )
+    }
+
+    fn respond_permission(&mut self, request: &Value, option_id: &str) {
+        let response = json!({
+            "jsonrpc": "2.0", "id": request["id"],
+            "result": {"outcome": {"outcome": "selected", "optionId": option_id}},
+        });
+        let stdin = self.stdin.as_mut().expect("stdin is open");
+        writeln!(stdin, "{response}").expect("write permission response");
+        stdin.flush().expect("flush permission response");
+    }
+
+    fn await_permission(&mut self, prompt_id: i64) -> Value {
+        loop {
+            let message: Value = serde_json::from_str(&self.next_line()).unwrap();
+            assert_ne!(
+                message["id"],
+                json!(prompt_id),
+                "prompt ended before permission: {message}"
+            );
+            if message["method"] == "session/request_permission" {
+                return message;
+            }
+        }
     }
 
     fn close_stdin_and_wait(&mut self) {
@@ -256,7 +394,29 @@ impl Harness {
                 );
                 return (notifications, msg["result"].clone());
             }
+
             notifications.push(msg);
+        }
+    }
+
+    fn await_response_with_permission(&mut self, id: i64, option_id: &str) -> (Vec<Value>, Value) {
+        let mut messages = Vec::new();
+        loop {
+            let line = self.next_line();
+            let msg: Value = serde_json::from_str(&line)
+                .unwrap_or_else(|error| panic!("stdout line is not JSON ({error}): {line}"));
+            if msg.get("id").and_then(Value::as_i64) == Some(id) {
+                assert!(
+                    msg.get("error").is_none(),
+                    "request {id} failed: {}",
+                    msg["error"]
+                );
+                return (messages, msg["result"].clone());
+            }
+            if msg["method"] == "session/request_permission" {
+                self.respond_permission(&msg, option_id);
+            }
+            messages.push(msg);
         }
     }
 
@@ -313,6 +473,62 @@ impl Drop for Harness {
         let _ = self.child.kill();
         let _ = self.child.wait();
     }
+}
+
+fn write_local_tool(drop: &Path, tool: &Path, output: &Path) {
+    let uri = format!("fs://{}", output.canonicalize().unwrap().display());
+    let policy = json!({
+        "version": "1.0",
+        "permissions": {"storage": {"allow": [{"uri": uri, "access": ["read", "write"]}]}},
+    });
+    std::fs::write(
+        drop.join("unrelated-name.policy.yaml"),
+        serde_json::to_vec(&policy).unwrap(),
+    )
+    .unwrap();
+    std::fs::copy(tool, drop.join("unrelated-name.wasm")).unwrap();
+}
+
+fn permission_count(messages: &[Value]) -> usize {
+    messages
+        .iter()
+        .filter(|message| message["method"] == "session/request_permission")
+        .count()
+}
+
+fn response_text(messages: &[Value]) -> String {
+    messages
+        .iter()
+        .filter_map(agent_message_chunk_text)
+        .collect()
+}
+
+fn wait_for_revision(store: &ComponentStore, before: &EntryRevision) {
+    let deadline = std::time::Instant::now() + Duration::from_secs(20);
+    loop {
+        let current = store
+            .read("microsoft:filesystem-rs")
+            .expect("read managed tool");
+        if &current.receipt.revision != before {
+            return;
+        }
+        assert!(
+            std::time::Instant::now() < deadline,
+            "local replacement was not committed"
+        );
+        std::thread::sleep(Duration::from_millis(100));
+    }
+}
+
+fn replace_with_equivalent_component(path: &Path) {
+    let mut wasm = std::fs::read(path).expect("read local tool");
+    let section = CustomSection {
+        name: Cow::Borrowed("wassette-test-revision"),
+        data: Cow::Borrowed(b"replacement"),
+    };
+    wasm.push(section.id());
+    section.encode(&mut wasm);
+    std::fs::write(path, wasm).expect("replace local tool");
 }
 
 /// Text carried by an `agent_message_chunk` session update, if that is
@@ -668,6 +884,422 @@ fn install_local_path_reports_receipt_backed_installation() {
             .exists(),
         "local input was not transactionally installed"
     );
+}
+
+#[test]
+fn local_tool_invocation_routes_permission_and_status_over_stdio() {
+    let Some((bin, provider)) = artifacts() else {
+        return;
+    };
+    let Some(tool) = filesystem_tool() else {
+        return;
+    };
+    let mut h = Harness::start_with_local_tool(&bin, &provider, &tool, "startup", true);
+    let sid = h.open_session();
+
+    let output = h._xdg.path().join("tool-output/written.txt");
+    let command = h.write_command("allowed through ACP");
+    let id = h.prompt(&sid, &command);
+    let (rejected, response) = h.await_response_with_permission(id, "reject-once");
+    assert_eq!(response["stopReason"], "end_turn");
+    assert!(
+        rejected
+            .iter()
+            .any(|message| message["method"] == "session/request_permission"),
+        "permission request was not routed over ACP: {rejected:?}"
+    );
+    assert!(
+        rejected.iter().any(|message| {
+            message["params"]["update"]["sessionUpdate"] == "tool_call_update"
+                && message["params"]["update"]["status"] == "failed"
+        }),
+        "rejected tool call did not emit failed status: {rejected:?}"
+    );
+    assert!(
+        rejected
+            .iter()
+            .filter_map(agent_message_chunk_text)
+            .any(|text| text.contains("PermissionDenied")),
+        "provider did not receive the rejection: {rejected:?}"
+    );
+    assert!(!output.exists(), "rejected invocation wrote a file");
+
+    let id = h.prompt(&sid, &command);
+    let (allowed, response) = h.await_response_with_permission(id, "allow-once");
+    assert_eq!(response["stopReason"], "end_turn");
+    assert!(
+        allowed.iter().any(|message| {
+            message["params"]["update"]["sessionUpdate"] == "tool_call_update"
+                && message["params"]["update"]["status"] == "in_progress"
+        }),
+        "allowed tool call did not become in-progress: {allowed:?}"
+    );
+    assert!(
+        allowed.iter().any(|message| {
+            message["params"]["update"]["sessionUpdate"] == "tool_call_update"
+                && message["params"]["update"]["status"] == "completed"
+        }),
+        "allowed tool call did not complete: {allowed:?}"
+    );
+    assert!(
+        allowed
+            .iter()
+            .filter_map(agent_message_chunk_text)
+            .any(|text| text.contains("Successfully wrote")),
+        "provider did not receive a successful tool result: {allowed:?}"
+    );
+    assert_eq!(
+        std::fs::read_to_string(&output).unwrap(),
+        "allowed through ACP"
+    );
+    assert_eq!(permission_count(&allowed), 1);
+    let calls: Vec<_> = allowed
+        .iter()
+        .filter(|message| {
+            matches!(
+                message["params"]["update"]["sessionUpdate"].as_str(),
+                Some("tool_call" | "tool_call_update")
+            )
+        })
+        .collect();
+    assert_eq!(calls.len(), 3, "{calls:?}");
+    let call_id = calls[0]["params"]["update"]["toolCallId"].as_str().unwrap();
+    for message in &calls {
+        assert_eq!(message["params"]["sessionId"], sid);
+        assert_eq!(message["params"]["update"]["toolCallId"], call_id);
+    }
+    let request = allowed
+        .iter()
+        .find(|message| message["method"] == "session/request_permission")
+        .unwrap();
+    assert_eq!(request["params"]["sessionId"], sid);
+    assert_eq!(request["params"]["toolCall"]["toolCallId"], call_id);
+
+    let id = h.prompt(&sid, r#"/tool write-file {"path":42}"#);
+    let (invalid, _) = h.await_response_with_permission(id, "allow-once");
+    assert!(
+        response_text(&invalid).contains("InvalidArguments"),
+        "{invalid:?}"
+    );
+    assert_eq!(permission_count(&invalid), 0);
+}
+
+#[test]
+fn startup_discovery_installs_but_does_not_expose_local_tools() {
+    let Some((bin, provider)) = artifacts() else {
+        return;
+    };
+    let Some(tool) = filesystem_tool() else {
+        return;
+    };
+    let mut h = Harness::start_with_local_tool(&bin, &provider, &tool, "startup", false);
+    let sid = h.open_session();
+    let id = h.request(
+        "session/prompt",
+        json!({
+            "sessionId": sid,
+            "prompt": [{"type": "text", "text": "/remember-tool file-exists"}],
+        }),
+    );
+    let (messages, response) = h.await_response(id);
+    assert_eq!(response["stopReason"], "end_turn");
+    assert!(
+        messages
+            .iter()
+            .filter_map(agent_message_chunk_text)
+            .any(|text| text == "tool not found: file-exists"),
+        "local tool was unexpectedly exposed: {messages:?}"
+    );
+    let receipt = h.store().read("microsoft:filesystem-rs").unwrap().receipt;
+    assert_eq!(receipt.kind, StoredArtifactKind::Tool);
+    assert!(matches!(receipt.owner, InstallOwner::ManagedLocalSource(_)));
+    assert_ne!(receipt.storage_key.as_str(), receipt.component_id.as_str());
+}
+
+#[test]
+fn watch_add_replace_remove_preserves_revision_bound_permissions() {
+    let Some((bin, provider)) = artifacts() else {
+        return;
+    };
+    let Some(tool) = filesystem_tool() else {
+        return;
+    };
+    let mut h = Harness::start_with_local_source(
+        &bin,
+        &provider,
+        None,
+        "watch",
+        &["microsoft:filesystem-rs"],
+        &[],
+    );
+    let sid = h.open_session();
+    let id = h.prompt(&sid, "/remember-tool write-file");
+    let (messages, _) = h.await_response(id);
+    assert_eq!(response_text(&messages), "tool not found: write-file");
+    let id = h.prompt(&sid, "/wait-tools");
+    let drop = h.local_drop.as_ref().expect("watch drop directory").clone();
+    let output_dir = h._xdg.path().join("tool-output");
+    write_local_tool(&drop, &tool, &output_dir);
+    let (messages, _) = h.await_response(id);
+    assert_eq!(response_text(&messages), "catalog changed");
+    let id = h.prompt(&sid, "/remember-tool write-file");
+    let (messages, _) = h.await_response(id);
+    assert_eq!(response_text(&messages), "remembered write-file");
+    let store = h.store();
+    let before = store
+        .read("microsoft:filesystem-rs")
+        .unwrap()
+        .receipt
+        .revision;
+
+    for (content, expected_requests) in [("first call", 1), ("remembered call", 0)] {
+        let command = h.write_command(content);
+        let id = h.prompt(&sid, &command);
+        let (messages, _) = h.await_response_with_permission(id, "allow-always");
+        assert_eq!(permission_count(&messages), expected_requests);
+        assert_eq!(
+            std::fs::read_to_string(output_dir.join("written.txt")).unwrap(),
+            content
+        );
+    }
+    let wasm = drop.join("unrelated-name.wasm");
+    replace_with_equivalent_component(&wasm);
+    wait_for_revision(&store, &before);
+    let id = h.prompt(&sid, r#"/call-saved {"path":".","content":"stale"}"#);
+    let (stale, _) = h.await_response_with_permission(id, "allow-once");
+    assert!(response_text(&stale).contains("Stale"), "{stale:?}");
+    assert_eq!(permission_count(&stale), 0);
+    assert_eq!(
+        std::fs::read_to_string(output_dir.join("written.txt")).unwrap(),
+        "remembered call"
+    );
+
+    let command = h.write_command("new revision");
+    let id = h.prompt(&sid, &command);
+    let (messages, _) = h.await_response_with_permission(id, "allow-always");
+    assert_eq!(
+        permission_count(&messages),
+        1,
+        "permission leaked across a revision"
+    );
+    assert_eq!(
+        std::fs::read_to_string(output_dir.join("written.txt")).unwrap(),
+        "new revision"
+    );
+    let new_id = h.request(
+        "session/new",
+        json!({"cwd": std::env::temp_dir(), "mcpServers": []}),
+    );
+    let (_, session) = h.await_response(new_id);
+    let second = session["sessionId"].as_str().unwrap();
+    let id = h.prompt(second, &command);
+    let (messages, _) = h.await_response_with_permission(id, "reject-once");
+    assert_eq!(
+        permission_count(&messages),
+        1,
+        "permission leaked across a session"
+    );
+    assert!(response_text(&messages).contains("PermissionDenied"));
+
+    let id = h.prompt(&sid, "/remember-tool write-file");
+    let (messages, _) = h.await_response(id);
+    assert_eq!(response_text(&messages), "remembered write-file");
+    let id = h.prompt(&sid, "/wait-tools");
+    std::fs::remove_file(&wasm).expect("remove watched local tool");
+    std::fs::remove_file(wasm.with_extension("policy.yaml")).unwrap();
+    let (messages, _) = h.await_response(id);
+    assert_eq!(response_text(&messages), "catalog changed");
+    let id = h.prompt(&sid, r#"/call-saved {"path":".","content":"removed"}"#);
+    let (messages, _) = h.await_response_with_permission(id, "allow-once");
+    assert_eq!(permission_count(&messages), 0);
+    assert!(response_text(&messages).contains("Stale"), "{messages:?}");
+}
+
+#[test]
+fn replacement_while_permission_is_pending_never_executes() {
+    let Some((bin, provider)) = artifacts() else {
+        return;
+    };
+    let Some(tool) = filesystem_tool() else {
+        return;
+    };
+    let mut h = Harness::start_with_local_tool(&bin, &provider, &tool, "watch", true);
+    let sid = h.open_session();
+    let store = h.store();
+    let before = store
+        .read("microsoft:filesystem-rs")
+        .unwrap()
+        .receipt
+        .revision;
+    let command = h.write_command("must not run");
+    let id = h.prompt(&sid, &command);
+    let permission = h.await_permission(id);
+    replace_with_equivalent_component(&h.local_drop.as_ref().unwrap().join("unrelated-name.wasm"));
+    wait_for_revision(&store, &before);
+    h.respond_permission(&permission, "allow-once");
+    let (messages, _) = h.await_response(id);
+    assert!(response_text(&messages).contains("Stale"), "{messages:?}");
+    assert!(!h._xdg.path().join("tool-output/written.txt").exists());
+}
+
+#[test]
+fn cancellation_while_permission_is_pending_reports_no_execution() {
+    let Some((bin, provider)) = artifacts() else {
+        return;
+    };
+    let Some(tool) = filesystem_tool() else {
+        return;
+    };
+    let mut h = Harness::start_with_local_tool(&bin, &provider, &tool, "startup", true);
+    let sid = h.open_session();
+    let command = h.write_command("must not run");
+    let id = h.prompt(&sid, &command);
+    let permission = h.await_permission(id);
+    h.notify("session/cancel", json!({"sessionId": sid}));
+    let (messages, result) = h.await_response(id);
+    assert_eq!(result["stopReason"], "cancelled");
+    assert!(!h._xdg.path().join("tool-output/written.txt").exists());
+    assert!(
+        messages.iter().any(|message| {
+            message["params"]["update"]["sessionUpdate"] == "tool_call_update"
+                && message["params"]["update"]["status"] == "failed"
+                && message["params"]["update"]["rawOutput"]
+                    .as_str()
+                    .is_some_and(|text| text.contains("may still be finishing"))
+        }),
+        "missing honest cancellation update: {messages:?}"
+    );
+    h.respond_permission(&permission, "allow-always");
+    let id = h.prompt(&sid, "after cancellation");
+    let (messages, _) = h.await_response(id);
+    assert_eq!(response_text(&messages), "after cancellation");
+    assert!(!h._xdg.path().join("tool-output/written.txt").exists());
+    let id = h.prompt(&sid, &command);
+    let (messages, _) = h.await_response_with_permission(id, "reject-once");
+    assert_eq!(
+        permission_count(&messages),
+        1,
+        "late permission was remembered after cancellation"
+    );
+    h.close_stdin_and_wait();
+}
+
+#[test]
+fn layered_tool_permissions_require_opt_in_and_reach_the_editor() {
+    let Some((bin, provider)) = artifacts() else {
+        return;
+    };
+    let Some(tool) = filesystem_tool() else {
+        return;
+    };
+    let Some(layer) = uppercase_layer() else {
+        assert!(
+            std::env::var_os("CI").is_none(),
+            "CI requires the uppercase layer"
+        );
+        eprintln!("skipping: uppercase layer not built");
+        return;
+    };
+    let layer = layer.to_str().unwrap();
+    let mut denied = Harness::start_with_local_source(
+        &bin,
+        &provider,
+        Some(&tool),
+        "startup",
+        &["microsoft:filesystem-rs"],
+        &["--layer", layer],
+    );
+    drop(denied.stdin.take());
+    assert!(
+        !denied.child.wait().unwrap().success(),
+        "layered tools ran without opt-in"
+    );
+    let mut h = Harness::start_with_local_source(
+        &bin,
+        &provider,
+        Some(&tool),
+        "startup",
+        &["microsoft:filesystem-rs"],
+        &["--layer", layer, "--allow-shared-grants"],
+    );
+    let sid = h.open_session();
+    let command = h.write_command("layered");
+    let id = h.prompt(&sid, &command);
+    let (messages, _) = h.await_response_with_permission(id, "allow-once");
+    assert_eq!(permission_count(&messages), 1);
+    let permission = messages
+        .iter()
+        .find(|message| message["method"] == "session/request_permission")
+        .unwrap();
+    assert_eq!(permission["params"]["sessionId"], sid);
+    assert_eq!(
+        std::fs::read_to_string(h._xdg.path().join("tool-output/written.txt")).unwrap(),
+        "layered"
+    );
+}
+
+#[test]
+fn local_acp_drops_are_export_checked_and_never_activated() {
+    let Some((bin, provider)) = artifacts() else {
+        return;
+    };
+    let mut h = Harness::start_with_local_source(
+        &bin,
+        &provider,
+        None,
+        "watch",
+        &["discovered-agent"],
+        &[],
+    );
+    let sid = h.open_session();
+    let drops = h.local_drop.as_ref().unwrap();
+    let candidate = |name: &str, version: &str| {
+        wat::parse_str(format!(
+            r#"(component ${name}
+            (instance $exports)
+            (export "wassette:acp/agent@{version}" (instance $exports)))"#
+        ))
+        .unwrap()
+    };
+    std::fs::write(
+        drops.join("candidate.wasm"),
+        candidate("discovered-agent", "7.0.0"),
+    )
+    .unwrap();
+    std::fs::write(
+        drops.join("bad-version.wasm"),
+        candidate("incompatible-agent", "99.0.0"),
+    )
+    .unwrap();
+    let store = h.store();
+    let deadline = std::time::Instant::now() + Duration::from_secs(20);
+    let receipt = loop {
+        match store.read("discovered-agent") {
+            Ok(snapshot) => break snapshot.receipt,
+            Err(wassette::store::StoreError::NotFound(_)) => {
+                assert!(
+                    std::time::Instant::now() < deadline,
+                    "ACP drop not committed"
+                );
+                std::thread::sleep(Duration::from_millis(100));
+            }
+            Err(error) => panic!("{error}"),
+        }
+    };
+    assert_eq!(receipt.kind, StoredArtifactKind::AcpProvider);
+    assert!(!receipt.requests_tool_exposure());
+    assert!(matches!(
+        receipt.validation,
+        ValidationEvidence::AcpCompiledAndExportChecked { .. }
+    ));
+    assert!(matches!(
+        store.read("incompatible-agent"),
+        Err(wassette::store::StoreError::NotFound(_))
+    ));
+    let id = h.prompt(&sid, "original provider remains active");
+    let (messages, _) = h.await_response(id);
+    assert_eq!(response_text(&messages), "original provider remains active");
+    h.close_stdin_and_wait();
 }
 
 /// Prompting the instant `session/new` returns — inside the gate's flush

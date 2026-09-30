@@ -334,6 +334,7 @@ impl SessionFactory {
             terminal_enabled: false,
             tool_broker: Some(self.tool_broker.clone()),
             tool_decisions: Vec::new(),
+            active_tool_calls: Default::default(),
         };
         let mut store = Store::new(&self.engine, state);
 
@@ -499,6 +500,7 @@ struct SessionInner {
     store: tokio::sync::Mutex<Store<HostState>>,
     head_idx: usize,
     cancel: watch::Sender<bool>,
+    active_tool_calls: crate::tool_broker::ActiveToolCalls,
     /// Owned chain-head `session` resource handle, populated after
     /// `new-session` / `load-session` / `resume-session`. Held inside
     /// the `Store`, so it (and any downstream resources transitively
@@ -510,17 +512,20 @@ struct SessionInner {
 
 impl Session {
     fn new(store: Store<HostState>, head_idx: usize, cancel: watch::Sender<bool>) -> Self {
+        let active_tool_calls = store.data().active_tool_calls.clone();
         Self {
             inner: Arc::new(SessionInner {
                 store: tokio::sync::Mutex::new(store),
                 head_idx,
                 cancel,
+                active_tool_calls,
                 head_session: Mutex::new(None),
             }),
         }
     }
 
     pub fn cancel(&self) {
+        self.inner.active_tool_calls.cancel_all();
         self.inner.cancel.send_replace(true);
     }
 
@@ -1799,6 +1804,7 @@ mod terminal_tests {
             terminal_enabled: false,
             tool_broker: None,
             tool_decisions: Vec::new(),
+            active_tool_calls: Default::default(),
         }
     }
 

@@ -19965,6 +19965,1532 @@ pub mod wassette {
             }
         }
     }
+    pub mod component_tools {
+        #[allow(dead_code, async_fn_in_trait, unused_imports, clippy::all)]
+        pub mod tools {
+            #[used]
+            #[doc(hidden)]
+            static __FORCE_SECTION_REF: fn() = super::super::super::__link_custom_section_describing_imports;
+            use super::super::super::_rt;
+            #[derive(Clone)]
+            pub struct ToolDescriptor {
+                pub handle: _rt::String,
+                pub name: _rt::String,
+                pub component_id: _rt::String,
+                pub export_name: _rt::String,
+                pub description: ::core::option::Option<_rt::String>,
+                pub input_schema: _rt::String,
+                pub output_schema: ::core::option::Option<_rt::String>,
+            }
+            impl ::core::fmt::Debug for ToolDescriptor {
+                fn fmt(
+                    &self,
+                    f: &mut ::core::fmt::Formatter<'_>,
+                ) -> ::core::fmt::Result {
+                    f.debug_struct("ToolDescriptor")
+                        .field("handle", &self.handle)
+                        .field("name", &self.name)
+                        .field("component-id", &self.component_id)
+                        .field("export-name", &self.export_name)
+                        .field("description", &self.description)
+                        .field("input-schema", &self.input_schema)
+                        .field("output-schema", &self.output_schema)
+                        .finish()
+                }
+            }
+            #[derive(Clone)]
+            pub struct Catalog {
+                pub generation: u64,
+                pub tools: _rt::Vec<ToolDescriptor>,
+            }
+            impl ::core::fmt::Debug for Catalog {
+                fn fmt(
+                    &self,
+                    f: &mut ::core::fmt::Formatter<'_>,
+                ) -> ::core::fmt::Result {
+                    f.debug_struct("Catalog")
+                        .field("generation", &self.generation)
+                        .field("tools", &self.tools)
+                        .finish()
+                }
+            }
+            #[derive(Clone)]
+            pub enum CatalogResult {
+                Unchanged(u64),
+                Changed(Catalog),
+            }
+            impl ::core::fmt::Debug for CatalogResult {
+                fn fmt(
+                    &self,
+                    f: &mut ::core::fmt::Formatter<'_>,
+                ) -> ::core::fmt::Result {
+                    match self {
+                        CatalogResult::Unchanged(e) => {
+                            f.debug_tuple("CatalogResult::Unchanged").field(e).finish()
+                        }
+                        CatalogResult::Changed(e) => {
+                            f.debug_tuple("CatalogResult::Changed").field(e).finish()
+                        }
+                    }
+                }
+            }
+            #[derive(Clone)]
+            pub struct ToolResult {
+                pub tool_call_id: _rt::String,
+                pub text: _rt::String,
+                pub structured: ::core::option::Option<_rt::String>,
+            }
+            impl ::core::fmt::Debug for ToolResult {
+                fn fmt(
+                    &self,
+                    f: &mut ::core::fmt::Formatter<'_>,
+                ) -> ::core::fmt::Result {
+                    f.debug_struct("ToolResult")
+                        .field("tool-call-id", &self.tool_call_id)
+                        .field("text", &self.text)
+                        .field("structured", &self.structured)
+                        .finish()
+                }
+            }
+            #[derive(Clone)]
+            pub enum ToolError {
+                NotFound(_rt::String),
+                Ambiguous(_rt::Vec<_rt::String>),
+                Stale(_rt::String),
+                InvalidArguments(_rt::String),
+                PermissionDenied,
+                PolicyDenied(_rt::String),
+                ExecutionFailed(_rt::String),
+                Unavailable(_rt::String),
+                SessionNotBound,
+                Busy,
+                Cancelled,
+            }
+            impl ::core::fmt::Debug for ToolError {
+                fn fmt(
+                    &self,
+                    f: &mut ::core::fmt::Formatter<'_>,
+                ) -> ::core::fmt::Result {
+                    match self {
+                        ToolError::NotFound(e) => {
+                            f.debug_tuple("ToolError::NotFound").field(e).finish()
+                        }
+                        ToolError::Ambiguous(e) => {
+                            f.debug_tuple("ToolError::Ambiguous").field(e).finish()
+                        }
+                        ToolError::Stale(e) => {
+                            f.debug_tuple("ToolError::Stale").field(e).finish()
+                        }
+                        ToolError::InvalidArguments(e) => {
+                            f.debug_tuple("ToolError::InvalidArguments")
+                                .field(e)
+                                .finish()
+                        }
+                        ToolError::PermissionDenied => {
+                            f.debug_tuple("ToolError::PermissionDenied").finish()
+                        }
+                        ToolError::PolicyDenied(e) => {
+                            f.debug_tuple("ToolError::PolicyDenied").field(e).finish()
+                        }
+                        ToolError::ExecutionFailed(e) => {
+                            f.debug_tuple("ToolError::ExecutionFailed").field(e).finish()
+                        }
+                        ToolError::Unavailable(e) => {
+                            f.debug_tuple("ToolError::Unavailable").field(e).finish()
+                        }
+                        ToolError::SessionNotBound => {
+                            f.debug_tuple("ToolError::SessionNotBound").finish()
+                        }
+                        ToolError::Busy => f.debug_tuple("ToolError::Busy").finish(),
+                        ToolError::Cancelled => {
+                            f.debug_tuple("ToolError::Cancelled").finish()
+                        }
+                    }
+                }
+            }
+            impl ::core::fmt::Display for ToolError {
+                fn fmt(
+                    &self,
+                    f: &mut ::core::fmt::Formatter<'_>,
+                ) -> ::core::fmt::Result {
+                    write!(f, "{:?}", self)
+                }
+            }
+            impl ::core::error::Error for ToolError {}
+            #[allow(unused_unsafe, clippy::all)]
+            #[allow(async_fn_in_trait)]
+            pub async fn list_tools(
+                known_generation: ::core::option::Option<u64>,
+            ) -> ::core::result::Result<CatalogResult, ToolError> {
+                unsafe {
+                    #[derive(Copy, Clone)]
+                    struct ParamsLower(i32, i64);
+                    unsafe impl Send for ParamsLower {}
+                    use wit_bindgen::rt::async_support::Subtask as _Subtask;
+                    struct _MySubtask<'a> {
+                        _unused: core::marker::PhantomData<&'a ()>,
+                    }
+                    #[allow(unused_parens)]
+                    unsafe impl<'a> _Subtask for _MySubtask<'a> {
+                        type Params = (::core::option::Option<u64>,);
+                        type Results = ::core::result::Result<CatalogResult, ToolError>;
+                        type ParamsLower = ParamsLower;
+                        fn abi_layout(&mut self) -> ::core::alloc::Layout {
+                            unsafe {
+                                ::core::alloc::Layout::from_size_align_unchecked(
+                                    (24 + 2 * ::core::mem::size_of::<*const u8>()),
+                                    8,
+                                )
+                            }
+                        }
+                        fn results_offset(&mut self) -> usize {
+                            0
+                        }
+                        unsafe fn call_import(
+                            &mut self,
+                            _params: Self::ParamsLower,
+                            _results: *mut u8,
+                        ) -> u32 {
+                            #[cfg(target_arch = "wasm32")]
+                            #[link(
+                                wasm_import_module = "wassette:component-tools/tools@0.1.0"
+                            )]
+                            unsafe extern "C" {
+                                #[link_name = "[async-lower]list-tools"]
+                                fn call(_: i32, _: i64, _: *mut u8) -> i32;
+                            }
+                            #[cfg(not(target_arch = "wasm32"))]
+                            unsafe extern "C" fn call(
+                                _: i32,
+                                _: i64,
+                                _: *mut u8,
+                            ) -> i32 {
+                                unreachable!()
+                            }
+                            unsafe { call(_params.0, _params.1, _results) as u32 }
+                        }
+                        unsafe fn params_dealloc_lists(
+                            &mut self,
+                            _params: Self::ParamsLower,
+                        ) {
+                            unsafe {
+                                match _params.0 {
+                                    0 => {}
+                                    _ => {}
+                                }
+                            }
+                        }
+                        unsafe fn params_dealloc_lists_and_own(
+                            &mut self,
+                            _params: Self::ParamsLower,
+                        ) {
+                            unsafe {
+                                match _params.0 {
+                                    0 => {}
+                                    _ => {}
+                                }
+                            }
+                        }
+                        unsafe fn params_lower(
+                            &mut self,
+                            (_lower0,): Self::Params,
+                            _ptr: *mut u8,
+                        ) -> Self::ParamsLower {
+                            unsafe {
+                                let (result0_0, result0_1) = match _lower0 {
+                                    Some(e) => (1i32, _rt::as_i64(e)),
+                                    None => (0i32, 0i64),
+                                };
+                                ParamsLower(result0_0, result0_1)
+                            }
+                        }
+                        unsafe fn results_lift(
+                            &mut self,
+                            _ptr: *mut u8,
+                        ) -> Self::Results {
+                            unsafe {
+                                let l0 = i32::from(*_ptr.add(0).cast::<u8>());
+                                match l0 {
+                                    0 => {
+                                        let e = {
+                                            let l1 = i32::from(*_ptr.add(8).cast::<u8>());
+                                            let v30 = match l1 {
+                                                0 => {
+                                                    let e30 = {
+                                                        let l2 = *_ptr.add(16).cast::<i64>();
+                                                        l2 as u64
+                                                    };
+                                                    CatalogResult::Unchanged(e30)
+                                                }
+                                                n => {
+                                                    debug_assert_eq!(n, 1, "invalid enum discriminant");
+                                                    let e30 = {
+                                                        let l3 = *_ptr.add(16).cast::<i64>();
+                                                        let l4 = *_ptr.add(24).cast::<*mut u8>();
+                                                        let l5 = *_ptr
+                                                            .add(24 + 1 * ::core::mem::size_of::<*const u8>())
+                                                            .cast::<usize>();
+                                                        let base29 = l4;
+                                                        let len29 = l5;
+                                                        let mut result29 = _rt::Vec::with_capacity(len29);
+                                                        for i in 0..len29 {
+                                                            let base = base29
+                                                                .add(i * (16 * ::core::mem::size_of::<*const u8>()));
+                                                            let e29 = {
+                                                                let l6 = *base.add(0).cast::<*mut u8>();
+                                                                let l7 = *base
+                                                                    .add(::core::mem::size_of::<*const u8>())
+                                                                    .cast::<usize>();
+                                                                let len8 = l7;
+                                                                let bytes8 = _rt::Vec::from_raw_parts(
+                                                                    l6.cast(),
+                                                                    len8,
+                                                                    len8,
+                                                                );
+                                                                let l9 = *base
+                                                                    .add(2 * ::core::mem::size_of::<*const u8>())
+                                                                    .cast::<*mut u8>();
+                                                                let l10 = *base
+                                                                    .add(3 * ::core::mem::size_of::<*const u8>())
+                                                                    .cast::<usize>();
+                                                                let len11 = l10;
+                                                                let bytes11 = _rt::Vec::from_raw_parts(
+                                                                    l9.cast(),
+                                                                    len11,
+                                                                    len11,
+                                                                );
+                                                                let l12 = *base
+                                                                    .add(4 * ::core::mem::size_of::<*const u8>())
+                                                                    .cast::<*mut u8>();
+                                                                let l13 = *base
+                                                                    .add(5 * ::core::mem::size_of::<*const u8>())
+                                                                    .cast::<usize>();
+                                                                let len14 = l13;
+                                                                let bytes14 = _rt::Vec::from_raw_parts(
+                                                                    l12.cast(),
+                                                                    len14,
+                                                                    len14,
+                                                                );
+                                                                let l15 = *base
+                                                                    .add(6 * ::core::mem::size_of::<*const u8>())
+                                                                    .cast::<*mut u8>();
+                                                                let l16 = *base
+                                                                    .add(7 * ::core::mem::size_of::<*const u8>())
+                                                                    .cast::<usize>();
+                                                                let len17 = l16;
+                                                                let bytes17 = _rt::Vec::from_raw_parts(
+                                                                    l15.cast(),
+                                                                    len17,
+                                                                    len17,
+                                                                );
+                                                                let l18 = i32::from(
+                                                                    *base
+                                                                        .add(8 * ::core::mem::size_of::<*const u8>())
+                                                                        .cast::<u8>(),
+                                                                );
+                                                                let l22 = *base
+                                                                    .add(11 * ::core::mem::size_of::<*const u8>())
+                                                                    .cast::<*mut u8>();
+                                                                let l23 = *base
+                                                                    .add(12 * ::core::mem::size_of::<*const u8>())
+                                                                    .cast::<usize>();
+                                                                let len24 = l23;
+                                                                let bytes24 = _rt::Vec::from_raw_parts(
+                                                                    l22.cast(),
+                                                                    len24,
+                                                                    len24,
+                                                                );
+                                                                let l25 = i32::from(
+                                                                    *base
+                                                                        .add(13 * ::core::mem::size_of::<*const u8>())
+                                                                        .cast::<u8>(),
+                                                                );
+                                                                ToolDescriptor {
+                                                                    handle: _rt::string_lift(bytes8),
+                                                                    name: _rt::string_lift(bytes11),
+                                                                    component_id: _rt::string_lift(bytes14),
+                                                                    export_name: _rt::string_lift(bytes17),
+                                                                    description: match l18 {
+                                                                        0 => None,
+                                                                        1 => {
+                                                                            let e = {
+                                                                                let l19 = *base
+                                                                                    .add(9 * ::core::mem::size_of::<*const u8>())
+                                                                                    .cast::<*mut u8>();
+                                                                                let l20 = *base
+                                                                                    .add(10 * ::core::mem::size_of::<*const u8>())
+                                                                                    .cast::<usize>();
+                                                                                let len21 = l20;
+                                                                                let bytes21 = _rt::Vec::from_raw_parts(
+                                                                                    l19.cast(),
+                                                                                    len21,
+                                                                                    len21,
+                                                                                );
+                                                                                _rt::string_lift(bytes21)
+                                                                            };
+                                                                            Some(e)
+                                                                        }
+                                                                        _ => _rt::invalid_enum_discriminant(),
+                                                                    },
+                                                                    input_schema: _rt::string_lift(bytes24),
+                                                                    output_schema: match l25 {
+                                                                        0 => None,
+                                                                        1 => {
+                                                                            let e = {
+                                                                                let l26 = *base
+                                                                                    .add(14 * ::core::mem::size_of::<*const u8>())
+                                                                                    .cast::<*mut u8>();
+                                                                                let l27 = *base
+                                                                                    .add(15 * ::core::mem::size_of::<*const u8>())
+                                                                                    .cast::<usize>();
+                                                                                let len28 = l27;
+                                                                                let bytes28 = _rt::Vec::from_raw_parts(
+                                                                                    l26.cast(),
+                                                                                    len28,
+                                                                                    len28,
+                                                                                );
+                                                                                _rt::string_lift(bytes28)
+                                                                            };
+                                                                            Some(e)
+                                                                        }
+                                                                        _ => _rt::invalid_enum_discriminant(),
+                                                                    },
+                                                                }
+                                                            };
+                                                            result29.push(e29);
+                                                        }
+                                                        _rt::cabi_dealloc(
+                                                            base29,
+                                                            len29 * (16 * ::core::mem::size_of::<*const u8>()),
+                                                            ::core::mem::size_of::<*const u8>(),
+                                                        );
+                                                        Catalog {
+                                                            generation: l3 as u64,
+                                                            tools: result29,
+                                                        }
+                                                    };
+                                                    CatalogResult::Changed(e30)
+                                                }
+                                            };
+                                            v30
+                                        };
+                                        Ok(e)
+                                    }
+                                    1 => {
+                                        let e = {
+                                            let l31 = i32::from(*_ptr.add(8).cast::<u8>());
+                                            let v56 = match l31 {
+                                                0 => {
+                                                    let e56 = {
+                                                        let l32 = *_ptr
+                                                            .add(8 + 1 * ::core::mem::size_of::<*const u8>())
+                                                            .cast::<*mut u8>();
+                                                        let l33 = *_ptr
+                                                            .add(8 + 2 * ::core::mem::size_of::<*const u8>())
+                                                            .cast::<usize>();
+                                                        let len34 = l33;
+                                                        let bytes34 = _rt::Vec::from_raw_parts(
+                                                            l32.cast(),
+                                                            len34,
+                                                            len34,
+                                                        );
+                                                        _rt::string_lift(bytes34)
+                                                    };
+                                                    ToolError::NotFound(e56)
+                                                }
+                                                1 => {
+                                                    let e56 = {
+                                                        let l35 = *_ptr
+                                                            .add(8 + 1 * ::core::mem::size_of::<*const u8>())
+                                                            .cast::<*mut u8>();
+                                                        let l36 = *_ptr
+                                                            .add(8 + 2 * ::core::mem::size_of::<*const u8>())
+                                                            .cast::<usize>();
+                                                        let base40 = l35;
+                                                        let len40 = l36;
+                                                        let mut result40 = _rt::Vec::with_capacity(len40);
+                                                        for i in 0..len40 {
+                                                            let base = base40
+                                                                .add(i * (2 * ::core::mem::size_of::<*const u8>()));
+                                                            let e40 = {
+                                                                let l37 = *base.add(0).cast::<*mut u8>();
+                                                                let l38 = *base
+                                                                    .add(::core::mem::size_of::<*const u8>())
+                                                                    .cast::<usize>();
+                                                                let len39 = l38;
+                                                                let bytes39 = _rt::Vec::from_raw_parts(
+                                                                    l37.cast(),
+                                                                    len39,
+                                                                    len39,
+                                                                );
+                                                                _rt::string_lift(bytes39)
+                                                            };
+                                                            result40.push(e40);
+                                                        }
+                                                        _rt::cabi_dealloc(
+                                                            base40,
+                                                            len40 * (2 * ::core::mem::size_of::<*const u8>()),
+                                                            ::core::mem::size_of::<*const u8>(),
+                                                        );
+                                                        result40
+                                                    };
+                                                    ToolError::Ambiguous(e56)
+                                                }
+                                                2 => {
+                                                    let e56 = {
+                                                        let l41 = *_ptr
+                                                            .add(8 + 1 * ::core::mem::size_of::<*const u8>())
+                                                            .cast::<*mut u8>();
+                                                        let l42 = *_ptr
+                                                            .add(8 + 2 * ::core::mem::size_of::<*const u8>())
+                                                            .cast::<usize>();
+                                                        let len43 = l42;
+                                                        let bytes43 = _rt::Vec::from_raw_parts(
+                                                            l41.cast(),
+                                                            len43,
+                                                            len43,
+                                                        );
+                                                        _rt::string_lift(bytes43)
+                                                    };
+                                                    ToolError::Stale(e56)
+                                                }
+                                                3 => {
+                                                    let e56 = {
+                                                        let l44 = *_ptr
+                                                            .add(8 + 1 * ::core::mem::size_of::<*const u8>())
+                                                            .cast::<*mut u8>();
+                                                        let l45 = *_ptr
+                                                            .add(8 + 2 * ::core::mem::size_of::<*const u8>())
+                                                            .cast::<usize>();
+                                                        let len46 = l45;
+                                                        let bytes46 = _rt::Vec::from_raw_parts(
+                                                            l44.cast(),
+                                                            len46,
+                                                            len46,
+                                                        );
+                                                        _rt::string_lift(bytes46)
+                                                    };
+                                                    ToolError::InvalidArguments(e56)
+                                                }
+                                                4 => ToolError::PermissionDenied,
+                                                5 => {
+                                                    let e56 = {
+                                                        let l47 = *_ptr
+                                                            .add(8 + 1 * ::core::mem::size_of::<*const u8>())
+                                                            .cast::<*mut u8>();
+                                                        let l48 = *_ptr
+                                                            .add(8 + 2 * ::core::mem::size_of::<*const u8>())
+                                                            .cast::<usize>();
+                                                        let len49 = l48;
+                                                        let bytes49 = _rt::Vec::from_raw_parts(
+                                                            l47.cast(),
+                                                            len49,
+                                                            len49,
+                                                        );
+                                                        _rt::string_lift(bytes49)
+                                                    };
+                                                    ToolError::PolicyDenied(e56)
+                                                }
+                                                6 => {
+                                                    let e56 = {
+                                                        let l50 = *_ptr
+                                                            .add(8 + 1 * ::core::mem::size_of::<*const u8>())
+                                                            .cast::<*mut u8>();
+                                                        let l51 = *_ptr
+                                                            .add(8 + 2 * ::core::mem::size_of::<*const u8>())
+                                                            .cast::<usize>();
+                                                        let len52 = l51;
+                                                        let bytes52 = _rt::Vec::from_raw_parts(
+                                                            l50.cast(),
+                                                            len52,
+                                                            len52,
+                                                        );
+                                                        _rt::string_lift(bytes52)
+                                                    };
+                                                    ToolError::ExecutionFailed(e56)
+                                                }
+                                                7 => {
+                                                    let e56 = {
+                                                        let l53 = *_ptr
+                                                            .add(8 + 1 * ::core::mem::size_of::<*const u8>())
+                                                            .cast::<*mut u8>();
+                                                        let l54 = *_ptr
+                                                            .add(8 + 2 * ::core::mem::size_of::<*const u8>())
+                                                            .cast::<usize>();
+                                                        let len55 = l54;
+                                                        let bytes55 = _rt::Vec::from_raw_parts(
+                                                            l53.cast(),
+                                                            len55,
+                                                            len55,
+                                                        );
+                                                        _rt::string_lift(bytes55)
+                                                    };
+                                                    ToolError::Unavailable(e56)
+                                                }
+                                                8 => ToolError::SessionNotBound,
+                                                9 => ToolError::Busy,
+                                                n => {
+                                                    debug_assert_eq!(n, 10, "invalid enum discriminant");
+                                                    ToolError::Cancelled
+                                                }
+                                            };
+                                            v56
+                                        };
+                                        Err(e)
+                                    }
+                                    _ => _rt::invalid_enum_discriminant(),
+                                }
+                            }
+                        }
+                    }
+                    _MySubtask {
+                        _unused: core::marker::PhantomData,
+                    }
+                        .call((known_generation,))
+                        .await
+                }
+            }
+            #[allow(unused_unsafe, clippy::all)]
+            #[allow(async_fn_in_trait)]
+            pub async fn wait_for_change(
+                after: u64,
+            ) -> ::core::result::Result<u64, ToolError> {
+                unsafe {
+                    #[derive(Copy, Clone)]
+                    struct ParamsLower(i64);
+                    unsafe impl Send for ParamsLower {}
+                    use wit_bindgen::rt::async_support::Subtask as _Subtask;
+                    struct _MySubtask<'a> {
+                        _unused: core::marker::PhantomData<&'a ()>,
+                    }
+                    #[allow(unused_parens)]
+                    unsafe impl<'a> _Subtask for _MySubtask<'a> {
+                        type Params = (u64,);
+                        type Results = ::core::result::Result<u64, ToolError>;
+                        type ParamsLower = ParamsLower;
+                        fn abi_layout(&mut self) -> ::core::alloc::Layout {
+                            unsafe {
+                                ::core::alloc::Layout::from_size_align_unchecked(
+                                    (16 + 2 * ::core::mem::size_of::<*const u8>()),
+                                    8,
+                                )
+                            }
+                        }
+                        fn results_offset(&mut self) -> usize {
+                            0
+                        }
+                        unsafe fn call_import(
+                            &mut self,
+                            _params: Self::ParamsLower,
+                            _results: *mut u8,
+                        ) -> u32 {
+                            #[cfg(target_arch = "wasm32")]
+                            #[link(
+                                wasm_import_module = "wassette:component-tools/tools@0.1.0"
+                            )]
+                            unsafe extern "C" {
+                                #[link_name = "[async-lower]wait-for-change"]
+                                fn call(_: i64, _: *mut u8) -> i32;
+                            }
+                            #[cfg(not(target_arch = "wasm32"))]
+                            unsafe extern "C" fn call(_: i64, _: *mut u8) -> i32 {
+                                unreachable!()
+                            }
+                            unsafe { call(_params.0, _results) as u32 }
+                        }
+                        unsafe fn params_dealloc_lists(
+                            &mut self,
+                            _params: Self::ParamsLower,
+                        ) {
+                            unsafe {}
+                        }
+                        unsafe fn params_dealloc_lists_and_own(
+                            &mut self,
+                            _params: Self::ParamsLower,
+                        ) {
+                            unsafe {}
+                        }
+                        unsafe fn params_lower(
+                            &mut self,
+                            (_lower0,): Self::Params,
+                            _ptr: *mut u8,
+                        ) -> Self::ParamsLower {
+                            unsafe { ParamsLower(_rt::as_i64(_lower0)) }
+                        }
+                        unsafe fn results_lift(
+                            &mut self,
+                            _ptr: *mut u8,
+                        ) -> Self::Results {
+                            unsafe {
+                                let l0 = i32::from(*_ptr.add(0).cast::<u8>());
+                                match l0 {
+                                    0 => {
+                                        let e = {
+                                            let l1 = *_ptr.add(8).cast::<i64>();
+                                            l1 as u64
+                                        };
+                                        Ok(e)
+                                    }
+                                    1 => {
+                                        let e = {
+                                            let l2 = i32::from(*_ptr.add(8).cast::<u8>());
+                                            let v27 = match l2 {
+                                                0 => {
+                                                    let e27 = {
+                                                        let l3 = *_ptr
+                                                            .add(8 + 1 * ::core::mem::size_of::<*const u8>())
+                                                            .cast::<*mut u8>();
+                                                        let l4 = *_ptr
+                                                            .add(8 + 2 * ::core::mem::size_of::<*const u8>())
+                                                            .cast::<usize>();
+                                                        let len5 = l4;
+                                                        let bytes5 = _rt::Vec::from_raw_parts(
+                                                            l3.cast(),
+                                                            len5,
+                                                            len5,
+                                                        );
+                                                        _rt::string_lift(bytes5)
+                                                    };
+                                                    ToolError::NotFound(e27)
+                                                }
+                                                1 => {
+                                                    let e27 = {
+                                                        let l6 = *_ptr
+                                                            .add(8 + 1 * ::core::mem::size_of::<*const u8>())
+                                                            .cast::<*mut u8>();
+                                                        let l7 = *_ptr
+                                                            .add(8 + 2 * ::core::mem::size_of::<*const u8>())
+                                                            .cast::<usize>();
+                                                        let base11 = l6;
+                                                        let len11 = l7;
+                                                        let mut result11 = _rt::Vec::with_capacity(len11);
+                                                        for i in 0..len11 {
+                                                            let base = base11
+                                                                .add(i * (2 * ::core::mem::size_of::<*const u8>()));
+                                                            let e11 = {
+                                                                let l8 = *base.add(0).cast::<*mut u8>();
+                                                                let l9 = *base
+                                                                    .add(::core::mem::size_of::<*const u8>())
+                                                                    .cast::<usize>();
+                                                                let len10 = l9;
+                                                                let bytes10 = _rt::Vec::from_raw_parts(
+                                                                    l8.cast(),
+                                                                    len10,
+                                                                    len10,
+                                                                );
+                                                                _rt::string_lift(bytes10)
+                                                            };
+                                                            result11.push(e11);
+                                                        }
+                                                        _rt::cabi_dealloc(
+                                                            base11,
+                                                            len11 * (2 * ::core::mem::size_of::<*const u8>()),
+                                                            ::core::mem::size_of::<*const u8>(),
+                                                        );
+                                                        result11
+                                                    };
+                                                    ToolError::Ambiguous(e27)
+                                                }
+                                                2 => {
+                                                    let e27 = {
+                                                        let l12 = *_ptr
+                                                            .add(8 + 1 * ::core::mem::size_of::<*const u8>())
+                                                            .cast::<*mut u8>();
+                                                        let l13 = *_ptr
+                                                            .add(8 + 2 * ::core::mem::size_of::<*const u8>())
+                                                            .cast::<usize>();
+                                                        let len14 = l13;
+                                                        let bytes14 = _rt::Vec::from_raw_parts(
+                                                            l12.cast(),
+                                                            len14,
+                                                            len14,
+                                                        );
+                                                        _rt::string_lift(bytes14)
+                                                    };
+                                                    ToolError::Stale(e27)
+                                                }
+                                                3 => {
+                                                    let e27 = {
+                                                        let l15 = *_ptr
+                                                            .add(8 + 1 * ::core::mem::size_of::<*const u8>())
+                                                            .cast::<*mut u8>();
+                                                        let l16 = *_ptr
+                                                            .add(8 + 2 * ::core::mem::size_of::<*const u8>())
+                                                            .cast::<usize>();
+                                                        let len17 = l16;
+                                                        let bytes17 = _rt::Vec::from_raw_parts(
+                                                            l15.cast(),
+                                                            len17,
+                                                            len17,
+                                                        );
+                                                        _rt::string_lift(bytes17)
+                                                    };
+                                                    ToolError::InvalidArguments(e27)
+                                                }
+                                                4 => ToolError::PermissionDenied,
+                                                5 => {
+                                                    let e27 = {
+                                                        let l18 = *_ptr
+                                                            .add(8 + 1 * ::core::mem::size_of::<*const u8>())
+                                                            .cast::<*mut u8>();
+                                                        let l19 = *_ptr
+                                                            .add(8 + 2 * ::core::mem::size_of::<*const u8>())
+                                                            .cast::<usize>();
+                                                        let len20 = l19;
+                                                        let bytes20 = _rt::Vec::from_raw_parts(
+                                                            l18.cast(),
+                                                            len20,
+                                                            len20,
+                                                        );
+                                                        _rt::string_lift(bytes20)
+                                                    };
+                                                    ToolError::PolicyDenied(e27)
+                                                }
+                                                6 => {
+                                                    let e27 = {
+                                                        let l21 = *_ptr
+                                                            .add(8 + 1 * ::core::mem::size_of::<*const u8>())
+                                                            .cast::<*mut u8>();
+                                                        let l22 = *_ptr
+                                                            .add(8 + 2 * ::core::mem::size_of::<*const u8>())
+                                                            .cast::<usize>();
+                                                        let len23 = l22;
+                                                        let bytes23 = _rt::Vec::from_raw_parts(
+                                                            l21.cast(),
+                                                            len23,
+                                                            len23,
+                                                        );
+                                                        _rt::string_lift(bytes23)
+                                                    };
+                                                    ToolError::ExecutionFailed(e27)
+                                                }
+                                                7 => {
+                                                    let e27 = {
+                                                        let l24 = *_ptr
+                                                            .add(8 + 1 * ::core::mem::size_of::<*const u8>())
+                                                            .cast::<*mut u8>();
+                                                        let l25 = *_ptr
+                                                            .add(8 + 2 * ::core::mem::size_of::<*const u8>())
+                                                            .cast::<usize>();
+                                                        let len26 = l25;
+                                                        let bytes26 = _rt::Vec::from_raw_parts(
+                                                            l24.cast(),
+                                                            len26,
+                                                            len26,
+                                                        );
+                                                        _rt::string_lift(bytes26)
+                                                    };
+                                                    ToolError::Unavailable(e27)
+                                                }
+                                                8 => ToolError::SessionNotBound,
+                                                9 => ToolError::Busy,
+                                                n => {
+                                                    debug_assert_eq!(n, 10, "invalid enum discriminant");
+                                                    ToolError::Cancelled
+                                                }
+                                            };
+                                            v27
+                                        };
+                                        Err(e)
+                                    }
+                                    _ => _rt::invalid_enum_discriminant(),
+                                }
+                            }
+                        }
+                    }
+                    _MySubtask {
+                        _unused: core::marker::PhantomData,
+                    }
+                        .call((after,))
+                        .await
+                }
+            }
+            #[allow(unused_unsafe, clippy::all)]
+            #[allow(async_fn_in_trait)]
+            pub async fn call_tool(
+                handle: _rt::String,
+                arguments_json: _rt::String,
+            ) -> ::core::result::Result<ToolResult, ToolError> {
+                unsafe {
+                    #[derive(Copy, Clone)]
+                    struct ParamsLower(*mut u8, usize, *mut u8, usize);
+                    unsafe impl Send for ParamsLower {}
+                    use wit_bindgen::rt::async_support::Subtask as _Subtask;
+                    struct _MySubtask<'a> {
+                        _unused: core::marker::PhantomData<&'a ()>,
+                    }
+                    #[allow(unused_parens)]
+                    unsafe impl<'a> _Subtask for _MySubtask<'a> {
+                        type Params = (_rt::String, _rt::String);
+                        type Results = ::core::result::Result<ToolResult, ToolError>;
+                        type ParamsLower = ParamsLower;
+                        fn abi_layout(&mut self) -> ::core::alloc::Layout {
+                            unsafe {
+                                ::core::alloc::Layout::from_size_align_unchecked(
+                                    (8 * ::core::mem::size_of::<*const u8>()),
+                                    ::core::mem::size_of::<*const u8>(),
+                                )
+                            }
+                        }
+                        fn results_offset(&mut self) -> usize {
+                            0
+                        }
+                        unsafe fn call_import(
+                            &mut self,
+                            _params: Self::ParamsLower,
+                            _results: *mut u8,
+                        ) -> u32 {
+                            #[cfg(target_arch = "wasm32")]
+                            #[link(
+                                wasm_import_module = "wassette:component-tools/tools@0.1.0"
+                            )]
+                            unsafe extern "C" {
+                                #[link_name = "[async-lower]call-tool"]
+                                fn call(
+                                    _: *mut u8,
+                                    _: usize,
+                                    _: *mut u8,
+                                    _: usize,
+                                    _: *mut u8,
+                                ) -> i32;
+                            }
+                            #[cfg(not(target_arch = "wasm32"))]
+                            unsafe extern "C" fn call(
+                                _: *mut u8,
+                                _: usize,
+                                _: *mut u8,
+                                _: usize,
+                                _: *mut u8,
+                            ) -> i32 {
+                                unreachable!()
+                            }
+                            unsafe {
+                                call(_params.0, _params.1, _params.2, _params.3, _results)
+                                    as u32
+                            }
+                        }
+                        unsafe fn params_dealloc_lists(
+                            &mut self,
+                            _params: Self::ParamsLower,
+                        ) {
+                            unsafe {
+                                _rt::cabi_dealloc(_params.0, _params.1, 1);
+                                _rt::cabi_dealloc(_params.2, _params.3, 1);
+                            }
+                        }
+                        unsafe fn params_dealloc_lists_and_own(
+                            &mut self,
+                            _params: Self::ParamsLower,
+                        ) {
+                            unsafe {
+                                _rt::cabi_dealloc(_params.0, _params.1, 1);
+                                _rt::cabi_dealloc(_params.2, _params.3, 1);
+                            }
+                        }
+                        unsafe fn params_lower(
+                            &mut self,
+                            (_lower0, _lower1): Self::Params,
+                            _ptr: *mut u8,
+                        ) -> Self::ParamsLower {
+                            unsafe {
+                                let vec0 = (_lower0.into_bytes()).into_boxed_slice();
+                                let ptr0 = vec0.as_ptr().cast::<u8>();
+                                let len0 = vec0.len();
+                                ::core::mem::forget(vec0);
+                                let vec1 = (_lower1.into_bytes()).into_boxed_slice();
+                                let ptr1 = vec1.as_ptr().cast::<u8>();
+                                let len1 = vec1.len();
+                                ::core::mem::forget(vec1);
+                                ParamsLower(ptr0.cast_mut(), len0, ptr1.cast_mut(), len1)
+                            }
+                        }
+                        unsafe fn results_lift(
+                            &mut self,
+                            _ptr: *mut u8,
+                        ) -> Self::Results {
+                            unsafe {
+                                let l0 = i32::from(*_ptr.add(0).cast::<u8>());
+                                match l0 {
+                                    0 => {
+                                        let e = {
+                                            let l1 = *_ptr
+                                                .add(::core::mem::size_of::<*const u8>())
+                                                .cast::<*mut u8>();
+                                            let l2 = *_ptr
+                                                .add(2 * ::core::mem::size_of::<*const u8>())
+                                                .cast::<usize>();
+                                            let len3 = l2;
+                                            let bytes3 = _rt::Vec::from_raw_parts(
+                                                l1.cast(),
+                                                len3,
+                                                len3,
+                                            );
+                                            let l4 = *_ptr
+                                                .add(3 * ::core::mem::size_of::<*const u8>())
+                                                .cast::<*mut u8>();
+                                            let l5 = *_ptr
+                                                .add(4 * ::core::mem::size_of::<*const u8>())
+                                                .cast::<usize>();
+                                            let len6 = l5;
+                                            let bytes6 = _rt::Vec::from_raw_parts(
+                                                l4.cast(),
+                                                len6,
+                                                len6,
+                                            );
+                                            let l7 = i32::from(
+                                                *_ptr
+                                                    .add(5 * ::core::mem::size_of::<*const u8>())
+                                                    .cast::<u8>(),
+                                            );
+                                            ToolResult {
+                                                tool_call_id: _rt::string_lift(bytes3),
+                                                text: _rt::string_lift(bytes6),
+                                                structured: match l7 {
+                                                    0 => None,
+                                                    1 => {
+                                                        let e = {
+                                                            let l8 = *_ptr
+                                                                .add(6 * ::core::mem::size_of::<*const u8>())
+                                                                .cast::<*mut u8>();
+                                                            let l9 = *_ptr
+                                                                .add(7 * ::core::mem::size_of::<*const u8>())
+                                                                .cast::<usize>();
+                                                            let len10 = l9;
+                                                            let bytes10 = _rt::Vec::from_raw_parts(
+                                                                l8.cast(),
+                                                                len10,
+                                                                len10,
+                                                            );
+                                                            _rt::string_lift(bytes10)
+                                                        };
+                                                        Some(e)
+                                                    }
+                                                    _ => _rt::invalid_enum_discriminant(),
+                                                },
+                                            }
+                                        };
+                                        Ok(e)
+                                    }
+                                    1 => {
+                                        let e = {
+                                            let l11 = i32::from(
+                                                *_ptr.add(::core::mem::size_of::<*const u8>()).cast::<u8>(),
+                                            );
+                                            let v36 = match l11 {
+                                                0 => {
+                                                    let e36 = {
+                                                        let l12 = *_ptr
+                                                            .add(2 * ::core::mem::size_of::<*const u8>())
+                                                            .cast::<*mut u8>();
+                                                        let l13 = *_ptr
+                                                            .add(3 * ::core::mem::size_of::<*const u8>())
+                                                            .cast::<usize>();
+                                                        let len14 = l13;
+                                                        let bytes14 = _rt::Vec::from_raw_parts(
+                                                            l12.cast(),
+                                                            len14,
+                                                            len14,
+                                                        );
+                                                        _rt::string_lift(bytes14)
+                                                    };
+                                                    ToolError::NotFound(e36)
+                                                }
+                                                1 => {
+                                                    let e36 = {
+                                                        let l15 = *_ptr
+                                                            .add(2 * ::core::mem::size_of::<*const u8>())
+                                                            .cast::<*mut u8>();
+                                                        let l16 = *_ptr
+                                                            .add(3 * ::core::mem::size_of::<*const u8>())
+                                                            .cast::<usize>();
+                                                        let base20 = l15;
+                                                        let len20 = l16;
+                                                        let mut result20 = _rt::Vec::with_capacity(len20);
+                                                        for i in 0..len20 {
+                                                            let base = base20
+                                                                .add(i * (2 * ::core::mem::size_of::<*const u8>()));
+                                                            let e20 = {
+                                                                let l17 = *base.add(0).cast::<*mut u8>();
+                                                                let l18 = *base
+                                                                    .add(::core::mem::size_of::<*const u8>())
+                                                                    .cast::<usize>();
+                                                                let len19 = l18;
+                                                                let bytes19 = _rt::Vec::from_raw_parts(
+                                                                    l17.cast(),
+                                                                    len19,
+                                                                    len19,
+                                                                );
+                                                                _rt::string_lift(bytes19)
+                                                            };
+                                                            result20.push(e20);
+                                                        }
+                                                        _rt::cabi_dealloc(
+                                                            base20,
+                                                            len20 * (2 * ::core::mem::size_of::<*const u8>()),
+                                                            ::core::mem::size_of::<*const u8>(),
+                                                        );
+                                                        result20
+                                                    };
+                                                    ToolError::Ambiguous(e36)
+                                                }
+                                                2 => {
+                                                    let e36 = {
+                                                        let l21 = *_ptr
+                                                            .add(2 * ::core::mem::size_of::<*const u8>())
+                                                            .cast::<*mut u8>();
+                                                        let l22 = *_ptr
+                                                            .add(3 * ::core::mem::size_of::<*const u8>())
+                                                            .cast::<usize>();
+                                                        let len23 = l22;
+                                                        let bytes23 = _rt::Vec::from_raw_parts(
+                                                            l21.cast(),
+                                                            len23,
+                                                            len23,
+                                                        );
+                                                        _rt::string_lift(bytes23)
+                                                    };
+                                                    ToolError::Stale(e36)
+                                                }
+                                                3 => {
+                                                    let e36 = {
+                                                        let l24 = *_ptr
+                                                            .add(2 * ::core::mem::size_of::<*const u8>())
+                                                            .cast::<*mut u8>();
+                                                        let l25 = *_ptr
+                                                            .add(3 * ::core::mem::size_of::<*const u8>())
+                                                            .cast::<usize>();
+                                                        let len26 = l25;
+                                                        let bytes26 = _rt::Vec::from_raw_parts(
+                                                            l24.cast(),
+                                                            len26,
+                                                            len26,
+                                                        );
+                                                        _rt::string_lift(bytes26)
+                                                    };
+                                                    ToolError::InvalidArguments(e36)
+                                                }
+                                                4 => ToolError::PermissionDenied,
+                                                5 => {
+                                                    let e36 = {
+                                                        let l27 = *_ptr
+                                                            .add(2 * ::core::mem::size_of::<*const u8>())
+                                                            .cast::<*mut u8>();
+                                                        let l28 = *_ptr
+                                                            .add(3 * ::core::mem::size_of::<*const u8>())
+                                                            .cast::<usize>();
+                                                        let len29 = l28;
+                                                        let bytes29 = _rt::Vec::from_raw_parts(
+                                                            l27.cast(),
+                                                            len29,
+                                                            len29,
+                                                        );
+                                                        _rt::string_lift(bytes29)
+                                                    };
+                                                    ToolError::PolicyDenied(e36)
+                                                }
+                                                6 => {
+                                                    let e36 = {
+                                                        let l30 = *_ptr
+                                                            .add(2 * ::core::mem::size_of::<*const u8>())
+                                                            .cast::<*mut u8>();
+                                                        let l31 = *_ptr
+                                                            .add(3 * ::core::mem::size_of::<*const u8>())
+                                                            .cast::<usize>();
+                                                        let len32 = l31;
+                                                        let bytes32 = _rt::Vec::from_raw_parts(
+                                                            l30.cast(),
+                                                            len32,
+                                                            len32,
+                                                        );
+                                                        _rt::string_lift(bytes32)
+                                                    };
+                                                    ToolError::ExecutionFailed(e36)
+                                                }
+                                                7 => {
+                                                    let e36 = {
+                                                        let l33 = *_ptr
+                                                            .add(2 * ::core::mem::size_of::<*const u8>())
+                                                            .cast::<*mut u8>();
+                                                        let l34 = *_ptr
+                                                            .add(3 * ::core::mem::size_of::<*const u8>())
+                                                            .cast::<usize>();
+                                                        let len35 = l34;
+                                                        let bytes35 = _rt::Vec::from_raw_parts(
+                                                            l33.cast(),
+                                                            len35,
+                                                            len35,
+                                                        );
+                                                        _rt::string_lift(bytes35)
+                                                    };
+                                                    ToolError::Unavailable(e36)
+                                                }
+                                                8 => ToolError::SessionNotBound,
+                                                9 => ToolError::Busy,
+                                                n => {
+                                                    debug_assert_eq!(n, 10, "invalid enum discriminant");
+                                                    ToolError::Cancelled
+                                                }
+                                            };
+                                            v36
+                                        };
+                                        Err(e)
+                                    }
+                                    _ => _rt::invalid_enum_discriminant(),
+                                }
+                            }
+                        }
+                    }
+                    _MySubtask {
+                        _unused: core::marker::PhantomData,
+                    }
+                        .call((handle, arguments_json))
+                        .await
+                }
+            }
+            #[allow(unused_unsafe, clippy::all)]
+            #[allow(async_fn_in_trait)]
+            pub async fn call_tool_by_name(
+                name: _rt::String,
+                arguments_json: _rt::String,
+            ) -> ::core::result::Result<ToolResult, ToolError> {
+                unsafe {
+                    #[derive(Copy, Clone)]
+                    struct ParamsLower(*mut u8, usize, *mut u8, usize);
+                    unsafe impl Send for ParamsLower {}
+                    use wit_bindgen::rt::async_support::Subtask as _Subtask;
+                    struct _MySubtask<'a> {
+                        _unused: core::marker::PhantomData<&'a ()>,
+                    }
+                    #[allow(unused_parens)]
+                    unsafe impl<'a> _Subtask for _MySubtask<'a> {
+                        type Params = (_rt::String, _rt::String);
+                        type Results = ::core::result::Result<ToolResult, ToolError>;
+                        type ParamsLower = ParamsLower;
+                        fn abi_layout(&mut self) -> ::core::alloc::Layout {
+                            unsafe {
+                                ::core::alloc::Layout::from_size_align_unchecked(
+                                    (8 * ::core::mem::size_of::<*const u8>()),
+                                    ::core::mem::size_of::<*const u8>(),
+                                )
+                            }
+                        }
+                        fn results_offset(&mut self) -> usize {
+                            0
+                        }
+                        unsafe fn call_import(
+                            &mut self,
+                            _params: Self::ParamsLower,
+                            _results: *mut u8,
+                        ) -> u32 {
+                            #[cfg(target_arch = "wasm32")]
+                            #[link(
+                                wasm_import_module = "wassette:component-tools/tools@0.1.0"
+                            )]
+                            unsafe extern "C" {
+                                #[link_name = "[async-lower]call-tool-by-name"]
+                                fn call(
+                                    _: *mut u8,
+                                    _: usize,
+                                    _: *mut u8,
+                                    _: usize,
+                                    _: *mut u8,
+                                ) -> i32;
+                            }
+                            #[cfg(not(target_arch = "wasm32"))]
+                            unsafe extern "C" fn call(
+                                _: *mut u8,
+                                _: usize,
+                                _: *mut u8,
+                                _: usize,
+                                _: *mut u8,
+                            ) -> i32 {
+                                unreachable!()
+                            }
+                            unsafe {
+                                call(_params.0, _params.1, _params.2, _params.3, _results)
+                                    as u32
+                            }
+                        }
+                        unsafe fn params_dealloc_lists(
+                            &mut self,
+                            _params: Self::ParamsLower,
+                        ) {
+                            unsafe {
+                                _rt::cabi_dealloc(_params.0, _params.1, 1);
+                                _rt::cabi_dealloc(_params.2, _params.3, 1);
+                            }
+                        }
+                        unsafe fn params_dealloc_lists_and_own(
+                            &mut self,
+                            _params: Self::ParamsLower,
+                        ) {
+                            unsafe {
+                                _rt::cabi_dealloc(_params.0, _params.1, 1);
+                                _rt::cabi_dealloc(_params.2, _params.3, 1);
+                            }
+                        }
+                        unsafe fn params_lower(
+                            &mut self,
+                            (_lower0, _lower1): Self::Params,
+                            _ptr: *mut u8,
+                        ) -> Self::ParamsLower {
+                            unsafe {
+                                let vec0 = (_lower0.into_bytes()).into_boxed_slice();
+                                let ptr0 = vec0.as_ptr().cast::<u8>();
+                                let len0 = vec0.len();
+                                ::core::mem::forget(vec0);
+                                let vec1 = (_lower1.into_bytes()).into_boxed_slice();
+                                let ptr1 = vec1.as_ptr().cast::<u8>();
+                                let len1 = vec1.len();
+                                ::core::mem::forget(vec1);
+                                ParamsLower(ptr0.cast_mut(), len0, ptr1.cast_mut(), len1)
+                            }
+                        }
+                        unsafe fn results_lift(
+                            &mut self,
+                            _ptr: *mut u8,
+                        ) -> Self::Results {
+                            unsafe {
+                                let l0 = i32::from(*_ptr.add(0).cast::<u8>());
+                                match l0 {
+                                    0 => {
+                                        let e = {
+                                            let l1 = *_ptr
+                                                .add(::core::mem::size_of::<*const u8>())
+                                                .cast::<*mut u8>();
+                                            let l2 = *_ptr
+                                                .add(2 * ::core::mem::size_of::<*const u8>())
+                                                .cast::<usize>();
+                                            let len3 = l2;
+                                            let bytes3 = _rt::Vec::from_raw_parts(
+                                                l1.cast(),
+                                                len3,
+                                                len3,
+                                            );
+                                            let l4 = *_ptr
+                                                .add(3 * ::core::mem::size_of::<*const u8>())
+                                                .cast::<*mut u8>();
+                                            let l5 = *_ptr
+                                                .add(4 * ::core::mem::size_of::<*const u8>())
+                                                .cast::<usize>();
+                                            let len6 = l5;
+                                            let bytes6 = _rt::Vec::from_raw_parts(
+                                                l4.cast(),
+                                                len6,
+                                                len6,
+                                            );
+                                            let l7 = i32::from(
+                                                *_ptr
+                                                    .add(5 * ::core::mem::size_of::<*const u8>())
+                                                    .cast::<u8>(),
+                                            );
+                                            ToolResult {
+                                                tool_call_id: _rt::string_lift(bytes3),
+                                                text: _rt::string_lift(bytes6),
+                                                structured: match l7 {
+                                                    0 => None,
+                                                    1 => {
+                                                        let e = {
+                                                            let l8 = *_ptr
+                                                                .add(6 * ::core::mem::size_of::<*const u8>())
+                                                                .cast::<*mut u8>();
+                                                            let l9 = *_ptr
+                                                                .add(7 * ::core::mem::size_of::<*const u8>())
+                                                                .cast::<usize>();
+                                                            let len10 = l9;
+                                                            let bytes10 = _rt::Vec::from_raw_parts(
+                                                                l8.cast(),
+                                                                len10,
+                                                                len10,
+                                                            );
+                                                            _rt::string_lift(bytes10)
+                                                        };
+                                                        Some(e)
+                                                    }
+                                                    _ => _rt::invalid_enum_discriminant(),
+                                                },
+                                            }
+                                        };
+                                        Ok(e)
+                                    }
+                                    1 => {
+                                        let e = {
+                                            let l11 = i32::from(
+                                                *_ptr.add(::core::mem::size_of::<*const u8>()).cast::<u8>(),
+                                            );
+                                            let v36 = match l11 {
+                                                0 => {
+                                                    let e36 = {
+                                                        let l12 = *_ptr
+                                                            .add(2 * ::core::mem::size_of::<*const u8>())
+                                                            .cast::<*mut u8>();
+                                                        let l13 = *_ptr
+                                                            .add(3 * ::core::mem::size_of::<*const u8>())
+                                                            .cast::<usize>();
+                                                        let len14 = l13;
+                                                        let bytes14 = _rt::Vec::from_raw_parts(
+                                                            l12.cast(),
+                                                            len14,
+                                                            len14,
+                                                        );
+                                                        _rt::string_lift(bytes14)
+                                                    };
+                                                    ToolError::NotFound(e36)
+                                                }
+                                                1 => {
+                                                    let e36 = {
+                                                        let l15 = *_ptr
+                                                            .add(2 * ::core::mem::size_of::<*const u8>())
+                                                            .cast::<*mut u8>();
+                                                        let l16 = *_ptr
+                                                            .add(3 * ::core::mem::size_of::<*const u8>())
+                                                            .cast::<usize>();
+                                                        let base20 = l15;
+                                                        let len20 = l16;
+                                                        let mut result20 = _rt::Vec::with_capacity(len20);
+                                                        for i in 0..len20 {
+                                                            let base = base20
+                                                                .add(i * (2 * ::core::mem::size_of::<*const u8>()));
+                                                            let e20 = {
+                                                                let l17 = *base.add(0).cast::<*mut u8>();
+                                                                let l18 = *base
+                                                                    .add(::core::mem::size_of::<*const u8>())
+                                                                    .cast::<usize>();
+                                                                let len19 = l18;
+                                                                let bytes19 = _rt::Vec::from_raw_parts(
+                                                                    l17.cast(),
+                                                                    len19,
+                                                                    len19,
+                                                                );
+                                                                _rt::string_lift(bytes19)
+                                                            };
+                                                            result20.push(e20);
+                                                        }
+                                                        _rt::cabi_dealloc(
+                                                            base20,
+                                                            len20 * (2 * ::core::mem::size_of::<*const u8>()),
+                                                            ::core::mem::size_of::<*const u8>(),
+                                                        );
+                                                        result20
+                                                    };
+                                                    ToolError::Ambiguous(e36)
+                                                }
+                                                2 => {
+                                                    let e36 = {
+                                                        let l21 = *_ptr
+                                                            .add(2 * ::core::mem::size_of::<*const u8>())
+                                                            .cast::<*mut u8>();
+                                                        let l22 = *_ptr
+                                                            .add(3 * ::core::mem::size_of::<*const u8>())
+                                                            .cast::<usize>();
+                                                        let len23 = l22;
+                                                        let bytes23 = _rt::Vec::from_raw_parts(
+                                                            l21.cast(),
+                                                            len23,
+                                                            len23,
+                                                        );
+                                                        _rt::string_lift(bytes23)
+                                                    };
+                                                    ToolError::Stale(e36)
+                                                }
+                                                3 => {
+                                                    let e36 = {
+                                                        let l24 = *_ptr
+                                                            .add(2 * ::core::mem::size_of::<*const u8>())
+                                                            .cast::<*mut u8>();
+                                                        let l25 = *_ptr
+                                                            .add(3 * ::core::mem::size_of::<*const u8>())
+                                                            .cast::<usize>();
+                                                        let len26 = l25;
+                                                        let bytes26 = _rt::Vec::from_raw_parts(
+                                                            l24.cast(),
+                                                            len26,
+                                                            len26,
+                                                        );
+                                                        _rt::string_lift(bytes26)
+                                                    };
+                                                    ToolError::InvalidArguments(e36)
+                                                }
+                                                4 => ToolError::PermissionDenied,
+                                                5 => {
+                                                    let e36 = {
+                                                        let l27 = *_ptr
+                                                            .add(2 * ::core::mem::size_of::<*const u8>())
+                                                            .cast::<*mut u8>();
+                                                        let l28 = *_ptr
+                                                            .add(3 * ::core::mem::size_of::<*const u8>())
+                                                            .cast::<usize>();
+                                                        let len29 = l28;
+                                                        let bytes29 = _rt::Vec::from_raw_parts(
+                                                            l27.cast(),
+                                                            len29,
+                                                            len29,
+                                                        );
+                                                        _rt::string_lift(bytes29)
+                                                    };
+                                                    ToolError::PolicyDenied(e36)
+                                                }
+                                                6 => {
+                                                    let e36 = {
+                                                        let l30 = *_ptr
+                                                            .add(2 * ::core::mem::size_of::<*const u8>())
+                                                            .cast::<*mut u8>();
+                                                        let l31 = *_ptr
+                                                            .add(3 * ::core::mem::size_of::<*const u8>())
+                                                            .cast::<usize>();
+                                                        let len32 = l31;
+                                                        let bytes32 = _rt::Vec::from_raw_parts(
+                                                            l30.cast(),
+                                                            len32,
+                                                            len32,
+                                                        );
+                                                        _rt::string_lift(bytes32)
+                                                    };
+                                                    ToolError::ExecutionFailed(e36)
+                                                }
+                                                7 => {
+                                                    let e36 = {
+                                                        let l33 = *_ptr
+                                                            .add(2 * ::core::mem::size_of::<*const u8>())
+                                                            .cast::<*mut u8>();
+                                                        let l34 = *_ptr
+                                                            .add(3 * ::core::mem::size_of::<*const u8>())
+                                                            .cast::<usize>();
+                                                        let len35 = l34;
+                                                        let bytes35 = _rt::Vec::from_raw_parts(
+                                                            l33.cast(),
+                                                            len35,
+                                                            len35,
+                                                        );
+                                                        _rt::string_lift(bytes35)
+                                                    };
+                                                    ToolError::Unavailable(e36)
+                                                }
+                                                8 => ToolError::SessionNotBound,
+                                                9 => ToolError::Busy,
+                                                n => {
+                                                    debug_assert_eq!(n, 10, "invalid enum discriminant");
+                                                    ToolError::Cancelled
+                                                }
+                                            };
+                                            v36
+                                        };
+                                        Err(e)
+                                    }
+                                    _ => _rt::invalid_enum_discriminant(),
+                                }
+                            }
+                        }
+                    }
+                    _MySubtask {
+                        _unused: core::marker::PhantomData,
+                    }
+                        .call((name, arguments_json))
+                        .await
+                }
+            }
+        }
+    }
 }
 #[rustfmt::skip]
 #[allow(dead_code, clippy::all)]
@@ -30267,9 +31793,9 @@ macro_rules! __export_layer_impl {
         : () = { #[rustfmt::skip] #[cfg(target_arch = "wasm32")] #[unsafe (link_section =
         "component-type:wit-bindgen:0.62.0:wassette:acp@7.0.0:layer:imports and exports")]
         #[doc(hidden)] #[allow(clippy::octal_escapes)] pub static
-        __WIT_BINDGEN_COMPONENT_TYPE : [u8; 10241] = *
+        __WIT_BINDGEN_COMPONENT_TYPE : [u8; 10904] = *
         b"\
-\0asm\x0d\0\x01\0\0\x19\x16wit-component-encoding\x04\0\x07\x85O\x01A\x02\x01A?\x01\
+\0asm\x0d\0\x01\0\0\x19\x16wit-component-encoding\x04\0\x07\x9cT\x01A\x02\x01AA\x01\
 B\x04\x01q\x08\x0bparse-error\0\0\x0finvalid-request\0\0\x10method-not-found\0\0\
 \x0einvalid-params\0\0\x0einternal-error\0\0\x0dauth-required\0\0\x12resource-no\
 t-found\0\0\x05other\x01z\0\x04\0\x0aerror-code\x03\0\0\x01r\x02\x04code\x01\x07\
@@ -30439,56 +31965,69 @@ f\x01}\x01C\x01\x04self\x17\0\x18\x04\0\x17[method]terminal.output\x01\x19\x01j\
 \x01j\x01\x09\x01\x01\x01C\x01\x03req\x07\0\x1d\x04\0\x12request-permission\x01\x1e\
 \x01j\x01\x0d\x01\x01\x01C\x01\x03req\x0b\0\x1f\x04\0\x0eread-text-file\x01\x20\x01\
 j\0\x01\x01\x01C\x01\x03req\x0f\0!\x04\0\x0fwrite-text-file\x01\"\x03\0\x19wasse\
-tte:acp/client@7.0.0\x05*\x01B\x0a\x01q\x03\x08upstream\x01s\0\x02io\x01s\0\x09n\
-ot-found\0\0\x04\0\x0dsecrets-error\x03\0\0\x01p}\x01q\x02\x06string\x01s\0\x05b\
-ytes\x01\x02\0\x04\0\x0csecret-value\x03\0\x03\x04\0\x06secret\x03\x01\x01i\x05\x01\
-j\x01\x06\x01\x01\x01C\x01\x03keys\0\x07\x04\0\x03get\x01\x08\x03\0\x1dwasmcloud\
-:secrets/store@2.1.0\x05+\x02\x03\0\x0a\x06secret\x02\x03\0\x0a\x0csecret-value\x01\
-B\x07\x02\x03\x02\x01,\x04\0\x06secret\x03\0\0\x02\x03\x02\x01-\x04\0\x0csecret-\
-value\x03\0\x02\x01h\x01\x01C\x01\x01s\x04\0\x03\x04\0\x06reveal\x01\x05\x03\0\x1e\
-wasmcloud:secrets/reveal@2.1.0\x05.\x01BJ\x02\x03\x02\x01\x0f\x04\0\x05error\x03\
-\0\0\x02\x03\x02\x01\x10\x04\0\x12initialize-request\x03\0\x02\x02\x03\x02\x01\x11\
-\x04\0\x13initialize-response\x03\0\x04\x02\x03\x02\x01\x12\x04\0\x14authenticat\
-e-request\x03\0\x06\x02\x03\x02\x01\x0a\x04\0\x0fsession-mode-id\x03\0\x08\x02\x03\
-\x02\x01\x13\x04\0\x10session-model-id\x03\0\x0a\x02\x03\x02\x01\x14\x04\0\x11se\
-ssion-config-id\x03\0\x0c\x02\x03\x02\x01\x15\x04\0\x17session-config-value-id\x03\
-\0\x0e\x02\x03\x02\x01\x16\x04\0\x15session-config-option\x03\0\x10\x02\x03\x02\x01\
-\x17\x04\0\x13new-session-request\x03\0\x12\x02\x03\x02\x01\x18\x04\0\x14new-ses\
-sion-response\x03\0\x14\x02\x03\x02\x01\x19\x04\0\x14load-session-request\x03\0\x16\
-\x02\x03\x02\x01\x1a\x04\0\x15load-session-response\x03\0\x18\x02\x03\x02\x01\x1b\
-\x04\0\x15list-sessions-request\x03\0\x1a\x02\x03\x02\x01\x1c\x04\0\x16list-sess\
-ions-response\x03\0\x1c\x02\x03\x02\x01\x1d\x04\0\x16resume-session-request\x03\0\
-\x1e\x02\x03\x02\x01\x1e\x04\0\x17resume-session-response\x03\0\x20\x02\x03\x02\x01\
-\x07\x04\0\x0dcontent-block\x03\0\"\x02\x03\x02\x01\x1f\x04\0\x0fprompt-response\
-\x03\0$\x04\0\x07session\x03\x01\x01h&\x01p#\x01j\x01%\x01\x01\x01C\x02\x04self'\
-\x06prompt(\0)\x04\0\x16[method]session.prompt\x01*\x01j\0\x01\x01\x01C\x02\x04s\
-elf'\x07mode-id\x09\0+\x04\0\x18[method]session.set-mode\x01,\x01C\x02\x04self'\x08\
-model-id\x0b\0+\x04\0\x1c[method]session.select-model\x01-\x01p\x11\x01j\x01.\x01\
-\x01\x01C\x03\x04self'\x09config-id\x0d\x05value\x0f\0/\x04\0![method]session.se\
-t-config-option\x010\x01j\x01\x05\x01\x01\x01C\x01\x03req\x03\01\x04\0\x0ainitia\
-lize\x012\x01C\x01\x03req\x07\0+\x04\0\x0cauthenticate\x013\x01i&\x01o\x024\x15\x01\
-j\x015\x01\x01\x01C\x01\x03req\x13\06\x04\0\x0bnew-session\x017\x01o\x024\x19\x01\
-j\x018\x01\x01\x01C\x01\x03req\x17\09\x04\0\x0cload-session\x01:\x01j\x01\x1d\x01\
-\x01\x01C\x01\x03req\x1b\0;\x04\0\x0dlist-sessions\x01<\x01o\x024!\x01j\x01=\x01\
-\x01\x01C\x01\x03req\x1f\0>\x04\0\x0eresume-session\x01?\x04\0\x18wassette:acp/a\
-gent@7.0.0\x05/\x01B*\x02\x03\x02\x01\x0f\x04\0\x05error\x03\0\0\x02\x03\x02\x01\
-\x04\x04\0\x0asession-id\x03\0\x02\x02\x03\x02\x01\"\x04\0\x0esession-update\x03\
-\0\x04\x02\x03\x02\x01#\x04\0\x1arequest-permission-request\x03\0\x06\x02\x03\x02\
-\x01$\x04\0\x1brequest-permission-response\x03\0\x08\x02\x03\x02\x01%\x04\0\x16r\
-ead-text-file-request\x03\0\x0a\x02\x03\x02\x01&\x04\0\x17read-text-file-respons\
-e\x03\0\x0c\x02\x03\x02\x01'\x04\0\x17write-text-file-request\x03\0\x0e\x02\x03\x02\
-\x01(\x04\0\x17create-terminal-request\x03\0\x10\x02\x03\x02\x01)\x04\0\x14termi\
-nal-exit-status\x03\0\x12\x04\0\x08terminal\x03\x01\x01i\x14\x01@\x01\x03req\x11\
-\0\x15\x04\0\x15[constructor]terminal\x01\x16\x01h\x14\x01f\x01}\x01C\x01\x04sel\
-f\x17\0\x18\x04\0\x17[method]terminal.output\x01\x19\x01j\x01\x13\x01\x01\x01C\x01\
-\x04self\x17\0\x1a\x04\0\x1e[method]terminal.wait-for-exit\x01\x1b\x01C\x02\x0as\
-ession-id\x03\x06update\x05\x01\0\x04\0\x0enotify-session\x01\x1c\x01j\x01\x09\x01\
-\x01\x01C\x01\x03req\x07\0\x1d\x04\0\x12request-permission\x01\x1e\x01j\x01\x0d\x01\
-\x01\x01C\x01\x03req\x0b\0\x1f\x04\0\x0eread-text-file\x01\x20\x01j\0\x01\x01\x01\
-C\x01\x03req\x0f\0!\x04\0\x0fwrite-text-file\x01\"\x04\0\x19wassette:acp/client@\
-7.0.0\x050\x04\0\x18wassette:acp/layer@7.0.0\x04\0\x0b\x0b\x01\0\x05layer\x03\0\0\
-\0G\x09producers\x01\x0cprocessed-by\x02\x0dwit-component\x070.259.0\x10wit-bind\
-gen-rust\x060.62.0";
+tte:acp/client@7.0.0\x05*\x01B\x19\x01ks\x01r\x07\x06handles\x04names\x0ccompone\
+nt-ids\x0bexport-names\x0bdescription\0\x0cinput-schemas\x0doutput-schema\0\x04\0\
+\x0ftool-descriptor\x03\0\x01\x01p\x02\x01r\x02\x0agenerationw\x05tools\x03\x04\0\
+\x07catalog\x03\0\x04\x01q\x02\x09unchanged\x01w\0\x07changed\x01\x05\0\x04\0\x0e\
+catalog-result\x03\0\x06\x01r\x03\x0ctool-call-ids\x04texts\x0astructured\0\x04\0\
+\x0btool-result\x03\0\x08\x01ps\x01q\x0b\x09not-found\x01s\0\x09ambiguous\x01\x0a\
+\0\x05stale\x01s\0\x11invalid-arguments\x01s\0\x11permission-denied\0\0\x0dpolic\
+y-denied\x01s\0\x10execution-failed\x01s\0\x0bunavailable\x01s\0\x11session-not-\
+bound\0\0\x04busy\0\0\x09cancelled\0\0\x04\0\x0atool-error\x03\0\x0b\x01kw\x01j\x01\
+\x07\x01\x0c\x01C\x01\x10known-generation\x0d\0\x0e\x04\0\x0alist-tools\x01\x0f\x01\
+j\x01w\x01\x0c\x01C\x01\x05afterw\0\x10\x04\0\x0fwait-for-change\x01\x11\x01j\x01\
+\x09\x01\x0c\x01C\x02\x06handles\x0earguments-jsons\0\x12\x04\0\x09call-tool\x01\
+\x13\x01C\x02\x04names\x0earguments-jsons\0\x12\x04\0\x11call-tool-by-name\x01\x14\
+\x03\0$wassette:component-tools/tools@0.1.0\x05+\x01B\x0a\x01q\x03\x08upstream\x01\
+s\0\x02io\x01s\0\x09not-found\0\0\x04\0\x0dsecrets-error\x03\0\0\x01p}\x01q\x02\x06\
+string\x01s\0\x05bytes\x01\x02\0\x04\0\x0csecret-value\x03\0\x03\x04\0\x06secret\
+\x03\x01\x01i\x05\x01j\x01\x06\x01\x01\x01C\x01\x03keys\0\x07\x04\0\x03get\x01\x08\
+\x03\0\x1dwasmcloud:secrets/store@2.1.0\x05,\x02\x03\0\x0b\x06secret\x02\x03\0\x0b\
+\x0csecret-value\x01B\x07\x02\x03\x02\x01-\x04\0\x06secret\x03\0\0\x02\x03\x02\x01\
+.\x04\0\x0csecret-value\x03\0\x02\x01h\x01\x01C\x01\x01s\x04\0\x03\x04\0\x06reve\
+al\x01\x05\x03\0\x1ewasmcloud:secrets/reveal@2.1.0\x05/\x01BJ\x02\x03\x02\x01\x0f\
+\x04\0\x05error\x03\0\0\x02\x03\x02\x01\x10\x04\0\x12initialize-request\x03\0\x02\
+\x02\x03\x02\x01\x11\x04\0\x13initialize-response\x03\0\x04\x02\x03\x02\x01\x12\x04\
+\0\x14authenticate-request\x03\0\x06\x02\x03\x02\x01\x0a\x04\0\x0fsession-mode-i\
+d\x03\0\x08\x02\x03\x02\x01\x13\x04\0\x10session-model-id\x03\0\x0a\x02\x03\x02\x01\
+\x14\x04\0\x11session-config-id\x03\0\x0c\x02\x03\x02\x01\x15\x04\0\x17session-c\
+onfig-value-id\x03\0\x0e\x02\x03\x02\x01\x16\x04\0\x15session-config-option\x03\0\
+\x10\x02\x03\x02\x01\x17\x04\0\x13new-session-request\x03\0\x12\x02\x03\x02\x01\x18\
+\x04\0\x14new-session-response\x03\0\x14\x02\x03\x02\x01\x19\x04\0\x14load-sessi\
+on-request\x03\0\x16\x02\x03\x02\x01\x1a\x04\0\x15load-session-response\x03\0\x18\
+\x02\x03\x02\x01\x1b\x04\0\x15list-sessions-request\x03\0\x1a\x02\x03\x02\x01\x1c\
+\x04\0\x16list-sessions-response\x03\0\x1c\x02\x03\x02\x01\x1d\x04\0\x16resume-s\
+ession-request\x03\0\x1e\x02\x03\x02\x01\x1e\x04\0\x17resume-session-response\x03\
+\0\x20\x02\x03\x02\x01\x07\x04\0\x0dcontent-block\x03\0\"\x02\x03\x02\x01\x1f\x04\
+\0\x0fprompt-response\x03\0$\x04\0\x07session\x03\x01\x01h&\x01p#\x01j\x01%\x01\x01\
+\x01C\x02\x04self'\x06prompt(\0)\x04\0\x16[method]session.prompt\x01*\x01j\0\x01\
+\x01\x01C\x02\x04self'\x07mode-id\x09\0+\x04\0\x18[method]session.set-mode\x01,\x01\
+C\x02\x04self'\x08model-id\x0b\0+\x04\0\x1c[method]session.select-model\x01-\x01\
+p\x11\x01j\x01.\x01\x01\x01C\x03\x04self'\x09config-id\x0d\x05value\x0f\0/\x04\0\
+![method]session.set-config-option\x010\x01j\x01\x05\x01\x01\x01C\x01\x03req\x03\
+\01\x04\0\x0ainitialize\x012\x01C\x01\x03req\x07\0+\x04\0\x0cauthenticate\x013\x01\
+i&\x01o\x024\x15\x01j\x015\x01\x01\x01C\x01\x03req\x13\06\x04\0\x0bnew-session\x01\
+7\x01o\x024\x19\x01j\x018\x01\x01\x01C\x01\x03req\x17\09\x04\0\x0cload-session\x01\
+:\x01j\x01\x1d\x01\x01\x01C\x01\x03req\x1b\0;\x04\0\x0dlist-sessions\x01<\x01o\x02\
+4!\x01j\x01=\x01\x01\x01C\x01\x03req\x1f\0>\x04\0\x0eresume-session\x01?\x04\0\x18\
+wassette:acp/agent@7.0.0\x050\x01B*\x02\x03\x02\x01\x0f\x04\0\x05error\x03\0\0\x02\
+\x03\x02\x01\x04\x04\0\x0asession-id\x03\0\x02\x02\x03\x02\x01\"\x04\0\x0esessio\
+n-update\x03\0\x04\x02\x03\x02\x01#\x04\0\x1arequest-permission-request\x03\0\x06\
+\x02\x03\x02\x01$\x04\0\x1brequest-permission-response\x03\0\x08\x02\x03\x02\x01\
+%\x04\0\x16read-text-file-request\x03\0\x0a\x02\x03\x02\x01&\x04\0\x17read-text-\
+file-response\x03\0\x0c\x02\x03\x02\x01'\x04\0\x17write-text-file-request\x03\0\x0e\
+\x02\x03\x02\x01(\x04\0\x17create-terminal-request\x03\0\x10\x02\x03\x02\x01)\x04\
+\0\x14terminal-exit-status\x03\0\x12\x04\0\x08terminal\x03\x01\x01i\x14\x01@\x01\
+\x03req\x11\0\x15\x04\0\x15[constructor]terminal\x01\x16\x01h\x14\x01f\x01}\x01C\
+\x01\x04self\x17\0\x18\x04\0\x17[method]terminal.output\x01\x19\x01j\x01\x13\x01\
+\x01\x01C\x01\x04self\x17\0\x1a\x04\0\x1e[method]terminal.wait-for-exit\x01\x1b\x01\
+C\x02\x0asession-id\x03\x06update\x05\x01\0\x04\0\x0enotify-session\x01\x1c\x01j\
+\x01\x09\x01\x01\x01C\x01\x03req\x07\0\x1d\x04\0\x12request-permission\x01\x1e\x01\
+j\x01\x0d\x01\x01\x01C\x01\x03req\x0b\0\x1f\x04\0\x0eread-text-file\x01\x20\x01j\
+\0\x01\x01\x01C\x01\x03req\x0f\0!\x04\0\x0fwrite-text-file\x01\"\x04\0\x19wasset\
+te:acp/client@7.0.0\x051\x04\0\x18wassette:acp/layer@7.0.0\x04\0\x0b\x0b\x01\0\x05\
+layer\x03\0\0\0G\x09producers\x01\x0cprocessed-by\x02\x0dwit-component\x070.259.\
+0\x10wit-bindgen-rust\x060.62.0";
         };
     };
 }
@@ -30501,8 +32040,8 @@ pub use __export_layer_impl as export;
 )]
 #[doc(hidden)]
 #[allow(clippy::octal_escapes)]
-pub static __WIT_BINDGEN_COMPONENT_TYPE: [u8; 8611] = *b"\
-\0asm\x0d\0\x01\0\0\x19\x16wit-component-encoding\x04\0\x07\x87B\x01A\x02\x01A;\x01\
+pub static __WIT_BINDGEN_COMPONENT_TYPE: [u8; 9274] = *b"\
+\0asm\x0d\0\x01\0\0\x19\x16wit-component-encoding\x04\0\x07\x9eG\x01A\x02\x01A=\x01\
 B\x04\x01q\x08\x0bparse-error\0\0\x0finvalid-request\0\0\x10method-not-found\0\0\
 \x0einvalid-params\0\0\x0einternal-error\0\0\x0dauth-required\0\0\x12resource-no\
 t-found\0\0\x05other\x01z\0\x04\0\x0aerror-code\x03\0\0\x01r\x02\x04code\x01\x07\
@@ -30672,17 +32211,30 @@ f\x01}\x01C\x01\x04self\x17\0\x18\x04\0\x17[method]terminal.output\x01\x19\x01j\
 \x01j\x01\x09\x01\x01\x01C\x01\x03req\x07\0\x1d\x04\0\x12request-permission\x01\x1e\
 \x01j\x01\x0d\x01\x01\x01C\x01\x03req\x0b\0\x1f\x04\0\x0eread-text-file\x01\x20\x01\
 j\0\x01\x01\x01C\x01\x03req\x0f\0!\x04\0\x0fwrite-text-file\x01\"\x03\0\x19wasse\
-tte:acp/client@7.0.0\x05*\x01B\x0a\x01q\x03\x08upstream\x01s\0\x02io\x01s\0\x09n\
-ot-found\0\0\x04\0\x0dsecrets-error\x03\0\0\x01p}\x01q\x02\x06string\x01s\0\x05b\
-ytes\x01\x02\0\x04\0\x0csecret-value\x03\0\x03\x04\0\x06secret\x03\x01\x01i\x05\x01\
-j\x01\x06\x01\x01\x01C\x01\x03keys\0\x07\x04\0\x03get\x01\x08\x03\0\x1dwasmcloud\
-:secrets/store@2.1.0\x05+\x02\x03\0\x0a\x06secret\x02\x03\0\x0a\x0csecret-value\x01\
-B\x07\x02\x03\x02\x01,\x04\0\x06secret\x03\0\0\x02\x03\x02\x01-\x04\0\x0csecret-\
-value\x03\0\x02\x01h\x01\x01C\x01\x01s\x04\0\x03\x04\0\x06reveal\x01\x05\x03\0\x1e\
-wasmcloud:secrets/reveal@2.1.0\x05.\x04\08wassette:acp/layer-with-all-of-its-exp\
-orts-removed@7.0.0\x04\0\x0b+\x01\0%layer-with-all-of-its-exports-removed\x03\0\0\
-\0G\x09producers\x01\x0cprocessed-by\x02\x0dwit-component\x070.259.0\x10wit-bind\
-gen-rust\x060.62.0";
+tte:acp/client@7.0.0\x05*\x01B\x19\x01ks\x01r\x07\x06handles\x04names\x0ccompone\
+nt-ids\x0bexport-names\x0bdescription\0\x0cinput-schemas\x0doutput-schema\0\x04\0\
+\x0ftool-descriptor\x03\0\x01\x01p\x02\x01r\x02\x0agenerationw\x05tools\x03\x04\0\
+\x07catalog\x03\0\x04\x01q\x02\x09unchanged\x01w\0\x07changed\x01\x05\0\x04\0\x0e\
+catalog-result\x03\0\x06\x01r\x03\x0ctool-call-ids\x04texts\x0astructured\0\x04\0\
+\x0btool-result\x03\0\x08\x01ps\x01q\x0b\x09not-found\x01s\0\x09ambiguous\x01\x0a\
+\0\x05stale\x01s\0\x11invalid-arguments\x01s\0\x11permission-denied\0\0\x0dpolic\
+y-denied\x01s\0\x10execution-failed\x01s\0\x0bunavailable\x01s\0\x11session-not-\
+bound\0\0\x04busy\0\0\x09cancelled\0\0\x04\0\x0atool-error\x03\0\x0b\x01kw\x01j\x01\
+\x07\x01\x0c\x01C\x01\x10known-generation\x0d\0\x0e\x04\0\x0alist-tools\x01\x0f\x01\
+j\x01w\x01\x0c\x01C\x01\x05afterw\0\x10\x04\0\x0fwait-for-change\x01\x11\x01j\x01\
+\x09\x01\x0c\x01C\x02\x06handles\x0earguments-jsons\0\x12\x04\0\x09call-tool\x01\
+\x13\x01C\x02\x04names\x0earguments-jsons\0\x12\x04\0\x11call-tool-by-name\x01\x14\
+\x03\0$wassette:component-tools/tools@0.1.0\x05+\x01B\x0a\x01q\x03\x08upstream\x01\
+s\0\x02io\x01s\0\x09not-found\0\0\x04\0\x0dsecrets-error\x03\0\0\x01p}\x01q\x02\x06\
+string\x01s\0\x05bytes\x01\x02\0\x04\0\x0csecret-value\x03\0\x03\x04\0\x06secret\
+\x03\x01\x01i\x05\x01j\x01\x06\x01\x01\x01C\x01\x03keys\0\x07\x04\0\x03get\x01\x08\
+\x03\0\x1dwasmcloud:secrets/store@2.1.0\x05,\x02\x03\0\x0b\x06secret\x02\x03\0\x0b\
+\x0csecret-value\x01B\x07\x02\x03\x02\x01-\x04\0\x06secret\x03\0\0\x02\x03\x02\x01\
+.\x04\0\x0csecret-value\x03\0\x02\x01h\x01\x01C\x01\x01s\x04\0\x03\x04\0\x06reve\
+al\x01\x05\x03\0\x1ewasmcloud:secrets/reveal@2.1.0\x05/\x04\08wassette:acp/layer\
+-with-all-of-its-exports-removed@7.0.0\x04\0\x0b+\x01\0%layer-with-all-of-its-ex\
+ports-removed\x03\0\0\0G\x09producers\x01\x0cprocessed-by\x02\x0dwit-component\x07\
+0.259.0\x10wit-bindgen-rust\x060.62.0";
 #[inline(never)]
 #[doc(hidden)]
 pub fn __link_custom_section_describing_imports() {

@@ -389,6 +389,12 @@ pub async fn run(
                 &secrets,
             )
             .await?;
+            if !layers.is_empty() && !args.tools.is_empty() && !args.allow_shared_grants {
+                anyhow::bail!(
+                    "Layered chains with ordinary tools require --allow-shared-grants; \
+                     layers can intercept tool permissions and share the provider's store"
+                );
+            }
             let tool_broker = Arc::new(tool_broker::ToolBroker::new(
                 tool_manager,
                 args.tools.iter().cloned(),
@@ -399,16 +405,16 @@ pub async fn run(
             ));
             let local_cancel = CancellationToken::new();
             let mut local_tasks = tokio::task::JoinSet::new();
-            if let Some(service) = &local_source {
-                if local_source_config.mode == ::wassette::local_source::LocalMode::Watch {
-                    let service = service.clone();
-                    let cancel = local_cancel.clone();
-                    local_tasks.spawn(async move {
-                        if let Err(error) = service.watch(cancel).await {
-                            tracing::error!(error = %error, "ACP local component watch stopped");
-                        }
-                    });
-                }
+            if let Some(service) = &local_source
+                && local_source_config.mode == ::wassette::local_source::LocalMode::Watch
+            {
+                let service = service.clone();
+                let cancel = local_cancel.clone();
+                local_tasks.spawn(async move {
+                    if let Err(error) = service.watch(cancel).await {
+                        tracing::error!(error = %error, "ACP local component watch stopped");
+                    }
+                });
             }
 
             let (outbound_tx, outbound_rx) = mpsc::channel(64);

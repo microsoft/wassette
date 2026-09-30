@@ -111,6 +111,10 @@ with `--local-component-dir <PATH>`. Local discovery installs validated
 components but does not activate providers or expose tools by itself; select
 providers explicitly and use `--tool <COMPONENT_ID>` for ordinary tools.
 
+`/install` currently installs ACP artifacts only, without activation. It does
+not install ordinary tools or resolve registry package selectors. Tool path,
+tool package and automatic local exposure flags remain unimplemented proposals.
+
 ### `wassette run`
 
 Start the Wassette MCP server with stdio transport for local development and testing. This is the recommended mode for MCP clients.

@@ -178,6 +178,13 @@ turn. It uses `wit-bindgen` and nothing else — no network, no secrets —
 so the demo is reproducible offline and needs no policy (and therefore no
 `--allow-all`).
 
+With an ordinary component selected by `--tool`, prompt
+`/tool <name> <arguments-json>` to invoke it through the host permission flow.
+For example, `/tool file-exists {"path":"/some/permitted/path"}` invokes the
+selected filesystem tool under that tool's own policy. The echo fixture also
+supports `/remember-tool <name>`, `/call-saved <arguments-json>` and
+`/wait-tools` for exercising revision-bound handles and catalog updates.
+
 Add the layer to see chaining:
 
 ```sh

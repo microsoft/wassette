@@ -2,18 +2,21 @@
 // Licensed under the MIT license.
 
 use std::collections::{HashMap, HashSet};
-use std::sync::Arc;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::pin::Pin;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::{Arc, Mutex as SyncMutex};
 
+use agent_client_protocol::schema::v1 as schema;
 use serde_json::Value;
-use tokio::sync::{Mutex, Semaphore};
+use tokio::sync::{Mutex, Semaphore, mpsc, oneshot};
+use tokio::task::{JoinHandle, JoinSet};
 use wasmtime::component::{Accessor, HasSelf};
 use wassette::{
     CatalogGeneration, LifecycleManager, PreparedInvocation, ToolDescriptor, ToolInvocationError,
     ToolRef,
 };
 
-use crate::state::HostState;
+use crate::state::{ClientSink, HostState, OutboundEvent};
 use crate::wassette::acp::prompts::SessionUpdate;
 use crate::wassette::acp::tools::{
     PermissionOption, PermissionOptionKind, PermissionOutcome, RequestPermissionRequest,
@@ -24,6 +27,130 @@ use crate::wassette::component_tools::tools::{
 };
 
 const MAX_CONCURRENT_CALLS: usize = 8;
+
+type ExecutionJob = Pin<Box<dyn Future<Output = ()> + Send>>;
+
+struct ToolWorkers {
+    permits: Arc<Semaphore>,
+    jobs: mpsc::Sender<ExecutionJob>,
+    _supervisor: JoinHandle<()>,
+}
+
+impl ToolWorkers {
+    fn new(limit: usize) -> Self {
+        let (jobs, mut incoming) = mpsc::channel::<ExecutionJob>(limit);
+        let supervisor = tokio::spawn(async move {
+            let mut running = JoinSet::new();
+            loop {
+                while let Some(result) = running.try_join_next() {
+                    if let Err(error) = result {
+                        tracing::error!(%error, "ACP tool execution task failed");
+                    }
+                }
+                tokio::select! {
+                    job = incoming.recv() => match job {
+                        Some(job) => { running.spawn(job); }
+                        None => break,
+                    },
+                    result = running.join_next(), if !running.is_empty() => {
+                        if let Some(Err(error)) = result {
+                            tracing::error!(%error, "ACP tool execution task failed");
+                        }
+                    }
+                }
+            }
+            while let Some(result) = running.join_next().await {
+                if let Err(error) = result {
+                    tracing::error!(%error, "ACP tool execution task failed during shutdown");
+                }
+            }
+        });
+        Self {
+            permits: Arc::new(Semaphore::new(limit)),
+            jobs,
+            _supervisor: supervisor,
+        }
+    }
+
+    async fn run<F, R>(&self, execution: F) -> Result<R, ToolError>
+    where
+        F: Future<Output = R> + Send + 'static,
+        R: Send + 'static,
+    {
+        let permit = self
+            .permits
+            .clone()
+            .try_acquire_owned()
+            .map_err(|_| ToolError::Busy)?;
+        let (send, receive) = oneshot::channel();
+        self.jobs
+            .send(Box::pin(async move {
+                let result = execution.await;
+                drop(permit);
+                let _ = send.send(result);
+            }))
+            .await
+            .map_err(|_| ToolError::Unavailable("Tool supervisor ended".to_string()))?;
+        receive
+            .await
+            .map_err(|_| ToolError::Unavailable("Tool execution task ended".to_string()))
+    }
+}
+
+struct PendingCall {
+    outbound: mpsc::Sender<OutboundEvent>,
+    notification: schema::SessionNotification,
+    cancelled: Arc<AtomicBool>,
+}
+
+impl PendingCall {
+    fn cancel(self) {
+        self.cancelled.store(true, Ordering::Release);
+        let (ack, _) = oneshot::channel();
+        if let Err(error) =
+            self.outbound
+                .try_send(OutboundEvent::SessionUpdate(self.notification, None, ack))
+        {
+            tracing::warn!(%error, "Could not deliver cancelled ACP tool-call update");
+        }
+    }
+}
+
+#[derive(Clone, Default)]
+pub(crate) struct ActiveToolCalls(Arc<SyncMutex<HashMap<String, PendingCall>>>);
+
+impl ActiveToolCalls {
+    pub(crate) fn cancel_all(&self) {
+        let calls = std::mem::take(&mut *self.0.lock().unwrap());
+        for call in calls.into_values() {
+            call.cancel();
+        }
+    }
+}
+
+struct CancelledCallNotice {
+    calls: ActiveToolCalls,
+    id: String,
+    cancelled: Arc<AtomicBool>,
+}
+
+impl CancelledCallNotice {
+    fn is_cancelled(&self) -> bool {
+        self.cancelled.load(Ordering::Acquire)
+    }
+
+    fn finish(&self) {
+        self.calls.0.lock().unwrap().remove(&self.id);
+    }
+}
+
+impl Drop for CancelledCallNotice {
+    fn drop(&mut self) {
+        if let Some(call) = self.calls.0.lock().unwrap().remove(&self.id) {
+            call.cancel();
+        }
+    }
+}
 
 #[derive(Default)]
 struct BrokerState {
@@ -39,7 +166,7 @@ pub struct ToolBroker {
     state: Mutex<BrokerState>,
     next_handle: AtomicU64,
     next_call: AtomicU64,
-    permits: Arc<Semaphore>,
+    workers: ToolWorkers,
 }
 
 pub struct PreparedToolCall {
@@ -61,11 +188,12 @@ impl ToolBroker {
             state: Mutex::new(BrokerState::default()),
             next_handle: AtomicU64::new(1),
             next_call: AtomicU64::new(1),
-            permits: Arc::new(Semaphore::new(MAX_CONCURRENT_CALLS)),
+            workers: ToolWorkers::new(MAX_CONCURRENT_CALLS),
         }
     }
 
     pub async fn catalog(&self) -> Result<Catalog, ToolError> {
+        let mut state = self.state.lock().await;
         let snapshot = self
             .manager
             .catalog()
@@ -80,7 +208,6 @@ impl ToolBroker {
             })
             .collect();
 
-        let mut state = self.state.lock().await;
         if state.core_generation.as_ref() != Some(&snapshot.generation) {
             let unchanged = state.handles.len() == visible.len()
                 && visible.iter().all(|descriptor| {
@@ -123,7 +250,8 @@ impl ToolBroker {
                 return Ok(generation);
             }
             let Some(core_generation) = core_generation else {
-                return Ok(self.catalog().await?.generation);
+                self.catalog().await?;
+                continue;
             };
             self.manager
                 .wait_changed(&core_generation)
@@ -178,7 +306,10 @@ impl ToolBroker {
             .manager
             .describe_tool(&reference)
             .await
-            .map_err(|error| ToolError::Stale(error.to_string()))?;
+            .map_err(|error| match error.downcast::<ToolInvocationError>() {
+                Ok(error) => map_invocation_error(error),
+                Err(error) => ToolError::Unavailable(error.to_string()),
+            })?;
         let prepared = self
             .manager
             .prepare_invocation(&reference, &arguments)
@@ -196,20 +327,10 @@ impl ToolBroker {
 
     pub async fn run_call(&self, call: PreparedToolCall) -> Result<ToolResult, ToolError> {
         let call_id = call.id.clone();
-        let permit = self
-            .permits
-            .clone()
-            .try_acquire_owned()
-            .map_err(|_| ToolError::Busy)?;
-        let (send, receive) = tokio::sync::oneshot::channel();
-        tokio::spawn(async move {
-            let _permit = permit;
-            let result = call.invocation.run().await.map_err(map_invocation_error);
-            let _ = send.send(result);
-        });
-        let output = receive
-            .await
-            .map_err(|_| ToolError::Unavailable("Tool execution task ended".to_owned()))??;
+        let output = self
+            .workers
+            .run(async move { call.invocation.run().await.map_err(map_invocation_error) })
+            .await??;
         let presentation = wassette::tool_result::present_tool_output(
             &output.raw_result,
             output.descriptor.tool.schema.get("outputSchema"),
@@ -254,6 +375,46 @@ impl ToolBroker {
             raw_input: Some(arguments_json.clone()),
             raw_output,
         };
+        let (outbound, active_calls) = accessor.with(|mut access| {
+            let state = access.get();
+            let outbound = state
+                .stages
+                .iter()
+                .find_map(|stage| match &stage.sink {
+                    ClientSink::Outbound(outbound) => Some(outbound.clone()),
+                    ClientSink::Upstream(_) => None,
+                })
+                .ok_or_else(|| {
+                    ToolError::Unavailable("No editor route for tool updates".to_string())
+                })?;
+            Ok::<_, ToolError>((outbound, state.active_tool_calls.clone()))
+        })?;
+        // Cancellation can stop polling the store callback. Its final notice
+        // must reach the bound editor without awaiting an upstream Wasm layer.
+        let cancelled = Arc::new(AtomicBool::new(false));
+        let notification = crate::translate::session_update_wit_to_schema(
+            session_id.clone(),
+            SessionUpdate::ToolCallUpdate(snapshot(
+                ToolCallStatus::Failed,
+                Some("Tool call cancelled; execution may still be finishing.".to_string()),
+            )),
+        )
+        .ok_or_else(|| {
+            ToolError::Unavailable("Could not encode tool cancellation update".to_string())
+        })?;
+        active_calls.0.lock().unwrap().insert(
+            call_id.clone(),
+            PendingCall {
+                outbound,
+                notification,
+                cancelled: cancelled.clone(),
+            },
+        );
+        let cancellation = CancelledCallNotice {
+            calls: active_calls,
+            id: call_id.clone(),
+            cancelled,
+        };
         crate::client_impl::notify_session(
             accessor,
             session_id.clone(),
@@ -278,8 +439,26 @@ impl ToolBroker {
                         options: permission_options(),
                     },
                 )
-                .await
-                .map_err(|error| ToolError::Unavailable(error.message))?;
+                .await;
+                if cancellation.is_cancelled() {
+                    return Err(ToolError::Cancelled);
+                }
+                let permission = match permission {
+                    Ok(permission) => permission,
+                    Err(error) => {
+                        crate::client_impl::notify_session(
+                            accessor,
+                            session_id,
+                            SessionUpdate::ToolCallUpdate(snapshot(
+                                ToolCallStatus::Failed,
+                                Some(error.message.clone()),
+                            )),
+                        )
+                        .await;
+                        cancellation.finish();
+                        return Err(ToolError::Unavailable(error.message));
+                    }
+                };
                 match permission.outcome {
                     PermissionOutcome::Selected(id) if id == "allow-once" => true,
                     PermissionOutcome::Selected(id) if id == "allow-always" => {
@@ -302,6 +481,7 @@ impl ToolBroker {
                 SessionUpdate::ToolCallUpdate(snapshot(ToolCallStatus::Failed, None)),
             )
             .await;
+            cancellation.finish();
             return Err(ToolError::PermissionDenied);
         }
 
@@ -311,7 +491,13 @@ impl ToolBroker {
             SessionUpdate::ToolCallUpdate(snapshot(ToolCallStatus::InProgress, None)),
         )
         .await;
+        if cancellation.is_cancelled() {
+            return Err(ToolError::Cancelled);
+        }
         let result = broker.run_call(call).await;
+        if cancellation.is_cancelled() {
+            return Err(ToolError::Cancelled);
+        }
         let (status, raw_output) = match &result {
             Ok(output) => (ToolCallStatus::Completed, Some(output.text.clone())),
             Err(error) => (ToolCallStatus::Failed, Some(format!("{error:?}"))),
@@ -322,6 +508,7 @@ impl ToolBroker {
             SessionUpdate::ToolCallUpdate(snapshot(status, raw_output)),
         )
         .await;
+        cancellation.finish();
         result
     }
 }
@@ -521,6 +708,133 @@ mod tests {
     use anyhow::anyhow;
 
     use super::*;
+
+    async fn install_test_tool(
+        manager: &LifecycleManager,
+        root: &std::path::Path,
+        name: &str,
+        key: &str,
+    ) {
+        let bytes = wat::parse_str(format!(
+            r#"(component ${name}
+            (core module $m (func (export "run") (result i32) i32.const 1))
+            (core instance $i (instantiate $m))
+            (func (export "run") (result u32) (canon lift (core func $i "run"))))"#
+        ))
+        .unwrap();
+        let path = root.join(format!("{key}.wasm"));
+        std::fs::write(&path, bytes).unwrap();
+        manager
+            .load_component(&format!("file://{}", path.display()))
+            .await
+            .unwrap();
+    }
+
+    #[tokio::test]
+    async fn catalog_filters_exposure_preserves_ambiguity_and_invalidates_handles() {
+        let root = tempfile::tempdir().unwrap();
+        let manager = Arc::new(
+            LifecycleManager::builder(root.path().join("store"))
+                .with_secrets_dir(root.path().join("secrets"))
+                .build()
+                .await
+                .unwrap(),
+        );
+        let broker = ToolBroker::new(
+            manager.clone(),
+            ["semantic:one".into(), "semantic:two".into()],
+            ["semantic:two".into()],
+        );
+        let empty = broker.catalog().await.unwrap();
+        install_test_tool(&manager, root.path(), "hidden", "hidden-file").await;
+        assert_eq!(broker.catalog().await.unwrap().generation, empty.generation);
+        install_test_tool(&manager, root.path(), "semantic:one", "first-file").await;
+        let visible = broker.catalog().await.unwrap();
+        assert_eq!(visible.tools.len(), 1);
+        assert_eq!(visible.tools[0].component_id, "semantic:one");
+        assert_ne!(visible.generation, empty.generation);
+        install_test_tool(&manager, root.path(), "semantic:two", "second-file").await;
+        assert_eq!(
+            broker.catalog().await.unwrap().generation,
+            visible.generation
+        );
+        let ambiguous = ToolBroker::new(
+            manager.clone(),
+            ["semantic:one".into(), "semantic:two".into()],
+            [],
+        );
+        assert!(
+            matches!(ambiguous.reference_by_name("run").await, Err(ToolError::Ambiguous(ids)) if ids.len() == 2)
+        );
+        let handle = &visible.tools[0].handle;
+        let reference = broker.reference(handle).await.unwrap();
+        let prepared = broker.prepare_call(reference, "{}").await.unwrap();
+        manager.unload_component("semantic:one").await.unwrap();
+        assert!(matches!(
+            broker.reference(handle).await,
+            Err(ToolError::Stale(_))
+        ));
+        assert!(matches!(
+            broker.run_call(prepared).await,
+            Err(ToolError::Stale(_))
+        ));
+    }
+
+    #[tokio::test]
+    async fn initial_empty_catalog_wait_does_not_report_a_change() {
+        let root = tempfile::tempdir().unwrap();
+        let manager = Arc::new(
+            LifecycleManager::builder(root.path().join("store"))
+                .with_secrets_dir(root.path().join("secrets"))
+                .build()
+                .await
+                .unwrap(),
+        );
+        let broker = ToolBroker::new(manager, [], []);
+        assert!(
+            tokio::time::timeout(
+                std::time::Duration::from_millis(100),
+                broker.wait_for_change(0)
+            )
+            .await
+            .is_err()
+        );
+    }
+
+    #[tokio::test]
+    async fn cancelled_waiter_retains_permit_and_supervised_job() {
+        let workers = Arc::new(ToolWorkers::new(1));
+        let (started, started_rx) = oneshot::channel();
+        let (release, released) = oneshot::channel();
+        let (finished, finished_rx) = oneshot::channel();
+        let worker = workers.clone();
+        let waiter = tokio::spawn(async move {
+            worker
+                .run(async move {
+                    started.send(()).unwrap();
+                    released.await.unwrap();
+                    finished.send(()).unwrap();
+                })
+                .await
+        });
+        started_rx.await.unwrap();
+        waiter.abort();
+        assert!(waiter.await.unwrap_err().is_cancelled());
+        assert!(matches!(workers.run(async {}).await, Err(ToolError::Busy)));
+        drop(workers);
+        release.send(()).unwrap();
+        tokio::time::timeout(std::time::Duration::from_secs(5), finished_rx)
+            .await
+            .unwrap()
+            .unwrap();
+    }
+
+    #[tokio::test]
+    async fn completed_jobs_release_permits() {
+        let workers = ToolWorkers::new(1);
+        assert_eq!(workers.run(async { 42 }).await.unwrap(), 42);
+        assert_eq!(workers.run(async { 43 }).await.unwrap(), 43);
+    }
 
     #[test]
     fn invocation_errors_map_without_string_classification() {

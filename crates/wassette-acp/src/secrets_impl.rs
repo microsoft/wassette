@@ -313,6 +313,7 @@ mod tests {
             terminal_enabled: false,
             tool_broker: None,
             tool_decisions: Vec::new(),
+            active_tool_calls: Default::default(),
         }
     }
 

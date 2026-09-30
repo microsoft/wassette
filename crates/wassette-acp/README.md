@@ -63,3 +63,22 @@ them with JSON arguments. The host asks the editor for permission, emits ACP
 tool-call updates, and executes the pinned artifact and policy through
 `LifecycleManager`. Tools are off by default; layers and active chain stages
 cannot call them.
+Layered chains with exposed ordinary tools require `--allow-shared-grants`,
+because layers can intercept permission requests and share the provider's store.
+Cancelling a turn stops waiting, not necessarily the tool: the host reports that
+execution may still be finishing. A supervised worker retains its concurrency
+permit until execution actually ends.
+
+`--local-components startup|watch` opts into local-source discovery, defaulting
+to `off`. Use `--local-component-dir` to override the drop directory. Discovery
+can install ACP-shaped artifacts with ACP-engine compilation, export/version
+checks and policy validation; it does not prove they can link or instantiate.
+Provider/layer activation remains an explicit selection at startup, and ordinary
+tools still require `--tool <COMPONENT_ID>`.
+
+**Not implemented:** `/install` accepts ACP artifacts only, not ordinary tools
+or registry package selectors. There are no `--tool-path`, `--tool-package` or
+`--expose-tools local` adapters. Those interfaces remain proposals rather than
+implicit exposure defaults. Committed store changes are refreshed on catalog
+listing/call resolution; idle external changes alone do not wake the guest's
+`wait-for-change`. Local watch publishes changes through the shared catalog.
