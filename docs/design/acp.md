@@ -148,6 +148,14 @@ wassette acp --provider <PATH|URI|COMPONENT_ID>
   captured artifact, policy, schema and secrets as MCP. They ask the editor for
   permission and emit `tool_call` / `tool_call_update` notifications. Tools are
   off by default; layers and the active provider/layer components are excluded.
+* `--local-components startup|watch` enables the shared local-source reconciler
+  for ACP, with `--local-component-dir` overriding its drop directory. ACP
+  injects its engine-backed validator, which compiles ACP-shaped artifacts and
+  checks their export world, version, role and effective policy before commit.
+  This evidence does not claim imported-type or host-link validation; explicit
+  provider/layer selection still performs linking and instantiation checks.
+  Discovery is install-only and never activates a provider or exposes a tool
+  without the corresponding selector.
 * `RUST_LOG=debug` or `RUST_LOG=trace` logs full JSON-RPC payloads, including prompt text and any secrets a guest emits; enable it only when appropriate.
 
 Point an ACP-speaking editor at it the same way you would point one at

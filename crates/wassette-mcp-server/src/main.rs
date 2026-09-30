@@ -157,10 +157,21 @@ async fn main() -> Result<()> {
         let Some(Commands::Acp(args)) = cli.command else {
             unreachable!("just matched")
         };
+        let local_config = config::resolve_local_source(
+            &config::LocalSourceOverrides {
+                local_component_dir: args.local_component_dir.clone(),
+                local_components: args.local_components.map(|mode| match mode {
+                    wassette_acp::AcpLocalComponentsMode::Off => LocalComponentsMode::Off,
+                    wassette_acp::AcpLocalComponentsMode::Startup => LocalComponentsMode::Startup,
+                    wassette_acp::AcpLocalComponentsMode::Watch => LocalComponentsMode::Watch,
+                }),
+            },
+            LocalComponentsMode::Off,
+        )?;
         // `wassette_acp::run` installs the stderr (and optional
         // `--log-file`) subscriber itself so its `--log-level` /
         // `--log-filter` flags configure it.
-        return wassette_acp::run(args).await;
+        return wassette_acp::run(args, local_config).await;
     }
 
     match &cli.command {

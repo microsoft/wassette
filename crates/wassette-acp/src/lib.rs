@@ -20,6 +20,7 @@ use anyhow::{Context, Result};
 use etcetera::BaseStrategy;
 use tokio::sync::mpsc;
 use tokio::task::LocalSet;
+use tokio_util::sync::CancellationToken;
 use tracing::info;
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
@@ -94,7 +95,7 @@ mod layer_bindings {
 
 pub use layer_bindings::Layer;
 
-use crate::install::Resolver;
+use crate::install::{AcpLocalValidator, Resolver};
 use crate::sandbox::Sandbox;
 use crate::state::StageKind;
 use crate::wasm::{SessionFactory, SessionRegistry, Stage};
@@ -193,6 +194,14 @@ pub struct AcpArgs {
     /// ACP provider. Repeat to expose more than one component.
     #[arg(long = "tool", value_name = "COMPONENT_ID")]
     pub tools: Vec<String>,
+
+    /// Directory scanned for locally built components.
+    #[arg(long)]
+    pub local_component_dir: Option<PathBuf>,
+
+    /// Local component discovery: off, startup, or watch.
+    #[arg(long, value_enum)]
+    pub local_components: Option<AcpLocalComponentsMode>,
 }
 
 /// Coarse verbosity for the host's own logs.
@@ -208,6 +217,14 @@ pub enum LogLevel {
     Warn,
     /// Failures only.
     Error,
+}
+
+/// ACP CLI choice for local component discovery.
+#[derive(Copy, Clone, Debug, PartialEq, Eq, clap::ValueEnum)]
+pub enum AcpLocalComponentsMode {
+    Off,
+    Startup,
+    Watch,
 }
 
 impl LogLevel {
@@ -228,7 +245,10 @@ impl LogLevel {
 /// Session actors are `!Send` (they own a `Store<HostState>`), so the
 /// work happens inside a [`LocalSet`] pinned to the calling thread of the
 /// *current* runtime — no nested runtime is created.
-pub async fn run(args: AcpArgs) -> Result<()> {
+pub async fn run(
+    args: AcpArgs,
+    local_source_config: ::wassette::local_source::LocalSourceConfig,
+) -> Result<()> {
     eprintln!("Notice: wassette acp is experimental and may change or be removed.");
     if args.providers.len() != 1 {
         anyhow::bail!(
@@ -271,11 +291,31 @@ pub async fn run(args: AcpArgs) -> Result<()> {
     );
 
     let data_root = init_data_root()?;
-    let lifecycle_config = ::wassette::LifecycleManager::builder(component_dir)
+    let lifecycle_config = ::wassette::LifecycleManager::builder(component_dir.clone())
         .with_secrets_dir(secrets_dir)
         .build_config()?;
     let resolver = Arc::new(Resolver::with_config(lifecycle_config.clone()));
     let tool_manager = Arc::new(::wassette::LifecycleManager::from_config(lifecycle_config).await?);
+    let local_source = if local_source_config.mode == ::wassette::local_source::LocalMode::Off {
+        None
+    } else {
+        let service = ::wassette::local_source::LocalSourceService::new(
+            tool_manager.clone(),
+            local_source_config.clone(),
+        )?
+        .with_validator(Arc::new(AcpLocalValidator::new(
+            engine.clone(),
+            component_dir.clone(),
+        )));
+        let report = service.reconcile_once(false).await?;
+        if report.has_unresolved() {
+            tracing::warn!(
+                ?report,
+                "Some local ACP component sources could not be installed"
+            );
+        }
+        Some(Arc::new(service))
+    };
 
     let secrets = Arc::new(crate::secrets::SecretsRegistry::new(resolver.secrets_dir()));
 
@@ -357,6 +397,19 @@ pub async fn run(args: AcpArgs) -> Result<()> {
                     .chain(&layers)
                     .map(|stage| stage.component_id.clone()),
             ));
+            let local_cancel = CancellationToken::new();
+            let mut local_tasks = tokio::task::JoinSet::new();
+            if let Some(service) = &local_source {
+                if local_source_config.mode == ::wassette::local_source::LocalMode::Watch {
+                    let service = service.clone();
+                    let cancel = local_cancel.clone();
+                    local_tasks.spawn(async move {
+                        if let Err(error) = service.watch(cancel).await {
+                            tracing::error!(error = %error, "ACP local component watch stopped");
+                        }
+                    });
+                }
+            }
 
             let (outbound_tx, outbound_rx) = mpsc::channel(64);
             let factory = Arc::new(
@@ -376,7 +429,11 @@ pub async fn run(args: AcpArgs) -> Result<()> {
 
             info!("listening for ACP JSON-RPC on stdio");
 
-            bridge::run(factory, registry, outbound_rx).await
+            let result = bridge::run(factory, registry, outbound_rx).await;
+            local_cancel.cancel();
+            local_tasks.abort_all();
+            while local_tasks.join_next().await.is_some() {}
+            result
         })
         .await
 }
@@ -447,6 +504,35 @@ mod tool_args_tests {
     fn tools_are_not_exposed_by_default() {
         let parsed = TestCli::try_parse_from(["test", "--provider", "provider"]).unwrap();
         assert!(parsed.acp.tools.is_empty());
+    }
+
+    #[test]
+    fn local_discovery_arguments_are_parsed() {
+        let parsed = TestCli::try_parse_from([
+            "test",
+            "--provider",
+            "provider",
+            "--local-component-dir",
+            "target/local-components",
+            "--local-components",
+            "watch",
+        ])
+        .unwrap();
+        assert_eq!(
+            parsed.acp.local_component_dir,
+            Some(PathBuf::from("target/local-components"))
+        );
+        assert_eq!(
+            parsed.acp.local_components,
+            Some(AcpLocalComponentsMode::Watch)
+        );
+    }
+
+    #[test]
+    fn local_discovery_is_not_enabled_by_default() {
+        let parsed = TestCli::try_parse_from(["test", "--provider", "provider"]).unwrap();
+        assert!(parsed.acp.local_component_dir.is_none());
+        assert!(parsed.acp.local_components.is_none());
     }
 }
 

@@ -17,6 +17,7 @@ use anyhow::{Context, Result, anyhow};
 use tokio::sync::mpsc::Sender;
 use wasmtime::Engine;
 use wasmtime::component::Component;
+use wassette::local_source::LocalValidator;
 use wassette::store::{
     ArtifactSnapshot, ComponentStore, ExpectedEntry, InstallIntent, InstallOptions, InstallOwner,
     PolicyMetadata, PolicyProvenance, PreparedInstall, PreparedPolicy, StoreError, StoredEntry,
@@ -76,6 +77,39 @@ fn classify(arg: &str) -> Result<Reference<'_>> {
 /// Resolves with the caller's configured clients, without an ordinary MCP engine.
 pub struct Resolver {
     config: wassette::LifecycleConfig,
+}
+
+/// ACP runtime validation injected into local-source discovery.
+pub(crate) struct AcpLocalValidator {
+    engine: Engine,
+    component_dir: PathBuf,
+}
+
+impl AcpLocalValidator {
+    pub(crate) fn new(engine: Engine, component_dir: PathBuf) -> Self {
+        Self {
+            engine,
+            component_dir,
+        }
+    }
+}
+
+impl LocalValidator for AcpLocalValidator {
+    fn validate(
+        &self,
+        wasm: &[u8],
+        inspection: &wassette::ArtifactInspection,
+        policy: Option<&[u8]>,
+    ) -> Result<ValidationEvidence> {
+        crate::classify_acp_component(inspection)?;
+        crate::sandbox::validate_policy(policy, &self.component_dir)?;
+        Component::new(&self.engine, wasm)
+            .map_err(anyhow::Error::from)
+            .context("compiling local ACP component")?;
+        Ok(ValidationEvidence::AcpCompiledAndExportChecked {
+            runtime: format!("wassette-acp/{}", crate::HOST_ACP_VERSION),
+        })
+    }
 }
 
 impl Resolver {

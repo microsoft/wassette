@@ -104,6 +104,13 @@ editor for permission and streams ACP tool-call status updates. Layers cannot
 call ordinary tools. The provider/layers in the active chain are excluded even
 if named by `--tool`.
 
+Use `--local-components startup` to reconcile the local component drop directory
+before selecting the provider and tools, or `--local-components watch` to keep
+reconciling it while ACP runs. ACP defaults to `off`. Override the drop directory
+with `--local-component-dir <PATH>`. Local discovery installs validated
+components but does not activate providers or expose tools by itself; select
+providers explicitly and use `--tool <COMPONENT_ID>` for ordinary tools.
+
 ### `wassette run`
 
 Start the Wassette MCP server with stdio transport for local development and testing. This is the recommended mode for MCP clients.
