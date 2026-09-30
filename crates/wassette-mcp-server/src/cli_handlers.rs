@@ -21,7 +21,7 @@ use rmcp::model::CallToolRequestParams;
 use serde_json::{Map, Value};
 
 use crate::config;
-use crate::format::{print_result, OutputFormat};
+use crate::format::{print_result, print_value, OutputFormat};
 use crate::tools::ToolName;
 
 /// Handle CLI tool commands by creating appropriate tool call requests
@@ -43,6 +43,7 @@ pub async fn handle_tool_cli_command(
         ToolName::GrantStoragePermission => {
             handle_grant_storage_permission(&req, lifecycle_manager).await?
         }
+
         ToolName::GrantNetworkPermission => {
             handle_grant_network_permission(&req, lifecycle_manager).await?
         }
@@ -75,6 +76,50 @@ pub async fn handle_tool_cli_command(
     Ok(())
 }
 
+/// List components with durable ownership and source observations alongside tool data.
+pub async fn handle_component_list_cli(
+    manager: &LifecycleManager,
+    output_format: OutputFormat,
+) -> Result<()> {
+    let result = handle_list_components(manager).await?;
+    let listing = result
+        .content
+        .first()
+        .and_then(|content| content.as_text())
+        .context("component list returned no text")?;
+    let mut value: Value = serde_json::from_str(&listing.text)?;
+    let manager = manager.clone();
+    let snapshot =
+        tokio::task::spawn_blocking(move || manager.component_store().snapshot_if_changed(None))
+            .await??
+            .context("full component inventory was not returned")?;
+    if let Some(components) = value.get_mut("components").and_then(Value::as_array_mut) {
+        for component in components {
+            let Some(id) = component.get("id").and_then(Value::as_str) else {
+                continue;
+            };
+            let Some(wassette::store::StoredEntry::Installed(receipt)) = snapshot
+                .entries
+                .iter()
+                .find(|entry| entry.component_id().as_str() == id)
+            else {
+                continue;
+            };
+            let Some(fields) = component.as_object_mut() else {
+                continue;
+            };
+            fields.insert("owner".into(), serde_json::to_value(&receipt.owner)?);
+            fields.insert(
+                "source_observation".into(),
+                serde_json::to_value(&receipt.observation)?,
+            );
+            fields.insert("revision".into(), serde_json::to_value(&receipt.revision)?);
+            fields.insert("kind".into(), serde_json::to_value(&receipt.kind)?);
+        }
+    }
+    print_value(&value, output_format)
+}
+
 /// Create LifecycleManager from component directory
 ///
 /// For CLI responsiveness, we create an unloaded lifecycle manager which
@@ -84,6 +129,8 @@ pub async fn create_lifecycle_manager(component_dir: Option<PathBuf>) -> Result<
     let config = config::Config::from_serve(
         &crate::commands::Serve {
             component_dir,
+            local_component_dir: None,
+            local_components: None,
             transport: Default::default(),
             env_vars: vec![],
             env_file: None,

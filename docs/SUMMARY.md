@@ -33,6 +33,7 @@
 - [Permissions](./reference/permissions.md)
 - [Environment Variables](./reference/environment-variables.md)
 - [config.toml](./reference/configuration-files.md)
+- [Local Components](./reference/local-components.md)
 - [Community Components](./reference/community-components.md)
 
 # Design & Architecture

@@ -27,6 +27,21 @@ pub fn format_as_yaml(value: &Value) -> Result<String> {
 
 /// Format a JSON value as a table string
 pub fn format_as_table(value: &Value) -> Result<String> {
+    if let Some(outcomes) = value.get("outcomes").and_then(Value::as_array) {
+        let mut table = String::from("Status | Source | Component ID | Detail\n");
+        table.push_str("-------|--------|--------------|-------\n");
+        for outcome in outcomes {
+            let field = |name| outcome.get(name).and_then(Value::as_str).unwrap_or("-");
+            table.push_str(&format!(
+                "{} | {} | {} | {}\n",
+                field("status"),
+                field("source"),
+                field("component_id"),
+                field("detail")
+            ));
+        }
+        return Ok(table);
+    }
     // Check if this is a component list output
     if let Some(obj) = value.as_object() {
         if let Some(components) = obj.get("components").and_then(|v| v.as_array()) {
@@ -78,6 +93,16 @@ pub fn format_as_table(value: &Value) -> Result<String> {
     Ok(table)
 }
 
+/// Print a structured CLI report in the requested format.
+pub fn print_value(value: &Value, output_format: OutputFormat) -> Result<()> {
+    match output_format {
+        OutputFormat::Json => println!("{}", serde_json::to_string_pretty(value)?),
+        OutputFormat::Yaml => println!("{}", format_as_yaml(value)?),
+        OutputFormat::Table => println!("{}", format_as_table(value)?),
+    }
+    Ok(())
+}
+
 /// Print the result of a tool call with the specified format
 pub fn print_result(result: &CallToolResult, output_format: OutputFormat) -> Result<()> {
     for content in &result.content {
@@ -85,20 +110,7 @@ pub fn print_result(result: &CallToolResult, output_format: OutputFormat) -> Res
         if let Some(text_content) = content.as_text() {
             // Try to parse as JSON first
             if let Ok(json_value) = serde_json::from_str::<Value>(&text_content.text) {
-                match output_format {
-                    OutputFormat::Json => {
-                        // Always pretty-print JSON for better readability
-                        println!("{}", serde_json::to_string_pretty(&json_value)?);
-                    }
-                    OutputFormat::Yaml => {
-                        // Convert JSON to YAML
-                        println!("{}", format_as_yaml(&json_value)?);
-                    }
-                    OutputFormat::Table => {
-                        // Format as table
-                        println!("{}", format_as_table(&json_value)?);
-                    }
-                }
+                print_value(&json_value, output_format)?;
             } else {
                 // If it's not JSON, just print the text
                 println!("{}", text_content.text);
@@ -110,4 +122,24 @@ pub fn print_result(result: &CallToolResult, output_format: OutputFormat) -> Res
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod local_source_tests {
+    use super::*;
+
+    #[test]
+    fn sync_report_table_displays_per_source_status() {
+        let report = serde_json::json!({
+            "outcomes": [{
+                "status": "pending",
+                "source": "agent.wasm",
+                "component_id": "example:agent",
+                "detail": "DeferredMissingValidator"
+            }],
+            "prune_skipped": true
+        });
+        let table = format_as_table(&report).unwrap();
+        assert!(table.contains("pending | agent.wasm | example:agent | DeferredMissingValidator"));
+    }
 }

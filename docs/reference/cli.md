@@ -32,6 +32,9 @@ wassette component load file:///path/to/component.wasm
 
 # Start the MCP server for local development (stdio transport)
 wassette run
+
+# Reconcile finished builds in the local drop directory
+wassette component sync
 ```
 
 ## Command Structure
@@ -46,7 +49,8 @@ wassette
 ├── component      # Component lifecycle management
 │   ├── load       # Load components
 │   ├── unload     # Remove components
-│   └── list       # Show loaded components
+│   ├── list       # Show loaded components
+│   └── sync       # Reconcile locally built components in the drop directory
 ├── inspect        # Inspect component schema (debugging)
 ├── registry       # Registry search and fetch
 │   ├── search     # Search for components
@@ -64,6 +68,19 @@ wassette
 ```
 
 ## Server Commands
+
+### `wassette component sync`
+
+Scan the local build drop directory once, report installed, unchanged,
+deferred, rejected, and conflicting sources, and refresh the tool catalog.
+Run `wassette component sync --force` to retry a previously unloaded,
+unchanged local build. `--local-component-dir` selects a different drop
+directory; `--component-dir` selects a different managed store. The two
+directories must not overlap. The command never treats a filename as the
+component ID: the artifact must have an explicit root component name.
+
+See [Local component discovery](local-components.md) for platform paths,
+security checks, and the `off|startup|watch` modes.
 
 ### `wassette acp` (experimental)
 
@@ -86,6 +103,8 @@ wassette run --component-dir /custom/components
 
 **Options:**
 - `--component-dir <PATH>`: Set component storage directory (default: `$XDG_DATA_HOME/wassette/components`)
+- `--local-component-dir <PATH>`: Local build drop directory, separate from the managed store
+- `--local-components <off|startup|watch>`: Local discovery mode (default: `watch`)
 - `--env <KEY=VALUE>`: Set environment variables (can be specified multiple times)
 - `--env-file <PATH>`: Load environment variables from a file
 - `--disable-builtin-tools`: Disable built-in tools (load-component, unload-component, etc.)
@@ -119,6 +138,8 @@ wassette serve --legacy-sessions=false --json-response
 - `--bind-address <ADDRESS>`: Set the bind address (default: `127.0.0.1:9001`)
 - `--allowed-host <HOST>`: Accept this `Host` header value on `/mcp`. Repeat for several. Defaults to loopback only
 - `--component-dir <PATH>`: Set component storage directory (default: `$XDG_DATA_HOME/wassette/components`)
+- `--local-component-dir <PATH>`: Local build drop directory
+- `--local-components <off|startup|watch>`: Local discovery mode (default: `off`)
 - `--env <KEY=VALUE>`: Set environment variables (can be specified multiple times)
 - `--env-file <PATH>`: Load environment variables from a file
 - `--disable-builtin-tools`: Disable built-in tools (load-component, unload-component, etc.)

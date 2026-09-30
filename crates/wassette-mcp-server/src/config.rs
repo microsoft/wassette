@@ -8,13 +8,69 @@ use anyhow::Context;
 use etcetera::BaseStrategy;
 use figment::providers::{Env, Format, Serialized, Toml};
 use serde::{Deserialize, Serialize};
+use wassette::local_source::{LocalMode, LocalSourceConfig};
 
-use crate::commands::{Run, Serve};
+use crate::commands::{LocalComponentsMode, Run, Serve};
+
+fn config_file_path() -> Result<PathBuf, anyhow::Error> {
+    match std::env::var_os("WASSETTE_CONFIG_FILE") {
+        Some(path) => Ok(PathBuf::from(path)),
+        None => Ok(etcetera::choose_base_strategy()
+            .context("Unable to get home directory")?
+            .config_dir()
+            .join("wassette")
+            .join("config.toml")),
+    }
+}
 
 /// Get the default component directory path based on the OS
 pub fn get_component_dir() -> Result<PathBuf, anyhow::Error> {
     let dir_strategy = etcetera::choose_base_strategy().context("Unable to get home directory")?;
     Ok(dir_strategy.data_dir().join("wassette").join("components"))
+}
+
+/// CLI overrides for the local-source settings, shared by run, serve and sync.
+#[derive(Debug, Default, Serialize)]
+pub struct LocalSourceOverrides {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub local_component_dir: Option<PathBuf>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub local_components: Option<LocalComponentsMode>,
+}
+
+#[derive(Deserialize)]
+struct LocalSourceSettings {
+    local_component_dir: Option<PathBuf>,
+    local_components: Option<LocalMode>,
+}
+
+/// Resolve local-source settings with CLI > environment > config-file precedence.
+///
+/// The default mode is supplied by the caller (`watch` for run, `off` for
+/// serve); the executable can pass the resolved config to ACP without ACP
+/// importing this binary-private module.
+pub fn resolve_local_source(
+    overrides: &LocalSourceOverrides,
+    default_mode: LocalComponentsMode,
+) -> Result<LocalSourceConfig, anyhow::Error> {
+    let settings: LocalSourceSettings = figment::Figment::new()
+        .merge(Toml::file(config_file_path()?))
+        .merge(Env::prefixed("WASSETTE_").only(&["local_component_dir", "local_components"]))
+        .merge(Serialized::defaults(overrides))
+        .extract()
+        .context("Unable to resolve local component settings")?;
+    let mode = settings.local_components.unwrap_or(match default_mode {
+        LocalComponentsMode::Off => LocalMode::Off,
+        LocalComponentsMode::Startup => LocalMode::Startup,
+        LocalComponentsMode::Watch => LocalMode::Watch,
+    });
+    Ok(LocalSourceConfig::new(
+        match settings.local_component_dir {
+            Some(dir) => dir,
+            None => LocalSourceConfig::default_root()?,
+        },
+        mode,
+    ))
 }
 
 /// Get the default secrets directory path based on the OS
@@ -113,15 +169,7 @@ impl Config {
     /// 2. Environment variables prefixed with `WASSETTE_`
     /// 3. Configuration file specified by `WASSETTE_CONFIG_FILE` or default location
     pub fn new<T: Serialize>(cli_config: &T) -> Result<Self, anyhow::Error> {
-        let config_file_path = match std::env::var_os("WASSETTE_CONFIG_FILE") {
-            Some(path) => PathBuf::from(path),
-            None => etcetera::choose_base_strategy()
-                .context("Unable to get home directory")?
-                .config_dir()
-                .join("wassette")
-                .join("config.toml"),
-        };
-        Self::new_from_path(cli_config, config_file_path)
+        Self::new_from_path(cli_config, config_file_path()?)
     }
 
     /// Same as [`Config::new`], but allows specifying a custom path for the configuration file.
@@ -261,6 +309,85 @@ mod tests {
 
     use super::*;
 
+    #[test]
+    fn local_source_precedence_and_mode_validation() {
+        let temp = TempDir::new().unwrap();
+        let config_path = temp.path().join("config.toml");
+        fs::write(
+            &config_path,
+            "local_component_dir = 'from-file'\nlocal_components = 'off'\n",
+        )
+        .unwrap();
+        temp_env::with_vars(
+            [
+                ("WASSETTE_CONFIG_FILE", Some(config_path.to_str().unwrap())),
+                ("WASSETTE_LOCAL_COMPONENT_DIR", Some("from-env")),
+                ("WASSETTE_LOCAL_COMPONENTS", Some("startup")),
+            ],
+            || {
+                let from_env = resolve_local_source(
+                    &LocalSourceOverrides::default(),
+                    LocalComponentsMode::Watch,
+                )
+                .unwrap();
+                assert_eq!(from_env.root, PathBuf::from("from-env"));
+                assert_eq!(from_env.mode, LocalMode::Startup);
+                let from_cli = resolve_local_source(
+                    &LocalSourceOverrides {
+                        local_component_dir: Some(PathBuf::from("from-cli")),
+                        local_components: Some(LocalComponentsMode::Watch),
+                    },
+                    LocalComponentsMode::Off,
+                )
+                .unwrap();
+                assert_eq!(from_cli.root, PathBuf::from("from-cli"));
+                assert_eq!(from_cli.mode, LocalMode::Watch);
+            },
+        );
+        temp_env::with_vars(
+            [
+                ("WASSETTE_CONFIG_FILE", Some(config_path.to_str().unwrap())),
+                ("WASSETTE_LOCAL_COMPONENT_DIR", None),
+                ("WASSETTE_LOCAL_COMPONENTS", Some("invalid")),
+            ],
+            || {
+                assert!(resolve_local_source(
+                    &LocalSourceOverrides::default(),
+                    LocalComponentsMode::Off
+                )
+                .is_err())
+            },
+        );
+        fs::write(&config_path, "").unwrap();
+        temp_env::with_vars(
+            [
+                ("WASSETTE_CONFIG_FILE", Some(config_path.to_str().unwrap())),
+                ("WASSETTE_LOCAL_COMPONENT_DIR", None),
+                ("WASSETTE_LOCAL_COMPONENTS", None),
+            ],
+            || {
+                assert_eq!(
+                    resolve_local_source(
+                        &LocalSourceOverrides::default(),
+                        LocalComponentsMode::Off
+                    )
+                    .unwrap()
+                    .mode,
+                    LocalMode::Off
+                );
+                assert_eq!(
+                    resolve_local_source(
+                        &LocalSourceOverrides::default(),
+                        LocalComponentsMode::Watch
+                    )
+                    .unwrap()
+                    .mode,
+                    LocalMode::Watch
+                );
+            },
+        );
+    }
+
     /// Every environment variable `Config::new_from_path` reads.
     ///
     /// `WASSETTE_*` reaches it through `Env::prefixed`, and `PORT` and
@@ -289,6 +416,8 @@ mod tests {
     fn create_test_run_config() -> Run {
         Run {
             component_dir: Some(PathBuf::from("/test/component/dir")),
+            local_component_dir: None,
+            local_components: None,
             env_vars: vec![],
             env_file: None,
             disable_builtin_tools: false,
@@ -299,6 +428,8 @@ mod tests {
     fn empty_test_run_config() -> Run {
         Run {
             component_dir: None,
+            local_component_dir: None,
+            local_components: None,
             env_vars: vec![],
             env_file: None,
             disable_builtin_tools: false,
@@ -308,6 +439,8 @@ mod tests {
     fn create_test_cli_config() -> Serve {
         Serve {
             component_dir: Some(PathBuf::from("/test/component/dir")),
+            local_component_dir: None,
+            local_components: None,
             transport: Default::default(),
             env_vars: vec![],
             env_file: None,
@@ -324,6 +457,8 @@ mod tests {
     fn empty_test_cli_config() -> Serve {
         Serve {
             component_dir: None,
+            local_component_dir: None,
+            local_components: None,
             transport: Default::default(),
             env_vars: vec![],
             env_file: None,
@@ -689,6 +824,8 @@ bind_address = "0.0.0.0:8080"
         // CLI provides a different bind address
         let serve_config = Serve {
             component_dir: None,
+            local_component_dir: None,
+            local_components: None,
             transport: Default::default(),
             env_vars: vec![],
             env_file: None,
@@ -1007,6 +1144,8 @@ json_response = true
 
         let serve_config = Serve {
             component_dir: None,
+            local_component_dir: None,
+            local_components: None,
             transport: Default::default(),
             env_vars: vec![],
             env_file: None,

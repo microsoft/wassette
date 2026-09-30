@@ -10,6 +10,8 @@
 // for that chain; see rust-lang/rust#159228.
 #![recursion_limit = "256"]
 
+use std::sync::Arc;
+
 use anyhow::{bail, Context, Result};
 use clap::{CommandFactory, Parser};
 use clap_complete::{generate, shells};
@@ -19,8 +21,10 @@ use rmcp::transport::stdio as stdio_transport;
 use rmcp::transport::streamable_http_server::session::local::LocalSessionManager;
 use rmcp::transport::streamable_http_server::{StreamableHttpServerConfig, StreamableHttpService};
 use serde_json::{json, Map};
+use tokio_util::sync::CancellationToken;
 use tracing_subscriber::layer::SubscriberExt as _;
 use tracing_subscriber::util::SubscriberInitExt as _;
+use wassette::local_source::{LocalMode, LocalSourceConfig, LocalSourceService};
 use wassette::wasm_directory::{PackageId, WasmDirectoryClient};
 
 mod cli_handlers;
@@ -35,13 +39,15 @@ mod tools;
 mod utils;
 
 use cli_handlers::{
-    create_lifecycle_manager, create_lifecycle_manager_for_tool_invoke, handle_tool_cli_command,
+    create_lifecycle_manager, create_lifecycle_manager_for_tool_invoke, handle_component_list_cli,
+    handle_tool_cli_command,
 };
 use commands::{
-    Cli, Commands, ComponentCommands, GrantPermissionCommands, PermissionCommands, PolicyCommands,
-    RegistryCommands, RevokePermissionCommands, SecretCommands, Shell, ToolCommands, Transport,
+    Cli, Commands, ComponentCommands, GrantPermissionCommands, LocalComponentsMode,
+    PermissionCommands, PolicyCommands, RegistryCommands, RevokePermissionCommands, SecretCommands,
+    Shell, ToolCommands, Transport,
 };
-use format::{print_result, OutputFormat};
+use format::{print_result, print_value, OutputFormat};
 use server::McpServer;
 use tools::ToolName;
 use utils::{format_build_info, parse_env_var};
@@ -75,6 +81,35 @@ async fn install_registry_package(
         "receipt": receipt,
         "change": outcome.change,
     }))
+}
+
+async fn start_local_discovery(
+    manager: &LifecycleManager,
+    config: LocalSourceConfig,
+    cancel: CancellationToken,
+    tasks: &mut tokio::task::JoinSet<()>,
+) -> Result<()> {
+    if config.mode == LocalMode::Off {
+        return Ok(());
+    }
+    let watch = config.mode == LocalMode::Watch;
+    let service = LocalSourceService::new(Arc::new(manager.clone()), config)?;
+    let report = service.reconcile_once(false).await?;
+    tracing::info!(?report, "Local component startup reconciliation");
+    if report.has_unresolved() {
+        tracing::warn!(
+            ?report,
+            "Some local component sources could not be installed"
+        );
+    }
+    if watch {
+        tasks.spawn(async move {
+            if let Err(error) = service.watch(cancel).await {
+                tracing::error!(error = %error, "Local component watch stopped");
+            }
+        });
+    }
+    Ok(())
 }
 
 // Health and info endpoint handlers
@@ -150,6 +185,14 @@ async fn main() -> Result<()> {
 
                 let config = config::Config::from_run(cfg, cli.component_dir.as_deref())
                     .context("Failed to load configuration")?;
+                let local_config = config::resolve_local_source(
+                    &config::LocalSourceOverrides {
+                        local_component_dir: cfg.local_component_dir.clone(),
+                        local_components: cfg.local_components,
+                    },
+                    LocalComponentsMode::Watch,
+                )?;
+                local_config.validate(&config.component_dir)?;
 
                 // Build the lifecycle manager without eagerly loading components so the
                 // background loader is the single source of tool registration.
@@ -172,6 +215,15 @@ async fn main() -> Result<()> {
                     .build()
                     .await?;
 
+                let mut background_tasks = tokio::task::JoinSet::new();
+                let local_cancel = CancellationToken::new();
+                start_local_discovery(
+                    &lifecycle_manager,
+                    local_config,
+                    local_cancel.clone(),
+                    &mut background_tasks,
+                )
+                .await?;
                 let server = McpServer::new(
                     lifecycle_manager.clone(),
                     cfg.disable_builtin_tools,
@@ -179,7 +231,6 @@ async fn main() -> Result<()> {
                 )
                 .await?;
 
-                let mut background_tasks = tokio::task::JoinSet::new();
                 let server_clone = server.clone();
                 background_tasks.spawn(async move {
                     server_clone.watch_catalog_changes().await;
@@ -201,6 +252,7 @@ async fn main() -> Result<()> {
 
                 tokio::signal::ctrl_c().await?;
                 let _ = running_service.cancel().await;
+                local_cancel.cancel();
                 background_tasks.shutdown().await;
 
                 tracing::info!("MCP server shutting down");
@@ -221,6 +273,14 @@ async fn main() -> Result<()> {
 
                 let config = config::Config::from_serve(cfg, cli.component_dir.as_deref())
                     .context("Failed to load configuration")?;
+                let local_config = config::resolve_local_source(
+                    &config::LocalSourceOverrides {
+                        local_component_dir: cfg.local_component_dir.clone(),
+                        local_components: cfg.local_components,
+                    },
+                    LocalComponentsMode::Off,
+                )?;
+                local_config.validate(&config.component_dir)?;
 
                 // Parse and validate manifest if provided
                 let manifest = if let Some(manifest_path) = &cfg.manifest {
@@ -299,6 +359,15 @@ async fn main() -> Result<()> {
                     }
                 }
 
+                let mut background_tasks = tokio::task::JoinSet::new();
+                let local_cancel = CancellationToken::new();
+                start_local_discovery(
+                    &lifecycle_manager,
+                    local_config,
+                    local_cancel.clone(),
+                    &mut background_tasks,
+                )
+                .await?;
                 let server = McpServer::new(
                     lifecycle_manager.clone(),
                     cfg.disable_builtin_tools,
@@ -306,7 +375,6 @@ async fn main() -> Result<()> {
                 )
                 .await?;
 
-                let mut background_tasks = tokio::task::JoinSet::new();
                 let server_clone = server.clone();
                 background_tasks.spawn(async move {
                     server_clone.watch_catalog_changes().await;
@@ -389,6 +457,7 @@ async fn main() -> Result<()> {
                     }
                 }
 
+                local_cancel.cancel();
                 background_tasks.shutdown().await;
                 tracing::info!("MCP server shutting down");
             }
@@ -428,14 +497,32 @@ async fn main() -> Result<()> {
                 } => {
                     let component_dir = component_dir.clone().or_else(|| cli.component_dir.clone());
                     let lifecycle_manager = create_lifecycle_manager(component_dir).await?;
-                    let args = Map::new();
-                    handle_tool_cli_command(
-                        &lifecycle_manager,
-                        "list-components",
-                        args,
-                        *output_format,
+                    handle_component_list_cli(&lifecycle_manager, *output_format).await?;
+                }
+                ComponentCommands::Sync {
+                    component_dir,
+                    local_component_dir,
+                    force,
+                    output_format,
+                } => {
+                    let manager = create_lifecycle_manager(
+                        component_dir.clone().or_else(|| cli.component_dir.clone()),
                     )
                     .await?;
+                    let local_config = config::resolve_local_source(
+                        &config::LocalSourceOverrides {
+                            local_component_dir: local_component_dir.clone(),
+                            local_components: Some(LocalComponentsMode::Startup),
+                        },
+                        LocalComponentsMode::Startup,
+                    )?;
+                    local_config.validate(manager.component_root())?;
+                    let service = LocalSourceService::new(Arc::new(manager), local_config)?;
+                    let report = service.reconcile_once(*force).await?;
+                    print_value(&serde_json::to_value(&report)?, *output_format)?;
+                    if report.has_unresolved() {
+                        bail!("Local component reconciliation was incomplete");
+                    }
                 }
             },
             Commands::Policy { command } => match command {
