@@ -40,7 +40,10 @@ sequenceDiagram
     Note over Client,Policy: Component is now loaded and ready
     
     Client->>Server: call_tool(tool_name, args)
-    Server->>LM: execute_component_call(id, func, params)
+    Server->>LM: invoke_unique_tool(tool_name, args)
+    LM->>LM: Restore selected component from its store receipt
+    LM->>Registry: Resolve unique name and clone instance, export and schema
+    Note over LM,Registry: Collisions are errors; release registry lock before execution
     
     LM->>Policy: Get WASI State for Component
     Policy->>Policy: Apply Security Policy
@@ -51,7 +54,7 @@ sequenceDiagram
     Engine->>Engine: Execute in Sandbox
     
     Engine-->>LM: Results
-    LM-->>Server: JSON Response
+    LM-->>Server: Raw result + selected descriptor
     Server-->>Client: Tool Result
 ```
 
@@ -199,3 +202,43 @@ execution; those remain the selected runtime's responsibilities.
 Lazy restoration reads the current receipt and replaces a stale runtime revision
 from one coherent snapshot. It does not add a background cross-process catalog
 refresh driver or promise immediate tool-list notifications.
+
+## Component-scoped tools
+
+`ToolKey` pairs the semantic `ComponentId` with the exact `FunctionIdentifier`
+(package, interface and function spelling). `list_tool_descriptors` and
+`list_tools_for_component` return these keys with the existing tool schemas;
+`describe_scoped_tool` selects an exact export, and `invoke_scoped_tool` calls it.
+Listing uses receipt-bound metadata when available and lazy restoration otherwise.
+Install-only and ACP receipts cannot enter these APIs, including through caches.
+The inventory is not an atomic cross-component catalog snapshot.
+
+Exact keys distinguish exports with the same normalized tool name, both across
+components and within a component. The legacy `execute_component_call` resolves
+a unique normalized name **only within the requested component**. The MCP
+consumer uses `invoke_unique_tool`, which retains global collision refusal and
+rechecks it after lazy loading. Neither path silently picks the first match or
+renames colliding tools.
+
+Invocation clones the component instance, exact export and descriptor together.
+`ScopedToolOutput` carries that descriptor alongside the raw result, so an
+adapter never formats a completed call using a replacement component's schema.
+Every call still creates a fresh Wasmtime store with the selected instance's
+policy and bound component secrets; no registry or store lock spans execution.
+
+These keys and descriptors are **unversioned**, not permission tokens. Reusing
+a key after replacement can invoke new code. Revision-bound handles, final
+permission admission, catalog refresh feeds and execution supervision belong to
+the next runtime layer; this API does not promise them or hard cancellation.
+
+## Tool result presentation
+
+`wassette::tool_result::present_tool_output` converts a raw tool result into
+display text and optional structured content without depending on MCP types.
+It preserves plain text, unwraps a sole `result` property for display, and aligns
+structured content with the canonical output schema. A missing or null schema
+omits structured content.
+
+The MCP adapter constructs its protocol response from this presentation. A
+guest-returned WIT `err` remains a returned value, not a host execution failure;
+traps and host errors continue through the adapter's error path.

@@ -3,38 +3,25 @@
 
 use std::sync::Arc;
 
-use anyhow::{Context, Result};
+use anyhow::Result;
 use futures::stream::{self, StreamExt};
 use rmcp::model::{CallToolRequestParams, CallToolResult, ContentBlock, Tool};
 use rmcp::{Peer, RoleServer};
 use serde_json::{json, Value};
 use tracing::{debug, error, info, instrument};
-use wassette::schema::{canonicalize_output_schema, ensure_structured_result};
+use wassette::schema::canonicalize_output_schema;
+use wassette::tool_result::present_tool_output;
 use wassette::{format_error_chain, ComponentLoadOutcome, LifecycleManager, LoadResult};
 
 #[instrument(skip(lifecycle_manager))]
 pub(crate) async fn get_component_tools(lifecycle_manager: &LifecycleManager) -> Result<Vec<Tool>> {
     debug!("Listing components");
-    // Use known components (loaded or present on disk) for fast listing
-    let component_ids = lifecycle_manager.list_components_known().await;
-
-    info!(count = component_ids.len(), "Found components");
-    let mut tools = Vec::new();
-
-    for id in component_ids {
-        debug!(component_id = %id, "Getting component details");
-        if let Some(schema) = lifecycle_manager.get_component_schema(&id).await {
-            if let Some(arr) = schema.get("tools").and_then(|v| v.as_array()) {
-                let tool_count = arr.len();
-                debug!(component_id = %id, tool_count, "Found tools in component");
-                for tool_json in arr {
-                    if let Some(tool) = parse_tool_schema(tool_json) {
-                        tools.push(tool);
-                    }
-                }
-            }
-        }
-    }
+    let tools: Vec<_> = lifecycle_manager
+        .list_tool_descriptors()
+        .await?
+        .into_iter()
+        .filter_map(|descriptor| parse_tool_schema(&descriptor.schema))
+        .collect();
     info!(total_tools = tools.len(), "Total tools collected");
     Ok(tools)
 }
@@ -128,68 +115,30 @@ pub async fn handle_component_call(
 ) -> Result<CallToolResult> {
     let args = extract_args_from_request(req)?;
 
-    let component_id = lifecycle_manager
-        .get_component_id_for_tool(&req.name)
-        .await
-        .with_context(|| format!("Failed to find component for tool '{}'", req.name))?;
-
     debug!(
         function_name = %req.name,
-        component_id = %component_id,
         "Component function invocation started"
     );
-
-    // The tool name can resolve from metadata registered without an instance, so the
-    // component may not be compiled yet. This is a no-op once it is.
-    lifecycle_manager
-        .ensure_component_loaded(&component_id)
-        .await
-        .with_context(|| {
-            format!(
-                "Failed to load component '{component_id}' for tool '{}'",
-                req.name
-            )
-        })?;
-
-    let tool_schema = lifecycle_manager
-        .get_tool_schema_for_component(&component_id, &req.name)
-        .await;
-
     let result = lifecycle_manager
-        .execute_component_call(&component_id, &req.name, &serde_json::to_string(&args)?)
+        .invoke_unique_tool(&req.name, &Value::Object(args))
         .await;
 
     match result {
-        Ok(result_str) => {
+        Ok(output) => {
             debug!(
                 function_name = %req.name,
-                component_id = %component_id,
+                component_id = %output.descriptor.key.component_id.as_str(),
                 "Component function invocation completed successfully"
             );
 
-            let parsed_value = parse_structured_result(&result_str);
-            let display_value = unwrap_result_wrapper(&parsed_value);
-            let response_text = value_to_text(&display_value)?;
-
-            let normalized_schema = tool_schema
-                .as_ref()
-                .and_then(|schema| schema.get("outputSchema"))
-                .and_then(normalize_output_schema);
-
-            let structured_content = normalized_schema.as_ref().map(|schema| {
-                align_structured_result_with_schema(Some(schema), parsed_value.clone())
-            });
-
-            let contents = vec![ContentBlock::text(response_text)];
-
-            let mut result = CallToolResult::success(contents);
-            result.structured_content = structured_content;
-            Ok(result)
+            create_component_call_result(
+                &output.raw_result,
+                output.descriptor.schema.get("outputSchema"),
+            )
         }
         Err(e) => {
             error!(
                 function_name = %req.name,
-                component_id = %component_id,
                 error = %format_error_chain(&e),
                 "Component function invocation failed"
             );
@@ -198,18 +147,14 @@ pub async fn handle_component_call(
     }
 }
 
-fn parse_structured_result(result: &str) -> Value {
-    serde_json::from_str(result).unwrap_or_else(|_| Value::String(result.to_string()))
-}
-
-fn align_structured_result_with_schema(
+fn create_component_call_result(
+    raw_result: &str,
     output_schema: Option<&Value>,
-    structured_value: Value,
-) -> Value {
-    match output_schema {
-        Some(schema) => ensure_structured_result(schema, structured_value),
-        None => structured_value,
-    }
+) -> Result<CallToolResult> {
+    let output = present_tool_output(raw_result, output_schema)?;
+    let mut result = CallToolResult::success(vec![ContentBlock::text(output.text)]);
+    result.structured_content = output.structured;
+    Ok(result)
 }
 
 fn normalize_output_schema(schema: &Value) -> Option<Value> {
@@ -218,24 +163,6 @@ fn normalize_output_schema(schema: &Value) -> Option<Value> {
     }
 
     Some(canonicalize_output_schema(schema))
-}
-
-fn unwrap_result_wrapper(value: &Value) -> Value {
-    if let Value::Object(map) = value {
-        if map.len() == 1 {
-            if let Some(inner) = map.get("result") {
-                return inner.clone();
-            }
-        }
-    }
-    value.clone()
-}
-
-fn value_to_text(value: &Value) -> Result<String> {
-    match value {
-        Value::String(text) => Ok(text.clone()),
-        _ => Ok(serde_json::to_string(value)?),
-    }
 }
 
 #[instrument(skip(lifecycle_manager))]
@@ -472,9 +399,127 @@ pub(crate) fn parse_tool_schema(tool_json: &Value) -> Option<Tool> {
 
 #[cfg(test)]
 mod tests {
+    use std::path::Path;
+
     use serde_json::json;
 
     use super::*;
+
+    async fn manager(root: &Path) -> Result<LifecycleManager> {
+        LifecycleManager::builder(root.join("store"))
+            .with_secrets_dir(root.join("secrets"))
+            .with_eager_loading(false)
+            .build()
+            .await
+    }
+
+    async fn install(
+        manager: &LifecycleManager,
+        root: &Path,
+        name: &str,
+        interfaces: &[(&str, &str, u32)],
+    ) -> Result<()> {
+        let mut exports = String::new();
+        for (index, (interface, result_type, value)) in interfaces.iter().enumerate() {
+            exports.push_str(&format!(
+                r#"
+                (core module $m{index}
+                    (func (export "run") (result i32) i32.const {value}))
+                (core instance $i{index} (instantiate $m{index}))
+                (func $f{index} (result {result_type})
+                    (canon lift (core func $i{index} "run")))
+                (instance $e{index} (export "run" (func $f{index})))
+                (export "{interface}" (instance $e{index}))
+                "#
+            ));
+        }
+        let bytes = wat::parse_str(format!("(component ${name} {exports})"))?;
+        let path = root.join(format!("private-{name}.wasm"));
+        tokio::fs::write(&path, bytes).await?;
+        manager
+            .load_component(&format!("file://{}", path.display()))
+            .await?;
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn scoped_consumer_preserves_live_cached_and_replaced_tool_responses() -> Result<()> {
+        let root = tempfile::tempdir()?;
+        let first = manager(root.path()).await?;
+        install(&first, root.path(), "alpha", &[("math", "u32", 7)]).await?;
+        let live_tools = get_component_tools(&first).await?;
+        let cold = manager(root.path()).await?;
+        assert_eq!(
+            serde_json::to_value(get_component_tools(&cold).await?)?,
+            serde_json::to_value(&live_tools)?
+        );
+        assert!(cold.list_components().await.is_empty());
+        cold.populate_registry_from_metadata().await?;
+        let request = CallToolRequestParams::new("math_run");
+        for manager in [&first, &cold] {
+            assert_eq!(
+                serde_json::to_value(handle_component_call(&request, manager).await?)?,
+                json!({
+                    "resultType": "complete",
+                    "content": [{"type": "text", "text": "7"}],
+                    "structuredContent": {"result": 7},
+                    "isError": false
+                })
+            );
+        }
+        install(&first, root.path(), "alpha", &[("math", "bool", 1)]).await?;
+        assert_eq!(
+            serde_json::to_value(handle_component_call(&request, &cold).await?)?,
+            json!({
+                "resultType": "complete",
+                "content": [{"type": "text", "text": "true"}],
+                "structuredContent": {"result": true},
+                "isError": false
+            })
+        );
+        let tools = get_component_tools(&cold).await?;
+        assert_eq!(
+            tools[0].output_schema.as_ref().unwrap()["properties"]["result"]["type"],
+            "boolean"
+        );
+        first.unload_component("alpha").await?;
+        assert!(get_component_tools(&cold).await?.is_empty());
+        assert!(handle_component_call(&request, &cold).await.is_err());
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn mcp_lists_but_refuses_ambiguous_component_and_interface_names() -> Result<()> {
+        for same_component in [false, true] {
+            let root = tempfile::tempdir()?;
+            let manager = manager(root.path()).await?;
+            if same_component {
+                install(
+                    &manager,
+                    root.path(),
+                    "alpha",
+                    &[
+                        ("example:math/ops@1.0.0-a.b+c", "u32", 7),
+                        ("example:math/ops@1.0.0-a+b.c", "bool", 1),
+                    ],
+                )
+                .await?;
+            } else {
+                install(&manager, root.path(), "alpha", &[("math", "u32", 7)]).await?;
+                install(&manager, root.path(), "beta", &[("MATH", "bool", 1)]).await?;
+            }
+            let tools = get_component_tools(&manager).await?;
+            assert_eq!(tools.len(), 2);
+            assert_eq!(tools[0].name, tools[1].name);
+            let request = CallToolRequestParams::new(tools[0].name.to_string());
+            let error = handle_component_call(&request, &manager).await.unwrap_err();
+            assert!(matches!(
+                error.downcast_ref::<wassette::ToolLookupError>(),
+                Some(wassette::ToolLookupError::Ambiguous { .. })
+            ));
+        }
+        Ok(())
+    }
 
     #[test]
     fn test_parse_tool_schema() {
@@ -540,16 +585,57 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_structured_result_with_object() {
-        let json_str = r#"{"ok":{"message":"hello"}}"#;
-        let parsed = parse_structured_result(json_str);
-        assert_eq!(parsed, json!({"ok": {"message": "hello"}}));
+    fn test_component_call_result_preserves_wire_shape() -> Result<()> {
+        let schema = json!({"type": "string"});
+        let result = create_component_call_result(r#"{"result":"hello"}"#, Some(&schema))?;
+        assert_eq!(
+            serde_json::to_value(result)?,
+            json!({
+                "resultType": "complete",
+                "content": [{"type": "text", "text": "hello"}],
+                "structuredContent": {"result": "hello"},
+                "isError": false
+            })
+        );
+        Ok(())
     }
 
     #[test]
-    fn test_parse_structured_result_with_text() {
-        let parsed = parse_structured_result("plain text");
-        assert_eq!(parsed, json!("plain text"));
+    fn test_component_call_result_without_schema() -> Result<()> {
+        for schema in [None, Some(&Value::Null)] {
+            let result = create_component_call_result("plain text", schema)?;
+            assert_eq!(
+                serde_json::to_value(result)?,
+                json!({
+                    "resultType": "complete",
+                    "content": [{"type": "text", "text": "plain text"}],
+                    "isError": false
+                })
+            );
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn test_component_call_result_keeps_guest_errors_as_values() -> Result<()> {
+        let schema = json!({
+            "oneOf": [
+                {"type": "object", "properties": {"ok": {"type": "string"}}},
+                {"type": "object", "properties": {"err": {"type": "string"}}}
+            ]
+        });
+        let result =
+            create_component_call_result(r#"{"result":{"err":"guest error"}}"#, Some(&schema))?;
+        assert_eq!(
+            serde_json::to_value(result)?,
+            json!({
+                "resultType": "complete",
+                "content": [{"type": "text", "text": "{\"err\":\"guest error\"}"}],
+                "structuredContent": {"result": {"err": "guest error"}},
+                "isError": false
+            })
+        );
+        Ok(())
     }
 
     #[test]
@@ -598,63 +684,6 @@ mod tests {
                 },
                 "required": ["val0", "val1"]
             })
-        );
-    }
-
-    #[test]
-    fn test_align_structured_result_with_schema_wraps_missing_result() {
-        let schema = json!({
-            "type": "object",
-            "properties": {
-                "result": {"type": "string"}
-            },
-            "required": ["result"]
-        });
-
-        let aligned =
-            align_structured_result_with_schema(Some(&schema), Value::String("hello".into()));
-        assert_eq!(aligned, json!({"result": "hello"}));
-    }
-
-    #[test]
-    fn test_align_structured_result_with_schema_respects_existing_result() {
-        let schema = json!({
-            "type": "object",
-            "properties": {
-                "result": {"type": "string"}
-            },
-            "required": ["result"]
-        });
-
-        let original = json!({"result": {"ok": "16"}});
-        let aligned = align_structured_result_with_schema(Some(&schema), original.clone());
-        assert_eq!(aligned, original);
-    }
-
-    #[test]
-    fn test_align_structured_result_normalizes_tuple_array() {
-        let schema = json!({
-            "type": "object",
-            "properties": {
-                "result": {
-                    "type": "object",
-                    "properties": {
-                        "val0": {"type": "string"},
-                        "val1": {"type": "number"}
-                    },
-                    "required": ["val0", "val1"]
-                }
-            },
-            "required": ["result"]
-        });
-
-        let aligned = align_structured_result_with_schema(Some(&schema), json!("legacy"));
-        assert_eq!(aligned, json!({"result": {"val0": "legacy"}}));
-
-        let aligned_array = align_structured_result_with_schema(Some(&schema), json!(["hello", 7]));
-        assert_eq!(
-            aligned_array,
-            json!({"result": {"val0": "hello", "val1": 7}})
         );
     }
 

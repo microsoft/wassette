@@ -232,6 +232,7 @@ async fn install_only_receipts_stay_unexposed_even_with_valid_tool_caches() -> R
     let uri = format!("file://{}", source.display());
     let installer = manager(root.path()).await?;
     installer.load_component(&uri).await?;
+    let descriptor = installer.list_tool_descriptors().await?.remove(0);
     let snapshot = installer.component_store().read("semantic")?;
     let receipt = snapshot.receipt;
     let engine = installer.cache_engine();
@@ -283,6 +284,19 @@ async fn install_only_receipts_stay_unexposed_even_with_valid_tool_caches() -> R
         },
     )?;
 
+    assert!(installer.list_tool_descriptors().await?.is_empty());
+    assert!(installer
+        .list_tools_for_component(&descriptor.key.component_id)
+        .await
+        .is_err());
+    assert!(installer
+        .describe_scoped_tool(&descriptor.key)
+        .await
+        .is_err());
+    assert!(installer
+        .invoke_scoped_tool(&descriptor.key, &serde_json::json!({}))
+        .await
+        .is_err());
     let error = installer
         .ensure_component_loaded("semantic")
         .await
@@ -323,6 +337,12 @@ async fn install_only_receipts_stay_unexposed_even_with_valid_tool_caches() -> R
         assert!(fresh.list_components_known().await.is_empty());
         assert!(fresh.list_components().await.is_empty());
         assert!(fresh.list_tools().await.is_empty());
+        assert!(fresh.list_tool_descriptors().await?.is_empty());
+        assert!(fresh.describe_scoped_tool(&descriptor.key).await.is_err());
+        assert!(fresh
+            .invoke_scoped_tool(&descriptor.key, &serde_json::json!({}))
+            .await
+            .is_err());
         assert!(fresh.get_component_schema("semantic").await.is_none());
         assert!(fresh.load_component_metadata("semantic").await?.is_none());
         assert!(fresh
