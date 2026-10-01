@@ -6,6 +6,8 @@ packaged helper without linking Hyperlight. Build that helper with
 CLI and helper together). The helper recipe signs the executable on macOS using
 the canonical
 [`scripts/generation-builder-entitlements.plist`](../../scripts/generation-builder-entitlements.plist).
+`just install` builds the generation-enabled CLI and signed helper by default;
+`just install-no-generation` skips both. Neither recipe acquires an initrd.
 Compute the configured `helper_sha256` **after the final signing step**.
 Linux requires KVM/MSHV access;
 other platforms fail closed. There is no host rustc, Cargo, linker, or interpreter

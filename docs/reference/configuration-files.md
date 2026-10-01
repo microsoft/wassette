@@ -125,6 +125,9 @@ exposure, rebuild, or ordinary-Wasm caller access.
 `scripts/generation-profile.py --helper <helper> --initrd <initrd> --output
 <profile>` writes such a profile for local files, computing both digests. It
 never downloads or publishes an image and refuses to overwrite an existing file.
+`just install` installs the helper alongside the generation-enabled CLI by
+default, but generation remains disabled until ACP starts with
+`--generation-config <profile>`.
 
 ```json
 {

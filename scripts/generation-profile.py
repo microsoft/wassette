@@ -59,7 +59,7 @@ def main() -> int:
         "--helper",
         type=existing_file,
         required=True,
-        help="signed wassette-builder helper, e.g. the one `just install-generation` installed",
+        help="signed wassette-builder helper, e.g. the one `just install` installed",
     )
     parser.add_argument(
         "--initrd", type=existing_file, required=True, help="trusted local builder initrd"

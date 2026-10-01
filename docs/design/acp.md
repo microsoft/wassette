@@ -257,15 +257,17 @@ component from Rust source and WIT; providers decide how to make that host
 capability available to their models. The Copilot provider maps it to a
 `build_component` model tool. Generation is off unless the operator enables it:
 
-1. Install a feature-enabled CLI and the signed builder helper:
+1. Install the feature-enabled CLI and signed builder helper:
 
    ```sh
-   just install-generation          # or: just install-generation release
+   just install                     # or: just install release
    ```
 
    This builds `wassette` with `component-generation` and copies the
    `wassette-builder` helper (signed on macOS) next to the installed executable.
-   It does not acquire a builder image; plain `just install` stays featureless.
+   It does not acquire a builder image. Use `just install-no-generation` to
+   install without the feature and helper; on unsupported host platforms,
+   `just install` automatically uses this mode.
 
 2. Create an operator profile from the helper and a trusted local initrd. The
    script pins both SHA-256 digests, permits build and install only, creates a

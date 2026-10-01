@@ -92,7 +92,7 @@ build mode="debug":
     cargo build --workspace {{ if mode == "release" { "--release" } else { "" } }}
     cp target/{{ mode }}/wassette bin/
 
-# Opt-in helper only; this does not acquire an initrd or run a compiler VM.
+# Build the helper only; this does not acquire an initrd or run a compiler VM.
 build-component-builder mode="debug":
     #!/usr/bin/env bash
     set -euo pipefail
@@ -110,7 +110,7 @@ build-component-builder mode="debug":
     fi
     printf 'Builder helper: %s\nCompute the configured helper digest after this signing step.\n' "$helper"
 
-# Build the default-off generation CLI and its separately supervised helper.
+# Build the generation CLI and its separately supervised helper.
 build-component-generation mode="debug": (build-component-builder mode)
     cargo build -p wassette-mcp-server --features component-generation {{ if mode == "release" { "--release" } else { "" } }}
 
@@ -118,15 +118,29 @@ build-component-generation mode="debug": (build-component-builder mode)
 install-preflight:
     python3 scripts/install-local.py --check
 
-# Install this checkout's CLI and finalized components from components/.
+# Install the generation-enabled CLI, signed helper and finalized components.
+# On unsupported hosts, install without generation instead.
 install mode="debug": install-preflight build-acp-examples build-default-tools
-    python3 scripts/install-local.py --mode {{ quote(mode) }}
+    #!/usr/bin/env bash
+    set -euo pipefail
+    mode={{ quote(mode) }}
+    case "$(uname -s)" in
+        Darwin|Linux)
+            if ! just build-component-builder "$mode"; then
+                echo "Could not build the generation helper; use 'just install-no-generation $mode' to install without generation." >&2
+                exit 1
+            fi
+            python3 scripts/install-local.py --mode "$mode"
+            ;;
+        *)
+            echo "Component generation is unsupported on $(uname -s); installing without it." >&2
+            python3 scripts/install-local.py --mode "$mode" --no-generation
+            ;;
+    esac
 
-# Next to it, also installs the signed `wassette-builder` helper. Never
-# acquires an initrd; create a profile with scripts/generation-profile.py.
-# Install like `install`, but built with opt-in component generation.
-install-generation mode="debug": install-preflight build-acp-examples build-default-tools (build-component-builder mode)
-    python3 scripts/install-local.py --mode {{ quote(mode) }} --generation
+# Install without the component-generation feature or builder helper.
+install-no-generation mode="debug": install-preflight build-acp-examples build-default-tools
+    python3 scripts/install-local.py --mode {{ quote(mode) }} --no-generation
 
 # Create a stable or prerelease version bump PR with the current GitHub identity.
 prepare-release version:

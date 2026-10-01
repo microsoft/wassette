@@ -175,7 +175,7 @@ fn describe_error(error: &GenerationError) -> String {
     match error {
         GenerationError::Disabled => "Component generation is disabled on this Wassette host. \
             The operator must run a `wassette` built with the `component-generation` feature \
-            (for example `just install-generation`) and start `wassette acp` with \
+            (for example `just install`) and start `wassette acp` with \
             `--generation-config <profile>` permitting build and install."
             .to_string(),
         GenerationError::SessionNotBound => {

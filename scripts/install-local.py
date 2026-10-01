@@ -157,7 +157,7 @@ def sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
-def install(root: Path, mode: str, generation: bool = False) -> None:
+def install(root: Path, mode: str, generation: bool = True) -> None:
     check_prerequisites(root)
     artifacts = validate_outputs(root)
     target_directory = cargo_target_directory(root)
@@ -212,10 +212,19 @@ def main() -> int:
     parser.add_argument(
         "--check", action="store_true", help="validate declarations and build prerequisites"
     )
-    parser.add_argument(
+    generation = parser.add_mutually_exclusive_group()
+    generation.add_argument(
         "--generation",
+        dest="generation",
         action="store_true",
-        help="build with component-generation and install the pre-built builder helper",
+        default=True,
+        help="build with component-generation and install the pre-built builder helper (default)",
+    )
+    generation.add_argument(
+        "--no-generation",
+        dest="generation",
+        action="store_false",
+        help="build without component-generation or the builder helper",
     )
     args = parser.parse_args()
     root = Path(__file__).resolve().parent.parent
