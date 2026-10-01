@@ -330,7 +330,7 @@ fn auto_approves(mode: &str, allow_all: bool) -> bool {
 /// response and returned from `set-config-option`: a **Mode** selector
 /// (agent / plan / autopilot), the **Model** selector (always present), a
 /// **Thinking** selector (only when the current model advertises
-/// `reasoning_effort` upstream), and an **Allow All** auto-tool-approval
+/// `reasoning_effort` upstream), and an **Auto-approve** tool-approval
 /// toggle. Mirrors the selectors the GitHub Copilot CLI advertises over ACP.
 fn build_config_options(
     models: &[copilot::CopilotModel],
@@ -429,7 +429,7 @@ fn build_config_options(
     let effective_allow_all = auto_approves(current_mode, allow_all);
     options.push(SessionConfigOption {
         id: CONFIG_ALLOW_ALL.to_string(),
-        name: "Allow All".to_string(),
+        name: "Auto-approve".to_string(),
         description: Some(
             "Controls whether Copilot prompts for approval before using tools. When on, \
              tool calls are approved automatically."

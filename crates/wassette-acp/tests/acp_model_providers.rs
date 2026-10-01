@@ -373,3 +373,146 @@ fn copilot_provider_uses_the_stored_secret_and_reports_cost() {
     let amount = last["cost"]["amount"].as_f64().expect("cost amount");
     assert!((amount - 0.039).abs() < 1e-9, "{last}");
 }
+
+#[test]
+fn copilot_provider_round_trips_boolean_and_legacy_approval_options() {
+    let Some((bin, wasm)) = artifacts("acp-copilot-provider", "acp_copilot_provider") else {
+        return;
+    };
+    let rt = tokio::runtime::Runtime::new().unwrap();
+    let server = rt.block_on(async {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/copilot_internal/v2/token"))
+            .respond_with(ResponseTemplate::new(404))
+            .mount(&server)
+            .await;
+        Mock::given(method("GET"))
+            .and(path("/models"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "data": [{
+                    "id": "gpt-e2e",
+                    "name": "gpt-e2e",
+                    "capabilities": {"type": "chat"}
+                }]
+            })))
+            .mount(&server)
+            .await;
+        server
+    });
+    let base_url = server.uri();
+    let token_url = format!("{base_url}/copilot_internal/v2/token");
+
+    for boolean_supported in [true, false] {
+        let mut h = Harness::start(
+            &bin,
+            &wasm,
+            &["--allow-all"],
+            &[
+                ("COPILOT_GITHUB_TOKEN", "gho_e2e_config_options"),
+                ("COPILOT_BASE_URL", &base_url),
+                ("COPILOT_TOKEN_URL", &token_url),
+                ("COPILOT_MODEL", "gpt-e2e"),
+            ],
+        );
+        let capabilities = if boolean_supported {
+            json!({"session": {"configOptions": {"boolean": {}}}})
+        } else {
+            json!({})
+        };
+        let id = h.request(
+            "initialize",
+            json!({"protocolVersion": 1, "clientCapabilities": capabilities}),
+        );
+        h.await_response(id);
+        let cwd = tempfile::tempdir().unwrap();
+        let id = h.request("session/new", json!({"cwd": cwd.path(), "mcpServers": []}));
+        let (_, session) = h.await_response(id);
+        let session_id = session["sessionId"].as_str().expect("sessionId");
+
+        let check = |response: &Value, auto_approve, terminal_enabled| {
+            let options = response["configOptions"].as_array().expect("configOptions");
+            let approval = options.iter().find(|o| o["id"] == "allow-all").unwrap();
+            assert_eq!(approval["name"], "Auto-approve", "{response}");
+            if boolean_supported {
+                assert_eq!(approval["type"], "boolean", "{response}");
+                assert_eq!(approval["currentValue"], auto_approve, "{response}");
+                assert!(approval.get("options").is_none(), "{response}");
+                assert!(approval.get("category").is_none(), "{response}");
+                let terminal = options.iter().find(|o| o["id"] == "terminal").unwrap();
+                assert_eq!(terminal["name"], "Terminal", "{response}");
+                assert_eq!(terminal["type"], "boolean", "{response}");
+                assert_eq!(terminal["currentValue"], terminal_enabled, "{response}");
+            } else {
+                assert_eq!(approval["type"], "select", "{response}");
+                assert_eq!(
+                    approval["currentValue"],
+                    if auto_approve { "on" } else { "off" },
+                    "{response}"
+                );
+                assert_eq!(approval["options"].as_array().unwrap().len(), 2);
+                assert!(!options.iter().any(|o| o["id"] == "terminal"));
+            }
+            for id in ["model", "mode"] {
+                let option = options.iter().find(|o| o["id"] == id).unwrap();
+                assert_eq!(option["type"], "select", "{response}");
+            }
+        };
+        check(&session, false, false);
+        let approval_value = |enabled| {
+            if boolean_supported {
+                json!(enabled)
+            } else {
+                json!(if enabled { "on" } else { "off" })
+            }
+        };
+        let approval_type = if boolean_supported {
+            "boolean"
+        } else {
+            "select"
+        };
+        for enabled in [true, false] {
+            let id = h.request(
+                "session/set_config_option",
+                json!({
+                    "sessionId": session_id, "configId": "allow-all",
+                    "type": approval_type, "value": approval_value(enabled),
+                }),
+            );
+            let (_, response) = h.await_response(id);
+            check(&response, enabled, false);
+        }
+        if boolean_supported {
+            for enabled in [true, false] {
+                let id = h.request(
+                    "session/set_config_option",
+                    json!({
+                        "sessionId": session_id, "configId": "terminal",
+                        "type": "boolean", "value": enabled,
+                    }),
+                );
+                let (_, response) = h.await_response(id);
+                check(&response, false, enabled);
+            }
+        }
+        for (mode, auto_approve) in [("autopilot", true), ("agent", false)] {
+            let id = h.request(
+                "session/set_config_option",
+                json!({"sessionId": session_id, "configId": "mode", "value": mode}),
+            );
+            let (_, response) = h.await_response(id);
+            check(&response, auto_approve, false);
+            if auto_approve {
+                let id = h.request(
+                    "session/set_config_option",
+                    json!({
+                        "sessionId": session_id, "configId": "allow-all",
+                        "type": approval_type, "value": approval_value(false),
+                    }),
+                );
+                let (_, response) = h.await_response(id);
+                check(&response, true, false);
+            }
+        }
+    }
+}

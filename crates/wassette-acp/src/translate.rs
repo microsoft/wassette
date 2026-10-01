@@ -330,7 +330,7 @@ fn config_options_json(
     }
     let mut arr: Vec<serde_json::Value> = options
         .into_iter()
-        .map(session_config_option_to_json)
+        .map(|option| session_config_option_to_json(option, terminal.is_some()))
         .collect();
     // Append the host-owned `terminal` boolean toggle when the client
     // opted into boolean config options (`terminal` is `Some`). Per the
@@ -348,14 +348,78 @@ fn config_options_json(
 fn terminal_config_option_json(current: bool) -> serde_json::Value {
     serde_json::json!({
         "id": crate::group::TERMINAL_CONFIG_ID,
-        "name": "Terminal tools",
+        "name": "Terminal",
         "description": "Allow the agent to run terminal (CLI) commands on this machine.",
         "type": "boolean",
         "currentValue": current,
     })
 }
 
-fn session_config_option_to_json(option: SessionConfigOption) -> serde_json::Value {
+/// The approval toggle remains an on/off selector in WIT so existing components
+/// keep working. Only this known control is projected to an ACP boolean.
+fn approval_config_value(option: &SessionConfigOption) -> Option<bool> {
+    if option.id != "allow-all" {
+        return None;
+    }
+    let SessionConfigSelectOptions::Ungrouped(values) = &option.options else {
+        return None;
+    };
+    if values.len() != 2
+        || !values.iter().any(|value| value.value == "on")
+        || !values.iter().any(|value| value.value == "off")
+    {
+        return None;
+    }
+    match option.current_value.as_str() {
+        "on" => Some(true),
+        "off" => Some(false),
+        _ => None,
+    }
+}
+
+/// Translate a client value back to the provider's advertised WIT selector.
+pub fn session_config_value_schema_to_wit(
+    config_id: &str,
+    value: schema::SessionConfigOptionValue,
+    options: &[SessionConfigOption],
+    boolean_config_supported: bool,
+) -> Result<String, AcpError> {
+    let is_boolean = boolean_config_supported
+        && options
+            .iter()
+            .find(|option| option.id == config_id)
+            .and_then(approval_config_value)
+            .is_some();
+    match value {
+        schema::SessionConfigOptionValue::ValueId { value } if !is_boolean => {
+            Ok(value.0.to_string())
+        }
+        schema::SessionConfigOptionValue::Boolean { value } if is_boolean => {
+            Ok(if value { "on" } else { "off" }.to_string())
+        }
+        other => {
+            let expected = if is_boolean {
+                "a boolean"
+            } else {
+                "a value id"
+            };
+            let mut error = AcpError::invalid_params();
+            error.message =
+                format!("config option `{config_id}` expects {expected}, got {other:?}");
+            Err(error)
+        }
+    }
+}
+
+fn session_config_option_to_json(
+    option: SessionConfigOption,
+    boolean_config_supported: bool,
+) -> serde_json::Value {
+    let boolean_value = if boolean_config_supported {
+        approval_config_value(&option)
+    } else {
+        None
+    };
     let SessionConfigOption {
         id,
         name,
@@ -368,22 +432,23 @@ fn session_config_option_to_json(option: SessionConfigOption) -> serde_json::Val
         // display noise. Drop it, mirroring how the host handles its own modes.
         provided_by: _,
     } = option;
-    // The schema flattens `kind` via a `type` discriminator; we only emit
-    // `select` options. `SessionConfigSelectOptions` is untagged: an
-    // ungrouped list serializes as a flat array of option objects, a
-    // grouped list as an array of `{group, name, options}` objects.
     let mut entry = serde_json::json!({
         "id": id,
         "name": name,
-        "type": "select",
-        "currentValue": current_value,
-        "options": session_config_select_options_to_json(options),
     });
     if let Some(d) = description {
         entry["description"] = serde_json::Value::String(d);
     }
-    if let Some(cat) = category {
-        entry["category"] = session_config_category_to_json(cat);
+    if let Some(current) = boolean_value {
+        entry["type"] = serde_json::json!("boolean");
+        entry["currentValue"] = serde_json::json!(current);
+    } else {
+        entry["type"] = serde_json::json!("select");
+        entry["currentValue"] = serde_json::json!(current_value);
+        entry["options"] = session_config_select_options_to_json(options);
+        if let Some(cat) = category {
+            entry["category"] = session_config_category_to_json(cat);
+        }
     }
     entry
 }
@@ -1132,8 +1197,11 @@ mod tests {
             let options = json["configOptions"].as_array().expect("configOptions");
             assert_eq!(options.len(), 1, "{json}");
             assert_eq!(options[0]["id"], "terminal");
+            assert_eq!(options[0]["name"], "Terminal");
             assert_eq!(options[0]["type"], "boolean");
             assert_eq!(options[0]["currentValue"], enabled);
+            assert!(options[0].get("options").is_none());
+            assert!(options[0].get("category").is_none());
             assert!(json.get("modes").is_none(), "{json}");
         };
         check(
@@ -1164,6 +1232,203 @@ mod tests {
         ] {
             assert!(response.get("configOptions").is_none(), "{response}");
             assert!(response.get("modes").is_none(), "{response}");
+        }
+    }
+
+    fn on_off_option(current: &str) -> SessionConfigOption {
+        SessionConfigOption {
+            id: "allow-all".to_string(),
+            name: "Auto-approve".to_string(),
+            description: Some("Automatically approve tool requests.".to_string()),
+            category: Some(SessionConfigOptionCategory::Other(
+                "permissions".to_string(),
+            )),
+            current_value: current.to_string(),
+            options: SessionConfigSelectOptions::Ungrouped(
+                ["on", "off"]
+                    .into_iter()
+                    .map(|value| SessionConfigSelectOption {
+                        value: value.to_string(),
+                        name: value.to_string(),
+                        description: None,
+                    })
+                    .collect(),
+            ),
+            provided_by: crate::wassette::acp::sessions::ComponentSource {
+                component_id: "local:provider".to_string(),
+            },
+        }
+    }
+
+    #[test]
+    fn provider_on_off_options_follow_client_boolean_capability() {
+        for (current, enabled) in [("off", false), ("on", true)] {
+            for terminal in [None, Some(false), Some(true)] {
+                let options = vec![on_off_option(current)];
+                let responses = [
+                    serde_json::to_value(
+                        new_session_response_wit_to_schema(
+                            NewSessionResponse {
+                                session_id: "session".into(),
+                                modes: None,
+                                models: None,
+                                config_options: Some(options.clone()),
+                            },
+                            "provider",
+                            terminal,
+                        )
+                        .unwrap(),
+                    )
+                    .unwrap(),
+                    serde_json::to_value(
+                        load_session_response_wit_to_schema(
+                            LoadSessionResponse {
+                                modes: None,
+                                models: None,
+                                config_options: Some(options.clone()),
+                            },
+                            "provider",
+                            terminal,
+                        )
+                        .unwrap(),
+                    )
+                    .unwrap(),
+                    serde_json::to_value(
+                        new_session_response_with_config_options(
+                            "session",
+                            options.clone(),
+                            terminal,
+                        )
+                        .unwrap(),
+                    )
+                    .unwrap(),
+                    serde_json::to_value(set_config_option_response(options, terminal).unwrap())
+                        .unwrap(),
+                ];
+                for response in responses {
+                    let option = &response["configOptions"][0];
+                    assert_eq!(option["id"], "allow-all");
+                    assert_eq!(option["name"], "Auto-approve");
+                    assert_eq!(
+                        option["description"],
+                        "Automatically approve tool requests."
+                    );
+                    if terminal.is_some() {
+                        assert_eq!(option["type"], "boolean");
+                        assert_eq!(option["currentValue"], enabled);
+                        assert!(option.get("options").is_none(), "{option}");
+                        assert!(option.get("category").is_none(), "{option}");
+                    } else {
+                        assert_eq!(option["type"], "select");
+                        assert_eq!(option["currentValue"], current);
+                        assert_eq!(option["category"], "permissions");
+                        assert_eq!(option["options"].as_array().unwrap().len(), 2);
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn only_the_on_off_approval_selector_is_projected_to_a_boolean() {
+        let mut option = on_off_option("on");
+        let SessionConfigSelectOptions::Ungrouped(values) = &mut option.options else {
+            unreachable!();
+        };
+        values.reverse();
+        assert_eq!(approval_config_value(&option), Some(true));
+
+        let SessionConfigSelectOptions::Ungrouped(values) = option.options.clone() else {
+            unreachable!();
+        };
+        let non_binary_options = [
+            SessionConfigSelectOptions::Grouped(vec![SessionConfigSelectGroup {
+                group: "group".into(),
+                name: "Group".into(),
+                options: values.clone(),
+            }]),
+            SessionConfigSelectOptions::Ungrouped(values[..1].to_vec()),
+            SessionConfigSelectOptions::Ungrouped(vec![values[0].clone(); 2]),
+            SessionConfigSelectOptions::Ungrouped(
+                values.iter().cloned().chain([values[0].clone()]).collect(),
+            ),
+        ];
+        for options in non_binary_options {
+            option.options = options;
+            assert_eq!(
+                session_config_option_to_json(option.clone(), true)["type"],
+                "select"
+            );
+        }
+        option = on_off_option("invalid");
+        assert_eq!(approval_config_value(&option), None);
+        option = on_off_option("on");
+        option.id = "another-selector".into();
+        assert_eq!(
+            session_config_option_to_json(option, true)["type"],
+            "select"
+        );
+    }
+
+    #[test]
+    fn provider_config_values_round_trip_without_losing_their_type() {
+        let mut select = on_off_option("high");
+        select.id = "reasoning-effort".into();
+        select.options = SessionConfigSelectOptions::Ungrouped(vec![]);
+        let options = vec![on_off_option("off"), select];
+        let translate = |id, value, supported| {
+            session_config_value_schema_to_wit(
+                id,
+                serde_json::from_value(value).unwrap(),
+                &options,
+                supported,
+            )
+        };
+        for (value, native) in [(true, "on"), (false, "off")] {
+            assert_eq!(
+                translate(
+                    "allow-all",
+                    serde_json::json!({"type": "boolean", "value": value}),
+                    true
+                )
+                .unwrap(),
+                native
+            );
+            assert_eq!(
+                translate("allow-all", serde_json::json!({"value": native}), false).unwrap(),
+                native
+            );
+        }
+        assert_eq!(
+            translate(
+                "reasoning-effort",
+                serde_json::json!({"value": "high"}),
+                true
+            )
+            .unwrap(),
+            "high"
+        );
+        for (id, value, supported) in [
+            ("allow-all", serde_json::json!({"value": "on"}), true),
+            (
+                "allow-all",
+                serde_json::json!({"type": "boolean", "value": true}),
+                false,
+            ),
+            (
+                "reasoning-effort",
+                serde_json::json!({"type": "boolean", "value": true}),
+                true,
+            ),
+            (
+                "unknown",
+                serde_json::json!({"type": "boolean", "value": false}),
+                true,
+            ),
+        ] {
+            let error = translate(id, value, supported).unwrap_err();
+            assert_eq!(error.code, AcpErrorCode::InvalidParams);
+            assert!(error.message.contains(id), "{error}");
         }
     }
 

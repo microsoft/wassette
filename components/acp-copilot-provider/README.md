@@ -89,7 +89,7 @@ upstream Copilot data or backed by real provider behavior, never fabricated**:
 - **Mode** — a `mode` selector (categorised as a *mode*) mirroring the GitHub
   Copilot CLI's modes: **Agent** (default conversational), **Plan** (steers the
   model toward proposing a step-by-step plan and injects a per-turn directive to
-  avoid making changes), and **Autopilot** (autonomous; implies *Allow All* so
+  avoid making changes), and **Autopilot** (autonomous; implies *Auto-approve* so
   tool calls run without prompting). Defaults to **Agent** on every new session.
 - **Model** — a `model` selector listing the chat models your account can use
   (`GET /models`, de-duplicated). A new session defaults to the **last model
@@ -130,12 +130,18 @@ upstream Copilot data or backed by real provider behavior, never fabricated**:
   **not** use an ISO-4217 code. It is `0` for included models and for accounts
   on unlimited/usage-based plans (which still see the `0 AIU` meter, confirming
   the signal works).
-- **Allow All** — an `allow-all` toggle (categorised as *permissions*) with
-  **On** / **Off**. When **On**, tool calls are approved automatically instead
-  of prompting the client via `session/request_permission`; **Off** (the safe
+- **Auto-approve** — an `allow-all` boolean toggle. When enabled, tool calls
+  are approved automatically instead of prompting the client via
+  `session/request_permission`; **Off** (the safe
   default on every new session) requires per-call approval. Autopilot mode
   forces this **On**. This is backed by real behavior — `request_tool_permission`
-  short-circuits to *allow* — not just advertised.
+  short-circuits to *allow* — not just advertised. Clients without boolean
+  config-option support receive an **On** / **Off** selector in the
+  *permissions* category instead.
+- **Terminal** — the host-owned `terminal` boolean toggle allows local CLI
+  execution. It defaults to **Off** and is independent of **Auto-approve**:
+  approving tool calls automatically does not enable terminal access. Only
+  clients advertising boolean config-option support receive this toggle.
 
 Chat mode is advertised as a config option (category `mode`) rather than via the
 legacy session-mode methods, matching how the provider surfaces every other

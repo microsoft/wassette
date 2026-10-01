@@ -731,6 +731,7 @@ fn echo_provider_advertises_host_terminal_option_to_boolean_clients() {
     );
     let (_, session) = h.await_response(id);
     assert_eq!(session["configOptions"][0]["id"], "terminal", "{session}");
+    assert_eq!(session["configOptions"][0]["name"], "Terminal", "{session}");
     assert_eq!(session["configOptions"][0]["type"], "boolean", "{session}");
     assert_eq!(
         session["configOptions"][0]["currentValue"], false,

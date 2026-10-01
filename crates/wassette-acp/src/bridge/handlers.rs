@@ -466,15 +466,12 @@ pub(super) fn handle_set_session_config_option(
         return Ok(());
     }
 
-    let value = match &req.value {
-        schema::SessionConfigOptionValue::ValueId { value } => value.0.to_string(),
-        schema::SessionConfigOptionValue::Boolean { value } => value.to_string(),
-        other => {
-            let mut e = AcpError::invalid_params();
-            e.message = format!("unsupported session config option value: {other:?}");
-            return Err(e);
-        }
-    };
+    let value = translate::session_config_value_schema_to_wit(
+        &config_id,
+        req.value,
+        &handle.config_options(),
+        handle.terminal_option().is_some(),
+    )?;
 
     cx.spawn(async move {
         let _operation = operation;
