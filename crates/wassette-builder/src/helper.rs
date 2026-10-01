@@ -1,7 +1,7 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT license.
 
-//! In-process host transforms and one-job/one-VM execution.
+//! One-job/one-VM execution in a re-executed Wassette child.
 
 use std::collections::BTreeSet;
 use std::fs::File;

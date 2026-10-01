@@ -138,8 +138,9 @@ files after installation; the report still includes the committed receipt and
 they retain the store `operation` ID and any exact observed commit receipt.
 Inspect and recover that operation before continuing. These reports never
 claim rollback or authorize retrying as a new generation.
-Interrupting the command cancels precommit work and waits for the in-process VM
-to stop; an accepted store transaction finishes rather than being aborted.
+Interrupting the command cancels precommit work and waits for the supervised
+builder child process to stop; an accepted store transaction finishes rather
+than being aborted.
 
 Only the private local builder image at
 `~/.local/share/wassette/builder/rust-initrd.cpio` is used. Wassette does not
