@@ -304,6 +304,12 @@ pub enum ComponentCommands {
         /// Override the local component drop directory.
         #[arg(long)]
         local_component_dir: Option<PathBuf>,
+        /// Link a finished local build into the drop directory before reconciling.
+        #[arg(long = "link", value_name = "WASM")]
+        links: Vec<PathBuf>,
+        /// Adopt a matching explicit local-file installation into managed links.
+        #[arg(long, requires = "links")]
+        adopt_explicit_local: bool,
         /// Reinstall a previously explicitly unloaded, unchanged local component.
         #[arg(long)]
         force: bool,
@@ -347,15 +353,49 @@ mod local_source_tests {
             "sync",
             "--local-component-dir",
             "inbox",
+            "--link",
+            "one.wasm",
+            "--link",
+            "two.wasm",
             "--force",
         ])
         .unwrap();
-        assert!(matches!(
-            args.command,
-            Some(Commands::Component {
-                command: ComponentCommands::Sync { force: true, .. }
-            })
-        ));
+        let Some(Commands::Component {
+            command:
+                ComponentCommands::Sync {
+                    force: true,
+                    adopt_explicit_local: false,
+                    links,
+                    ..
+                },
+        }) = args.command
+        else {
+            panic!("expected component sync");
+        };
+        assert_eq!(
+            links,
+            [PathBuf::from("one.wasm"), PathBuf::from("two.wasm")]
+        );
+
+        let args = Cli::try_parse_from([
+            "wassette",
+            "component",
+            "sync",
+            "--link",
+            "one.wasm",
+            "--adopt-explicit-local",
+        ])
+        .unwrap();
+        let Some(Commands::Component {
+            command:
+                ComponentCommands::Sync {
+                    adopt_explicit_local: true,
+                    ..
+                },
+        }) = args.command
+        else {
+            panic!("expected explicit local adoption");
+        };
     }
 }
 

@@ -30,6 +30,27 @@ was explicitly unloaded. The same settings can be placed in `config.toml` as
 corresponding `WASSETTE_` environment variables. CLI options take precedence
 over environment variables, which take precedence over the config file.
 
+`component sync --link /absolute/path/to/tool.wasm` first registers a finished
+build as a stable symlink in the resolved drop directory, then reconciles only
+the explicitly linked filenames. Repeat `--link` for several components. A
+plain `component sync` still scans the complete directory and performs normal
+pruning. This is the mechanism used by the repository's `just install`: an
+unrelated inbox entry cannot become part of that install, and the managed store
+still contains receipt-backed copies, never raw links to a checkout. On Unix,
+an existing link can be retargeted to a new worktree only when its source owner
+and embedded semantic name match the current receipt. Wassette refuses to
+replace regular files, unrelated links, explicit/registry installations, or
+conflicting names. Native Windows link registration is not currently supported.
+
+`--adopt-explicit-local` is a narrow migration for source-checkout installers.
+With `--link`, it can transfer a matching explicit local-file installation to
+managed link ownership when the semantic ID and artifact filename match. The
+original admitted file source remains the component's continuity identity, so
+existing policy and secrets stay bound. Registry, HTTPS, generated, and
+differently named file sources are never adopted. `just install` uses this
+migration to upgrade components previously loaded directly from another
+Wassette worktree.
+
 Only non-hidden `.wasm` files directly in this directory are candidates;
 subdirectories and temporary filenames are ignored. The filename is source
 location evidence, **not** the component ID. Wassette takes the ID from the
@@ -39,7 +60,8 @@ installed component. Build into another directory and rename into the drop
 directory when complete to avoid partially written inputs.
 
 Wassette checks ownership and write permissions on Unix before reading local
-files. Do not share the drop directory with untrusted users; Windows cannot
+files and follows symlinks only after checking their target and relevant parent
+directories. Do not share the drop directory with untrusted users; Windows cannot
 enforce the same Unix ownership checks. Discovery does not run a component:
 ordinary tools are validated before installation, and permissions remain
 governed by the component policy. ACP providers and layers require an
@@ -55,3 +77,8 @@ Renaming a drop file keeps its semantic component name but changes its managed
 source owner. Without an approved ownership migration, Wassette reports a
 conflict rather than inheriting the old source's grants or secrets. Resolve
 that conflict explicitly; it does not silently adopt the renamed source.
+
+Deleting a worktree can leave its stable source links dangling. A failed
+capture does not replace or prune the last-good receipt. Run `just install`
+from the new checkout to retarget the links; do not delete them merely to fix a
+build, because deliberate source removal can prune managed membership.

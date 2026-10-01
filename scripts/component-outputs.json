@@ -1,0 +1,23 @@
+{
+  "install": {
+    "components/acp-copilot-provider": "components/acp-copilot-provider/target/wasm32-wasip2/release/acp_copilot_provider.wasm",
+    "components/acp-echo-provider": "components/acp-echo-provider/target/wasm32-wasip2/release/acp_echo_provider.wasm",
+    "components/acp-ollama-provider": "components/acp-ollama-provider/target/wasm32-wasip2/release/acp_ollama_provider.wasm",
+    "components/acp-uppercase-layer": "components/acp-uppercase-layer/target/wasm32-wasip2/release/acp_uppercase_layer.wasm"
+  },
+  "exclude": {
+    "examples/arxiv-rs": "example component",
+    "examples/brave-search-rs": "example component",
+    "examples/context7-rs": "example component",
+    "examples/eval-py": "example component",
+    "examples/fetch-rs": "example component",
+    "examples/filesystem-rs": "example component",
+    "examples/get-open-meteo-weather-js": "example component",
+    "examples/get-weather-js": "example component",
+    "examples/github-js": "example component",
+    "examples/gomodule-go": "example component",
+    "examples/memory-js": "example component",
+    "examples/time-server-js": "example component",
+    "crates/wassette-acp/tests/fixtures/routing-provider": "test-only multi-provider routing fixture"
+  }
+}

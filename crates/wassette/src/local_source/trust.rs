@@ -28,10 +28,12 @@ fn check_inner(path: &Path, parent: bool) -> Result<()> {
             let Some(path) = current else { break };
             let link = std::fs::symlink_metadata(&path)?;
             let target = std::fs::metadata(&path)?;
-            for metadata in [&link, &target] {
-                if metadata.uid() != owner || metadata.mode() & 0o022 != 0 {
-                    bail!("untrusted local source path: {}", path.display());
-                }
+            if link.uid() != owner
+                || target.uid() != owner
+                || (!link.file_type().is_symlink() && link.mode() & 0o022 != 0)
+                || target.mode() & 0o022 != 0
+            {
+                bail!("untrusted local source path: {}", path.display());
             }
             // Check symlink targets and their parents, not only the link's parent.
             if link.file_type().is_symlink() {

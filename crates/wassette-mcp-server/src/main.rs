@@ -156,16 +156,16 @@ async fn main() -> Result<()> {
     // stdout is the ACP JSON-RPC protocol channel), so peel it off before
     // the borrowing match below and hand the args over.
     if matches!(cli.command, Some(Commands::Acp(_))) {
-        let Some(Commands::Acp(args)) = cli.command else {
+        let global_component_dir = cli.component_dir.clone();
+        let Some(Commands::Acp(mut args)) = cli.command else {
             unreachable!("just matched")
         };
         #[cfg(feature = "component-generation")]
-        let args = {
-            let mut args = args;
+        {
             args.generation_config =
                 config::resolve_generation_config(args.generation_config.as_deref())?;
-            args
-        };
+        }
+        config::resolve_acp_stores(&mut args, global_component_dir.as_deref())?;
         let local_config = config::resolve_local_source(
             &config::LocalSourceOverrides {
                 local_component_dir: args.local_component_dir.clone(),
@@ -574,6 +574,8 @@ async fn main() -> Result<()> {
                 ComponentCommands::Sync {
                     component_dir,
                     local_component_dir,
+                    links,
+                    adopt_explicit_local,
                     force,
                     output_format,
                 } => {
@@ -589,8 +591,20 @@ async fn main() -> Result<()> {
                         LocalComponentsMode::Startup,
                     )?;
                     local_config.validate(manager.component_root())?;
-                    let service = LocalSourceService::new(Arc::new(manager), local_config)?;
-                    let report = service.reconcile_once(*force).await?;
+                    let validator = wassette_acp::local_source_validator(
+                        manager.component_root().to_path_buf(),
+                    )?;
+                    let mut service = LocalSourceService::new(Arc::new(manager), local_config)?
+                        .with_validator(validator);
+                    if *adopt_explicit_local {
+                        service = service.with_explicit_local_adoption();
+                    }
+                    service.link_sources(links).await?;
+                    let report = if links.is_empty() {
+                        service.reconcile_once(*force).await?
+                    } else {
+                        service.reconcile_sources_once(links, *force).await?
+                    };
                     print_value(&serde_json::to_value(&report)?, *output_format)?;
                     if report.has_unresolved() {
                         bail!("Local component reconciliation was incomplete");

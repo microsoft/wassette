@@ -12,6 +12,14 @@ use wassette::local_source::{LocalMode, LocalSourceConfig};
 
 use crate::commands::{LocalComponentsMode, Run, Serve};
 
+#[derive(Serialize)]
+struct AcpStoreOverrides<'a> {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    component_dir: Option<&'a Path>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    secrets_dir: Option<&'a Path>,
+}
+
 fn config_file_path() -> Result<PathBuf, anyhow::Error> {
     match std::env::var_os("WASSETTE_CONFIG_FILE") {
         Some(path) => Ok(PathBuf::from(path)),
@@ -99,6 +107,20 @@ pub fn resolve_local_source(
 pub fn get_secrets_dir() -> Result<PathBuf, anyhow::Error> {
     let dir_strategy = etcetera::choose_base_strategy().context("Unable to get home directory")?;
     Ok(dir_strategy.config_dir().join("wassette").join("secrets"))
+}
+
+/// Resolve ACP's shared component and secret stores through normal CLI config.
+pub fn resolve_acp_stores(
+    args: &mut wassette_acp::AcpArgs,
+    global_component_dir: Option<&Path>,
+) -> Result<(), anyhow::Error> {
+    let config = Config::new(&AcpStoreOverrides {
+        component_dir: args.component_dir.as_deref().or(global_component_dir),
+        secrets_dir: args.secrets_dir.as_deref(),
+    })?;
+    args.component_dir = Some(config.component_dir);
+    args.secrets_dir = Some(config.secrets_dir);
+    Ok(())
 }
 
 fn default_component_dir() -> PathBuf {
@@ -332,6 +354,7 @@ impl Config {
 mod tests {
     use std::fs;
 
+    use clap::Parser;
     use tempfile::TempDir;
 
     use super::*;
@@ -472,6 +495,48 @@ mod tests {
                     .mode,
                     LocalMode::Watch
                 );
+            },
+        );
+    }
+
+    #[test]
+    fn acp_store_paths_use_cli_global_env_and_file_precedence() {
+        #[derive(Parser)]
+        struct TestCli {
+            #[command(flatten)]
+            args: wassette_acp::AcpArgs,
+        }
+
+        let temp = TempDir::new().unwrap();
+        let config_path = temp.path().join("config.toml");
+        fs::write(
+            &config_path,
+            "component_dir = 'file-components'\nsecrets_dir = 'file-secrets'\n",
+        )
+        .unwrap();
+        temp_env::with_vars(
+            [
+                ("WASSETTE_CONFIG_FILE", Some(config_path.to_str().unwrap())),
+                ("WASSETTE_COMPONENT_DIR", Some("env-components")),
+                ("WASSETTE_SECRETS_DIR", Some("env-secrets")),
+            ],
+            || {
+                let mut args = TestCli::parse_from(["test", "--provider", "provider"]).args;
+                resolve_acp_stores(&mut args, Some(Path::new("global-components"))).unwrap();
+                assert_eq!(
+                    args.component_dir.as_deref(),
+                    Some(Path::new("global-components"))
+                );
+                assert_eq!(args.secrets_dir.as_deref(), Some(Path::new("env-secrets")));
+
+                args.component_dir = Some(PathBuf::from("acp-components"));
+                args.secrets_dir = Some(PathBuf::from("acp-secrets"));
+                resolve_acp_stores(&mut args, Some(Path::new("global-components"))).unwrap();
+                assert_eq!(
+                    args.component_dir.as_deref(),
+                    Some(Path::new("acp-components"))
+                );
+                assert_eq!(args.secrets_dir.as_deref(), Some(Path::new("acp-secrets")));
             },
         );
     }
