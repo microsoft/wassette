@@ -164,6 +164,15 @@ impl GuestSession for ProviderSession {
                             }
                         }
                     }
+                    CONFIG_TERMINAL => {
+                        // Host-only notification, never advertised by the
+                        // provider. The host still enforces execution.
+                        match value.as_str() {
+                            "on" => session.terminal_enabled = true,
+                            "off" => session.terminal_enabled = false,
+                            other => return Err(format!("invalid terminal value: {other} (on|off)")),
+                        }
+                    }
                     other => return Err(format!("unknown config option: {other}")),
                 }
                 Ok(session.clone())
@@ -213,6 +222,7 @@ const CONFIG_MODEL: &str = "model";
 const CONFIG_REASONING: &str = "reasoning-effort";
 const CONFIG_MODE: &str = "mode";
 const CONFIG_ALLOW_ALL: &str = "allow-all";
+const CONFIG_TERMINAL: &str = "terminal";
 
 // Chat mode ids, mirroring the GitHub Copilot CLI's mode selector.
 const MODE_AGENT: &str = "agent";
@@ -608,6 +618,7 @@ impl Guest for Agent {
                     reasoning,
                     mode,
                     allow_all: false,
+                    terminal_enabled: false,
                     cwd: req.cwd,
                     cost_aiu: 0.0,
                     used_tokens: 0,
@@ -676,6 +687,7 @@ impl Guest for Agent {
                     reasoning,
                     mode,
                     allow_all: stored_allow_all,
+                    terminal_enabled: false,
                     cwd: req.cwd,
                     cost_aiu: stored_cost,
                     used_tokens: stored_used,
@@ -735,6 +747,7 @@ impl Guest for Agent {
                     reasoning,
                     mode,
                     allow_all: stored_allow_all,
+                    terminal_enabled: false,
                     cwd: req.cwd,
                     cost_aiu: stored_cost,
                     used_tokens: stored_used,
@@ -770,7 +783,7 @@ async fn prompt_impl(
     // active model and thinking level) to send to Copilot. New sessions can
     // land here without going through `new-session` (e.g. tests); fall back to
     // defaults. A one-time `system` message is prepended on the first prompt.
-    let (mut working, model, reasoning, cwd, mode, prev_used, prev_cost, prev_report_cost) =
+    let (mut working, model, reasoning, cwd, mode, terminal_enabled, prev_used, prev_cost, prev_report_cost) =
         SESSIONS.with(|s| {
         let mut sessions = s.borrow_mut();
         let entry = sessions.entry(session_id.clone()).or_insert_with(|| SessionState {
@@ -779,6 +792,7 @@ async fn prompt_impl(
             reasoning: String::new(),
             mode: DEFAULT_MODE.to_string(),
             allow_all: false,
+            terminal_enabled: false,
             cwd: String::new(),
             cost_aiu: 0.0,
             used_tokens: 0,
@@ -800,6 +814,7 @@ async fn prompt_impl(
             entry.reasoning.clone(),
             entry.cwd.clone(),
             entry.mode.clone(),
+            entry.terminal_enabled,
             entry.used_tokens,
             entry.cost_aiu,
             entry.report_cost,
@@ -855,11 +870,10 @@ async fn prompt_impl(
         supported.then(|| reasoning.clone())
     };
 
-    // Offer the model our file tools. The ACP host doesn't currently plumb the
-    // client's advertised fs capabilities through to the session instance
-    // (`initialize` runs on a throwaway instance), so we always advertise
-    // read/write and rely on the editor to accept or reject each call.
-    let tools = tool_defs();
+    // The ACP host doesn't plumb the editor's fs capabilities through to
+    // the session (`initialize` runs on a throwaway instance), so the file
+    // tools remain advertised and the editor may reject individual calls.
+    let tools = tool_defs(terminal_enabled);
 
     // Agentic loop: stream a round; if the model asked for tools, surface each
     // one to the client, get permission, run it through the client fs, feed the
@@ -1027,18 +1041,14 @@ const TOOL_TERMINAL: &str = "run_terminal_command";
 const TERMINAL_OUTPUT_LIMIT: u64 = 32 * 1024;
 
 /// Build the OpenAI-compatible tool array advertised to the model: a
-/// `read_text_file` and a `write_text_file` function, both routed through the
+/// `read_text_file` and a `write_text_file` function routed through the
 /// ACP client's filesystem, plus a `run_terminal_command` function routed
-/// through the ACP client's terminal. The editor authorizes and fulfils each
-/// call.
+/// through the host's terminal when enabled.
 ///
-/// The `run_terminal_command` tool is advertised unconditionally: whether the
-/// command actually runs is the host's decision, gated by the host-owned
-/// `terminal` session config option (default off). The provider never sees
-/// that flag, so it always offers the tool and surfaces the host's refusal to
-/// the model when the option is disabled.
-fn tool_defs() -> Option<Value> {
-    Some(json!([
+/// The host notifies this provider when its terminal toggle changes; the host
+/// remains the final authority on whether a command may actually run.
+fn tool_defs(terminal_enabled: bool) -> Option<Value> {
+    let mut tools = json!([
         {
             "type": "function",
             "function": {
@@ -1072,8 +1082,10 @@ fn tool_defs() -> Option<Value> {
                     "required": ["path", "content"]
                 }
             }
-        },
-        {
+        }
+    ]);
+    if terminal_enabled {
+        tools.as_array_mut().unwrap().push(json!({
             "type": "function",
             "function": {
                 "name": TOOL_TERMINAL,
@@ -1091,8 +1103,9 @@ fn tool_defs() -> Option<Value> {
                     "required": ["command"]
                 }
             }
-        }
-    ]))
+        }));
+    }
+    Some(tools)
 }
 
 /// Resolve a possibly-relative path against the session cwd. ACP requires

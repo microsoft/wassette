@@ -2077,7 +2077,7 @@ mod terminal_tests {
                 .expect("delete disabled terminal resource");
         }
 
-        group.set_terminal_enabled(true).await;
+        group.set_terminal_enabled(true).await.unwrap();
         assert_eq!(group.terminal_option(), Some(true));
         let (enabled, mut output_rx, mut exit_rx) = {
             assert!(primary.inner.store.lock().await.data().terminal_enabled);
@@ -2131,7 +2131,7 @@ mod terminal_tests {
                 .expect("delete enabled terminal resource");
         }
 
-        group.set_terminal_enabled(false).await;
+        group.set_terminal_enabled(false).await.unwrap();
         assert_eq!(group.terminal_option(), Some(false));
         assert!(!primary.inner.store.lock().await.data().terminal_enabled);
         assert!(!secondary.inner.store.lock().await.data().terminal_enabled);
@@ -2167,7 +2167,7 @@ mod terminal_tests {
             true,
         )
         .unwrap();
-        group.set_terminal_enabled(true).await;
+        group.set_terminal_enabled(true).await.unwrap();
         let registry = SessionRegistry::new();
         registry.insert("same-id".into(), group.clone()).unwrap();
         assert_eq!(

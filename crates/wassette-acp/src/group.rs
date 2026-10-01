@@ -42,8 +42,10 @@ const HOST_MODEL_CONFIG_ID: &str = "model";
 /// A boolean session config option (default `false`) that gates host-side
 /// terminal execution for every provider chain in the group. Owned and
 /// enforced by the host — no guest provider advertises it, and the setter
-/// is intercepted before reaching any guest.
+/// is intercepted by the host. The Copilot provider also receives an
+/// internal notification to keep its model-facing tool list in sync.
 pub const TERMINAL_CONFIG_ID: &str = "terminal";
+const COPILOT_PROVIDER_ID: &str = "acp-copilot-provider";
 
 /// Identity used for host-synthesized config entries (the merged model
 /// selector). `translate` drops config-option provenance on the wire, so
@@ -216,10 +218,58 @@ impl SessionGroup {
     /// value and fans it out to every provider chain's [`Session`] so the
     /// `client.terminal` host impl honours it regardless of which provider
     /// is active (including after a later provider switch).
-    pub async fn set_terminal_enabled(&self, enabled: bool) {
-        *self.inner.terminal_enabled.lock().unwrap() = enabled;
+    pub async fn set_terminal_enabled(&self, enabled: bool) -> anyhow::Result<()> {
+        let previous = *self.inner.terminal_enabled.lock().unwrap();
+        let mut notified = Vec::new();
+        for p in &self.inner.providers {
+            if p.component_id == COPILOT_PROVIDER_ID {
+                match p
+                    .session
+                    .set_config_option(
+                        TERMINAL_CONFIG_ID.to_string(),
+                        if enabled { "on" } else { "off" }.to_string(),
+                    )
+                    .await
+                {
+                    SetConfigOptionOutcome::Done(_) => notified.push(p),
+                    SetConfigOptionOutcome::Wit(e) => {
+                        self.restore_copilot_terminal(&notified, previous).await;
+                        anyhow::bail!("Copilot provider rejected terminal toggle: {e:?}");
+                    }
+                    SetConfigOptionOutcome::Trap(e) => {
+                        self.restore_copilot_terminal(&notified, previous).await;
+                        return Err(e.context("Copilot provider terminal toggle trapped").into());
+                    }
+                }
+            }
+        }
         for p in &self.inner.providers {
             p.session.set_terminal_enabled(enabled).await;
+        }
+        *self.inner.terminal_enabled.lock().unwrap() = enabled;
+        Ok(())
+    }
+
+    async fn restore_copilot_terminal(&self, providers: &[&ProviderEntry], enabled: bool) {
+        for p in providers {
+            match p
+                .session
+                .set_config_option(
+                    TERMINAL_CONFIG_ID.to_string(),
+                    if enabled { "on" } else { "off" }.to_string(),
+                )
+                .await
+            {
+                SetConfigOptionOutcome::Done(_) => {}
+                SetConfigOptionOutcome::Wit(e) => tracing::error!(
+                    provider = %p.component_id, error = ?e,
+                    "failed to restore Copilot terminal tool list"
+                ),
+                SetConfigOptionOutcome::Trap(e) => tracing::error!(
+                    provider = %p.component_id, error = %e,
+                    "failed to restore Copilot terminal tool list"
+                ),
+            }
         }
     }
 

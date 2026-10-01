@@ -58,16 +58,19 @@ If no secret is stored, the guest falls back to the `COPILOT_GITHUB_TOKEN`,
 ## Tools
 
 Unlike the Ollama provider (a pure text relay), the Copilot provider runs an
-**agentic loop**: on every prompt it advertises two file-editing tools to the
-model and lets it call them for up to eight rounds before answering.
+**agentic loop**: on every prompt it advertises file tools to the model and
+lets it call them for up to eight rounds before answering.
 
 | Tool              | ACP method            | Kind   |
 |-------------------|-----------------------|--------|
 | `read_text_file`  | `fs/read_text_file`   | `read` |
 | `write_text_file` | `fs/write_text_file`  | `edit` |
+| `run_terminal_command` | host terminal | `execute` |
 
-Both are always advertised; there is intentionally **no terminal/command tool**.
-Relative paths are resolved against the session `cwd`.
+The file tools are always advertised. `run_terminal_command` is advertised
+only while the host-owned **Terminal** toggle is On; it defaults to Off, and
+the host independently refuses terminal execution while disabled. Relative
+paths are resolved against the session `cwd`.
 
 Each call is surfaced to the editor as a tool-call card — an initial
 `tool_call` update (status *pending*), then a `tool_call_update` when it
