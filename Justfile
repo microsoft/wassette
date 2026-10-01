@@ -122,6 +122,12 @@ install-preflight:
 install mode="debug": install-preflight build-acp-examples build-default-tools
     python3 scripts/install-local.py --mode {{ quote(mode) }}
 
+# Next to it, also installs the signed `wassette-builder` helper. Never
+# acquires an initrd; create a profile with scripts/generation-profile.py.
+# Install like `install`, but built with opt-in component generation.
+install-generation mode="debug": install-preflight build-acp-examples build-default-tools (build-component-builder mode)
+    python3 scripts/install-local.py --mode {{ quote(mode) }} --generation
+
 # Create a stable or prerelease version bump PR with the current GitHub identity.
 prepare-release version:
     #!/usr/bin/env bash

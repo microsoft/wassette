@@ -5,9 +5,11 @@
 """Install this checkout's CLI and finalized components from components/."""
 
 import argparse
+import hashlib
 import json
 import os
 from pathlib import Path
+import re
 import shutil
 import subprocess
 import sys
@@ -111,7 +113,51 @@ def cargo_target_directory(root: Path) -> Path:
     return Path(json.loads(result.stdout)["target_directory"])
 
 
-def install(root: Path, mode: str) -> None:
+INSTALLED_EXECUTABLE = re.compile(r"^\s*(?:Installing|Replacing)\s+(\S.*[/\\]wassette(?:\.exe)?)\s*$")
+
+
+def cargo_install(command: List[str], root: Path) -> Path:
+    """Run cargo install, echoing its output, and return the installed executable."""
+    process = subprocess.Popen(
+        command, cwd=root, stderr=subprocess.PIPE, text=True, bufsize=1
+    )
+    installed = None
+    assert process.stderr is not None
+    for line in process.stderr:
+        sys.stderr.write(line)
+        match = INSTALLED_EXECUTABLE.match(line)
+        if match:
+            installed = Path(match.group(1))
+    if process.wait() != 0:
+        raise subprocess.CalledProcessError(process.returncode, command)
+    if installed is None or not installed.is_file():
+        raise FileNotFoundError("could not determine where cargo installed wassette")
+    return installed
+
+
+def install_builder_helper(target_directory: Path, mode: str, installed: Path) -> Path:
+    """Copy the signed builder helper next to the installed executable."""
+    helper = target_directory / mode / "wassette-builder"
+    if not helper.is_file():
+        raise FileNotFoundError(
+            f"missing builder helper {helper}; run `just build-component-builder {mode}` first"
+        )
+    destination = installed.parent / "wassette-builder"
+    staging = destination.with_name(f".wassette-builder.{os.getpid()}.tmp")
+    shutil.copy2(helper, staging)
+    os.replace(staging, destination)
+    return destination
+
+
+def sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as file:
+        for chunk in iter(lambda: file.read(1 << 20), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def install(root: Path, mode: str, generation: bool = False) -> None:
     check_prerequisites(root)
     artifacts = validate_outputs(root)
     target_directory = cargo_target_directory(root)
@@ -129,7 +175,18 @@ def install(root: Path, mode: str) -> None:
     ]
     if mode == "debug":
         command.append("--debug")
-    subprocess.run(command, cwd=root, check=True)
+    if generation:
+        command.extend(["--features", "component-generation"])
+    installed = cargo_install(command, root)
+    if generation:
+        helper = install_builder_helper(target_directory, mode, installed)
+        print(f"Builder helper: {helper}", file=sys.stderr)
+        print(f"Builder helper SHA-256: {sha256(helper)}", file=sys.stderr)
+        print(
+            "Create an operator profile with scripts/generation-profile.py and pass "
+            "`--generation-config <profile>` to `wassette acp`.",
+            file=sys.stderr,
+        )
 
     executable = target_directory / mode / (
         "wassette.exe" if os.name == "nt" else "wassette"
@@ -155,13 +212,18 @@ def main() -> int:
     parser.add_argument(
         "--check", action="store_true", help="validate declarations and build prerequisites"
     )
+    parser.add_argument(
+        "--generation",
+        action="store_true",
+        help="build with component-generation and install the pre-built builder helper",
+    )
     args = parser.parse_args()
     root = Path(__file__).resolve().parent.parent
     try:
         if args.check:
             check_prerequisites(root)
         else:
-            install(root, args.mode)
+            install(root, args.mode, args.generation)
     except (
         FileNotFoundError,
         OSError,

@@ -860,3 +860,63 @@ fn operator_configuration_is_bounded_before_deserialization() {
         .to_string()
         .contains("size limit"));
 }
+
+#[test]
+fn profile_script_pins_local_files_and_never_overwrites() {
+    use sha2::{Digest, Sha256};
+
+    let root = tempfile::tempdir().unwrap();
+    let helper = root.path().join("wassette-builder");
+    let initrd = root.path().join("rust-initrd.cpio");
+    let wit = root.path().join("dependency.wit");
+    std::fs::write(&helper, b"helper bytes").unwrap();
+    std::fs::write(&initrd, b"initrd bytes").unwrap();
+    std::fs::write(&wit, "package test:dependency;\n").unwrap();
+    let output = root.path().join("profiles/operator.json");
+    let script = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../scripts/generation-profile.py");
+    let run = |extra: &[&str]| {
+        std::process::Command::new("python3")
+            .arg(&script)
+            .arg("--helper")
+            .arg(&helper)
+            .arg("--initrd")
+            .arg(&initrd)
+            .arg("--wit-dependency")
+            .arg(&wit)
+            .arg("--output")
+            .arg(&output)
+            .args(extra)
+            .output()
+            .expect("profile tests require Python 3")
+    };
+
+    let created = run(&[]);
+    assert!(created.status.success(), "{created:?}");
+    let config = GenerationConfig::read(&output).unwrap();
+    let digest = |bytes: &[u8]| hex::encode(Sha256::digest(bytes));
+    assert_eq!(config.builder.helper_path, helper.canonicalize().unwrap());
+    assert_eq!(config.builder.helper_sha256, digest(b"helper bytes"));
+    assert_eq!(config.builder.initrd_sha256, digest(b"initrd bytes"));
+    assert_eq!(
+        config.builder.wit_dependencies,
+        ["package test:dependency;\n"]
+    );
+    assert!(config.builder.staging_root.is_dir());
+    assert!(config.allow_build && config.allow_install);
+    assert!(!config.allow_expose && !config.allow_rebuild);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mode =
+            |path: &std::path::Path| std::fs::metadata(path).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode(&output), 0o600);
+        assert_eq!(mode(&config.builder.staging_root), 0o700);
+    }
+
+    let before = std::fs::read(&output).unwrap();
+    let refused = run(&["--allow-expose", "--allow-rebuild"]);
+    assert!(!refused.status.success());
+    assert!(String::from_utf8_lossy(&refused.stderr).contains("refusing to overwrite"));
+    assert_eq!(std::fs::read(&output).unwrap(), before);
+}

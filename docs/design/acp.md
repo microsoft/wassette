@@ -234,6 +234,63 @@ Single-provider metadata, native model values and supported `session/load` remai
 unchanged. Providers stay pinned to their startup receipts; installing or
 discovering a replacement does not switch an active chain.
 
+## Generating components from ACP
+
+Component generation is a Wassette host capability, not a Copilot service.
+The host also exposes it as the opt-in
+[`build-component` MCP management tool](../reference/built-in-tools.md#build-component-opt-in).
+Any ACP provider or layer may import
+`wassette:component-generation/builder@0.1.0` to build, validate and install a
+component from Rust source and WIT; providers decide how to make that host
+capability available to their models. The Copilot provider maps it to a
+`build_component` model tool. Generation is off unless the operator enables it:
+
+1. Install a feature-enabled CLI and the signed builder helper:
+
+   ```sh
+   just install-generation          # or: just install-generation release
+   ```
+
+   This builds `wassette` with `component-generation` and copies the
+   `wassette-builder` helper (signed on macOS) next to the installed executable.
+   It does not acquire a builder image; plain `just install` stays featureless.
+
+2. Create an operator profile from the helper and a trusted local initrd. The
+   script pins both SHA-256 digests, permits build and install only, creates a
+   private staging directory, and refuses to overwrite an existing profile:
+
+   ```sh
+   python3 scripts/generation-profile.py \
+       --helper ~/.cargo/bin/wassette-builder \
+       --initrd /path/to/rust-initrd.cpio \
+       --output ~/.config/wassette/generation.json
+   ```
+
+   Add `--allow-expose` or `--allow-rebuild` only when those operations are
+   intended. See [`generation_config`](../reference/configuration-files.md#generation_config).
+
+3. Add the profile to the agent's arguments, for example in Zed:
+
+   ```json
+   "args": ["acp", "--allow-all", "--provider", "acp-copilot-provider",
+            "--generation-config", "/home/me/.config/wassette/generation.json"]
+   ```
+
+The host tells Copilot sessions to advertise their `build_component` adapter
+only when the profile permits both build and install; other ACP providers can
+use the same host import independently. The host stays authoritative: it checks
+the profile on every request, asks the editor to approve the build, install and
+any exposure phase, and returns `disabled` when no profile is configured.
+A generated tool component is
+installed but is not added to the running conversation; start a **new** ACP
+session with `--tool <component-id>` (or load it in the MCP server). A generated
+layer requires a new session with `--layer <component-id>`. The Copilot provider
+does not yet call ordinary `--tool` components itself.
+
+In layered chains, generation approval requests go directly to the bound editor
+session and bypass upstream layers, and generation requires
+`--allow-shared-grants`.
+
 ## Demo
 
 Build the example components and run the echo provider:

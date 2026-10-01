@@ -94,6 +94,11 @@ are not prerequisites. Cargo chooses the user install root using its normal
 `--root` / `CARGO_INSTALL_ROOT` / Cargo config / `CARGO_HOME` precedence; the
 common default executable is `~/.cargo/bin/wassette`.
 
+`just install-generation [debug|release]` does the same with the opt-in
+`component-generation` feature, and also builds, signs and installs the
+`wassette-builder` helper next to the executable. It never acquires a builder
+image. See [Generating components from ACP](../design/acp.md#generating-components-from-acp).
+
 ### Declaring first-party component names
 
 The example build recipes, direct JavaScript build scripts, and

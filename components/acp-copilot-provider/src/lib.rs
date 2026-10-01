@@ -11,6 +11,7 @@
 #[allow(clippy::all)]
 mod bindings;
 mod copilot;
+mod generation;
 mod storage;
 
 use std::cell::RefCell;
@@ -173,22 +174,41 @@ impl GuestSession for ProviderSession {
                             other => return Err(format!("invalid terminal value: {other} (on|off)")),
                         }
                     }
+                    CONFIG_GENERATION => {
+                        // Host-only notification, never advertised by the
+                        // provider. Sent only when the operator profile
+                        // permits building and installing components; the
+                        // host still authorizes every generation request.
+                        match value.as_str() {
+                            "on" => session.generation_enabled = true,
+                            "off" => session.generation_enabled = false,
+                            other => {
+                                return Err(format!(
+                                    "invalid component-generation value: {other} (on|off)"
+                                ))
+                            }
+                        }
+                    }
                     other => return Err(format!("unknown config option: {other}")),
                 }
                 Ok(session.clone())
             })
             .map_err(|e| err(ErrorCode::InvalidParams, &e))?;
 
-        // Persistence is best-effort; a failed save shouldn't fail the switch.
-        let _ = storage::save(&session_id, &snapshot);
+        // The generation notice is host state, not a user choice: nothing to
+        // persist and no preference to remember.
+        if config_id != CONFIG_GENERATION {
+            // Persistence is best-effort; a failed save shouldn't fail the switch.
+            let _ = storage::save(&session_id, &snapshot);
 
-        // Remember this choice globally so the next brand-new session starts on
-        // the same model + thinking level (keeping the Thinking selector present
-        // from the start for reasoning-capable models).
-        let _ = storage::save_preferences(&storage::Preferences {
-            model: snapshot.model.clone(),
-            reasoning: snapshot.reasoning.clone(),
-        });
+            // Remember this choice globally so the next brand-new session starts on
+            // the same model + thinking level (keeping the Thinking selector present
+            // from the start for reasoning-capable models).
+            let _ = storage::save_preferences(&storage::Preferences {
+                model: snapshot.model.clone(),
+                reasoning: snapshot.reasoning.clone(),
+            });
+        }
 
         // Rebuild the full option set from the cached model list — no network.
         let models = cached_models(&snapshot.model);
@@ -223,6 +243,7 @@ const CONFIG_REASONING: &str = "reasoning-effort";
 const CONFIG_MODE: &str = "mode";
 const CONFIG_ALLOW_ALL: &str = "allow-all";
 const CONFIG_TERMINAL: &str = "terminal";
+const CONFIG_GENERATION: &str = "component-generation";
 
 // Chat mode ids, mirroring the GitHub Copilot CLI's mode selector.
 const MODE_AGENT: &str = "agent";
@@ -619,6 +640,7 @@ impl Guest for Agent {
                     mode,
                     allow_all: false,
                     terminal_enabled: false,
+                    generation_enabled: false,
                     cwd: req.cwd,
                     cost_aiu: 0.0,
                     used_tokens: 0,
@@ -688,6 +710,7 @@ impl Guest for Agent {
                     mode,
                     allow_all: stored_allow_all,
                     terminal_enabled: false,
+                    generation_enabled: false,
                     cwd: req.cwd,
                     cost_aiu: stored_cost,
                     used_tokens: stored_used,
@@ -748,6 +771,7 @@ impl Guest for Agent {
                     mode,
                     allow_all: stored_allow_all,
                     terminal_enabled: false,
+                    generation_enabled: false,
                     cwd: req.cwd,
                     cost_aiu: stored_cost,
                     used_tokens: stored_used,
@@ -783,7 +807,7 @@ async fn prompt_impl(
     // active model and thinking level) to send to Copilot. New sessions can
     // land here without going through `new-session` (e.g. tests); fall back to
     // defaults. A one-time `system` message is prepended on the first prompt.
-    let (mut working, model, reasoning, cwd, mode, terminal_enabled, prev_used, prev_cost, prev_report_cost) =
+    let (mut working, model, reasoning, cwd, mode, terminal_enabled, generation_enabled, prev_used, prev_cost, prev_report_cost) =
         SESSIONS.with(|s| {
         let mut sessions = s.borrow_mut();
         let entry = sessions.entry(session_id.clone()).or_insert_with(|| SessionState {
@@ -793,6 +817,7 @@ async fn prompt_impl(
             mode: DEFAULT_MODE.to_string(),
             allow_all: false,
             terminal_enabled: false,
+            generation_enabled: false,
             cwd: String::new(),
             cost_aiu: 0.0,
             used_tokens: 0,
@@ -815,6 +840,7 @@ async fn prompt_impl(
             entry.cwd.clone(),
             entry.mode.clone(),
             entry.terminal_enabled,
+            entry.generation_enabled,
             entry.used_tokens,
             entry.cost_aiu,
             entry.report_cost,
@@ -873,7 +899,7 @@ async fn prompt_impl(
     // The ACP host doesn't plumb the editor's fs capabilities through to
     // the session (`initialize` runs on a throwaway instance), so the file
     // tools remain advertised and the editor may reject individual calls.
-    let tools = tool_defs(terminal_enabled);
+    let tools = tool_defs(terminal_enabled, generation_enabled);
 
     // Agentic loop: stream a round; if the model asked for tools, surface each
     // one to the client, get permission, run it through the client fs, feed the
@@ -1043,11 +1069,14 @@ const TERMINAL_OUTPUT_LIMIT: u64 = 32 * 1024;
 /// Build the OpenAI-compatible tool array advertised to the model: a
 /// `read_text_file` and a `write_text_file` function routed through the
 /// ACP client's filesystem, plus a `run_terminal_command` function routed
-/// through the host's terminal when enabled.
+/// through the host's terminal when enabled, and a `build_component`
+/// function routed through host component generation when the operator
+/// permits it.
 ///
-/// The host notifies this provider when its terminal toggle changes; the host
-/// remains the final authority on whether a command may actually run.
-fn tool_defs(terminal_enabled: bool) -> Option<Value> {
+/// The host notifies this provider when its terminal toggle changes and when
+/// generation is available; it remains the final authority on whether a
+/// command may run or a component may be built.
+fn tool_defs(terminal_enabled: bool, generation_enabled: bool) -> Option<Value> {
     let mut tools = json!([
         {
             "type": "function",
@@ -1104,6 +1133,9 @@ fn tool_defs(terminal_enabled: bool) -> Option<Value> {
                 }
             }
         }));
+    }
+    if generation_enabled {
+        tools.as_array_mut().unwrap().push(generation::tool_def());
     }
     Some(tools)
 }
@@ -1308,6 +1340,15 @@ async fn execute_tool_call(session_id: &str, cwd: &str, call: &copilot::ToolCall
         TOOL_READ => (format!("Read {path}"), ToolKind::Read),
         TOOL_WRITE => (format!("Write {path}"), ToolKind::Edit),
         TOOL_TERMINAL => (format!("Run `{command}`"), ToolKind::Execute),
+        generation::TOOL_BUILD_COMPONENT => (
+            format!(
+                "Build component `{}`",
+                args.get("component_name")
+                    .and_then(Value::as_str)
+                    .unwrap_or("")
+            ),
+            ToolKind::Execute,
+        ),
         other => (format!("Run {other}"), ToolKind::Other),
     };
     let line = args.get("line").and_then(Value::as_u64).map(|n| n as u32);
@@ -1329,6 +1370,11 @@ async fn execute_tool_call(session_id: &str, cwd: &str, call: &copilot::ToolCall
     };
 
     ui.announce().await;
+
+    // The host prompts the editor for every generation phase itself.
+    if name == generation::TOOL_BUILD_COMPONENT {
+        return build_component(&ui, &args).await;
+    }
 
     match request_tool_permission(session_id, name, &ui).await {
         Decision::Allow => {}
@@ -1511,6 +1557,35 @@ async fn execute_tool_call(session_id: &str, cwd: &str, call: &copilot::ToolCall
             ToolExec::Result(msg)
         }
     }
+}
+
+/// Run `build_component` through the host's generation import. The host
+/// authorizes the request (operator profile plus per-phase editor approval)
+/// and errors when generation is disabled.
+async fn build_component(ui: &ToolUi, args: &Value) -> ToolExec {
+    let request = match generation::request_json(args) {
+        Ok(request) => request,
+        Err(message) => {
+            let message = format!("Error: {message}.");
+            ui.update(ToolCallStatus::Failed, Vec::new(), Some(message.clone()))
+                .await;
+            return ToolExec::Result(message);
+        }
+    };
+    ui.update(ToolCallStatus::InProgress, Vec::new(), None).await;
+    let result = crate::bindings::wassette::component_generation::builder::generate(&request);
+    let text = generation::describe(&result);
+    let status = if result.is_ok() {
+        ToolCallStatus::Completed
+    } else {
+        ToolCallStatus::Failed
+    };
+    let block = ContentBlock::Text(TextContent {
+        text: preview(&text),
+    });
+    ui.update(status, vec![ToolCallContent::Content(block)], None)
+        .await;
+    ToolExec::Result(text)
 }
 
 bindings::export!(Agent with_types_in bindings);
