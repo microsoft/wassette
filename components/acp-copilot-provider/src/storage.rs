@@ -66,6 +66,10 @@ pub struct SessionState {
     /// *not* seeded from global preferences, so every new session starts safe.
     #[serde(default)]
     pub allow_all: bool,
+    /// Host-owned terminal permission. Never persisted; loaded sessions start
+    /// with the host's default-off policy until it explicitly enables access.
+    #[serde(skip)]
+    pub terminal_enabled: bool,
     #[serde(default)]
     pub cwd: String,
     /// Cumulative usage-based cost billed to this session so far, in AI Units

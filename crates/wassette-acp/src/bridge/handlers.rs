@@ -431,8 +431,9 @@ pub(super) fn handle_set_session_config_option(
 
     // The `terminal` option is host-owned: the host enforces terminal
     // execution and no guest provider may grant itself host CLI access, so
-    // intercept its setter here and never forward it to the guest. It is a
-    // boolean option, so require a boolean value.
+    // intercept its setter here. Only the Copilot provider receives an
+    // internal notification to keep the model-facing tool list in sync.
+    // It is a boolean option, so require a boolean value.
     if config_id == crate::group::TERMINAL_CONFIG_ID {
         if handle.terminal_option().is_none() {
             let mut e = AcpError::invalid_params();
@@ -453,7 +454,12 @@ pub(super) fn handle_set_session_config_option(
         };
         cx.spawn(async move {
             let _operation = operation;
-            handle.set_terminal_enabled(enabled).await;
+            if let Err(e) = handle.set_terminal_enabled(enabled).await {
+                return responder.respond_with_error(translate::anyhow_to_acp(
+                    "set-config-option: terminal",
+                    e,
+                ));
+            }
             let resp = match translate::set_config_option_response(
                 handle.config_options(),
                 handle.terminal_option(),

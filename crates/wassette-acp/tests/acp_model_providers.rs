@@ -453,6 +453,7 @@ fn copilot_provider_round_trips_boolean_and_legacy_approval_options() {
                 assert_eq!(approval["options"].as_array().unwrap().len(), 2);
                 assert!(!options.iter().any(|o| o["id"] == "terminal"));
             }
+
             for id in ["model", "mode"] {
                 let option = options.iter().find(|o| o["id"] == id).unwrap();
                 assert_eq!(option["type"], "select", "{response}");
@@ -495,6 +496,7 @@ fn copilot_provider_round_trips_boolean_and_legacy_approval_options() {
                 check(&response, false, enabled);
             }
         }
+
         for (mode, auto_approve) in [("autopilot", true), ("agent", false)] {
             let id = h.request(
                 "session/set_config_option",
@@ -514,5 +516,104 @@ fn copilot_provider_round_trips_boolean_and_legacy_approval_options() {
                 check(&response, true, false);
             }
         }
+    }
+}
+
+#[test]
+fn copilot_provider_only_advertises_terminal_when_enabled() {
+    let Some((bin, wasm)) = artifacts("acp-copilot-provider", "acp_copilot_provider") else {
+        return;
+    };
+    let rt = tokio::runtime::Runtime::new().unwrap();
+    let server = rt.block_on(async {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/copilot_internal/v2/token"))
+            .respond_with(ResponseTemplate::new(404))
+            .mount(&server)
+            .await;
+        Mock::given(method("GET"))
+            .and(path("/models"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "data": [{"id": "gpt-e2e", "capabilities": {"type": "chat"}}]
+            })))
+            .mount(&server)
+            .await;
+        Mock::given(method("POST"))
+            .and(path("/chat/completions"))
+            .respond_with(ResponseTemplate::new(200).set_body_raw(
+                format!(
+                    "data: {}\n\ndata: [DONE]\n\n",
+                    json!({"choices": [{"delta": {"content": "ok"}, "finish_reason": "stop"}]})
+                ),
+                "text/event-stream",
+            ))
+            .mount(&server)
+            .await;
+        server
+    });
+    let base_url = server.uri();
+    let token_url = format!("{base_url}/copilot_internal/v2/token");
+    let mut h = Harness::start(
+        &bin,
+        &wasm,
+        &["--allow-all"],
+        &[
+            ("COPILOT_GITHUB_TOKEN", "gho_e2e_terminal_tools"),
+            ("COPILOT_BASE_URL", &base_url),
+            ("COPILOT_TOKEN_URL", &token_url),
+            ("COPILOT_MODEL", "gpt-e2e"),
+        ],
+    );
+    let id = h.request(
+        "initialize",
+        json!({"protocolVersion": 1, "clientCapabilities": {
+            "session": {"configOptions": {"boolean": {}}}
+        }}),
+    );
+    h.await_response(id);
+    let cwd = tempfile::tempdir().unwrap();
+    let id = h.request("session/new", json!({"cwd": cwd.path(), "mcpServers": []}));
+    let (_, session) = h.await_response(id);
+    let session_id = session["sessionId"].as_str().unwrap();
+    for (turn, enabled) in [false, true, false].into_iter().enumerate() {
+        if turn > 0 {
+            let id = h.request(
+                "session/set_config_option",
+                json!({"sessionId": session_id, "configId": "terminal",
+                    "type": "boolean", "value": enabled}),
+            );
+            h.await_response(id);
+        }
+        let id = h.request(
+            "session/prompt",
+            json!({"sessionId": session_id, "prompt": [{"type": "text", "text": "hi"}]}),
+        );
+        let (_, response) = h.await_response(id);
+        assert_eq!(response["stopReason"], "end_turn", "{response}");
+        let requests = rt.block_on(server.received_requests()).unwrap();
+        let chat: Value = serde_json::from_slice(
+            &requests
+                .iter()
+                .rfind(|r| r.url.path() == "/chat/completions")
+                .unwrap()
+                .body,
+        )
+        .unwrap();
+        let names: Vec<&str> = chat["tools"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|tool| tool["function"]["name"].as_str().unwrap())
+            .collect();
+        assert_eq!(
+            names,
+            if enabled {
+                vec!["read_text_file", "write_text_file", "run_terminal_command"]
+            } else {
+                vec!["read_text_file", "write_text_file"]
+            },
+            "{chat}"
+        );
     }
 }
