@@ -99,6 +99,7 @@ pub struct SessionFactory {
     /// command against the Wassette component directory.
     resolver: Arc<Resolver>,
     tool_broker: Arc<ToolBroker>,
+    build_info: crate::BuildInfo,
     /// Whether the client advertised support for boolean session config
     /// options (`session.configOptions.boolean` in `initialize`). Read
     /// when building `session/new` and `session/load` responses to decide
@@ -123,6 +124,7 @@ impl SessionFactory {
         secrets: Arc<SecretsRegistry>,
         resolver: Arc<Resolver>,
         tool_broker: Arc<ToolBroker>,
+        build_info: crate::BuildInfo,
     ) -> Self {
         assert!(!providers.is_empty(), "SessionFactory needs >= 1 provider");
         Self {
@@ -134,6 +136,7 @@ impl SessionFactory {
             secrets,
             resolver,
             tool_broker,
+            build_info,
             allow_shared_grants: false,
             boolean_config_supported: std::sync::atomic::AtomicBool::new(false),
             load_session_supported: std::sync::atomic::AtomicBool::new(false),
@@ -146,6 +149,10 @@ impl SessionFactory {
     pub fn with_shared_provider_data(mut self, allow_shared_grants: bool) -> Self {
         self.allow_shared_grants = allow_shared_grants;
         self
+    }
+
+    pub fn build_info(&self) -> crate::BuildInfo {
+        self.build_info
     }
 
     /// Resolver for the Wassette component directory, used by the

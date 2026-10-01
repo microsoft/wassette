@@ -237,6 +237,25 @@ pub enum AcpLocalComponentsMode {
     Watch,
 }
 
+/// Build metadata supplied by the binary that hosts ACP.
+#[derive(Clone, Copy, Debug)]
+pub struct BuildInfo {
+    pub version: &'static str,
+    pub git_revision: &'static str,
+    pub built_time_utc: &'static str,
+    pub dirty: bool,
+}
+
+impl BuildInfo {
+    fn version_message(self) -> String {
+        let dirty = if self.dirty { "-dirty" } else { "" };
+        format!(
+            "Wassette {} (commit {}{}, built {})",
+            self.version, self.git_revision, dirty, self.built_time_utc
+        )
+    }
+}
+
 fn acp_engine() -> Result<Engine> {
     let mut config = Config::new();
     config.wasm_component_model(true);
@@ -292,6 +311,7 @@ impl LogLevel {
 pub async fn run(
     args: AcpArgs,
     local_source_config: ::wassette::local_source::LocalSourceConfig,
+    build_info: BuildInfo,
 ) -> Result<()> {
     eprintln!("Notice: wassette acp is experimental and may change or be removed.");
     if args.providers.is_empty() {
@@ -481,6 +501,7 @@ pub async fn run(
                     secrets,
                     resolver,
                     tool_broker,
+                    build_info,
                 )
                 .with_shared_provider_data(args.allow_shared_grants),
             );

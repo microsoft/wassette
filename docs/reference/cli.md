@@ -195,6 +195,11 @@ providers explicitly and use `--tool <COMPONENT_ID>` for ordinary tools.
 `/install` currently installs ACP artifacts only, without activation. It does
 not install ordinary tools or resolve registry package selectors. Tool path,
 tool package and automatic local exposure flags remain unimplemented proposals.
+The built-in `/version` command shows the Wassette version, full commit SHA
+(with `-dirty` for modified builds), and UTC build time. Wassette handles it
+locally even if the active provider advertises its own `/version`; it is never
+forwarded to the provider. While a session is busy, it follows the same
+busy-session restriction as `/install`.
 
 With the default-off `component-generation` feature, ACP also accepts
 `--generation-config <PATH>`. The binary resolves this operator profile using

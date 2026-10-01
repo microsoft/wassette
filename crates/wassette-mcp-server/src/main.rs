@@ -180,7 +180,7 @@ async fn main() -> Result<()> {
         // `wassette_acp::run` installs the stderr (and optional
         // `--log-file`) subscriber itself so its `--log-level` /
         // `--log-filter` flags configure it.
-        return wassette_acp::run(args, local_config).await;
+        return wassette_acp::run(args, local_config, utils::acp_build_info()).await;
     }
 
     match &cli.command {

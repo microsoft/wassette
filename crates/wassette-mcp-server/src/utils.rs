@@ -12,6 +12,15 @@ mod built_info {
     include!(concat!(env!("OUT_DIR"), "/built.rs"));
 }
 
+pub fn acp_build_info() -> wassette_acp::BuildInfo {
+    wassette_acp::BuildInfo {
+        version: built_info::PKG_VERSION,
+        git_revision: built_info::GIT_COMMIT_HASH.unwrap_or("unknown"),
+        built_time_utc: built_info::BUILT_TIME_UTC,
+        dirty: built_info::GIT_DIRTY.unwrap_or(false),
+    }
+}
+
 /// Parse environment variable in KEY=VALUE format
 pub fn parse_env_var(s: &str) -> Result<(String, String), String> {
     match s.split_once('=') {

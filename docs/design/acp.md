@@ -141,6 +141,9 @@ wassette acp --provider <PATH|URI|COMPONENT_ID>...
 * `/install` privately captures local, OCI and HTTPS inputs, validates them with
   the ACP engine, and commits them through the shared transactional store.
   Installation does not automatically select or activate a provider.
+* `/version` is host-owned and reports the binary's version, full commit SHA
+  (with a dirty marker), and UTC build time. It shadows a provider's
+  `/version` and is not forwarded to the chain.
 * `--tool <COMPONENT_ID>` explicitly exposes an installed ordinary component
   to the ACP provider. The guest imports
   `wassette:component-tools/tools@0.1.0` to list revision-bound descriptors,
@@ -380,7 +383,7 @@ All ACP components check in `wit-bindgen` output as `src/bindings.rs`;
   During `session/new`, it also holds bounded early updates until the guest
   returns its ID, then discards updates for other IDs and flushes the
   matching ones after the response. Per-session and global limits still
-  apply. The host also advertises `/install` after `session/new`, and
+  apply. The host also advertises `/install` and `/version` after `session/new`, and
   `session/load` can buffer updates because its ID is known in advance.
   The flush runs on a 200ms timer, but an inbound request naming the
   session opens the gate immediately.

@@ -344,7 +344,7 @@ pub(super) fn open_gate_now(
     advertise_and_flush(gate, session_id, cx);
 }
 
-/// Claim the open for `session_id`, then advertise `/install` and replay
+/// Claim the open for `session_id`, then advertise host commands and replay
 /// whatever the gate held. Does nothing if another caller already
 /// claimed it.
 fn advertise_and_flush(gate: &Arc<NotificationGate>, session_id: &str, cx: &ConnectionTo<Client>) {
@@ -354,13 +354,13 @@ fn advertise_and_flush(gate: &Arc<NotificationGate>, session_id: &str, cx: &Conn
     let Some(held) = gate.open_session(session_id) else {
         return;
     };
-    // Only advertise the host command if no guest command owns its name.
-    if gate.host_install_available(session_id)
-        && let Some(notif) = translate::synthetic_install_command_update(session_id)
-    {
-        tracing::info!(session = %session_id, "→ wire: synthetic /install advertisement");
+    if let Some(notif) = translate::synthetic_host_commands_update(
+        session_id,
+        gate.host_install_available(session_id),
+    ) {
+        tracing::info!(session = %session_id, "→ wire: synthetic host command advertisement");
         if let Err(e) = cx.send_notification(notif) {
-            tracing::warn!(error = ?e, "failed to send /install advertisement");
+            tracing::warn!(error = ?e, "failed to send host command advertisement");
         }
     }
     for notif in held {
@@ -529,10 +529,14 @@ pub(super) fn handle_prompt(
         .map(translate::content_block_schema_to_wit)
         .collect::<Result<_, _>>()?;
 
+    if parse_version_command(&req.prompt) {
+        return handle_version_command(factory.build_info(), session_key, operation, responder, cx);
+    }
+
     // Host-side `/install <wit-name>` interception. Runs entirely in
     // the host (not in the wasm chain) because the package manager
     // can't reach the OCI registry from inside the sandbox in this
-    // design. On match we stream progress as agent message chunks and
+    // design. On match we stream progress as a tool call and
     // resolve the prompt with `stop_reason = end_turn`.
     if let Some(arg) = host_install_arg(gate, &session_key, &req.prompt) {
         return handle_install_command(factory.clone(), session_key, arg, responder, cx);
@@ -646,6 +650,41 @@ fn warn_if_unlikely_workspace(cwd: &std::path::Path) {
 // `/install` host-side slash command
 // -----------------------------------------------------------------------------
 
+fn parse_version_command(prompt: &[schema::ContentBlock]) -> bool {
+    prompt.iter().find_map(|block| match block {
+        schema::ContentBlock::Text(text) => Some(text.text.trim()),
+        _ => None,
+    }) == Some("/version")
+}
+
+fn handle_version_command(
+    build_info: crate::BuildInfo,
+    session_key: String,
+    operation: tokio::sync::OwnedMutexGuard<()>,
+    responder: Responder<schema::PromptResponse>,
+    cx: ConnectionTo<Client>,
+) -> Result<(), AcpError> {
+    cx.clone().spawn(async move {
+        let _operation = operation;
+        let chunk = schema::ContentChunk::new(schema::ContentBlock::Text(
+            schema::TextContent::new(build_info.version_message()),
+        ));
+        let notification = schema::SessionNotification::new(
+            schema::SessionId::from(session_key),
+            schema::SessionUpdate::AgentMessageChunk(chunk),
+        );
+        if let Err(e) = cx.send_notification(notification) {
+            tracing::warn!(error = ?e, "failed to send /version message");
+        }
+        let resp = match translate::host_command_response() {
+            Ok(r) => r,
+            Err(e) => return responder.respond_with_error(e),
+        };
+        responder.respond(resp)
+    })?;
+    Ok(())
+}
+
 /// Parse `/install <wit-name>` out of the prompt's first text block.
 /// Returns the trimmed argument on a match, `None` otherwise. We don't
 /// attempt to handle commands embedded mid-prompt — the editor sends
@@ -747,7 +786,7 @@ fn handle_install_command(
             }
         }
 
-        let resp = match translate::install_command_response() {
+        let resp = match translate::host_command_response() {
             Ok(r) => r,
             Err(e) => return responder.respond_with_error(e),
         };
