@@ -101,6 +101,87 @@ fn routing(accessor: &Accessor<impl Send, HasSelf<HostState>>) -> Routing {
     })
 }
 
+pub(crate) async fn notify_session<T: Send>(
+    accessor: &Accessor<T, HasSelf<HostState>>,
+    session_id: SessionId,
+    update: SessionUpdate,
+) {
+    match routing(accessor) {
+        Routing::Outbound(outbound) => {
+            let session_id = accessor
+                .with(|mut a| a.get().editor_session_id.clone())
+                .unwrap_or(session_id);
+            let guest_install = translate::guest_advertises_install(&update);
+            let Some(notif) = translate::session_update_wit_to_schema(session_id, update) else {
+                return;
+            };
+            let (ack_tx, ack_rx) = tokio::sync::oneshot::channel();
+            if outbound
+                .send(OutboundEvent::SessionUpdate(notif, guest_install, ack_tx))
+                .await
+                .is_err()
+            {
+                return;
+            }
+            let _ = ack_rx.await;
+        }
+        Routing::Upstream { idx, bindings } => {
+            let res = spawn_upstream(accessor, idx, "notify-session", |reply| NotifySessionTask {
+                bindings,
+                session_id,
+                update,
+                reply,
+                _t: PhantomData,
+            })
+            .await;
+            if let Err(trap) = res {
+                tracing::warn!(error = %trap, "upstream `client.notify-session` trapped");
+            }
+        }
+    }
+}
+
+pub(crate) async fn request_permission<T: Send>(
+    accessor: &Accessor<T, HasSelf<HostState>>,
+    req: RequestPermissionRequest,
+) -> Result<RequestPermissionResponse, Error> {
+    match routing(accessor) {
+        Routing::Outbound(outbound) => {
+            let Some(schema_req) = translate::request_permission_request_wit_to_schema(req) else {
+                return Err(translate::internal_error(
+                    "request-permission: could not translate request",
+                ));
+            };
+            let resp = send_and_await(
+                &outbound,
+                |tx| OutboundEvent::RequestPermission(schema_req, tx),
+                "session/request_permission",
+                None,
+            )
+            .await?;
+            Ok(translate::request_permission_response_schema_to_wit(resp))
+        }
+        Routing::Upstream { idx, bindings } => {
+            let res = spawn_upstream(accessor, idx, "request-permission", |reply| {
+                RequestPermissionTask {
+                    bindings,
+                    req,
+                    reply,
+                    _t: PhantomData,
+                }
+            })
+            .await;
+            match res {
+                Ok(Ok(response)) => Ok(response),
+                Ok(Err(error)) => Err(error),
+                Err(trap) => Err(translate::internal_error(&format!(
+                    "upstream `client.request-permission` trapped: {trap:#}"
+                ))),
+            }
+        }
+    }
+}
+
 fn flatten_trap<T>(
     method: &'static str,
     res: wasmtime::Result<Result<T, Error>>,
@@ -261,101 +342,21 @@ impl<T: Send + 'static> AccessorTask<T, HasSelf<HostState>> for WriteTextFileTas
 impl client::Host for HostState {}
 
 impl<T: Send> client::HostWithStore<T> for HasSelf<HostState> {
+    #[allow(clippy::manual_async_fn)]
     fn notify_session(
         accessor: &Accessor<T, Self>,
         session_id: SessionId,
         update: SessionUpdate,
     ) -> impl ::core::future::Future<Output = ()> + Send {
-        let route = routing(accessor);
-        async move {
-            match route {
-                Routing::Outbound(outbound) => {
-                    // Multi-provider groups stamp a single editor-facing id on
-                    // every chain's updates; fall back to the guest id (the
-                    // single-provider passthrough) when unset.
-                    let session_id = accessor
-                        .with(|mut a| a.get().editor_session_id.clone())
-                        .unwrap_or(session_id);
-                    let guest_install = translate::guest_advertises_install(&update);
-                    let Some(notif) = translate::session_update_wit_to_schema(session_id, update)
-                    else {
-                        return;
-                    };
-                    let (ack_tx, ack_rx) = tokio::sync::oneshot::channel();
-                    if outbound
-                        .send(OutboundEvent::SessionUpdate(notif, guest_install, ack_tx))
-                        .await
-                        .is_err()
-                    {
-                        return;
-                    }
-
-                    let _ = ack_rx.await;
-                }
-                Routing::Upstream { idx, bindings } => {
-                    let res = spawn_upstream(accessor, idx, "notify-session", |reply| {
-                        NotifySessionTask {
-                            bindings,
-                            session_id,
-                            update,
-                            reply,
-                            _t: PhantomData,
-                        }
-                    })
-                    .await;
-                    if let Err(trap) = res {
-                        tracing::warn!(error = %trap, "upstream `client.notify-session` trapped");
-                    }
-                }
-            }
-        }
+        async move { notify_session(accessor, session_id, update).await }
     }
 
+    #[allow(clippy::manual_async_fn)]
     fn request_permission(
         accessor: &Accessor<T, Self>,
         req: RequestPermissionRequest,
     ) -> impl ::core::future::Future<Output = Result<RequestPermissionResponse, Error>> + Send {
-        let route = routing(accessor);
-        async move {
-            match route {
-                Routing::Outbound(outbound) => {
-                    let Some(schema_req) = translate::request_permission_request_wit_to_schema(req)
-                    else {
-                        return Err(translate::internal_error(
-                            "request-permission: could not translate request",
-                        ));
-                    };
-                    let resp = send_and_await(
-                        &outbound,
-                        |tx| OutboundEvent::RequestPermission(schema_req, tx),
-                        "session/request_permission",
-                        // Human approval has no fixed deadline; the reply channel
-                        // closes if the outbound bridge drops the request.
-                        None,
-                    )
-                    .await?;
-                    Ok(translate::request_permission_response_schema_to_wit(resp))
-                }
-                Routing::Upstream { idx, bindings } => {
-                    let res = spawn_upstream(accessor, idx, "request-permission", |reply| {
-                        RequestPermissionTask {
-                            bindings,
-                            req,
-                            reply,
-                            _t: PhantomData,
-                        }
-                    })
-                    .await;
-                    match res {
-                        Ok(Ok(r)) => Ok(r),
-                        Ok(Err(wit_err)) => Err(wit_err),
-                        Err(trap) => Err(translate::internal_error(&format!(
-                            "upstream `client.request-permission` trapped: {trap:#}"
-                        ))),
-                    }
-                }
-            }
-        }
+        async move { request_permission(accessor, req).await }
     }
 
     fn read_text_file(

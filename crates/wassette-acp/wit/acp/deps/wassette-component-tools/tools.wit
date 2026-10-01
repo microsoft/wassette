@@ -1,0 +1,48 @@
+package wassette:component-tools@0.1.0;
+
+interface tools {
+    record tool-descriptor {
+        handle: string,
+        name: string,
+        component-id: string,
+        export-name: string,
+        description: option<string>,
+        input-schema: string,
+        output-schema: option<string>,
+    }
+
+    record catalog {
+        generation: u64,
+        tools: list<tool-descriptor>,
+    }
+
+    variant catalog-result {
+        unchanged(u64),
+        changed(catalog),
+    }
+
+    record tool-result {
+        tool-call-id: string,
+        text: string,
+        structured: option<string>,
+    }
+
+    variant tool-error {
+        not-found(string),
+        ambiguous(list<string>),
+        stale(string),
+        invalid-arguments(string),
+        permission-denied,
+        policy-denied(string),
+        execution-failed(string),
+        unavailable(string),
+        session-not-bound,
+        busy,
+        cancelled,
+    }
+
+    list-tools: async func(known-generation: option<u64>) -> result<catalog-result, tool-error>;
+    wait-for-change: async func(after: u64) -> result<u64, tool-error>;
+    call-tool: async func(handle: string, arguments-json: string) -> result<tool-result, tool-error>;
+    call-tool-by-name: async func(name: string, arguments-json: string) -> result<tool-result, tool-error>;
+}

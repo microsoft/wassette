@@ -88,6 +88,33 @@ Host an ACP agent from a WebAssembly provider on stdio. This command may
 change or be removed; see the [ACP design](../design/acp.md) for usage and
 limitations.
 
+Use `--tool <COMPONENT_ID>` to explicitly expose an installed ordinary
+Wassette tool component to the provider. Repeat the flag to expose multiple
+components:
+
+```bash
+wassette acp \
+  --provider acp-copilot-provider \
+  --tool filesystem-rs
+```
+
+Tools are not exposed by default. The provider lists and calls them through
+the `wassette:component-tools/tools@0.1.0` guest import. Each call asks the
+editor for permission and streams ACP tool-call status updates. Layers cannot
+call ordinary tools. The provider/layers in the active chain are excluded even
+if named by `--tool`.
+
+Use `--local-components startup` to reconcile the local component drop directory
+before selecting the provider and tools, or `--local-components watch` to keep
+reconciling it while ACP runs. ACP defaults to `off`. Override the drop directory
+with `--local-component-dir <PATH>`. Local discovery installs validated
+components but does not activate providers or expose tools by itself; select
+providers explicitly and use `--tool <COMPONENT_ID>` for ordinary tools.
+
+`/install` currently installs ACP artifacts only, without activation. It does
+not install ordinary tools or resolve registry package selectors. Tool path,
+tool package and automatic local exposure flags remain unimplemented proposals.
+
 ### `wassette run`
 
 Start the Wassette MCP server with stdio transport for local development and testing. This is the recommended mode for MCP clients.

@@ -311,6 +311,9 @@ mod tests {
             next_downstream_rep: 1,
             editor_session_id: None,
             terminal_enabled: false,
+            tool_broker: None,
+            tool_decisions: Vec::new(),
+            active_tool_calls: Default::default(),
         }
     }
 

@@ -22,6 +22,7 @@ world provider {
     import agent;
     import filesystem;
     import client;
+    import wassette:component-tools/tools@0.1.0;
     import wasmcloud:secrets/store@2.1.0;
     import wasmcloud:secrets/reveal@2.1.0;
 
@@ -56,6 +57,7 @@ world layer {
     import agent;
     import filesystem;
     import client;
+    import wassette:component-tools/tools@0.1.0;
     import wasmcloud:secrets/store@2.1.0;
     import wasmcloud:secrets/reveal@2.1.0;
 

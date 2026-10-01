@@ -146,6 +146,21 @@ wassette acp --provider <PATH|URI|COMPONENT_ID>
   when no such local path exists. An installed component ID or existing path
   always takes precedence.
   Installation does not automatically select or activate a provider.
+* `--tool <COMPONENT_ID>` explicitly exposes an installed ordinary component
+  to the ACP provider. The guest imports
+  `wassette:component-tools/tools@0.1.0` to list revision-bound descriptors,
+  wait for catalog changes and invoke exact exports. Calls use the same
+  captured artifact, policy, schema and secrets as MCP. They ask the editor for
+  permission and emit `tool_call` / `tool_call_update` notifications. Tools are
+  off by default; layers and the active provider/layer components are excluded.
+* `--local-components startup|watch` enables the shared local-source reconciler
+  for ACP, with `--local-component-dir` overriding its drop directory. ACP
+  injects its engine-backed validator, which compiles ACP-shaped artifacts and
+  checks their export world, version, role and effective policy before commit.
+  This evidence does not claim imported-type or host-link validation; explicit
+  provider/layer selection still performs linking and instantiation checks.
+  Discovery is install-only and never activates a provider or exposes a tool
+  without the corresponding selector.
 * `RUST_LOG=debug` or `RUST_LOG=trace` logs full JSON-RPC payloads, including prompt text and any secrets a guest emits; enable it only when appropriate.
 
 Point an ACP-speaking editor at it the same way you would point one at
@@ -167,6 +182,13 @@ streaming the user's own text back, one word at a time, and then ends the
 turn. It uses `wit-bindgen` and nothing else — no network, no secrets —
 so the demo is reproducible offline and needs no policy (and therefore no
 `--allow-all`).
+
+With an ordinary component selected by `--tool`, prompt
+`/tool <name> <arguments-json>` to invoke it through the host permission flow.
+For example, `/tool file-exists {"path":"/some/permitted/path"}` invokes the
+selected filesystem tool under that tool's own policy. The echo fixture also
+supports `/remember-tool <name>`, `/call-saved <arguments-json>` and
+`/wait-tools` for exercising revision-bound handles and catalog updates.
 
 Add the layer to see chaining:
 
@@ -206,9 +228,11 @@ protected legacy inventory, not filename aliases.
   or deny them. The example layer's terminal exports are unfinished.
 * `authenticate` uses a throwaway component instance. Authentication stored
   only in guest memory does not persist into a session.
-* Guest-created tool-call resources are not implemented and can trap.
-  The host's `/install` notifications do not provide guest tool-call
-  lifecycle support or let ACP agents call Wassette Wasm tools.
+* Guest-created `wassette:acp/tools.tool-call` resources are not implemented
+  and can trap. Ordinary Wassette tool calls use the separate
+  `wassette:component-tools/tools` import and host-owned lifecycle updates.
+  Cancellation is soft: a non-yielding tool can retain its bounded execution
+  permit until it actually exits.
 * `initialize` omits the provider's session list/resume/close capabilities
   and authentication methods. The bridge does not support those lifecycle
   methods or stateful authentication; advertising them would mislead editors.

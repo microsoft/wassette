@@ -26,9 +26,11 @@ use wasmtime::component::ResourceTable;
 use wasmtime_wasi::{WasiCtx, WasiCtxView, WasiView};
 use wasmtime_wasi_http::WasiHttpCtx;
 use wasmtime_wasi_http::p2::{WasiHttpCtxView, WasiHttpView};
+use wassette::ToolRef;
 
 use crate::http_policy::HttpPolicyHooks;
 use crate::secrets::SecretsRegistry;
+use crate::tool_broker::{ActiveToolCalls, ToolBroker};
 use crate::{Layer, Provider};
 
 /// Events the wasm-side `client::Host` impl sends out to the bridge
@@ -130,11 +132,9 @@ pub struct HostState {
     pub downstream_sessions: std::collections::HashMap<u32, wasmtime::component::ResourceAny>,
     /// Monotonic counter for keys in [`Self::downstream_sessions`].
     pub next_downstream_rep: u32,
-    /// Editor-facing session id to stamp on **outbound** `notify-session`
-    /// updates, overriding the guest-supplied id. Set by the multi-provider
-    /// grouping layer so every provider chain's updates reach the editor
-    /// under the single group session id (see [`crate::group`]). `None`
-    /// leaves the guest id untouched — the single-provider passthrough.
+    /// Bound editor session id for outbound updates and host tool calls.
+    /// Set for every chain after session creation, including single-provider
+    /// sessions. `None` means session binding has not completed yet.
     pub editor_session_id: Option<String>,
     /// Whether the host may execute terminal (CLI) commands on behalf of
     /// the guest via the `client.terminal` resource. Driven by the
@@ -143,6 +143,11 @@ pub struct HostState {
     /// (see [`crate::group`]). When `false` the host refuses to spawn any
     /// process and surfaces that to the guest.
     pub terminal_enabled: bool,
+    /// Explicitly exposed ordinary Wassette tools.
+    pub tool_broker: Option<Arc<ToolBroker>>,
+    /// Editor permission decisions, scoped to this session and exact revision.
+    pub tool_decisions: Vec<(ToolRef, bool)>,
+    pub(crate) active_tool_calls: ActiveToolCalls,
 }
 
 impl HostState {
@@ -225,3 +230,4 @@ impl crate::wassette::acp::tools::Host for HostState {}
 impl crate::wassette::acp::prompts::Host for HostState {}
 impl crate::wassette::acp::filesystem::Host for HostState {}
 impl crate::wassette::acp::init::Host for HostState {}
+impl crate::wassette::component_tools::tools::Host for HostState {}
