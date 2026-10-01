@@ -14,7 +14,7 @@ use tokio_util::sync::CancellationToken;
 use wasmtime::component::{Accessor, HasSelf};
 use wassette::{
     CatalogGeneration, CatalogSnapshot, LifecycleManager, PreparedInvocation, ToolDescriptor,
-    ToolInvocationError, ToolRef,
+    ToolInvocationError, ToolKey, ToolRef,
 };
 
 use crate::state::{ClientSink, HostState, OutboundEvent};
@@ -207,6 +207,7 @@ struct BrokerState {
     generation: u64,
     core_generation: Option<CatalogGeneration>,
     handles: HashMap<String, ToolDescriptor>,
+    overrides: Vec<(ToolRef, bool)>,
     #[cfg(feature = "component-generation")]
     generated: HashMap<String, wassette::store::InstallReceipt>,
 }
@@ -453,8 +454,7 @@ impl ToolBroker {
             .tools
             .into_iter()
             .filter(|tool| {
-                (self.exposed.contains(tool.tool.key.component_id.as_str())
-                    || session_generated_visible(state, tool))
+                self.is_enabled(state, tool)
                     && !self.excluded.contains(tool.tool.key.component_id.as_str())
             })
             .collect();
@@ -488,6 +488,96 @@ impl ToolBroker {
                 .collect();
             state.generation = state.generation.wrapping_add(1).max(1);
         }
+    }
+
+    /// All callable ordinary exports, including currently hidden exports.
+    pub(crate) async fn tool_inventory(&self) -> Result<Vec<ToolInventoryEntry>, ToolError> {
+        let snapshot = self
+            .manager
+            .catalog()
+            .await
+            .map_err(|error| ToolError::Unavailable(error.to_string()))?;
+        let state = self.state.lock().await;
+        Ok(snapshot
+            .tools
+            .into_iter()
+            .filter(|descriptor| {
+                !self
+                    .excluded
+                    .contains(descriptor.tool.key.component_id.as_str())
+            })
+            .map(|descriptor| {
+                let enabled = self.is_enabled(&state, &descriptor);
+                ToolInventoryEntry {
+                    name: tool_display_name(&descriptor.tool.key),
+                    component_id: descriptor.tool.key.component_id.as_str().to_owned(),
+                    export_name: export_display_name(&descriptor.tool.key),
+                    normalized_name: descriptor.tool.schema["name"]
+                        .as_str()
+                        .unwrap_or_default()
+                        .to_owned(),
+                    description: descriptor.tool.schema["description"]
+                        .as_str()
+                        .unwrap_or_default()
+                        .to_owned(),
+                    enabled,
+                    reference: descriptor.reference,
+                }
+            })
+            .collect())
+    }
+
+    fn is_enabled(&self, state: &BrokerState, descriptor: &ToolDescriptor) -> bool {
+        state
+            .overrides
+            .iter()
+            .find(|(reference, _)| reference.key() == &descriptor.tool.key)
+            .map(|(reference, enabled)| *enabled && reference == &descriptor.reference)
+            .unwrap_or_else(|| {
+                self.exposed
+                    .contains(descriptor.tool.key.component_id.as_str())
+                    || session_generated_visible(state, descriptor)
+            })
+    }
+
+    /// Pin this export's current revision, or stop new admissions.
+    pub(crate) async fn set_tool_enabled(
+        &self,
+        reference: ToolRef,
+        enabled: bool,
+    ) -> Result<(), ToolError> {
+        let snapshot = self
+            .manager
+            .catalog()
+            .await
+            .map_err(|error| ToolError::Unavailable(error.to_string()))?;
+        if self
+            .excluded
+            .contains(reference.key().component_id.as_str())
+        {
+            return Err(ToolError::PolicyDenied(
+                "Chain components cannot be exposed as tools".into(),
+            ));
+        }
+        if !snapshot
+            .tools
+            .iter()
+            .any(|tool| tool.reference == reference)
+        {
+            return Err(ToolError::Stale(
+                "Tool revision changed; list tools and retry".into(),
+            ));
+        }
+        let mut state = self.state.lock().await;
+        let mut next = (**state).clone();
+        next.overrides
+            .retain(|(known, _)| known.key() != reference.key());
+        next.overrides.push((reference, enabled));
+        next.core_generation = None;
+        self.update_catalog_state(&mut next, snapshot);
+        *state = Arc::new(next);
+        self.view_changed.notify_waiters();
+        Ok(())
     }
 
     pub async fn wait_for_change(&self, after: u64) -> Result<u64, ToolError> {
@@ -850,25 +940,11 @@ fn permission_options() -> Vec<PermissionOption> {
 
 fn descriptor_to_wit(handle: &str, descriptor: &ToolDescriptor) -> WitToolDescriptor {
     let schema = &descriptor.tool.schema;
-    let export = &descriptor.tool.key.export;
     WitToolDescriptor {
         handle: handle.to_owned(),
         name: schema["name"].as_str().unwrap_or_default().to_owned(),
         component_id: descriptor.tool.key.component_id.as_str().to_owned(),
-        export_name: format!(
-            "{}{}{}",
-            export
-                .package_name
-                .as_deref()
-                .map(|package| format!("{package}/"))
-                .unwrap_or_default(),
-            export
-                .interface_name
-                .as_deref()
-                .map(|interface| format!("{interface}."))
-                .unwrap_or_default(),
-            export.function_name
-        ),
+        export_name: export_display_name(&descriptor.tool.key),
         description: schema["description"].as_str().map(str::to_owned),
         input_schema: serde_json::to_string(&schema["inputSchema"])
             .unwrap_or_else(|_| "{}".to_owned()),
@@ -877,6 +953,38 @@ fn descriptor_to_wit(handle: &str, descriptor: &ToolDescriptor) -> WitToolDescri
             .filter(|value| !value.is_null())
             .and_then(|value| serde_json::to_string(value).ok()),
     }
+}
+
+pub(crate) struct ToolInventoryEntry {
+    pub name: String,
+    pub component_id: String,
+    pub export_name: String,
+    pub normalized_name: String,
+    pub description: String,
+    pub enabled: bool,
+    pub reference: ToolRef,
+}
+
+fn export_display_name(key: &ToolKey) -> String {
+    let export = &key.export;
+    format!(
+        "{}{}{}",
+        export
+            .package_name
+            .as_deref()
+            .map(|p| format!("{p}/"))
+            .unwrap_or_default(),
+        export
+            .interface_name
+            .as_deref()
+            .map(|i| format!("{i}."))
+            .unwrap_or_default(),
+        export.function_name
+    )
+}
+
+fn tool_display_name(key: &ToolKey) -> String {
+    format!("{}/{}", key.component_id.as_str(), export_display_name(key))
 }
 
 fn map_invocation_error(error: ToolInvocationError) -> ToolError {
@@ -1040,6 +1148,14 @@ mod tests {
         assert_eq!(visible.tools.len(), 1);
         assert_eq!(visible.tools[0].component_id, "semantic:one");
         assert_ne!(visible.generation, empty.generation);
+        let selected = broker.reference(&visible.tools[0].handle).await.unwrap();
+        broker
+            .set_tool_enabled(selected.clone(), false)
+            .await
+            .unwrap();
+        assert!(broker.catalog().await.unwrap().tools.is_empty());
+        broker.set_tool_enabled(selected, true).await.unwrap();
+        let visible = broker.catalog().await.unwrap();
         install_test_tool(&manager, root.path(), "semantic:two", "second-file").await;
         assert_eq!(
             broker.catalog().await.unwrap().generation,
@@ -1065,6 +1181,43 @@ mod tests {
             broker.run_call(prepared).await,
             Err(ToolError::Stale(_))
         ));
+    }
+
+    #[tokio::test]
+    async fn session_toggle_pins_exact_export_without_changing_other_sessions() {
+        let root = tempfile::tempdir().unwrap();
+        let manager = Arc::new(
+            LifecycleManager::builder(root.path().join("store"))
+                .with_secrets_dir(root.path().join("secrets"))
+                .build()
+                .await
+                .unwrap(),
+        );
+        let broker = ToolBroker::new(manager.clone(), [], []);
+        let other = broker.session_view();
+        install_test_tool(&manager, root.path(), "semantic:one", "first-file").await;
+        let inventory = broker.tool_inventory().await.unwrap();
+        assert_eq!(inventory.len(), 1);
+        assert!(!inventory[0].enabled);
+        assert!(broker.catalog().await.unwrap().tools.is_empty());
+        broker
+            .set_tool_enabled(inventory[0].reference.clone(), true)
+            .await
+            .unwrap();
+        assert!(broker.tool_inventory().await.unwrap()[0].enabled);
+        assert_eq!(broker.catalog().await.unwrap().tools.len(), 1);
+        assert!(other.catalog().await.unwrap().tools.is_empty());
+        broker
+            .set_tool_enabled(inventory[0].reference.clone(), false)
+            .await
+            .unwrap();
+        assert!(broker.catalog().await.unwrap().tools.is_empty());
+        broker
+            .set_tool_enabled(inventory[0].reference.clone(), true)
+            .await
+            .unwrap();
+        manager.unload_component("semantic:one").await.unwrap();
+        assert!(broker.catalog().await.unwrap().tools.is_empty());
     }
 
     #[tokio::test]

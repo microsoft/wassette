@@ -225,6 +225,21 @@ locally even if the active provider advertises its own `/version`; it is never
 forwarded to the provider. While a session is busy, it follows the same
 busy-session restriction as `/install`.
 
+`/tools` and `/tools list` show a markdown table of the current session's
+ordinary component exports and available host tools, including their exposure
+status. Use `/tools enable <name>` or `/tools disable <name>` to change an
+ordinary export for this editor session; names can be the full
+`component-id/export`, a unique export, or a unique component ID. Ambiguous
+names list the exact candidates. A change takes effect on the next prompt
+turn, never mid-turn; an already-admitted call can finish after disabling.
+The initial state comes from `--tool`, remains off by default otherwise, and
+enabling does not grant file or network access or skip editor approval.
+When the Copilot provider is active, its host-owned `terminal` and
+`build_component` tools are listed if available: configure the former through
+the ACP terminal option and the latter through the operator generation profile,
+not `/tools enable`. A layered chain requires `--allow-shared-grants` to enable
+ordinary exports.
+
 With the default-off `component-generation` feature, ACP also accepts
 `--generation-config <PATH>`. The binary resolves this operator profile using
 the same CLI > `WASSETTE_GENERATION_CONFIG` > `generation_config` in `config.toml`

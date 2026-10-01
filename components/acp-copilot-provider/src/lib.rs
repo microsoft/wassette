@@ -10,6 +10,7 @@
 
 #[allow(clippy::all)]
 mod bindings;
+mod component_tools;
 mod copilot;
 mod generation;
 mod storage;
@@ -18,9 +19,13 @@ use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicU64, Ordering};
 
+use serde_json::{Value, json};
+
 use crate::bindings::exports::wassette::acp::agent::{Guest, GuestSession, Session};
+use crate::bindings::wassette::acp::client;
 use crate::bindings::wassette::acp::content::{ContentBlock, TextContent};
 use crate::bindings::wassette::acp::errors::{Error, ErrorCode};
+use crate::bindings::wassette::acp::filesystem::{ReadTextFileRequest, WriteTextFileRequest};
 use crate::bindings::wassette::acp::init::{
     AgentCapabilities, AuthenticateRequest, ImplementationInfo, InitializeRequest,
     InitializeResponse, McpCapabilities, PromptCapabilities, SessionCapabilities,
@@ -35,16 +40,11 @@ use crate::bindings::wassette::acp::sessions::{
     SessionConfigSelectOption, SessionConfigSelectOptions, SessionConfigValueId, SessionModeId,
     SessionModelId,
 };
-
-use crate::bindings::wassette::acp::client;
-use crate::bindings::wassette::acp::filesystem::{ReadTextFileRequest, WriteTextFileRequest};
 use crate::bindings::wassette::acp::terminals::CreateTerminalRequest;
 use crate::bindings::wassette::acp::tools::{
     Diff, PermissionOption, PermissionOptionKind, PermissionOutcome, RequestPermissionRequest,
     ToolCallContent, ToolCallLocation, ToolCallSnapshot, ToolCallStatus, ToolKind,
 };
-use serde_json::{json, Value};
-
 use crate::copilot::Message;
 use crate::storage::SessionState;
 
@@ -128,8 +128,10 @@ impl GuestSession for ProviderSession {
                         // reasoning levels (or none). Re-resolve so we never
                         // carry a level the model rejects.
                         let models = cached_models(&session.model);
-                        session.reasoning =
-                            resolve_reasoning(find_model(&models, &session.model), &session.reasoning);
+                        session.reasoning = resolve_reasoning(
+                            find_model(&models, &session.model),
+                            &session.reasoning,
+                        );
                     }
                     CONFIG_REASONING => {
                         // Validate against the current model's upstream
@@ -161,7 +163,7 @@ impl GuestSession for ProviderSession {
                             "on" => session.allow_all = true,
                             "off" => session.allow_all = false,
                             other => {
-                                return Err(format!("invalid allow-all value: {other} (on|off)"))
+                                return Err(format!("invalid allow-all value: {other} (on|off)"));
                             }
                         }
                     }
@@ -171,7 +173,9 @@ impl GuestSession for ProviderSession {
                         match value.as_str() {
                             "on" => session.terminal_enabled = true,
                             "off" => session.terminal_enabled = false,
-                            other => return Err(format!("invalid terminal value: {other} (on|off)")),
+                            other => {
+                                return Err(format!("invalid terminal value: {other} (on|off)"));
+                            }
                         }
                     }
                     CONFIG_GENERATION => {
@@ -185,7 +189,7 @@ impl GuestSession for ProviderSession {
                             other => {
                                 return Err(format!(
                                     "invalid component-generation value: {other} (on|off)"
-                                ))
+                                ));
                             }
                         }
                     }
@@ -315,7 +319,10 @@ fn reasoning_label(id: &str) -> String {
 }
 
 /// Locate a model by id in a listing.
-fn find_model<'a>(models: &'a [copilot::CopilotModel], id: &str) -> Option<&'a copilot::CopilotModel> {
+fn find_model<'a>(
+    models: &'a [copilot::CopilotModel],
+    id: &str,
+) -> Option<&'a copilot::CopilotModel> {
     models.iter().find(|m| m.id == id)
 }
 
@@ -430,30 +437,31 @@ fn build_config_options(
     // Thinking levels come straight from the current model's upstream
     // capabilities; omit the selector entirely for models without reasoning.
     if let Some(model) = find_model(models, current_model)
-        && !model.reasoning_efforts.is_empty() {
-            let reasoning_options = model
-                .reasoning_efforts
-                .iter()
-                .map(|id| SessionConfigSelectOption {
-                    value: id.clone(),
-                    name: reasoning_label(id),
-                    description: None,
-                })
-                .collect();
-            options.push(SessionConfigOption {
-                id: CONFIG_REASONING.to_string(),
-                name: "Thinking".to_string(),
-                description: Some(
-                    "How much reasoning effort the model applies (from the model's \
+        && !model.reasoning_efforts.is_empty()
+    {
+        let reasoning_options = model
+            .reasoning_efforts
+            .iter()
+            .map(|id| SessionConfigSelectOption {
+                value: id.clone(),
+                name: reasoning_label(id),
+                description: None,
+            })
+            .collect();
+        options.push(SessionConfigOption {
+            id: CONFIG_REASONING.to_string(),
+            name: "Thinking".to_string(),
+            description: Some(
+                "How much reasoning effort the model applies (from the model's \
                      capabilities)."
-                        .to_string(),
-                ),
-                category: Some(SessionConfigOptionCategory::ThoughtLevel),
-                current_value: current_reasoning.to_string(),
-                options: SessionConfigSelectOptions::Ungrouped(reasoning_options),
-                provided_by: component_source(),
-            });
-        }
+                    .to_string(),
+            ),
+            category: Some(SessionConfigOptionCategory::ThoughtLevel),
+            current_value: current_reasoning.to_string(),
+            options: SessionConfigSelectOptions::Ungrouped(reasoning_options),
+            provided_by: component_source(),
+        });
+    }
 
     // Auto tool approval ("allow all"). A plain on/off toggle in the
     // `permissions` category. Autopilot implies "on".
@@ -466,7 +474,9 @@ fn build_config_options(
              tool calls are approved automatically."
                 .to_string(),
         ),
-        category: Some(SessionConfigOptionCategory::Other("permissions".to_string())),
+        category: Some(SessionConfigOptionCategory::Other(
+            "permissions".to_string(),
+        )),
         current_value: if effective_allow_all { "on" } else { "off" }.to_string(),
         options: SessionConfigSelectOptions::Ungrouped(vec![
             SessionConfigSelectOption {
@@ -494,7 +504,13 @@ fn pick_current_model(models: &[copilot::CopilotModel], preferred: Option<&str>)
     preferred
         .filter(|m| has(m))
         .map(|s| s.to_string())
-        .or_else(|| if has(&default) { Some(default.clone()) } else { None })
+        .or_else(|| {
+            if has(&default) {
+                Some(default.clone())
+            } else {
+                None
+            }
+        })
         .unwrap_or_else(|| models[0].id.clone())
 }
 
@@ -686,9 +702,13 @@ impl Guest for Agent {
         let stored_allow_all = stored.as_ref().map(|s| s.allow_all).unwrap_or(false);
         let stored_used = stored.as_ref().map(|s| s.used_tokens).unwrap_or(0);
         let stored_report_cost = stored.as_ref().map(|s| s.report_cost).unwrap_or(false);
-        let (config_options, current_model, reasoning, mode) =
-            build_session_config(preferred.as_deref(), &stored_reasoning, &stored_mode, stored_allow_all)
-                .await;
+        let (config_options, current_model, reasoning, mode) = build_session_config(
+            preferred.as_deref(),
+            &stored_reasoning,
+            &stored_mode,
+            stored_allow_all,
+        )
+        .await;
         for msg in &history {
             let block = ContentBlock::Text(TextContent {
                 text: msg.content.clone(),
@@ -730,7 +750,10 @@ impl Guest for Agent {
     }
 
     async fn list_sessions(_req: ListSessionsRequest) -> Result<ListSessionsResponse, Error> {
-        Err(err(ErrorCode::MethodNotFound, "list-sessions not supported"))
+        Err(err(
+            ErrorCode::MethodNotFound,
+            "list-sessions not supported",
+        ))
     }
 
     async fn resume_session(
@@ -758,9 +781,13 @@ impl Guest for Agent {
         let stored_allow_all = stored.as_ref().map(|s| s.allow_all).unwrap_or(false);
         let stored_used = stored.as_ref().map(|s| s.used_tokens).unwrap_or(0);
         let stored_report_cost = stored.as_ref().map(|s| s.report_cost).unwrap_or(false);
-        let (config_options, current_model, reasoning, mode) =
-            build_session_config(preferred.as_deref(), &stored_reasoning, &stored_mode, stored_allow_all)
-                .await;
+        let (config_options, current_model, reasoning, mode) = build_session_config(
+            preferred.as_deref(),
+            &stored_reasoning,
+            &stored_mode,
+            stored_allow_all,
+        )
+        .await;
         SESSIONS.with(|s| {
             s.borrow_mut().insert(
                 session_id.clone(),
@@ -807,22 +834,34 @@ async fn prompt_impl(
     // active model and thinking level) to send to Copilot. New sessions can
     // land here without going through `new-session` (e.g. tests); fall back to
     // defaults. A one-time `system` message is prepended on the first prompt.
-    let (mut working, model, reasoning, cwd, mode, terminal_enabled, generation_enabled, prev_used, prev_cost, prev_report_cost) =
-        SESSIONS.with(|s| {
+    let (
+        mut working,
+        model,
+        reasoning,
+        cwd,
+        mode,
+        terminal_enabled,
+        generation_enabled,
+        prev_used,
+        prev_cost,
+        prev_report_cost,
+    ) = SESSIONS.with(|s| {
         let mut sessions = s.borrow_mut();
-        let entry = sessions.entry(session_id.clone()).or_insert_with(|| SessionState {
-            history: Vec::new(),
-            model: copilot::default_model(),
-            reasoning: String::new(),
-            mode: DEFAULT_MODE.to_string(),
-            allow_all: false,
-            terminal_enabled: false,
-            generation_enabled: false,
-            cwd: String::new(),
-            cost_aiu: 0.0,
-            used_tokens: 0,
-            report_cost: false,
-        });
+        let entry = sessions
+            .entry(session_id.clone())
+            .or_insert_with(|| SessionState {
+                history: Vec::new(),
+                model: copilot::default_model(),
+                reasoning: String::new(),
+                mode: DEFAULT_MODE.to_string(),
+                allow_all: false,
+                terminal_enabled: false,
+                generation_enabled: false,
+                cwd: String::new(),
+                cost_aiu: 0.0,
+                used_tokens: 0,
+                report_cost: false,
+            });
         if entry.history.is_empty() {
             let mut prompt = SYSTEM_PROMPT.to_string();
             if !entry.cwd.is_empty() {
@@ -899,7 +938,13 @@ async fn prompt_impl(
     // The ACP host doesn't plumb the editor's fs capabilities through to
     // the session (`initialize` runs on a throwaway instance), so the file
     // tools remain advertised and the editor may reject individual calls.
-    let tools = tool_defs(terminal_enabled, generation_enabled);
+    //
+    // Wassette's component tools come from the host's broker instead: the
+    // catalog is read at the top of every round (below), so the model only
+    // ever sees what the host currently exposes — nothing when the host
+    // exposes nothing.
+    let mut broker = component_tools::Broker::default();
+    let mut tools = None;
 
     // Agentic loop: stream a round; if the model asked for tools, surface each
     // one to the client, get permission, run it through the client fs, feed the
@@ -911,6 +956,22 @@ async fn prompt_impl(
     let mut turn_nano_aiu: u64 = 0;
     let mut saw_copilot_usage = false;
     for round in 0..MAX_ROUNDS {
+        // Re-read the broker catalog each round: the host may expose or retire
+        // tools between rounds, and it never pushes that to us.
+        let (changed, broker_error) = broker.refresh(RESERVED_TOOL_NAMES).await;
+        if changed {
+            tools = tool_defs(terminal_enabled, generation_enabled, &broker);
+        }
+        if let Some(message) = broker_error {
+            emit_update(
+                session_id.clone(),
+                SessionUpdate::AgentThoughtChunk(ContentBlock::Text(TextContent {
+                    text: format!("(wassette tools: {message})"),
+                })),
+            )
+            .await;
+        }
+
         let sid = session_id.clone();
         let outcome = copilot::chat_round(
             &model,
@@ -966,7 +1027,7 @@ async fn prompt_impl(
         ));
         let mut cancelled = false;
         for call in &outcome.tool_calls {
-            match execute_tool_call(&session_id, &cwd, call).await {
+            match execute_tool_call(&session_id, &cwd, &mut broker, call).await {
                 ToolExec::Result(text) => working.push(Message::tool_result(&call.id, text)),
                 ToolExec::Cancelled => {
                     cancelled = true;
@@ -1018,37 +1079,39 @@ async fn prompt_impl(
     // cumulative AI Units (AIU) drawn. Skip fields we can't source upstream.
     if let Some(session) = &snapshot
         && turn_used > 0
-            && let Some(size) = context_window {
-                // Report cost whenever this session has ever seen usage-based
-                // billing — even `0`, so unlimited/usage-based plans still see
-                // the meter — matching the start-of-turn emit's shape.
-                let cost = session.report_cost.then(|| UsageCost {
-                    amount: session.cost_aiu,
-                    currency: "AIU".to_string(),
-                });
-                emit_update(
-                    session_id.clone(),
-                    SessionUpdate::UsageUpdate(UsageUpdate {
-                        used: turn_used,
-                        size,
-                        cost,
-                    }),
-                )
-                .await;
-            }
+        && let Some(size) = context_window
+    {
+        // Report cost whenever this session has ever seen usage-based
+        // billing — even `0`, so unlimited/usage-based plans still see
+        // the meter — matching the start-of-turn emit's shape.
+        let cost = session.report_cost.then(|| UsageCost {
+            amount: session.cost_aiu,
+            currency: "AIU".to_string(),
+        });
+        emit_update(
+            session_id.clone(),
+            SessionUpdate::UsageUpdate(UsageUpdate {
+                used: turn_used,
+                size,
+                cost,
+            }),
+        )
+        .await;
+    }
 
     if let Some(session) = snapshot
-        && let Err(e) = storage::save(&session_id, &session) {
-            // Persistence is best-effort: a failed save shouldn't fail the
-            // prompt turn. Surface it as a thought chunk.
-            emit_update(
-                session_id.clone(),
-                SessionUpdate::AgentThoughtChunk(ContentBlock::Text(TextContent {
-                    text: format!("(failed to persist session: {e})"),
-                })),
-            )
-            .await;
-        }
+        && let Err(e) = storage::save(&session_id, &session)
+    {
+        // Persistence is best-effort: a failed save shouldn't fail the
+        // prompt turn. Surface it as a thought chunk.
+        emit_update(
+            session_id.clone(),
+            SessionUpdate::AgentThoughtChunk(ContentBlock::Text(TextContent {
+                text: format!("(failed to persist session: {e})"),
+            })),
+        )
+        .await;
+    }
 
     Ok(PromptResponse { stop_reason })
 }
@@ -1060,6 +1123,15 @@ async fn prompt_impl(
 const TOOL_READ: &str = "read_text_file";
 const TOOL_WRITE: &str = "write_text_file";
 const TOOL_TERMINAL: &str = "run_terminal_command";
+
+/// Tool names this provider owns. A broker tool may never shadow one of them,
+/// so the host's terminal and `build_component` semantics stay intact.
+const RESERVED_TOOL_NAMES: &[&str] = &[
+    TOOL_READ,
+    TOOL_WRITE,
+    TOOL_TERMINAL,
+    generation::TOOL_BUILD_COMPONENT,
+];
 
 /// Max bytes of terminal output retained. The host truncates from the start
 /// once this is exceeded, keeping the tail — where errors and summaries
@@ -1073,10 +1145,18 @@ const TERMINAL_OUTPUT_LIMIT: u64 = 32 * 1024;
 /// function routed through host component generation when the operator
 /// permits it.
 ///
+/// Every tool the host's component broker currently exposes to this session is
+/// appended as well, so the Wassette components the operator selected become
+/// ordinary functions for the model.
+///
 /// The host notifies this provider when its terminal toggle changes and when
 /// generation is available; it remains the final authority on whether a
-/// command may run or a component may be built.
-fn tool_defs(terminal_enabled: bool, generation_enabled: bool) -> Option<Value> {
+/// command may run, a component may be built, or a broker tool may run.
+fn tool_defs(
+    terminal_enabled: bool,
+    generation_enabled: bool,
+    broker: &component_tools::Broker,
+) -> Option<Value> {
     let mut tools = json!([
         {
             "type": "function",
@@ -1137,6 +1217,7 @@ fn tool_defs(terminal_enabled: bool, generation_enabled: bool) -> Option<Value> 
     if generation_enabled {
         tools.as_array_mut().unwrap().push(generation::tool_def());
     }
+    tools.as_array_mut().unwrap().extend(broker.defs().cloned());
     Some(tools)
 }
 
@@ -1326,8 +1407,23 @@ async fn request_tool_permission(session_id: &str, tool_name: &str, ui: &ToolUi)
 
 /// Surface, authorize, and run one tool call, returning the text to feed back
 /// to the model (or [`ToolExec::Cancelled`] to abort the turn).
-async fn execute_tool_call(session_id: &str, cwd: &str, call: &copilot::ToolCall) -> ToolExec {
+async fn execute_tool_call(
+    session_id: &str,
+    cwd: &str,
+    broker: &mut component_tools::Broker,
+    call: &copilot::ToolCall,
+) -> ToolExec {
     let name = call.function.name.as_str();
+
+    // Wassette component tools are routed straight back through the broker:
+    // the host prompts the user, emits this call's `tool_call` updates, and
+    // enforces the component's grants, so adding our own prompt or UI here
+    // would duplicate both.
+    if let Some(tool) = broker.find(name).cloned() {
+        let text = broker.call(&tool, &call.function.arguments).await;
+        return ToolExec::Result(text);
+    }
+
     let args: Value = serde_json::from_str(&call.function.arguments).unwrap_or(Value::Null);
     let path = resolve_path(cwd, args.get("path").and_then(Value::as_str).unwrap_or(""));
     let command = args
@@ -1398,7 +1494,8 @@ async fn execute_tool_call(session_id: &str, cwd: &str, call: &copilot::ToolCall
         }
     }
 
-    ui.update(ToolCallStatus::InProgress, Vec::new(), None).await;
+    ui.update(ToolCallStatus::InProgress, Vec::new(), None)
+        .await;
 
     match name {
         TOOL_READ => {
@@ -1572,7 +1669,8 @@ async fn build_component(ui: &ToolUi, args: &Value) -> ToolExec {
             return ToolExec::Result(message);
         }
     };
-    ui.update(ToolCallStatus::InProgress, Vec::new(), None).await;
+    ui.update(ToolCallStatus::InProgress, Vec::new(), None)
+        .await;
     let result = crate::bindings::wassette::component_generation::builder::generate(&request);
     let text = generation::describe(&result);
     let status = if result.is_ok() {
@@ -1589,3 +1687,63 @@ async fn build_component(ui: &ToolUi, args: &Value) -> ToolExec {
 }
 
 bindings::export!(Agent with_types_in bindings);
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn names(tools: &Value) -> Vec<String> {
+        tools
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|tool| tool["function"]["name"].as_str().unwrap().to_string())
+            .collect()
+    }
+
+    fn weather() -> crate::bindings::wassette::component_tools::tools::ToolDescriptor {
+        crate::bindings::wassette::component_tools::tools::ToolDescriptor {
+            handle: "h1".to_string(),
+            name: "get-weather".to_string(),
+            component_id: "local:weather".to_string(),
+            export_name: "get-weather".to_string(),
+            description: Some("forecast".to_string()),
+            input_schema: r#"{"type":"object","properties":{}}"#.to_string(),
+            output_schema: None,
+        }
+    }
+
+    #[test]
+    fn broker_tools_are_appended_without_disturbing_built_ins() {
+        let empty = component_tools::Broker::default();
+        assert_eq!(
+            names(&tool_defs(false, false, &empty).unwrap()),
+            vec![TOOL_READ, TOOL_WRITE]
+        );
+
+        let broker = component_tools::Broker::from_tools(
+            component_tools::build(vec![weather()], RESERVED_TOOL_NAMES).unwrap(),
+        );
+        assert_eq!(
+            names(&tool_defs(true, true, &broker).unwrap()),
+            vec![
+                TOOL_READ,
+                TOOL_WRITE,
+                TOOL_TERMINAL,
+                generation::TOOL_BUILD_COMPONENT,
+                "get-weather",
+            ]
+        );
+    }
+
+    #[test]
+    fn reserved_names_cover_every_built_in_tool() {
+        let all = tool_defs(true, true, &component_tools::Broker::default()).unwrap();
+        for name in names(&all) {
+            assert!(
+                RESERVED_TOOL_NAMES.contains(&name.as_str()),
+                "{name} is advertised but not reserved"
+            );
+        }
+    }
+}

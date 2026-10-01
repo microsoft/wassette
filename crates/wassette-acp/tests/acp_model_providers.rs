@@ -85,12 +85,69 @@ struct Harness {
     lines: Receiver<String>,
     stderr: Arc<Mutex<String>>,
     _xdg: tempfile::TempDir,
+    /// Local component drop directory and tool output directory, kept alive
+    /// for the harness's lifetime.
+    _scratch: Vec<tempfile::TempDir>,
     next_id: i64,
 }
 
 impl Harness {
     fn start(bin: &Path, wasm: &Path, extra: &[&str], env: &[(&str, &str)]) -> Harness {
         let xdg = tempfile::tempdir().expect("tempdir");
+        Harness::spawn(bin, wasm, extra, env, xdg, Vec::new())
+    }
+
+    /// Like [`Harness::start`], but also drops `tool` into a local component
+    /// directory the host installs at startup. The tool is installed and
+    /// *not* exposed: only `/tools enable` admits it to the session.
+    ///
+    /// Returns the harness and the directory the tool is granted write access
+    /// to, so a test can check what a routed call actually did.
+    fn start_with_local_tool(
+        bin: &Path,
+        wasm: &Path,
+        tool: &Path,
+        env: &[(&str, &str)],
+    ) -> (Harness, PathBuf) {
+        let drops = tempfile::tempdir().expect("drop dir");
+        let output = tempfile::tempdir().expect("tool output dir");
+        let output_path = output.path().canonicalize().expect("canonical output dir");
+        // Grant the tool nothing but this throwaway directory, so a routed
+        // call can be observed without touching the rest of the filesystem.
+        let policy = json!({
+            "version": "1.0",
+            "permissions": {"storage": {"allow": [
+                {"uri": format!("fs://{}", output_path.display()), "access": ["read", "write"]}
+            ]}},
+        });
+        std::fs::write(
+            drops.path().join("broker-tool.policy.yaml"),
+            serde_json::to_vec(&policy).expect("encode policy"),
+        )
+        .expect("write policy");
+        std::fs::copy(tool, drops.path().join("broker-tool.wasm")).expect("copy tool");
+
+        let xdg = tempfile::tempdir().expect("tempdir");
+        let drop_dir = drops.path().to_str().expect("utf-8 drop dir").to_owned();
+        let extra = [
+            "--allow-all",
+            "--local-component-dir",
+            &drop_dir,
+            "--local-components",
+            "startup",
+        ];
+        let harness = Harness::spawn(bin, wasm, &extra, env, xdg, vec![drops, output]);
+        (harness, output_path)
+    }
+
+    fn spawn(
+        bin: &Path,
+        wasm: &Path,
+        extra: &[&str],
+        env: &[(&str, &str)],
+        xdg: tempfile::TempDir,
+        scratch: Vec<tempfile::TempDir>,
+    ) -> Harness {
         let mut cmd = Command::new(bin);
         cmd.arg("acp").arg("--provider").arg(wasm).args(extra);
         for sub in ["data", "config", "state"] {
@@ -146,6 +203,7 @@ impl Harness {
             lines: rx,
             stderr: captured,
             _xdg: xdg,
+            _scratch: scratch,
             next_id: 0,
         }
     }
@@ -189,6 +247,78 @@ impl Harness {
             }
             notifications.push(msg);
         }
+    }
+
+    /// Read until the response to `id`, answering any permission request on
+    /// the way with `option_id`.
+    fn await_response_with_permission(&mut self, id: i64, option_id: &str) -> (Vec<Value>, Value) {
+        let mut notifications = Vec::new();
+        loop {
+            let line = match self.lines.recv_timeout(LINE_TIMEOUT) {
+                Ok(line) => line,
+                Err(error) => panic!(
+                    "waiting for response {id}: {error}; stderr:\n{}",
+                    self.stderr.lock().unwrap()
+                ),
+            };
+            let msg: Value = serde_json::from_str(&line)
+                .unwrap_or_else(|e| panic!("stdout line is not JSON ({e}): {line}"));
+            if msg.get("id").and_then(Value::as_i64) == Some(id) {
+                assert!(
+                    msg.get("error").is_none(),
+                    "request {id} failed: {}\nstderr:\n{}",
+                    msg["error"],
+                    self.stderr.lock().unwrap()
+                );
+                return (notifications, msg["result"].clone());
+            }
+            if msg["method"] == "session/request_permission" {
+                let response = json!({
+                    "jsonrpc": "2.0", "id": msg["id"],
+                    "result": {"outcome": {"outcome": "selected", "optionId": option_id}},
+                });
+                let stdin = self.stdin.as_mut().expect("stdin is open");
+                writeln!(stdin, "{response}").expect("write permission response");
+                stdin.flush().expect("flush permission response");
+            }
+            notifications.push(msg);
+        }
+    }
+
+    /// `initialize` (declaring boolean config options) → `session/new`,
+    /// returning the new session id.
+    fn open_session(&mut self) -> String {
+        let id = self.request(
+            "initialize",
+            json!({"protocolVersion": 1, "clientCapabilities": {
+                "session": {"configOptions": {"boolean": {}}}
+            }}),
+        );
+        self.await_response(id);
+        let cwd = tempfile::tempdir().expect("cwd");
+        let id = self.request("session/new", json!({"cwd": cwd.path(), "mcpServers": []}));
+        let (_, session) = self.await_response(id);
+        let session_id = session["sessionId"].as_str().expect("sessionId").to_owned();
+        // `cwd` only has to exist while the session is created.
+        drop(cwd);
+        session_id
+    }
+
+    /// Send one prompt turn and return its session updates and result.
+    fn prompt(&mut self, session_id: &str, text: &str) -> (Vec<Value>, Value) {
+        let id = self.request(
+            "session/prompt",
+            json!({"sessionId": session_id, "prompt": [{"type": "text", "text": text}]}),
+        );
+        self.await_response(id)
+    }
+
+    /// Run a host-side slash command (`/tools …`), which never reaches the
+    /// model, and return the host's reply text.
+    fn slash(&mut self, session_id: &str, command: &str) -> String {
+        let (updates, response) = self.prompt(session_id, command);
+        assert_eq!(response["stopReason"], "end_turn", "{command}: {response}");
+        agent_text(&updates)
     }
 
     /// `initialize` → `session/new` → one text prompt. Returns the prompt's
@@ -587,6 +717,22 @@ fn copilot_provider_only_advertises_terminal_when_enabled() {
         }
         let id = h.request(
             "session/prompt",
+            json!({"sessionId": session_id, "prompt": [{"type": "text", "text": "/tools list"}]}),
+        );
+        let (updates, _) = h.await_response(id);
+        let table = updates
+            .iter()
+            .filter_map(|update| update["params"]["update"]["content"]["text"].as_str())
+            .collect::<String>();
+        assert!(
+            table.contains(&format!(
+                "| `terminal` | `host` | {} |",
+                if enabled { "enabled" } else { "disabled" }
+            )),
+            "{updates:?}"
+        );
+        let id = h.request(
+            "session/prompt",
             json!({"sessionId": session_id, "prompt": [{"type": "text", "text": "hi"}]}),
         );
         let (_, response) = h.await_response(id);
@@ -864,4 +1010,345 @@ mod generation {
             "{tool_result}"
         );
     }
+}
+
+// -----------------------------------------------------------------------------
+// Component-broker exposure, end to end through the mock `/chat/completions`.
+// -----------------------------------------------------------------------------
+
+/// A scripted sequence of `/chat/completions` bodies. Each request consumes
+/// the next entry; the last one repeats, so a test only scripts the rounds it
+/// actually cares about.
+struct ChatScript(Mutex<std::collections::VecDeque<String>>);
+
+impl ChatScript {
+    fn new(bodies: impl IntoIterator<Item = String>) -> Self {
+        ChatScript(Mutex::new(bodies.into_iter().collect()))
+    }
+}
+
+impl wiremock::Respond for ChatScript {
+    fn respond(&self, _: &wiremock::Request) -> ResponseTemplate {
+        let mut bodies = self.0.lock().unwrap();
+        let body = if bodies.len() > 1 {
+            bodies.pop_front().expect("a scripted body")
+        } else {
+            bodies.front().expect("a scripted body").clone()
+        };
+        ResponseTemplate::new(200).set_body_raw(body, "text/event-stream")
+    }
+}
+
+fn sse(events: &[Value]) -> String {
+    let mut body: String = events
+        .iter()
+        .map(|event| format!("data: {event}\n\n"))
+        .collect();
+    body.push_str("data: [DONE]\n\n");
+    body
+}
+
+/// An SSE round that just answers with text.
+fn text_round(text: &str) -> String {
+    sse(&[json!({"choices": [{"delta": {"content": text}, "finish_reason": "stop"}]})])
+}
+
+/// An SSE round that asks for one tool call.
+fn tool_call_round(id: &str, name: &str, arguments: Value) -> String {
+    sse(&[json!({"choices": [{"delta": {"tool_calls": [{
+        "index": 0,
+        "id": id,
+        "type": "function",
+        "function": {"name": name, "arguments": arguments.to_string()},
+    }]}, "finish_reason": "tool_calls"}]})])
+}
+
+/// Mock the Copilot endpoints a provider needs before it can chat.
+async fn copilot_mocks(server: &MockServer, chat: ChatScript) {
+    // No editor token exchange: the provider falls back to the GitHub token.
+    Mock::given(method("GET"))
+        .and(path("/copilot_internal/v2/token"))
+        .respond_with(ResponseTemplate::new(404))
+        .mount(server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/models"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "data": [{"id": "gpt-e2e", "capabilities": {"type": "chat"}}]
+        })))
+        .mount(server)
+        .await;
+    Mock::given(method("POST"))
+        .and(path("/chat/completions"))
+        .respond_with(chat)
+        .mount(server)
+        .await;
+}
+
+/// Every `tools` entry the provider sent on its most recent chat request.
+fn last_chat_tools(rt: &tokio::runtime::Runtime, server: &MockServer) -> Vec<Value> {
+    let requests = rt.block_on(server.received_requests()).unwrap();
+    let body = &requests
+        .iter()
+        .rfind(|r| r.url.path() == "/chat/completions")
+        .expect("a chat request")
+        .body;
+    let chat: Value = serde_json::from_slice(body).expect("chat request is JSON");
+    chat["tools"].as_array().cloned().unwrap_or_default()
+}
+
+fn tool_names(tools: &[Value]) -> Vec<&str> {
+    tools
+        .iter()
+        .map(|tool| tool["function"]["name"].as_str().expect("a function name"))
+        .collect()
+}
+
+/// The provider's own tools, always present regardless of the broker.
+const BUILT_IN_TOOLS: [&str; 2] = ["read_text_file", "write_text_file"];
+
+/// `/tools enable` admits a Wassette component to the session, and the
+/// Copilot provider advertises it to the model on the *next* turn as an
+/// OpenAI-compatible function built from the component's JSON Schema.
+/// `/tools disable` withdraws it again. Nothing is advertised by default.
+#[test]
+fn copilot_provider_advertises_broker_tools_only_while_exposed() {
+    let Some((bin, wasm)) = artifacts("acp-copilot-provider", "acp_copilot_provider") else {
+        return;
+    };
+    let Some(tool) = filesystem_tool() else {
+        return;
+    };
+    let rt = tokio::runtime::Runtime::new().unwrap();
+    let server = rt.block_on(async {
+        let server = MockServer::start().await;
+        copilot_mocks(&server, ChatScript::new([text_round("ok")])).await;
+        server
+    });
+    let base_url = server.uri();
+    let token_url = format!("{base_url}/copilot_internal/v2/token");
+    let (mut h, _output) = Harness::start_with_local_tool(
+        &bin,
+        &wasm,
+        &tool,
+        &[
+            ("COPILOT_GITHUB_TOKEN", "gho_e2e_broker_tools"),
+            ("COPILOT_BASE_URL", &base_url),
+            ("COPILOT_TOKEN_URL", &token_url),
+            ("COPILOT_MODEL", "gpt-e2e"),
+        ],
+    );
+    let sid = h.open_session();
+
+    // The component is installed but not exposed, so the host offers the
+    // provider nothing and the model sees only the built-in tools.
+    let listed = h.slash(&sid, "/tools list");
+    assert!(listed.contains("| disabled |"), "{listed}");
+    h.prompt(&sid, "hi");
+    assert_eq!(
+        tool_names(&last_chat_tools(&rt, &server)),
+        BUILT_IN_TOOLS.to_vec(),
+        "a tool that is not exposed must never reach the model"
+    );
+
+    // Admit one export. The host says it takes effect on the next turn.
+    let name = exposed_export_name(&listed);
+    let enabled = h.slash(&sid, &format!("/tools enable {name}"));
+    assert!(enabled.contains("enabled for this session"), "{enabled}");
+
+    h.prompt(&sid, "hi again");
+    let tools = last_chat_tools(&rt, &server);
+    let names = tool_names(&tools);
+    assert_eq!(
+        names.len(),
+        BUILT_IN_TOOLS.len() + 1,
+        "exactly one broker tool should be added: {names:?}"
+    );
+    assert_eq!(&names[..BUILT_IN_TOOLS.len()], &BUILT_IN_TOOLS[..]);
+    let broker_tool = tools.last().expect("the broker tool");
+    assert_eq!(broker_tool["type"], "function", "{broker_tool}");
+
+    // It is advertised as a real OpenAI function: an API-safe name, a
+    // description, and an object schema with explicit properties.
+    let advertised = broker_tool["function"]["name"].as_str().unwrap();
+    assert!(
+        advertised
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-'),
+        "{advertised} is not an API-safe function name"
+    );
+    assert!(advertised.contains("write-file"), "{advertised}");
+    assert!(
+        broker_tool["function"]["description"]
+            .as_str()
+            .is_some_and(|d| !d.is_empty()),
+        "{broker_tool}"
+    );
+    let parameters = &broker_tool["function"]["parameters"];
+    assert_eq!(parameters["type"], "object", "{broker_tool}");
+    assert!(parameters["properties"].is_object(), "{broker_tool}");
+    assert!(
+        parameters["properties"]
+            .as_object()
+            .unwrap()
+            .contains_key("path"),
+        "the component's own schema should be forwarded verbatim: {parameters}"
+    );
+
+    // Withdrawing it takes the function away again on the next turn.
+    let disabled = h.slash(&sid, &format!("/tools disable {name}"));
+    assert!(disabled.contains("disabled for this session"), "{disabled}");
+    h.prompt(&sid, "and again");
+    assert_eq!(
+        tool_names(&last_chat_tools(&rt, &server)),
+        BUILT_IN_TOOLS.to_vec(),
+        "a withdrawn tool must stop being advertised"
+    );
+}
+
+/// A tool call the model makes against an exposed component is routed back
+/// through the broker: the host prompts for permission, runs the component,
+/// and the result is fed to the model as a `tool` message.
+#[test]
+fn copilot_provider_routes_broker_tool_calls_through_the_host() {
+    let Some((bin, wasm)) = artifacts("acp-copilot-provider", "acp_copilot_provider") else {
+        return;
+    };
+    let Some(tool) = filesystem_tool() else {
+        return;
+    };
+    let rt = tokio::runtime::Runtime::new().unwrap();
+    let server = rt.block_on(async {
+        let server = MockServer::start().await;
+        copilot_mocks(&server, ChatScript::new([text_round("ok")])).await;
+        server
+    });
+    let base_url = server.uri();
+    let token_url = format!("{base_url}/copilot_internal/v2/token");
+    let (mut h, output) = Harness::start_with_local_tool(
+        &bin,
+        &wasm,
+        &tool,
+        &[
+            ("COPILOT_GITHUB_TOKEN", "gho_e2e_broker_call"),
+            ("COPILOT_BASE_URL", &base_url),
+            ("COPILOT_TOKEN_URL", &token_url),
+            ("COPILOT_MODEL", "gpt-e2e"),
+        ],
+    );
+    let sid = h.open_session();
+    let listed = h.slash(&sid, "/tools list");
+    let name = exposed_export_name(&listed);
+    assert!(
+        h.slash(&sid, &format!("/tools enable {name}"))
+            .contains("enabled for this session")
+    );
+
+    // Learn the exact function name the provider advertises, then script the
+    // model to call it.
+    h.prompt(&sid, "hi");
+    let tools = last_chat_tools(&rt, &server);
+    let advertised = tools.last().expect("the broker tool")["function"]["name"]
+        .as_str()
+        .expect("a function name")
+        .to_owned();
+
+    let written = output.join("broker-routed.txt");
+    rt.block_on(async {
+        server.reset().await;
+        copilot_mocks(
+            &server,
+            ChatScript::new([
+                tool_call_round(
+                    "call-1",
+                    &advertised,
+                    json!({"path": written.to_str().unwrap(), "content": "routed"}),
+                ),
+                text_round("done"),
+            ]),
+        )
+        .await;
+    });
+
+    let id = h.request(
+        "session/prompt",
+        json!({"sessionId": sid, "prompt": [{"type": "text", "text": "write it"}]}),
+    );
+    let (updates, response) = h.await_response_with_permission(id, "allow-once");
+    assert_eq!(response["stopReason"], "end_turn", "{response}");
+
+    // The host — not the provider — asked for permission and reported the
+    // call, so the component's grants stay on its side of the boundary.
+    assert!(
+        updates
+            .iter()
+            .any(|m| m["method"] == "session/request_permission"),
+        "the host should have prompted for permission: {updates:#?}"
+    );
+    assert!(
+        !session_updates(&updates, "tool_call").is_empty(),
+        "the host should have reported the tool call: {updates:#?}"
+    );
+
+    // The component really ran, inside the only directory it was granted.
+    assert_eq!(
+        std::fs::read_to_string(&written).expect("the tool wrote its file"),
+        "routed"
+    );
+
+    // The provider fed the broker's result back as a `tool` message keyed to
+    // the model's own call id, and the model's follow-up answer reached the
+    // editor.
+    let requests = rt.block_on(server.received_requests()).unwrap();
+    let follow_up: Value = serde_json::from_slice(
+        &requests
+            .iter()
+            .rfind(|r| r.url.path() == "/chat/completions")
+            .expect("a follow-up chat request")
+            .body,
+    )
+    .unwrap();
+    let messages = follow_up["messages"].as_array().expect("messages");
+    let result = messages
+        .iter()
+        .find(|m| m["role"] == "tool")
+        .unwrap_or_else(|| panic!("no tool result was fed back: {follow_up}"));
+    assert_eq!(result["tool_call_id"], "call-1", "{result}");
+    let content = result["content"].as_str().unwrap_or_default();
+    assert!(
+        !content.is_empty() && !content.starts_with("Error:"),
+        "the broker result should be a success: {result}"
+    );
+    assert_eq!(agent_text(&updates), "done", "{updates:#?}");
+}
+
+/// Resolve the fully-qualified `write-file` export from a `/tools list` table.
+fn exposed_export_name(listed: &str) -> String {
+    listed
+        .lines()
+        .find(|line| line.contains("write-file"))
+        .unwrap_or_else(|| panic!("no write-file row in:\n{listed}"))
+        .split('`')
+        .nth(1)
+        .expect("a quoted tool name")
+        .to_owned()
+}
+
+/// The ordinary tool component the broker tests expose.
+fn filesystem_tool() -> Option<NamedFixture> {
+    let target_dir = std::env::var_os("CARGO_TARGET_DIR")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| {
+            PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../examples/filesystem-rs/target")
+        });
+    let path = target_dir.join("wasm32-wasip2/release/filesystem.wasm");
+    if path.is_file() {
+        return Some(NamedFixture::copy(&path));
+    }
+    assert!(
+        std::env::var_os("CI").is_none(),
+        "CI requires filesystem-rs; run `just build-acp-tool-fixture`"
+    );
+    eprintln!("skipping: filesystem-rs not found; run `just build-acp-tool-fixture`");
+    None
 }
