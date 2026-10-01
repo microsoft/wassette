@@ -23,6 +23,12 @@ Configuration values are merged with the following precedence (highest to lowest
 # Default: $XDG_DATA_HOME/wassette/components (~/.local/share/wassette/components)
 component_dir = "/path/to/components"
 
+# Optional local build drop directory (separate from the managed component store)
+local_component_dir = "/path/to/local-components"
+
+# Discovery for locally built components: "off", "startup", or "watch"
+local_components = "watch"
+
 # Directory where secrets are stored (API keys, credentials, etc.)
 # Default: $XDG_CONFIG_HOME/wassette/secrets (~/.config/wassette/secrets)
 secrets_dir = "/path/to/secrets"
@@ -60,6 +66,16 @@ DATABASE_URL = "postgresql://localhost/mydb"
 - **Type**: String (path)
 - **Default**: Platform-specific config directory
 - **Description**: Directory for storing sensitive data like API keys and credentials. This directory should have restricted permissions (e.g., `chmod 600`).
+
+#### `local_component_dir` and `local_components`
+
+- **Types**: Path and `"off" | "startup" | "watch"`
+- **Default directory**: Platform data directory's `wassette/local-components`
+- **Description**: Scans locally built components in a separate inbox before
+  validating and installing them in the managed store. `run` defaults to
+  `watch`; `serve` defaults to `off`. Set `local_components = "startup"` for
+  a single startup scan, or `"off"` to disable it. See
+  [Local component discovery](local-components.md).
 
 #### `bind_address`
 

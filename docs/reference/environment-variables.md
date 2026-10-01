@@ -4,6 +4,12 @@ Pass environment variables to Wassette components using shell exports or config 
 
 ## Server Configuration
 
+Set `WASSETTE_LOCAL_COMPONENT_DIR` to override the local build drop directory,
+and `WASSETTE_LOCAL_COMPONENTS` to `off`, `startup`, or `watch` to select
+discovery behavior. CLI flags take precedence over these values. See
+[Local component discovery](local-components.md) for the platform defaults and
+trust requirements.
+
 Wassette supports the following environment variables for server configuration (following the [twelve-factor app](https://12factor.net/) methodology):
 
 ### PORT

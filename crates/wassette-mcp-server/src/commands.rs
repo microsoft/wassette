@@ -107,6 +107,16 @@ pub struct Run {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub component_dir: Option<PathBuf>,
 
+    /// Directory to scan for locally built components.
+    #[arg(long)]
+    #[serde(skip)]
+    pub local_component_dir: Option<PathBuf>,
+
+    /// Local component discovery: off, startup, or watch.
+    #[arg(long, value_enum)]
+    #[serde(skip)]
+    pub local_components: Option<LocalComponentsMode>,
+
     /// Set environment variables (KEY=VALUE format). Can be specified multiple times.
     #[arg(long = "env", value_parser = crate::parse_env_var)]
     #[serde(skip)]
@@ -130,6 +140,16 @@ pub struct Serve {
     #[arg(long)]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub component_dir: Option<PathBuf>,
+
+    /// Directory to scan for locally built components.
+    #[arg(long)]
+    #[serde(skip)]
+    pub local_component_dir: Option<PathBuf>,
+
+    /// Local component discovery: off, startup, or watch.
+    #[arg(long, value_enum)]
+    #[serde(skip)]
+    pub local_components: Option<LocalComponentsMode>,
 
     #[command(flatten)]
     pub transport: HttpTransportFlags,
@@ -192,6 +212,18 @@ pub struct Serve {
     pub json_response: Option<bool>,
 }
 
+/// When to reconcile locally built components from the drop directory.
+#[derive(ValueEnum, Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum LocalComponentsMode {
+    /// Do not scan the drop directory.
+    Off,
+    /// Reconcile once at startup.
+    Startup,
+    /// Reconcile at startup and on subsequent source changes.
+    Watch,
+}
+
 /// HTTP transport options for the Serve command
 #[derive(Args, Debug, Clone, Serialize, Deserialize, Default)]
 #[group(required = false, multiple = false)]
@@ -240,6 +272,67 @@ pub enum ComponentCommands {
         #[arg(short = 'o', long = "output-format", default_value = "json")]
         output_format: OutputFormat,
     },
+    /// Reconcile locally built components from the drop directory.
+    Sync {
+        /// Override the managed component store directory.
+        #[arg(long)]
+        component_dir: Option<PathBuf>,
+        /// Override the local component drop directory.
+        #[arg(long)]
+        local_component_dir: Option<PathBuf>,
+        /// Reinstall a previously explicitly unloaded, unchanged local component.
+        #[arg(long)]
+        force: bool,
+        /// Output format for the reconciliation report.
+        #[arg(short = 'o', long = "output-format", default_value = "json")]
+        output_format: OutputFormat,
+    },
+}
+
+#[cfg(test)]
+mod local_source_tests {
+    use super::*;
+
+    #[test]
+    fn local_source_flags_parse_for_run_serve_and_sync() {
+        for command in ["run", "serve"] {
+            let args = Cli::try_parse_from([
+                "wassette",
+                command,
+                "--local-component-dir",
+                "inbox",
+                "--local-components",
+                "startup",
+            ])
+            .unwrap();
+            match args.command.unwrap() {
+                Commands::Run(cfg) => {
+                    assert_eq!(cfg.local_component_dir, Some(PathBuf::from("inbox")));
+                    assert_eq!(cfg.local_components, Some(LocalComponentsMode::Startup));
+                }
+                Commands::Serve(cfg) => {
+                    assert_eq!(cfg.local_component_dir, Some(PathBuf::from("inbox")));
+                    assert_eq!(cfg.local_components, Some(LocalComponentsMode::Startup));
+                }
+                _ => panic!("unexpected command"),
+            }
+        }
+        let args = Cli::try_parse_from([
+            "wassette",
+            "component",
+            "sync",
+            "--local-component-dir",
+            "inbox",
+            "--force",
+        ])
+        .unwrap();
+        assert!(matches!(
+            args.command,
+            Some(Commands::Component {
+                command: ComponentCommands::Sync { force: true, .. }
+            })
+        ));
+    }
 }
 
 #[derive(Subcommand, Debug)]

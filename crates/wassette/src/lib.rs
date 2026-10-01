@@ -43,6 +43,7 @@ mod inspect;
 #[cfg(test)]
 mod kind_gate_tests;
 pub mod loader;
+pub mod local_source;
 pub mod oci_multi_layer;
 mod policy_internal;
 #[cfg(test)]

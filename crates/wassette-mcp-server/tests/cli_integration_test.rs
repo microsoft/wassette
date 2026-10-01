@@ -15,6 +15,64 @@ use tokio::process::Command as AsyncCommand;
 mod common;
 use common::{build_fetch_component, build_filesystem_component};
 
+#[test(tokio::test)]
+async fn local_sync_uses_embedded_name_and_respects_explicit_unload() -> Result<()> {
+    let context = CliTestContext::new().await?;
+    let drops = context.temp_dir.path().join("local-components");
+    tokio::fs::create_dir(&drops).await?;
+    let artifact = wat::parse_str(
+        r#"(component $"local:weather"
+            (core module $m (func (export "run")))
+            (core instance $i (instantiate $m))
+            (func (export "run") (canon lift (core func $i "run")))
+        )"#,
+    )?;
+    tokio::fs::write(drops.join("not-the-id.wasm"), artifact).await?;
+    let root = drops.to_str().context("non-UTF8 test directory")?;
+
+    let sync = |force| {
+        let mut args = vec!["component", "sync", "--local-component-dir", root];
+        if force {
+            args.push("--force");
+        }
+        args
+    };
+    let (output, stderr, code) = context.run_command(&sync(false)).await?;
+    assert_eq!(code, 0, "{stderr}");
+    let report: Value = serde_json::from_str(&output)?;
+    assert_eq!(report["outcomes"][0]["status"], "installed");
+    assert_eq!(report["outcomes"][0]["component_id"], "local:weather");
+    let (output, stderr, code) = context.run_command(&["component", "list"]).await?;
+    assert_eq!(code, 0, "{stderr}");
+    let components: Value = serde_json::from_str(&output)?;
+    let local = components["components"]
+        .as_array()
+        .context("component list missing components")?
+        .iter()
+        .find(|component| component["id"] == "local:weather")
+        .context("local component absent from list")?;
+    assert!(local["owner"]["ManagedLocalSource"].is_object());
+    assert!(local["source_observation"]["artifact_sha256"].is_string());
+
+    let (_, stderr, code) = context
+        .run_command(&["component", "unload", "local:weather"])
+        .await?;
+    assert_eq!(code, 0, "{stderr}");
+    let (output, stderr, code) = context.run_command(&sync(false)).await?;
+    assert_eq!(code, 0, "{stderr}");
+    assert_eq!(
+        serde_json::from_str::<Value>(&output)?["outcomes"][0]["status"],
+        "suppressed"
+    );
+    let (output, stderr, code) = context.run_command(&sync(true)).await?;
+    assert_eq!(code, 0, "{stderr}");
+    assert_eq!(
+        serde_json::from_str::<Value>(&output)?["outcomes"][0]["status"],
+        "installed"
+    );
+    Ok(())
+}
+
 /// Helper struct for managing the test environment
 struct CliTestContext {
     #[allow(dead_code)] // Needed to keep temp directory alive

@@ -1,0 +1,57 @@
+# Local component discovery
+
+Build a WebAssembly component with an explicit **root component name**, then
+place the finished `.wasm` file in Wassette's local drop directory. `wassette
+run` scans this directory at startup and watches for subsequent changes. For
+headless deployments, `wassette serve` leaves discovery off unless enabled.
+
+```bash
+# The component must contain an authored root component name; the filename
+# is not its identity. Finish the build before moving the file into the inbox.
+mkdir -p "${XDG_DATA_HOME:-$HOME/.local/share}/wassette/local-components"
+mv ./build/weather.wasm "${XDG_DATA_HOME:-$HOME/.local/share}/wassette/local-components/weather.wasm"
+wassette component sync
+wassette run --local-components watch
+```
+
+The default drop directory is the platform data directory's
+`wassette/local-components`: `$XDG_DATA_HOME/wassette/local-components` on
+Linux and macOS (typically `~/.local/share/wassette/local-components`) and
+`%APPDATA%\wassette\local-components` on Windows. This is **not** the managed
+`wassette/components` store. Use `--local-component-dir` or
+`WASSETTE_LOCAL_COMPONENT_DIR` to choose another directory.
+
+`--local-components off|startup|watch` controls discovery. `startup` scans
+once; `watch` polls the source directory every two seconds to pick up later
+drops, including changes to symlink targets. `component sync` explicitly runs one
+pass and prints the results; `--force` retries an unchanged component that
+was explicitly unloaded. The same settings can be placed in `config.toml` as
+`local_component_dir` and `local_components`, or provided via the
+corresponding `WASSETTE_` environment variables. CLI options take precedence
+over environment variables, which take precedence over the config file.
+
+Only non-hidden `.wasm` files directly in this directory are candidates;
+subdirectories and temporary filenames are ignored. The filename is source
+location evidence, **not** the component ID. Wassette takes the ID from the
+explicit root component name in the artifact, preserving its spelling.
+Missing, duplicate, or ambiguous names are reported and do not displace an
+installed component. Build into another directory and rename into the drop
+directory when complete to avoid partially written inputs.
+
+Wassette checks ownership and write permissions on Unix before reading local
+files. Do not share the drop directory with untrusted users; Windows cannot
+enforce the same Unix ownership checks. Discovery does not run a component:
+ordinary tools are validated before installation, and permissions remain
+governed by the component policy. ACP providers and layers require an
+ACP-capable validator and are never activated by discovery. A process without
+that validator reports them as deferred rather than installing them.
+
+An explicitly loaded package does not become owned by this drop directory.
+Conflicting IDs are reported instead of replaced. Deleting a drop file cannot
+remove an installation with a different owner. An explicit unload suppresses
+automatic reinstallation of the same unchanged source; rebuilding it, changing
+its sidecar, or running `component sync --force` retries it.
+Renaming a drop file keeps its semantic component name but changes its managed
+source owner. Without an approved ownership migration, Wassette reports a
+conflict rather than inheriting the old source's grants or secrets. Resolve
+that conflict explicitly; it does not silently adopt the renamed source.
