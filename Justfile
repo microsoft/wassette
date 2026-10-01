@@ -78,6 +78,28 @@ build mode="debug":
     cargo build --workspace {{ if mode == "release" { "--release" } else { "" } }}
     cp target/{{ mode }}/wassette bin/
 
+# Opt-in helper only; this does not acquire an initrd or run a compiler VM.
+build-component-builder mode="debug":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    mode={{ quote(mode) }}
+    case "$mode" in debug|release) ;; *) echo "mode must be debug or release" >&2; exit 1 ;; esac
+    if [[ "$mode" == release ]]; then
+        cargo build -p wassette-builder --features hyperlight --release
+    else
+        cargo build -p wassette-builder --features hyperlight
+    fi
+    target_dir="$(cargo metadata --no-deps --format-version 1 | python3 -c 'import json,sys; print(json.load(sys.stdin)["target_directory"])')"
+    helper="$target_dir/$mode/wassette-builder"
+    if [[ "$(uname -s)" == Darwin ]]; then
+        codesign --force --sign - --entitlements scripts/generation-builder-entitlements.plist "$helper"
+    fi
+    printf 'Builder helper: %s\nCompute the configured helper digest after this signing step.\n' "$helper"
+
+# Build the default-off generation CLI and its separately supervised helper.
+build-component-generation mode="debug": (build-component-builder mode)
+    cargo build -p wassette-mcp-server --features component-generation {{ if mode == "release" { "--release" } else { "" } }}
+
 install mode="debug":
     #!/usr/bin/env bash
     set -e

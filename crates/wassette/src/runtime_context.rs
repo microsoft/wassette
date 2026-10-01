@@ -43,6 +43,8 @@ impl RuntimeContext {
             &mut linker,
             |h: &mut WassetteWasiState<WasiState>| WasiConfig::from(&h.inner.wasi_config_vars),
         )?;
+        #[cfg(feature = "component-generation")]
+        crate::generation::host::add_to_linker(&mut linker)?;
 
         Ok(Self {
             engine,

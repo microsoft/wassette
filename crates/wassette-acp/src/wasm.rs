@@ -201,6 +201,18 @@ impl SessionFactory {
         &self.engine
     }
 
+    pub(crate) fn close_tool_jobs(&self) {
+        self.tool_broker.workers.close();
+    }
+
+    pub(crate) async fn drain_tool_jobs(&self) -> Result<()> {
+        self.tool_broker
+            .workers
+            .shutdown()
+            .await
+            .map_err(|_| anyhow::anyhow!("ACP tool supervisor failed during shutdown"))
+    }
+
     pub async fn flush_outbound(&self) -> Result<()> {
         let (ack, wait) = tokio::sync::oneshot::channel();
         self.outbound
@@ -332,7 +344,7 @@ impl SessionFactory {
             next_downstream_rep: 1,
             editor_session_id: None,
             terminal_enabled: false,
-            tool_broker: Some(self.tool_broker.clone()),
+            tool_broker: Some(Arc::new(self.tool_broker.session_view())),
             tool_decisions: Vec::new(),
             active_tool_calls: Default::default(),
         };

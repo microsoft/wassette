@@ -107,6 +107,12 @@ pub struct Run {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub component_dir: Option<PathBuf>,
 
+    /// Trusted operator JSON profile for isolated component generation (disabled when unset).
+    #[cfg(feature = "component-generation")]
+    #[arg(long)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub generation_config: Option<PathBuf>,
+
     /// Directory to scan for locally built components.
     #[arg(long)]
     #[serde(skip)]
@@ -140,6 +146,12 @@ pub struct Serve {
     #[arg(long)]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub component_dir: Option<PathBuf>,
+
+    /// Trusted operator JSON profile for isolated component generation (disabled when unset).
+    #[cfg(feature = "component-generation")]
+    #[arg(long)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub generation_config: Option<PathBuf>,
 
     /// Directory to scan for locally built components.
     #[arg(long)]
@@ -247,6 +259,18 @@ impl From<&HttpTransportFlags> for Transport {
 
 #[derive(Subcommand, Debug)]
 pub enum ComponentCommands {
+    /// Build in an isolated helper, validate, and install using the trusted operator profile.
+    #[cfg(feature = "component-generation")]
+    Build {
+        /// Bounded generation request JSON file; never a compiler/profile path.
+        request: PathBuf,
+        /// Override the managed component store directory.
+        #[arg(long)]
+        component_dir: Option<PathBuf>,
+        /// Trusted operator JSON profile (also WASSETTE_GENERATION_CONFIG or config.toml).
+        #[arg(long)]
+        generation_config: Option<PathBuf>,
+    },
     /// Load a WebAssembly component from a file path or OCI registry.
     Load {
         /// Path to the component (file:// or oci://)
@@ -332,6 +356,59 @@ mod local_source_tests {
                 command: ComponentCommands::Sync { force: true, .. }
             })
         ));
+    }
+}
+
+#[cfg(test)]
+mod generation_tests {
+    use super::*;
+
+    #[test]
+    fn generation_cli_is_feature_gated() {
+        for command in ["run", "serve"] {
+            let args =
+                Cli::try_parse_from(["wassette", command, "--generation-config", "operator.json"]);
+            assert_eq!(args.is_ok(), cfg!(feature = "component-generation"));
+        }
+        let args = Cli::try_parse_from([
+            "wassette",
+            "component",
+            "build",
+            "request.json",
+            "--generation-config",
+            "operator.json",
+        ]);
+        assert_eq!(args.is_ok(), cfg!(feature = "component-generation"));
+    }
+
+    #[cfg(feature = "component-generation")]
+    #[test]
+    fn generation_flags_default_to_disabled_and_accept_only_operator_paths() {
+        for command in ["run", "serve"] {
+            let args = Cli::try_parse_from(["wassette", command]).unwrap();
+            match args.command.unwrap() {
+                Commands::Run(run) => assert!(run.generation_config.is_none()),
+                Commands::Serve(serve) => assert!(serve.generation_config.is_none()),
+                _ => unreachable!(),
+            }
+        }
+        assert!(Cli::try_parse_from([
+            "wassette",
+            "component",
+            "build",
+            "request.json",
+            "--allow-expose",
+        ])
+        .is_err());
+        assert!(Cli::try_parse_from([
+            "wassette",
+            "component",
+            "build",
+            "request.json",
+            "--compiler-flags",
+            "-O",
+        ])
+        .is_err());
     }
 }
 

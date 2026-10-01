@@ -82,3 +82,63 @@ or registry package selectors. There are no `--tool-path`, `--tool-package` or
 implicit exposure defaults. Committed store changes are refreshed on catalog
 listing/call resolution; idle external changes alone do not wake the guest's
 `wait-for-change`. Local watch publishes changes through the shared catalog.
+
+## Explicit component generation
+
+Build with the `component-generation` Cargo feature and pass
+`--generation-config <PATH>` to read a trusted operator profile. The profile
+selects a local, digest-pinned builder initrd and isolated helper, and independently
+enables build, install, exposure, and rebuild authority. No profile means disabled;
+guest JSON cannot choose configuration paths or grant itself authority.
+
+Providers and layers may request `wassette:component-generation/builder@0.1.0`.
+The host asks for one-call build approval before starting the VM, then install
+approval bound to the actual output hash and expected revision. Exposure has a
+third approval: `ExposeTools` changes shared-store ordinary-tool eligibility,
+while adding broker handles affects only the requesting ACP session. Existing
+per-tool invocation permissions still apply. Layered chains require the explicit
+`--allow-shared-grants` acknowledgement for generation too.
+An ordinary artifact with no callable exports can still be installed and made
+eligible in the shared store, but returns no session tool handles.
+
+Generated ACP layers are install-only, return no tool handles, and require later
+explicit selection. Neither providers nor running chain replacements are generated.
+Cancellation before commit prevents installation; cancellation after commit
+acceptance cannot roll it back. Supervised build/install work retains its permit
+until it actually finishes, including VM termination and reaping.
+Disconnect closes the shared supervisor to new jobs, cancels precommit generation,
+and awaits all admitted jobs before returning from the transport. Accepted commits
+still finish. Ordinary Wasmtime tool cancellation remains cooperative: a
+non-yielding tool can delay shutdown indefinitely; it is not hard-killed like the
+isolated builder VM.
+
+The neutral synchronous-ABI WIT is canonical at
+[`wit/component-generation`](../../wit/component-generation/builder.wit);
+the ACP dependency directory is a symbolic link, not a separately maintained copy.
+ACP uses an asynchronous host implementation of the synchronous import and
+drives its store event loop for session binding. Generation's host-managed
+permission prompts and status updates go **directly to the bound editor, not
+through upstream layers**, using the existing client transport helpers:
+Wasmtime 47 cannot re-enter an active upstream layer during a synchronous guest
+import. Layers cannot mediate or rewrite these approvals;
+ordinary tool permission routing is unchanged. Ordinary WASIp2 hosts can
+implement the same ABI without ACP engine features.
+`generation_validator` reuses ACP compilation, export and policy checks
+without starting a guest or claiming full host-link compatibility.
+Typed v3 builder failures return only sanitized guest/compiler/WIT diagnostics
+to the authorized requester, capped at 16 KiB of JSON-serialized text. Host
+error chains are not rendered, and automatic status notifications omit diagnostics.
+
+Real-VM stdio coverage is opt-in. Build the feature-enabled CLI and ACP fixtures,
+then set `WASSETTE_ACP_GENERATION_CONFIG` to a trusted local profile and run:
+
+```sh
+cargo test -p wassette-acp --features component-generation \
+  --test acp_stdio generation::real_ -- --ignored --test-threads=1
+```
+
+These tests isolate stores, secrets and builder staging; they cover phase
+denials, install-only behavior, session-local exposure, layered callers,
+disconnect cleanup and later explicit layer selection. Use an immutable signed
+helper path: Cargo can relink a helper in `target/`, invalidating its signature
+and configured digest.

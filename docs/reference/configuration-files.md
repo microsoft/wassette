@@ -29,6 +29,10 @@ local_component_dir = "/path/to/local-components"
 # Discovery for locally built components: "off", "startup", or "watch"
 local_components = "watch"
 
+# Optional trusted JSON profile; requires the component-generation feature
+# Unset by default. This is an operator path, never a model-request parameter.
+# generation_config = "/path/to/operator-generation.json"
+
 # Directory where secrets are stored (API keys, credentials, etc.)
 # Default: $XDG_CONFIG_HOME/wassette/secrets (~/.config/wassette/secrets)
 secrets_dir = "/path/to/secrets"
@@ -82,6 +86,102 @@ DATABASE_URL = "postgresql://localhost/mydb"
 - **Type**: String
 - **Default**: `127.0.0.1:9001`
 - **Description**: Bind address for Streamable HTTP. The address should be in the format `host:port`. Use `0.0.0.0` to bind to all network interfaces, or a specific IP address to bind to a particular interface. This setting is ignored when using stdio transport.
+
+#### `generation_config`
+
+- **Type**: String (path to a trusted operator JSON profile)
+- **Default**: Unset; generation is disabled
+- **Availability**: `run`, `serve`, `acp`, and `component build` in binaries built with
+  the default-off `component-generation` feature
+- **Precedence**: `--generation-config` > `WASSETTE_GENERATION_CONFIG` >
+  `generation_config` in `config.toml`
+
+The profile is bounded to 1 MiB and rejects unknown fields. It contains
+`builder` settings for the separate `wassette-builder` helper and its trusted
+digest-pinned local initrd, optional finite `limits`, and four independently
+controlled booleans, all false by default:
+
+| Profile field | Authorizes |
+| --- | --- |
+| `allow_build` | Compilation in the isolated helper |
+| `allow_install` | Committing validated output to the component store |
+| `allow_expose` | Requesting ordinary-tool exposure, separately from installation |
+| `allow_rebuild` | Replacing a generated lineage at an explicitly matched revision |
+
+**Operator profile example:** Replace both SHA-256 placeholders with the
+64-character lowercase hexadecimal digests of the provisioned files. Create the
+private staging directory before starting Wassette; it must not be the live
+component store. The example permits native CLI/MCP build-and-install only, not
+exposure, rebuild, or ordinary-Wasm caller access.
+
+```json
+{
+  "builder": {
+    "helper_path": "helper/wassette-builder",
+    "helper_sha256": "<sha256-of-provisioned-helper>",
+    "initrd_path": "images/rust-builder.initrd",
+    "initrd_sha256": "<sha256-of-provisioned-initrd>",
+    "staging_root": "staging",
+    "wit_dependencies": []
+  },
+  "allow_build": true,
+  "allow_install": true,
+  "allow_expose": false,
+  "allow_rebuild": false,
+  "callers": []
+}
+```
+
+All six `builder` fields are required. Both helper and initrd files must already
+exist; their digests are verified for each job. `wit_dependencies` contains
+**inline complete WIT package strings**, in dependency-first order, not paths,
+URLs, or registry coordinates. Use an empty list for a self-contained WIT
+world. For ACP layers, the operator must supply the pinned canonical ACP package
+and its dependency graph. At most 32 packages are accepted, and their combined
+UTF-8 bytes plus the request WIT must fit `limits.wit_bytes`. The 1 MiB
+profile-file cap also includes JSON escaping and the rest of the configuration.
+
+Omit `limits` to use the builder defaults below. If `limits` is present, supply
+all eight fields; individual fields do not have JSON defaults. Values must be
+positive and no greater than the listed ceiling.
+
+| `limits` field | Default | Ceiling |
+| --- | ---: | ---: |
+| `source_bytes` | 1048576 | 1048576 |
+| `wit_bytes` | 262144 | 262144 |
+| `wasm_bytes` | 33554432 | 33554432 |
+| `diagnostics_bytes` | 262144 | 262144 |
+| `wall_time_ms` | 120000 | 120000 |
+| `guest_scratch_mib` | 2048 | 2048 |
+| `generated_bindings_bytes` | 8388608 | 8388608 |
+| `max_parallel_jobs` | 1 | 4 |
+
+The CLI/MCP adapter independently caps encoded requests at 2 MiB, decoded
+source and WIT at 256 KiB each, and each returned diagnostic string at 16 KiB of
+JSON-encoded bytes. These transport restrictions are not builder defaults.
+Component-name and world input bounds match the builder's 512-byte and 256-byte
+allowances, respectively, and preserve exact spelling.
+`callers` defaults to an empty list of explicit revision-bound ordinary-Wasm
+grants; native CLI/MCP permission does not implicitly grant guest callers access.
+
+Relative `helper_path`, `initrd_path`, and `staging_root` values in the JSON
+profile resolve against the profile's containing directory, not the process
+working directory. The profile path itself follows normal CLI/config path
+semantics (a relative profile path is relative to the working directory).
+The request cannot override the profile, helper, image, limits, permissions or
+compiler configuration. No host compiler/Cargo fallback or OCI builder-image
+download/distribution is provided; only local initrds are supported.
+
+The combined CLI/MCP adapter requires both build and install authorization.
+Profiles permitting only builds do not advertise `build-component`.
+`--disable-builtin-tools` still disables that management tool. A requested
+`ExposeTools` intent is not authority to expose a tool; ACP layers must remain
+install-only. Generation uses the same configured lifecycle manager, clients,
+component store, secrets directory and component environment as other operations;
+those component environment settings are not compiler-environment overrides.
+
+Only trusted operators should be able to modify this file or its helper/initrd.
+MCP clients never receive a configuration-path parameter.
 
 #### `allowed_hosts`
 

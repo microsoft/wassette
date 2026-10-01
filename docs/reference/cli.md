@@ -50,6 +50,7 @@ wassette
 │   ├── load       # Load components
 │   ├── unload     # Remove components
 │   ├── list       # Show loaded components
+│   ├── build      # Opt-in isolated build and install (component-generation feature)
 │   └── sync       # Reconcile locally built components in the drop directory
 ├── inspect        # Inspect component schema (debugging)
 ├── registry       # Registry search and fetch
@@ -68,6 +69,56 @@ wassette
 ```
 
 ## Server Commands
+
+### `wassette component build` (opt-in)
+
+Available only in binaries built with the `component-generation` feature, which
+is disabled by default. A trusted operator JSON profile must also be configured:
+
+```bash
+wassette component build request.json --generation-config operator-generation.json
+wassette run --generation-config operator-generation.json
+wassette serve --generation-config operator-generation.json
+```
+
+`request.json` contains the same inline Rust/WIT request as the
+[`build-component` management tool](built-in-tools.md#build-component-opt-in).
+The command reads a file, not stdin. Its independent adapter transport limits
+are 2 MiB for encoded JSON and 256 KiB each for decoded source and WIT; these
+are not builder defaults. Escaped JSON can exceed the total cap even when
+decoded fields fit. Component names accept up to 512 UTF-8 bytes and worlds up
+to 256 bytes without changing their spelling. The configured builder may impose
+stricter source/WIT limits, including the shared request-plus-dependency WIT
+budget. `--component-dir` selects the managed store. There is no output
+path or host compiler flag: the separate `wassette-builder` executable builds
+inside Hyperlight, and the host validates captured output before installing
+through the shared component store.
+
+The profile path uses CLI > `WASSETTE_GENERATION_CONFIG` > `generation_config` in
+`config.toml` precedence. The profile is trusted operator configuration, never
+part of the request. Its required builder fields include separate helper and
+initrd SHA-256 digests, a private staging directory, and an explicit list of
+inline WIT dependencies. See the complete
+[operator profile example](configuration-files.md#generation_config).
+The profile must separately authorize building and installing.
+`ExposeTools` and rebuilding an existing generated revision require their own
+operator grants; choosing an intent does not grant permission. Installation
+defaults to `InstallOnly`. ACP layers are installed only and require explicit
+selection in a later ACP session; this command never activates or swaps layers.
+
+The JSON report contains the canonical commit/receipt, private storage key,
+provenance, opaque revision token, actual refresh result, and bounded preview
+diagnostics. A `committed-refresh-failed` report means installation is durable
+even though catalog refresh failed; do not repeat it as a new generation.
+`commit-unknown` and `committed-recovery-required` are also command failures:
+they retain the store `operation` ID and any exact observed commit receipt.
+Inspect and recover that operation before continuing. These reports never
+claim rollback or authorize retrying as a new generation.
+Interrupting the command cancels precommit work and waits for helper reaping;
+an accepted store transaction finishes rather than being aborted.
+
+Only a trusted, digest-pinned **local initrd** is supported. No builder-image
+OCI download/distribution, host compiler fallback, or Cargo execution is shipped.
 
 ### `wassette component sync`
 
@@ -115,6 +166,11 @@ providers explicitly and use `--tool <COMPONENT_ID>` for ordinary tools.
 not install ordinary tools or resolve registry package selectors. Tool path,
 tool package and automatic local exposure flags remain unimplemented proposals.
 
+With the default-off `component-generation` feature, ACP also accepts
+`--generation-config <PATH>`. The binary resolves this operator profile using
+the same CLI > `WASSETTE_GENERATION_CONFIG` > `generation_config` in `config.toml`
+precedence before ACP startup. An unset profile leaves generation disabled.
+
 ### `wassette run`
 
 Start the Wassette MCP server with stdio transport for local development and testing. This is the recommended mode for MCP clients.
@@ -132,6 +188,7 @@ wassette run --component-dir /custom/components
 - `--component-dir <PATH>`: Set component storage directory (default: `$XDG_DATA_HOME/wassette/components`)
 - `--local-component-dir <PATH>`: Local build drop directory, separate from the managed store
 - `--local-components <off|startup|watch>`: Local discovery mode (default: `watch`)
+- `--generation-config <PATH>`: Trusted operator generation profile; requires the opt-in `component-generation` feature
 - `--env <KEY=VALUE>`: Set environment variables (can be specified multiple times)
 - `--env-file <PATH>`: Load environment variables from a file
 - `--disable-builtin-tools`: Disable built-in tools (load-component, unload-component, etc.)
@@ -167,6 +224,7 @@ wassette serve --legacy-sessions=false --json-response
 - `--component-dir <PATH>`: Set component storage directory (default: `$XDG_DATA_HOME/wassette/components`)
 - `--local-component-dir <PATH>`: Local build drop directory
 - `--local-components <off|startup|watch>`: Local discovery mode (default: `off`)
+- `--generation-config <PATH>`: Trusted operator generation profile; requires the opt-in `component-generation` feature
 - `--env <KEY=VALUE>`: Set environment variables (can be specified multiple times)
 - `--env-file <PATH>`: Load environment variables from a file
 - `--disable-builtin-tools`: Disable built-in tools (load-component, unload-component, etc.)

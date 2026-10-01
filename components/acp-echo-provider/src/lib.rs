@@ -250,6 +250,20 @@ impl GuestSession for EchoSession {
                 stop_reason: StopReason::EndTurn,
             });
         }
+        if let Some(request) = said.strip_prefix("/generate ") {
+            use crate::bindings::wassette::component_generation::builder;
+            let text = match builder::generate(request) {
+                Ok(report) => format!(
+                    "generation {:?}: {} handles {:?}",
+                    report.disposition, report.report_json, report.tool_handles,
+                ),
+                Err(error) => format!("generation error: {error}"),
+            };
+            emit(&self.id, SessionUpdate::AgentMessageChunk(text_chunk(text))).await;
+            return Ok(PromptResponse {
+                stop_reason: StopReason::EndTurn,
+            });
+        }
         if said == "/tool" || said.starts_with("/tool ") {
             return call_tool(&self.id, &said).await;
         }

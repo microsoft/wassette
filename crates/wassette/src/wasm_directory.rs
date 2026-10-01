@@ -568,6 +568,7 @@ pub async fn acquire_package(
         selected_version: Some(resolved.selected_version.clone()),
         manifest_digest: Some(resolved.manifest_digest.clone()),
         immutable_uri: Some(resolved.oci_reference.clone()),
+        generation: None,
     };
     Ok((resolved, acquired))
 }

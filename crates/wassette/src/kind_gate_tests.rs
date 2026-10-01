@@ -232,6 +232,7 @@ async fn receipted_acp_artifacts_never_enter_ordinary_restore_paths() -> Result<
                     selected_version: None,
                     manifest_digest: None,
                     immutable_uri: None,
+                    generation: None,
                 },
                 owner: store::InstallOwner::Explicit,
                 intent: store::InstallIntent::InstallOnly,

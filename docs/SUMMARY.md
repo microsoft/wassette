@@ -43,3 +43,5 @@
 - [MCP Threat Model](./design/mcp-threat-model.md)
 - [Component Schemas & Structured Output](./design/component2json-structured-output.md)
 - [Experimental ACP: Running Agents as Components](./design/acp.md)
+- [Hyperlight Sandbox Review](./design/hyperagent-sandbox-review.md)
+- [Sandboxed Component Generation](./design/component-generation-sandbox.md)

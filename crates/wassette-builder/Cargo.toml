@@ -1,0 +1,39 @@
+[package]
+name = "wassette-builder"
+version.workspace = true
+edition = "2024"
+license.workspace = true
+description = "Bounded, out-of-process native Rust component compilation"
+publish = false
+autobins = false
+
+[features]
+default = []
+hyperlight = ["dep:hyperlight-unikraft", "dep:libc", "dep:base64", "dep:wit-bindgen-core", "dep:wit-bindgen-rust", "dep:proc-macro2", "dep:syn"]
+
+[[bin]]
+name = "wassette-builder"
+path = "src/bin/wassette-builder.rs"
+required-features = ["hyperlight"]
+
+[dependencies]
+anyhow.workspace = true
+serde = { workspace = true, features = ["derive"] }
+serde_json.workspace = true
+sha2 = "0.11"
+tempfile.workspace = true
+tokio = { workspace = true, features = ["sync", "rt", "macros", "time"] }
+tokio-util = { workspace = true, features = ["rt"] }
+wasm-encoder = "=0.252.0"
+wasmparser = "=0.252.0"
+base64 = { version = "0.22", optional = true }
+libc = { version = "0.2", optional = true }
+hyperlight-unikraft = { version = "=0.17.0", optional = true }
+wit-bindgen-core = { version = "=0.62.0", optional = true }
+wit-bindgen-rust = { version = "=0.62.0", default-features = false, optional = true }
+proc-macro2 = { version = "1", optional = true }
+syn = { version = "2", optional = true }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["rt-multi-thread"] }
+wit-component = { version = "=0.259.0", features = ["dummy-module"] }

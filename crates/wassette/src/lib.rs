@@ -37,6 +37,8 @@ pub mod acquisition;
 mod component_storage;
 mod config;
 mod error_display;
+#[cfg(feature = "component-generation")]
+pub mod generation;
 mod http;
 mod identity;
 mod inspect;
@@ -399,6 +401,8 @@ pub struct LifecycleManager {
     policy_manager: PolicyManager,
     secrets_manager: Arc<SecretsManager>,
     catalog_runtime: Arc<tool_catalog::CatalogRuntime>,
+    #[cfg(feature = "component-generation")]
+    generation: Arc<std::sync::OnceLock<Arc<generation::GenerationService>>>,
 }
 
 /// A representation of a loaded component instance. It contains both the base component info and a
@@ -481,6 +485,8 @@ impl LifecycleManager {
             policy_manager,
             secrets_manager,
             catalog_runtime: Arc::new(tool_catalog::CatalogRuntime::new()?),
+            #[cfg(feature = "component-generation")]
+            generation: Arc::new(std::sync::OnceLock::new()),
         })
     }
 
@@ -637,6 +643,7 @@ impl LifecycleManager {
                     selected_version: None,
                     manifest_digest: None,
                     immutable_uri: None,
+                    generation: None,
                 },
             },
             None,
@@ -1028,6 +1035,20 @@ impl LifecycleManager {
         let function_id = &descriptor.key.export;
         debug!(%component_id, ?function_id, "Starting WebAssembly component execution");
         let (state, resource_limiter) = prepared_state;
+        #[cfg(feature = "component-generation")]
+        let state = {
+            let mut state = state;
+            state.generation_caller =
+                component
+                    .revision
+                    .clone()
+                    .map(|revision| generation::GenerationCaller {
+                        manager: self.clone(),
+                        component_id: component_id.to_owned(),
+                        revision,
+                    });
+            state
+        };
 
         let mut store = Store::new(self.runtime.as_ref(), state);
 

@@ -88,11 +88,14 @@ pub async fn run(
     let gate_prompt = gate.clone();
     let gate_drain = gate.clone();
     let registry_close = registry.clone();
+    let factory_close = factory.clone();
+    let factory_transport = factory.clone();
 
-    AgentRole
+    let connection = AgentRole
         .builder()
         .name("wassette-acp")
         .on_close(async move |_cx| {
+            factory_close.close_tool_jobs();
             registry_close.clear();
             Ok(())
         })
@@ -181,13 +184,23 @@ pub async fn run(
             tokio::select! {
                 result = outbound::run_outbound_drain(cx.clone(), &mut outbound_rx, &gate_drain) => result,
                 _ = cx.incoming_closed() => {
+                    factory_transport.close_tool_jobs();
                     outbound_rx.close();
                     Ok(())
                 }
             }
         })
         .await
-        .map_err(|e| anyhow::anyhow!("acp connection error: {e:?}"))?;
+        .map_err(|e| anyhow::anyhow!("acp connection error: {e:?}"));
 
-    Ok(())
+    factory.close_tool_jobs();
+    registry.clear();
+    let drained = factory.drain_tool_jobs().await;
+    match (connection, drained) {
+        (Ok(_), drained) => drained,
+        (Err(error), Ok(())) => Err(error),
+        (Err(error), Err(drain_error)) => {
+            Err(error.context(format!("ACP worker shutdown also failed: {drain_error}")))
+        }
+    }
 }

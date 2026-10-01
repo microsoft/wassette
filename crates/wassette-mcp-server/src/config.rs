@@ -23,6 +23,28 @@ fn config_file_path() -> Result<PathBuf, anyhow::Error> {
     }
 }
 
+/// Resolve ACP's operator profile without importing the binary's server settings into ACP.
+#[cfg(feature = "component-generation")]
+pub fn resolve_generation_config(
+    cli_path: Option<&Path>,
+) -> Result<Option<PathBuf>, anyhow::Error> {
+    #[derive(Serialize, Deserialize)]
+    struct Settings {
+        #[serde(skip_serializing_if = "Option::is_none")]
+        generation_config: Option<PathBuf>,
+    }
+
+    let settings: Settings = figment::Figment::new()
+        .merge(Toml::file(config_file_path()?))
+        .merge(Env::prefixed("WASSETTE_").only(&["generation_config"]))
+        .merge(Serialized::defaults(Settings {
+            generation_config: cli_path.map(Path::to_path_buf),
+        }))
+        .extract()
+        .context("Unable to resolve component generation settings")?;
+    Ok(settings.generation_config)
+}
+
 /// Get the default component directory path based on the OS
 pub fn get_component_dir() -> Result<PathBuf, anyhow::Error> {
     let dir_strategy = etcetera::choose_base_strategy().context("Unable to get home directory")?;
@@ -121,6 +143,11 @@ pub struct Config {
     /// Directory where components are stored
     #[serde(default = "default_component_dir")]
     pub component_dir: PathBuf,
+
+    /// Trusted operator profile; a request cannot select or override this path.
+    #[cfg(feature = "component-generation")]
+    #[serde(default)]
+    pub generation_config: Option<PathBuf>,
 
     /// Directory where secrets are stored
     #[serde(default = "default_secrets_dir")]
@@ -309,6 +336,67 @@ mod tests {
 
     use super::*;
 
+    #[cfg(feature = "component-generation")]
+    #[test]
+    fn generation_profile_precedence_and_default() {
+        let dir = tempfile::tempdir_in(".").unwrap();
+        let path = dir.path().join("config.toml");
+        fs::write(&path, "generation_config = 'file-profile.json'\n").unwrap();
+        temp_env::with_vars(
+            [
+                ("WASSETTE_CONFIG_FILE", Some(path.to_str().unwrap())),
+                ("WASSETTE_GENERATION_CONFIG", Some("env-profile.json")),
+            ],
+            || {
+                for cli in [None, Some(PathBuf::from("cli-profile.json"))] {
+                    let mut run = empty_test_run_config();
+                    let mut serve = empty_test_cli_config();
+                    run.generation_config = cli.clone();
+                    serve.generation_config = cli.clone();
+                    let expected = cli
+                        .clone()
+                        .unwrap_or_else(|| PathBuf::from("env-profile.json"));
+                    assert_eq!(
+                        resolve_generation_config(cli.as_deref()).unwrap(),
+                        Some(expected.clone())
+                    );
+                    assert_eq!(
+                        Config::from_run(&run, None).unwrap().generation_config,
+                        Some(expected.clone())
+                    );
+                    assert_eq!(
+                        Config::from_serve(&serve, None).unwrap().generation_config,
+                        Some(expected)
+                    );
+                }
+            },
+        );
+        temp_env::with_vars(
+            [
+                ("WASSETTE_CONFIG_FILE", Some(path.to_str().unwrap())),
+                ("WASSETTE_GENERATION_CONFIG", None),
+            ],
+            || {
+                assert_eq!(
+                    Config::from_run(&empty_test_run_config(), None)
+                        .unwrap()
+                        .generation_config,
+                    Some(PathBuf::from("file-profile.json"))
+                );
+                assert_eq!(
+                    resolve_generation_config(None).unwrap(),
+                    Some(PathBuf::from("file-profile.json"))
+                );
+                fs::write(&path, "").unwrap();
+                assert!(Config::from_run(&empty_test_run_config(), None)
+                    .unwrap()
+                    .generation_config
+                    .is_none());
+                assert!(resolve_generation_config(None).unwrap().is_none());
+            },
+        );
+    }
+
     #[test]
     fn local_source_precedence_and_mode_validation() {
         let temp = TempDir::new().unwrap();
@@ -392,7 +480,8 @@ mod tests {
     ///
     /// `WASSETTE_*` reaches it through `Env::prefixed`, and `PORT` and
     /// `BIND_HOST` through `default_bind_address`.
-    const CONFIG_ENV_VARS: [&str; 7] = [
+    const CONFIG_ENV_VARS: [&str; 8] = [
+        "WASSETTE_GENERATION_CONFIG",
         "WASSETTE_CONFIG_FILE",
         "WASSETTE_COMPONENT_DIR",
         "WASSETTE_ALLOWED_HOSTS",
@@ -415,6 +504,8 @@ mod tests {
     #[allow(dead_code)]
     fn create_test_run_config() -> Run {
         Run {
+            #[cfg(feature = "component-generation")]
+            generation_config: None,
             component_dir: Some(PathBuf::from("/test/component/dir")),
             local_component_dir: None,
             local_components: None,
@@ -427,6 +518,8 @@ mod tests {
     #[allow(dead_code)]
     fn empty_test_run_config() -> Run {
         Run {
+            #[cfg(feature = "component-generation")]
+            generation_config: None,
             component_dir: None,
             local_component_dir: None,
             local_components: None,
@@ -438,6 +531,8 @@ mod tests {
 
     fn create_test_cli_config() -> Serve {
         Serve {
+            #[cfg(feature = "component-generation")]
+            generation_config: None,
             component_dir: Some(PathBuf::from("/test/component/dir")),
             local_component_dir: None,
             local_components: None,
@@ -456,6 +551,8 @@ mod tests {
 
     fn empty_test_cli_config() -> Serve {
         Serve {
+            #[cfg(feature = "component-generation")]
+            generation_config: None,
             component_dir: None,
             local_component_dir: None,
             local_components: None,
@@ -823,6 +920,8 @@ bind_address = "0.0.0.0:8080"
 
         // CLI provides a different bind address
         let serve_config = Serve {
+            #[cfg(feature = "component-generation")]
+            generation_config: None,
             component_dir: None,
             local_component_dir: None,
             local_components: None,
@@ -1143,6 +1242,8 @@ json_response = true
         fs::write(&config_file, toml_content).unwrap();
 
         let serve_config = Serve {
+            #[cfg(feature = "component-generation")]
+            generation_config: None,
             component_dir: None,
             local_component_dir: None,
             local_components: None,

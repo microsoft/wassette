@@ -80,6 +80,7 @@ pub fn seed_secrets(wasm_path: &Path, secrets_dir: &Path, pairs: &[(&str, &str)]
                 selected_version: None,
                 manifest_digest: None,
                 immutable_uri: None,
+                generation: None,
             },
             owner: InstallOwner::Explicit,
             intent: InstallIntent::InstallOnly,

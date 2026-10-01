@@ -619,6 +619,7 @@ impl LocalSourceService {
                     selected_version: None,
                     manifest_digest: None,
                     immutable_uri: None,
+                    generation: None,
                 },
                 owner: InstallOwner::ManagedLocalSource(owner),
                 intent,

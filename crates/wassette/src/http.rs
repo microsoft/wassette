@@ -58,6 +58,8 @@ pub struct WassetteWasiState<T> {
     pub inner: T,
 
     http_hooks: NetworkPolicyHttpHooks,
+    #[cfg(feature = "component-generation")]
+    pub(crate) generation_caller: Option<crate::generation::GenerationCaller>,
 }
 
 struct NetworkPolicyHttpHooks {
@@ -91,6 +93,8 @@ impl<T> WassetteWasiState<T> {
                 allowed_hosts: parsed_hosts,
                 last_network_denial: std::sync::Arc::new(std::sync::Mutex::new(None)),
             },
+            #[cfg(feature = "component-generation")]
+            generation_caller: None,
         })
     }
 }
