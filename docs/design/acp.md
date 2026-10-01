@@ -236,10 +236,14 @@ discovering a replacement does not switch an active chain.
 
 ## Generating components from ACP
 
-Providers and layers may import `wassette:component-generation/builder@0.1.0`
-to build, validate and install a component from Rust source and WIT. The
-Copilot provider exposes this to its model as a `build_component` tool. It is
-off unless the operator enables it:
+Component generation is a Wassette host capability, not a Copilot service.
+The host also exposes it as the opt-in
+[`build-component` MCP management tool](../reference/built-in-tools.md#build-component-opt-in).
+Any ACP provider or layer may import
+`wassette:component-generation/builder@0.1.0` to build, validate and install a
+component from Rust source and WIT; providers decide how to make that host
+capability available to their models. The Copilot provider maps it to a
+`build_component` model tool. Generation is off unless the operator enables it:
 
 1. Install a feature-enabled CLI and the signed builder helper:
 
@@ -272,11 +276,12 @@ off unless the operator enables it:
             "--generation-config", "/home/me/.config/wassette/generation.json"]
    ```
 
-The host tells Copilot sessions that generation is available only when the
-profile permits both build and install; otherwise the tool is not advertised.
-The host stays authoritative: it checks the profile on every request, asks the
-editor to approve the build, install and any exposure phase, and returns
-`disabled` when no profile is configured. A generated tool component is
+The host tells Copilot sessions to advertise their `build_component` adapter
+only when the profile permits both build and install; other ACP providers can
+use the same host import independently. The host stays authoritative: it checks
+the profile on every request, asks the editor to approve the build, install and
+any exposure phase, and returns `disabled` when no profile is configured.
+A generated tool component is
 installed but is not added to the running conversation; start a **new** ACP
 session with `--tool <component-id>` (or load it in the MCP server). A generated
 layer requires a new session with `--layer <component-id>`. The Copilot provider

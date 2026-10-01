@@ -1,8 +1,7 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT license.
 
-//! Model-facing `build_component` tool backed by the host's
-//! `wassette:component-generation/builder` import.
+//! Copilot model adapter for Wassette's host-owned component-generation import.
 //!
 //! The host advertises nothing here: it notifies this provider through an
 //! internal config option when the operator profile permits building and

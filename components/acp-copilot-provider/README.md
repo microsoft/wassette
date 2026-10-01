@@ -73,8 +73,10 @@ only while the host-owned **Terminal** toggle is On; it defaults to Off, and
 the host independently refuses terminal execution while disabled. Relative
 paths are resolved against the session `cwd`.
 
-`build_component` is advertised only when the host runs with a component
-generation profile that permits build and install (see
+Component generation is built into Wassette, not the Copilot provider; other
+ACP providers and layers can use the same host import. This provider's
+`build_component` model adapter is advertised only when the host runs with a
+component generation profile that permits build and install (see
 [Generating components from ACP](../../docs/design/acp.md#generating-components-from-acp)).
 It sends the model's Rust source and WIT to the host's
 `wassette:component-generation/builder` import; the host asks the editor to
