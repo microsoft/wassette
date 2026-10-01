@@ -57,6 +57,9 @@ pub struct GenerationConfig {
     /// Explicit opt-in to replacing an existing generated lineage.
     #[serde(default)]
     pub allow_rebuild: bool,
+    /// Retain the untrusted author's source alongside each installed revision.
+    #[serde(default = "retain_source_by_default")]
+    pub retain_source: bool,
     /// Optional revision-bound grants for ordinary Wasm callers without a UI route.
     #[serde(default)]
     pub callers: Vec<GenerationCallerGrant>,
@@ -109,8 +112,13 @@ impl GenerationConfig {
             self.allow_rebuild,
         );
         GenerationService::new(Builder::new(self.builder, self.limits)?, permissions)
+            .with_source_retention(self.retain_source)
             .with_callers(self.callers)
     }
+}
+
+fn retain_source_by_default() -> bool {
+    true
 }
 
 /// Host-issued authority; it is deliberately not deserializable from a request.
@@ -325,6 +333,7 @@ pub struct GenerationService {
     permissions: GenerationPermissions,
     validator: Option<Arc<dyn LocalValidator>>,
     callers: Vec<GenerationCallerGrant>,
+    retain_source: bool,
 }
 
 struct SelectedTarget {
@@ -344,6 +353,7 @@ pub struct PreparedGeneration {
     permissions: GenerationPermissions,
     validator: Option<Arc<dyn LocalValidator>>,
     is_rebuild: bool,
+    source: Option<BuildRequest>,
 }
 
 impl LifecycleManager {
@@ -373,12 +383,19 @@ impl GenerationService {
             permissions,
             validator: None,
             callers: Vec::new(),
+            retain_source: true,
         }
     }
 
     /// Inject the existing matching-runtime validator for ACP-layer outputs.
     pub fn with_validator(mut self, validator: Arc<dyn LocalValidator>) -> Self {
         self.validator = Some(validator);
+        self
+    }
+
+    /// Control source retention without changing the compiler profile or output.
+    pub fn with_source_retention(mut self, retain_source: bool) -> Self {
+        self.retain_source = retain_source;
         self
     }
 
@@ -432,6 +449,7 @@ impl GenerationService {
         let requested_kind = request.build.kind;
         let source_sha256 = hex::encode(Sha256::digest(request.build.source.as_bytes()));
         let wit_sha256 = hex::encode(Sha256::digest(request.build.wit.as_bytes()));
+        let source = self.retain_source.then(|| request.build.clone());
         let artifact = self.builder.build(request.build, cancel.clone()).await;
         check_cancelled(&cancel)?;
         let artifact = artifact?;
@@ -473,6 +491,7 @@ impl GenerationService {
             permissions: self.permissions,
             validator: self.validator.clone(),
             is_rebuild,
+            source,
         })
     }
 }
@@ -583,7 +602,7 @@ impl PreparedGeneration {
         let preview = self.preview;
         tokio::spawn(async move {
             let outcome = store_operation(manager.component_store(), move |store| {
-                commit_generated(&store, install, selected.expected)
+                commit_generated(&store, install, selected.expected, self.source)
             })
             .await?;
             if let Some(prepared) = prepared_runtime.filter(|_| expose_tools) {
@@ -617,10 +636,11 @@ fn commit_generated(
     store: &crate::store::ComponentStore,
     install: PreparedInstall,
     expected: ExpectedEntry,
+    source_bundle: Option<BuildRequest>,
 ) -> Result<CommitOutcome> {
     let id = install.component_id().as_str().to_owned();
     let artifact_sha256 = install.artifact_sha256().to_owned();
-    match store.commit_install(install, expected) {
+    match store.commit_generated_install(install, expected, source_bundle) {
         Ok(outcome) => Ok(outcome),
         Err(source @ StoreError::RecoveryRequired { .. }) => {
             let StoreError::RecoveryRequired { operation, .. } = &source else {

@@ -233,8 +233,16 @@ Host observations supply this evidence. An untrusted guest result file
 cannot attest which image or validator ran. Digests are neither signed
 attestations nor a confidentiality or reproducibility guarantee.
 
-Do not store source, diagnostics, credentials, secret values or their
-hashes in receipts. Keep attempt timestamps and job IDs out of
+Do not store source bodies, diagnostics, credentials, or secret values in
+receipts. Source/WIT digests remain evidence; when enabled, a separate private
+`.source.json` file contains only the accepted build request fields
+(`component_name`, `source`, `wit`, `world`, `kind`). Its digest is bound to
+the receipt and the store journals it atomically with the Wasm. Policy updates
+retain it; replacement, retirement and recovery treat it as part of the
+revision. The author controls source contents, which may include sensitive
+text: keep the component store private and use `retain_source: false` to opt out.
+Retention is a host storage policy and does not affect the builder profile
+digest or compiled output. Keep attempt timestamps and job IDs out of
 authoritative receipt equality so identical builds can remain genuine
 no-ops. Generated receipts use schema 2; existing receipts retain schema 1 and their
 original source serialization and secret bindings. Older readers reject the
