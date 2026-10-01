@@ -1,6 +1,6 @@
 # Built-in Tools
 
-Wassette comes with several built-in tools for managing components and their permissions. These tools are available immediately when you start the MCP server, unless `--disable-builtin-tools` is set. Component generation additionally requires the opt-in feature and operator configuration described below.
+Wassette comes with several built-in tools for managing components and their permissions. These tools are available immediately when you start the MCP server, unless `--disable-builtin-tools` is set. Component generation additionally requires a binary built with the `component-generation` feature and the private local builder image described below.
 
 | Tool | Description |
 |------|-------------|
@@ -23,10 +23,10 @@ Wassette comes with several built-in tools for managing components and their per
 ## build-component (opt-in)
 
 This combined native management operation builds, validates, and installs a
-component. It is listed only when the binary includes `component-generation`,
-the operator configures a generation service, and its trusted profile grants
-both `allow_build` and `allow_install`. `--disable-builtin-tools` hides it and
-rejects invocation even when a profile is configured.
+component. It is listed when the binary includes `component-generation` and the
+private builder image is available at
+`~/.local/share/wassette/builder/rust-initrd.cpio`.
+`--disable-builtin-tools` hides it and rejects invocation.
 
 **Parameters:**
 - `build` (object, required):
@@ -46,16 +46,17 @@ source/WIT caps are independent **adapter transport restrictions**, not builder
 defaults. JSON escaping can exceed the total cap even when every decoded field
 fits its byte limit. Revision tokens cannot exceed 256 bytes. The builder
 defaults to a 1 MiB source budget and a 256 KiB budget shared by request WIT and
-the operator's pinned WIT dependencies; operator-configured limits can be lower.
-No profile path, initrd, helper executable, host filesystem path, compiler flags,
-environment, source identity, or storage key can be selected in this request.
+the host's shipped WIT dependencies.
+No profile path, image path, host filesystem path, compiler flags, environment,
+source identity, or storage key can be selected in this request.
 
-The operator's profile is the permission ceiling for this native operation.
 Client approval to invoke the combined management tool is outside the server:
 there is **no second per-request approval dialog** between building and
-installing. Keep `allow_expose` and `allow_rebuild` false unless those operations
-are intended. Request intent is not a permission grant. Denied install, exposure,
-or rebuild permissions are checked before compilation.
+installing. Build, install, and exposure are authorized by default when the
+image is present; ACP separately asks the editor to approve each phase.
+Rebuild remains unavailable by default. Request
+intent is not a permission grant. Denied install, exposure, or rebuild
+permissions are checked before compilation.
 
 `InstallOnly` does not expose ordinary tools. An `AcpLayer` must use
 `InstallOnly`; its report sets `requires_selection: true` and explains that a
@@ -89,13 +90,12 @@ and `refresh: null`. Neither means the operation rolled back. Inspect and
 recover that existing store operation before continuing; do not retry it as a
 new generation or infer the outcome from an artifact hash.
 
-Request cancellation or transport closure
-cancels precommit work; jobs remain owned until helper reaping and any accepted
-transaction finish.
+Request cancellation or transport closure cancels precommit work; jobs remain
+owned until the in-process VM stops and any accepted transaction finishes.
 
-The separate `wassette-builder` helper uses a trusted digest-pinned local
-initrd only. No OCI builder-image download/distribution or host compiler/Cargo
-fallback is provided. See [generation configuration](configuration-files.md#generation_config).
+Generation uses the private local builder image; Wassette does not download or
+distribute it. There is no host compiler/Cargo fallback. For setup details, see
+[component generation](configuration-files.md#component-generation).
 
 ## load-component
 **Parameters:**

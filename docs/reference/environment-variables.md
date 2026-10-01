@@ -4,27 +4,14 @@ Pass environment variables to Wassette components using shell exports or config 
 
 ## Server Configuration
 
-### WASSETTE_GENERATION_CONFIG
-
-Selects a trusted operator JSON profile for `run`, `serve`, `acp`, and `component build`
-when the binary includes the default-off `component-generation` feature.
-
-```bash
-WASSETTE_GENERATION_CONFIG=/path/to/operator-generation.json wassette run
-```
-
-Default: unset; generation is disabled. A configured profile must separately
-authorize build, install, ordinary-tool exposure, and rebuild as needed. The
-combined `build-component` tool requires build and install permission and remains
-disabled by `--disable-builtin-tools`. This variable belongs to the host's
-configuration layer, not a model/tool request or a guest compiler environment.
-
-**Precedence:** CLI (`--generation-config`) > `WASSETTE_GENERATION_CONFIG` >
-config file (`generation_config`).
-
-Only a trusted digest-pinned local initrd is supported; no OCI builder-image
-download/distribution or host compiler/Cargo fallback is provided. See
-[generation configuration](configuration-files.md#generation_config).
+Component generation has no dedicated environment variable or profile setting.
+It is available when the binary includes the `component-generation` feature and
+the private builder image is present at
+`~/.local/share/wassette/builder/rust-initrd.cpio` (or
+`$XDG_DATA_HOME/wassette/builder/rust-initrd.cpio` when `XDG_DATA_HOME` is set).
+`just install` builds the feature-enabled CLI but does not install or download
+the image. See
+[component generation](configuration-files.md#component-generation).
 
 Set `WASSETTE_LOCAL_COMPONENT_DIR` to override the local build drop directory,
 and `WASSETTE_LOCAL_COMPONENTS` to `off`, `startup`, or `watch` to select

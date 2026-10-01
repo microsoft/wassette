@@ -3,18 +3,12 @@ name = "wassette-builder"
 version.workspace = true
 edition = "2024"
 license.workspace = true
-description = "Bounded, out-of-process native Rust component compilation"
+description = "Bounded, Hyperlight-isolated native Rust component compilation"
 publish = false
-autobins = false
 
 [features]
 default = []
 hyperlight = ["dep:hyperlight-unikraft", "dep:libc", "dep:base64", "dep:wit-bindgen-core", "dep:wit-bindgen-rust", "dep:proc-macro2", "dep:syn"]
-
-[[bin]]
-name = "wassette-builder"
-path = "src/bin/wassette-builder.rs"
-required-features = ["hyperlight"]
 
 [dependencies]
 anyhow.workspace = true

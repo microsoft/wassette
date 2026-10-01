@@ -85,10 +85,8 @@ just install release
 `just install` installs the debug `wassette` binary with `cargo install`, which
 reuses the workspace's normal debug artifacts during development. Use `just
 install release` only when an optimized host binary is needed. Both forms build
-with `component-generation` and install the `wassette-builder` helper beside
-the binary (signed on macOS). On unsupported host platforms, the recipe prints
-a warning and installs without generation. If the helper build fails on a
-supported platform, use `just install-no-generation [debug|release]` to opt out.
+with `component-generation`. On unsupported host platforms, the recipe prints
+a warning and installs without generation.
 Both install recipes build the ACP providers and layers and the default
 `wassette:file-search` tool under
 `components/`, link the finalized components
@@ -99,9 +97,13 @@ are not prerequisites. Cargo chooses the user install root using its normal
 `--root` / `CARGO_INSTALL_ROOT` / Cargo config / `CARGO_HOME` precedence; the
 common default executable is `~/.cargo/bin/wassette`.
 
-The helper is not a builder image: installation never acquires an initrd or
-enables generation at runtime. Create an operator profile and start ACP with
-`--generation-config <profile>` to enable it. See
+To use component generation, manually place the private builder image at
+`~/.local/share/wassette/builder/rust-initrd.cpio` (or
+`$XDG_DATA_HOME/wassette/builder/rust-initrd.cpio` when `XDG_DATA_HOME` is set).
+`just install` does not download or install the image. No JSON profile or
+`--generation-config` option is required. Build, install, and requested tool
+exposure are authorized by default; ACP still requires editor approval for
+each phase. Rebuild remains disabled by default. See
 [Generating components from ACP](../design/acp.md#generating-components-from-acp).
 
 ### Declaring first-party component names

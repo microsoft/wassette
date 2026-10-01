@@ -1204,7 +1204,7 @@ fn generated_options(lineage: &str) -> InstallOptions {
             wit_sha256: "22".repeat(32),
             wit_dependencies_sha256: "55".repeat(32),
             builder_initrd_sha256: "33".repeat(32),
-            builder_helper_sha256: "66".repeat(32),
+            builder_helper_sha256: Some("66".repeat(32)),
             builder_manifest_digest: None,
             profile: "rust-std-v1".into(),
             profile_sha256: "77".repeat(32),

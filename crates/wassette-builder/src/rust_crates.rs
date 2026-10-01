@@ -12,9 +12,12 @@ use std::path::{Component, Path, PathBuf};
 
 use anyhow::{Result, ensure};
 use serde::{Deserialize, Serialize};
+#[cfg(any(test, feature = "hyperlight"))]
 use sha2::{Digest, Sha256};
 
-use crate::{digest_hex, validate_digest};
+#[cfg(any(test, feature = "hyperlight"))]
+use crate::digest_hex;
+use crate::validate_digest;
 
 pub(crate) const MAX_CRATES: usize = 64;
 #[cfg(any(test, feature = "hyperlight"))]
@@ -234,6 +237,7 @@ pub(crate) fn driver_config(crates: &[RustCrate]) -> serde_json::Value {
 }
 
 /// Digest of every crate setting that affects compilation, excluding paths.
+#[cfg(any(test, feature = "hyperlight"))]
 pub(crate) fn digest(crates: &[RustCrate]) -> String {
     let mut hash = Sha256::new();
     let mut field = |value: &str| {

@@ -2,11 +2,13 @@
 // Licensed under the MIT license.
 
 //! Opt-in real-VM ACP tests. Build the feature-enabled binary and echo fixture,
-//! set WASSETTE_ACP_GENERATION_CONFIG to a trusted local operator profile, then
+//! set WASSETTE_ACP_GENERATION_IMAGE to a locally built builder image, then
+//! optionally set WASSETTE_ACP_TEST_BINARY to an installed, Hyperlight-entitled
+//! signed wassette binary on macOS (or sign target/debug/wassette before running).
 //! run `cargo test -p wassette-acp --features component-generation --test acp_stdio
 //! generation::real_ -- --ignored --test-threads=1`.
 
-use wassette::generation::{ComponentKind, GenerationConfig};
+use wassette::generation::ComponentKind;
 use wassette::store::{InstallIntent, SourceIdentity, StoreError};
 
 use super::*;
@@ -31,61 +33,28 @@ fn tool_request(name: &str, value: u32, intent: InstallIntent) -> Value {
     })
 }
 
-fn wit_package(directory: &Path) -> String {
-    let mut paths: Vec<_> = std::fs::read_dir(directory)
-        .unwrap()
-        .map(|entry| entry.unwrap().path())
-        .filter(|path| path.extension().is_some_and(|ext| ext == "wit"))
-        .collect();
-    paths.sort();
-    assert!(!paths.is_empty());
-    paths
-        .into_iter()
-        .enumerate()
-        .map(|(index, path)| {
-            let text = std::fs::read_to_string(path).unwrap();
-            if index == 0 {
-                text
-            } else {
-                text.split_once(';').unwrap().1.to_owned()
-            }
-        })
-        .collect::<Vec<_>>()
-        .join("\n")
+fn stage_builder_image(image: &Path, builder: &Path) {
+    let target = builder.join("rust-initrd.cpio");
+    match std::fs::hard_link(image, &target) {
+        Ok(()) => {}
+        Err(error) if error.kind() == std::io::ErrorKind::CrossesDevices => {
+            std::fs::copy(image, target).expect("copy builder image across devices");
+        }
+        Err(error) => panic!("hard-link builder image: {error}"),
+    }
 }
 
-fn start_generation(
-    bin: &Path,
-    provider: &Path,
-    acp_dependencies: bool,
-    selected_layer: Option<&Path>,
-) -> Harness {
-    let selected = std::env::var_os("WASSETTE_ACP_GENERATION_CONFIG")
-        .expect("set WASSETTE_ACP_GENERATION_CONFIG to a trusted, signed-helper operator profile");
-    let mut config = GenerationConfig::read(Path::new(&selected)).unwrap();
-    assert!(config.allow_build && config.allow_install && config.allow_expose);
+fn start_generation(bin: &Path, provider: &Path, selected_layer: Option<&Path>) -> Harness {
+    let image = std::env::var_os("WASSETTE_ACP_GENERATION_IMAGE")
+        .expect("set WASSETTE_ACP_GENERATION_IMAGE to a locally built builder image");
     let xdg = tempfile::tempdir_in(".").unwrap();
     let root = xdg.path().canonicalize().unwrap();
-    config.builder.staging_root = root.join("builder-staging");
-    std::fs::create_dir(&config.builder.staging_root).unwrap();
-    if acp_dependencies {
-        let wit = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("wit/acp");
-        config.builder.wit_dependencies = vec![
-            wit_package(&wit.join("deps/wasmcloud-secrets")),
-            wit_package(&wit.join("deps/wassette-component-tools")),
-            wit_package(
-                &PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../wit/component-generation"),
-            ),
-            wit_package(&wit),
-        ];
-    }
-    let profile = root.join("operator.json");
-    std::fs::write(&profile, serde_json::to_vec(&config).unwrap()).unwrap();
+    let builder = root.join("data/wassette/builder");
+    std::fs::create_dir_all(&builder).unwrap();
+    stage_builder_image(Path::new(&image), &builder);
     let components = root.join("data/wassette/components");
     let secrets = root.join("config/wassette/secrets");
     let mut args = vec![
-        std::ffi::OsString::from("--generation-config"),
-        profile.into_os_string(),
         "--component-dir".into(),
         components.into_os_string(),
         "--secrets-dir".into(),
@@ -101,6 +70,31 @@ fn start_generation(
     let mut harness = Harness::spawn(bin, provider, args, xdg, None, &[]);
     harness.line_timeout = Duration::from_secs(180);
     harness
+}
+
+#[test]
+fn staged_builder_image_is_hard_linked_without_modifying_source() {
+    let root = tempfile::tempdir_in(".").unwrap();
+    let source = root.path().join("source.cpio");
+    std::fs::write(&source, b"builder image").unwrap();
+    let builder = root.path().join("builder");
+    std::fs::create_dir(&builder).unwrap();
+
+    stage_builder_image(&source, &builder);
+
+    let staged = builder.join("rust-initrd.cpio");
+    assert_eq!(std::fs::read(&source).unwrap(), b"builder image");
+    assert_eq!(std::fs::read(&staged).unwrap(), b"builder image");
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        let original = source.metadata().unwrap();
+        let linked = staged.metadata().unwrap();
+        assert_eq!(
+            (original.dev(), original.ino()),
+            (linked.dev(), linked.ino())
+        );
+    }
 }
 
 fn await_phases(harness: &mut Harness, id: i64, decisions: &[&str]) -> (Vec<Value>, Value) {
@@ -149,10 +143,10 @@ fn assert_absent(harness: &Harness, component: &str) {
 }
 
 #[test]
-#[ignore = "requires an explicitly selected real Hyperlight helper/initrd profile"]
+#[ignore = "requires a real builder image via WASSETTE_ACP_GENERATION_IMAGE"]
 fn real_generation_permissions_store_and_session_scope() {
     let (bin, provider) = artifacts().expect("build the feature-enabled CLI and ACP echo fixture");
-    let mut h = start_generation(&bin, &provider, false, None);
+    let mut h = start_generation(&bin, &provider, None);
     let session = h.open_session();
     let rejected_name = "test:acp-generation/rejected";
     let request = tool_request(rejected_name, 40, InstallIntent::ExposeTools);
@@ -252,10 +246,10 @@ fn real_generation_permissions_store_and_session_scope() {
 }
 
 #[test]
-#[ignore = "requires an explicitly selected real Hyperlight helper/initrd profile"]
+#[ignore = "requires a real builder image via WASSETTE_ACP_GENERATION_IMAGE"]
 fn real_generated_layer_requires_explicit_selection() {
     let (bin, provider) = artifacts().expect("build the feature-enabled CLI and ACP echo fixture");
-    let mut h = start_generation(&bin, &provider, true, None);
+    let mut h = start_generation(&bin, &provider, None);
     let session = h.open_session();
     let source = std::fs::read_to_string(
         PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -322,11 +316,11 @@ fn real_generated_layer_requires_explicit_selection() {
 }
 
 #[test]
-#[ignore = "requires an explicitly selected real Hyperlight helper/initrd profile"]
+#[ignore = "requires a real builder image via WASSETTE_ACP_GENERATION_IMAGE"]
 fn real_generation_uses_bound_editor_with_an_explicit_layer() {
     let (bin, provider) = artifacts().expect("build the feature-enabled CLI and ACP echo fixture");
     let layer = uppercase_layer().expect("build the ACP uppercase layer fixture");
-    let mut h = start_generation(&bin, &provider, false, Some(&layer));
+    let mut h = start_generation(&bin, &provider, Some(&layer));
     let session = h.open_session();
     let name = "test:acp-generation/through-layer";
     let request = tool_request(name, 42, InstallIntent::ExposeTools);
@@ -341,29 +335,29 @@ fn real_generation_uses_bound_editor_with_an_explicit_layer() {
 }
 
 #[test]
-#[ignore = "requires an explicitly selected real Hyperlight helper/initrd profile"]
+#[ignore = "requires a real builder image via WASSETTE_ACP_GENERATION_IMAGE"]
 fn real_generation_disconnect_waits_for_private_job_cleanup() {
     let (bin, provider) = artifacts().expect("build the feature-enabled CLI and ACP echo fixture");
-    let mut h = start_generation(&bin, &provider, false, None);
+    let mut h = start_generation(&bin, &provider, None);
     let session = h.open_session();
     let name = "test:acp-generation/disconnected";
     let request = tool_request(name, 42, InstallIntent::InstallOnly);
     let id = h.prompt(&session, &format!("/generate {request}"));
     let permission = h.await_permission(id);
     h.respond_permission(&permission, "allow-once");
-    let staging = h._xdg.path().join("builder-staging");
+    let staging = h._xdg.path().join("data/wassette/builder/staging");
     let deadline = std::time::Instant::now() + Duration::from_secs(10);
     while std::fs::read_dir(&staging).unwrap().next().is_none() {
         assert!(
             std::time::Instant::now() < deadline,
-            "native builder did not create its private job"
+            "builder did not create its private job"
         );
         std::thread::sleep(Duration::from_millis(10));
     }
     h.close_stdin_and_wait();
     assert!(
         std::fs::read_dir(staging).unwrap().next().is_none(),
-        "transport returned before the native job finished cleanup"
+        "transport returned before the builder job finished cleanup"
     );
     assert_absent(&h, name);
 }

@@ -5,7 +5,7 @@ edition = "2021"
 license.workspace = true
 
 [features]
-component-generation = ["dep:wassette-builder", "dep:getrandom"]
+component-generation = ["dep:wassette-builder", "wassette-builder/hyperlight", "dep:getrandom"]
 # Loopback wasm.directory and OCI fixtures for downstream crate tests.
 test-fixtures = []
 

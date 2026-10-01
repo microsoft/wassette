@@ -2,7 +2,7 @@
 
 These unmodified WIT packages are the WASI 0.2.12 snapshot shipped in
 `wasmtime-wasi` 47.0.4 (`src/p2/wit/deps`), under its accompanying license.
-They are embedded only in the host helper, never guest-mounted.
+They are embedded only in the host crate, never guest-mounted.
 
 The fixed profile admits only the interfaces in `wasi:cli/imports`, at stable
 0.2.0 through 0.2.12 versions. Actual imports must be typed subsets of these

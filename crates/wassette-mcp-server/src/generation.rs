@@ -1,7 +1,7 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT license.
 
-//! Operator configuration and one-shot CLI adapter for isolated generation.
+//! Builder image discovery and one-shot CLI adapter for isolated generation.
 
 use std::path::{Path, PathBuf};
 
@@ -17,11 +17,16 @@ use crate::config::Config;
 use crate::format::{print_value, OutputFormat};
 
 /// Configure generation on the same manager used for normal server operations.
-pub fn configure(manager: &LifecycleManager, profile: Option<&Path>) -> Result<()> {
-    let Some(profile) = profile else {
+pub fn configure(manager: &LifecycleManager) -> Result<()> {
+    let Some(mut config) = GenerationConfig::discover()? else {
+        tracing::info!(
+            image = %GenerationConfig::image_path()?.display(),
+            "Component generation unavailable; install the builder image at this path"
+        );
         return Ok(());
     };
-    let service = GenerationConfig::read(profile)?
+    config.builder.wit_dependencies = wassette_acp::generation_wit_dependencies();
+    let service = config
         .into_service()?
         .with_validator(wassette_acp::generation_validator(
             manager.component_root().to_path_buf(),
@@ -29,14 +34,13 @@ pub fn configure(manager: &LifecycleManager, profile: Option<&Path>) -> Result<(
     manager.enable_generation(service)
 }
 
-/// Build and install a bounded request using only the resolved operator profile.
+/// Build and install a bounded request using the discovered builder image.
 pub async fn component_build(
     request_path: &Path,
     component_dir: Option<PathBuf>,
-    generation_config: Option<PathBuf>,
     emit_source: Option<&Path>,
 ) -> Result<()> {
-    match build(request_path, component_dir, generation_config, emit_source).await {
+    match build(request_path, component_dir, emit_source).await {
         Ok(report) => print_value(&report, OutputFormat::Json),
         Err(error) => {
             let report = if let Some(failure) = error.downcast_ref::<SourceExportFailure>() {
@@ -85,13 +89,11 @@ fn json_source_export_failure(failure: &SourceExportFailure) -> serde_json::Valu
 async fn build(
     request_path: &Path,
     component_dir: Option<PathBuf>,
-    generation_config: Option<PathBuf>,
     emit_source: Option<&Path>,
 ) -> Result<serde_json::Value> {
     let config = Config::from_run(
         &Run {
             component_dir,
-            generation_config,
             local_component_dir: None,
             local_components: None,
             env_vars: Vec::new(),
@@ -100,12 +102,14 @@ async fn build(
         },
         None,
     )?;
-    let profile = config
-        .generation_config
-        .clone()
-        .context("component build requires --generation-config, WASSETTE_GENERATION_CONFIG, or generation_config in config.toml")?;
     let manager = crate::cli_handlers::create_configured_lifecycle_manager(config).await?;
-    configure(&manager, Some(&profile))?;
+    configure(&manager)?;
+    if manager.generation_service().is_err() {
+        eprintln!(
+            "Component generation unavailable; install the builder image at {}",
+            GenerationConfig::image_path()?.display()
+        );
+    }
     let request = read_request(
         std::fs::File::open(request_path).context("opening component generation request")?,
     )?;
@@ -148,7 +152,6 @@ pub async fn component_source(
     let config = Config::from_run(
         &Run {
             component_dir,
-            generation_config: None,
             local_component_dir: None,
             local_components: None,
             env_vars: Vec::new(),
@@ -256,9 +259,8 @@ fn check_output_directory(directory: &Path, force: bool) -> Result<()> {
 mod tests {
     use std::fs;
 
-    use serde_json::{json, Value};
+    use serde_json::json;
     use sha2::Digest;
-    use wassette::generation::BuildLimits;
     use wassette::store::{
         ComponentStore, GenerationEvidence, InstallOptions, InstallOwner, OriginEvidence,
         PolicyProvenance, PreparedInstall, PreparedPolicy, SourceIdentity, ValidationEvidence,
@@ -266,16 +268,6 @@ mod tests {
     use wassette::StorageKey;
 
     use super::*;
-
-    fn reference_profile() -> Value {
-        let reference = include_str!("../../../docs/reference/configuration-files.md");
-        let section = reference
-            .split_once("**Operator profile example:**")
-            .unwrap()
-            .1;
-        let example = section.split_once("```json\n").unwrap().1;
-        serde_json::from_str(example.split_once("\n```").unwrap().0).unwrap()
-    }
 
     #[test]
     fn source_layout_round_trips_and_requires_force_for_nonempty_directory() {
@@ -435,151 +427,5 @@ mod tests {
             sha(request.build.source.as_bytes()),
             sha(build.source.as_bytes())
         );
-    }
-
-    #[test]
-    fn reference_profile_requires_every_host_owned_builder_field() {
-        let profile = reference_profile();
-        let config: GenerationConfig = serde_json::from_value(profile.clone()).unwrap();
-        assert_eq!(config.limits, BuildLimits::default());
-        assert!(config.retain_source);
-        let mut without_source = profile.clone();
-        without_source["retain_source"] = json!(false);
-        assert!(
-            !serde_json::from_value::<GenerationConfig>(without_source)
-                .unwrap()
-                .retain_source
-        );
-        assert!(config.callers.is_empty());
-        assert!(config.allow_build && config.allow_install);
-        assert!(!config.allow_expose && !config.allow_rebuild);
-        for field in [
-            "helper_path",
-            "helper_sha256",
-            "initrd_path",
-            "initrd_sha256",
-            "staging_root",
-            "wit_dependencies",
-        ] {
-            let mut missing = profile.clone();
-            missing["builder"].as_object_mut().unwrap().remove(field);
-            assert!(
-                serde_json::from_value::<GenerationConfig>(missing).is_err(),
-                "{field} must remain required"
-            );
-        }
-    }
-
-    #[test]
-    fn operator_paths_resolve_relative_to_profile_and_dependencies_remain_inline() {
-        let root = tempfile::tempdir_in(".").unwrap();
-        let profile_dir = root.path().join("operator");
-        fs::create_dir(&profile_dir).unwrap();
-        let path = profile_dir.join("generation.json");
-        let mut profile = reference_profile();
-        let dependency = format!(
-            "package trusted:bindings;\n// {}\ninterface helper {{}}\n",
-            "p".repeat(70 * 1024)
-        );
-        profile["builder"]["wit_dependencies"] = json!([dependency]);
-        fs::write(&path, serde_json::to_vec(&profile).unwrap()).unwrap();
-        let config = GenerationConfig::read(&path).unwrap();
-        let base = std::path::absolute(&profile_dir).unwrap();
-        assert_eq!(
-            config.builder.helper_path,
-            base.join("helper/wassette-builder")
-        );
-        assert_eq!(
-            config.builder.initrd_path,
-            base.join("images/rust-builder.initrd")
-        );
-        assert_eq!(config.builder.staging_root, base.join("staging"));
-        assert_eq!(config.builder.wit_dependencies, vec![dependency]);
-
-        profile["builder"]["helper_path"] = json!(base.join("absolute-helper"));
-        profile["builder"]["initrd_path"] = json!(base.join("absolute-initrd"));
-        profile["builder"]["staging_root"] = json!(base.join("absolute-staging"));
-        fs::write(&path, serde_json::to_vec(&profile).unwrap()).unwrap();
-        let config = GenerationConfig::read(&path).unwrap();
-        assert_eq!(config.builder.helper_path, base.join("absolute-helper"));
-        assert_eq!(config.builder.initrd_path, base.join("absolute-initrd"));
-        assert_eq!(config.builder.staging_root, base.join("absolute-staging"));
-    }
-
-    #[test]
-    fn pinned_rust_crate_archives_resolve_relative_to_profile() {
-        let root = tempfile::tempdir_in(".").unwrap();
-        let path = root.path().join("generation.json");
-        let base = std::path::absolute(root.path()).unwrap();
-        let mut profile = reference_profile();
-        let krate = |name: &str, archive: Value| {
-            json!({
-                "name": name,
-                "archive_path": archive,
-                "archive_sha256": "a".repeat(64),
-                "root": "src/lib.rs",
-                "edition": "2021",
-            })
-        };
-        profile["builder"]["rust_crates"] = json!([
-            krate("memchr", json!("crates/memchr-2.8.3.crate")),
-            krate("log", json!(base.join("absolute/log.crate"))),
-        ]);
-        fs::write(&path, serde_json::to_vec(&profile).unwrap()).unwrap();
-        let config = GenerationConfig::read(&path).unwrap();
-        let crates = &config.builder.rust_crates;
-        assert_eq!(
-            crates[0].archive_path,
-            base.join("crates/memchr-2.8.3.crate")
-        );
-        assert_eq!(crates[1].archive_path, base.join("absolute/log.crate"));
-        assert!(crates[0].features.is_empty() && crates[0].dependencies.is_empty());
-
-        assert!(
-            serde_json::from_value::<GenerationConfig>(reference_profile())
-                .unwrap()
-                .builder
-                .rust_crates
-                .is_empty()
-        );
-    }
-
-    #[test]
-    fn operator_profile_accepts_one_mib_but_not_an_extra_byte() {
-        const MAX_PROFILE_BYTES: usize = 1024 * 1024;
-        let root = tempfile::tempdir_in(".").unwrap();
-        let path = root.path().join("generation.json");
-        let mut bytes = serde_json::to_vec(&reference_profile()).unwrap();
-        bytes.resize(MAX_PROFILE_BYTES, b' ');
-        fs::write(&path, &bytes).unwrap();
-        assert!(GenerationConfig::read(&path).is_ok());
-        bytes.push(b' ');
-        fs::write(&path, bytes).unwrap();
-        assert!(GenerationConfig::read(&path).is_err());
-    }
-
-    #[test]
-    fn explicit_limits_require_the_complete_eight_field_object() {
-        let mut profile = reference_profile();
-        profile["limits"] = serde_json::to_value(BuildLimits::default()).unwrap();
-        let config: GenerationConfig = serde_json::from_value(profile.clone()).unwrap();
-        config.limits.validate().unwrap();
-        for field in [
-            "source_bytes",
-            "wit_bytes",
-            "wasm_bytes",
-            "diagnostics_bytes",
-            "wall_time_ms",
-            "guest_scratch_mib",
-            "generated_bindings_bytes",
-            "max_parallel_jobs",
-        ] {
-            let mut missing = profile.clone();
-            missing["limits"].as_object_mut().unwrap().remove(field);
-            assert!(
-                serde_json::from_value::<GenerationConfig>(missing).is_err(),
-                "{field} must remain required when limits is present"
-            );
-        }
     }
 }

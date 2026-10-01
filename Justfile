@@ -92,33 +92,15 @@ build mode="debug":
     cargo build --workspace {{ if mode == "release" { "--release" } else { "" } }}
     cp target/{{ mode }}/wassette bin/
 
-# Build the helper only; this does not acquire an initrd or run a compiler VM.
-build-component-builder mode="debug":
-    #!/usr/bin/env bash
-    set -euo pipefail
-    mode={{ quote(mode) }}
-    case "$mode" in debug|release) ;; *) echo "mode must be debug or release" >&2; exit 1 ;; esac
-    if [[ "$mode" == release ]]; then
-        cargo build -p wassette-builder --features hyperlight --release
-    else
-        cargo build -p wassette-builder --features hyperlight
-    fi
-    target_dir="$(cargo metadata --no-deps --format-version 1 | python3 -c 'import json,sys; print(json.load(sys.stdin)["target_directory"])')"
-    helper="$target_dir/$mode/wassette-builder"
-    if [[ "$(uname -s)" == Darwin ]]; then
-        codesign --force --sign - --entitlements scripts/generation-builder-entitlements.plist "$helper"
-    fi
-    printf 'Builder helper: %s\nCompute the configured helper digest after this signing step.\n' "$helper"
-
-# Build the generation CLI and its separately supervised helper.
-build-component-generation mode="debug": (build-component-builder mode)
+# Build the generation-enabled CLI; the builder VM runs inside this binary.
+build-component-generation mode="debug":
     cargo build -p wassette-mcp-server --features component-generation {{ if mode == "release" { "--release" } else { "" } }}
 
 # Install this checkout's CLI and finalized components from components/.
 install-preflight:
     python3 scripts/install-local.py --check
 
-# Install the generation-enabled CLI, signed helper and finalized components.
+# Install the generation-enabled CLI and finalized components.
 # On unsupported hosts, install without generation instead.
 install mode="debug": install-preflight build-acp-examples build-default-tools
     #!/usr/bin/env bash
@@ -126,10 +108,6 @@ install mode="debug": install-preflight build-acp-examples build-default-tools
     mode={{ quote(mode) }}
     case "$(uname -s)" in
         Darwin|Linux)
-            if ! just build-component-builder "$mode"; then
-                echo "Could not build the generation helper; use 'just install-no-generation $mode' to install without generation." >&2
-                exit 1
-            fi
             python3 scripts/install-local.py --mode "$mode"
             ;;
         *)
@@ -138,7 +116,7 @@ install mode="debug": install-preflight build-acp-examples build-default-tools
             ;;
     esac
 
-# Install without the component-generation feature or builder helper.
+# Install without the component-generation feature.
 install-no-generation mode="debug": install-preflight build-acp-examples build-default-tools
     python3 scripts/install-local.py --mode {{ quote(mode) }} --no-generation
 

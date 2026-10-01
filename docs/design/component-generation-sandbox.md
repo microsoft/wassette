@@ -1,17 +1,21 @@
 # Sandboxed component generation
 
-> **Status: experimental, opt-in implementation.** The `component-generation`
-> Cargo feature and an explicit trusted operator profile are both required.
+> **Status: experimental implementation.** Build Wassette with the
+> `component-generation` Cargo feature and place the privately provisioned
+> builder image at `~/.local/share/wassette/builder/rust-initrd.cpio` (or the
+> corresponding path under `$XDG_DATA_HOME`). Generation runs in the same
+> binary; there is no operator JSON profile or image download.
 > See the [CLI](../reference/cli.md#wassette-component-build-opt-in),
 > [management tool](../reference/built-in-tools.md#build-component-opt-in), and
-> [operator configuration](../reference/configuration-files.md) for the
-> implemented interface. Image distribution, additional languages and stronger
-> execution isolation remain future work; this is not a general security proof.
+> [configuration reference](../reference/configuration-files.md#component-generation)
+> for the implemented interface. Image distribution and additional languages
+> remain future work; this is not a general security proof.
 
 ## Summary
 
-Wassette can generate WebAssembly components from Rust source and a WIT
-world, with the native compiler and linker running inside a Hyperlight VM.
+Wassette can generate WebAssembly components from inline Rust source and WIT,
+with the native compiler and linker running inside a Hyperlight VM in the
+Wassette process.
 Wassette captures the output, validates it with the appropriate runtime,
 and commits it through the existing component store.
 
@@ -27,8 +31,9 @@ source + WIT + actual component name + requested kind
        ACP layer: explicit selection at a later chain start
 ```
 
-Any caller may request generation, subject to explicit capabilities and
-permissions. Outputs are **ordinary tool components or ACP layers**, not
+An authorized caller may request generation. Build and install are enabled
+when the image is available and still require editor approval. Outputs are
+**ordinary tool components or ACP layers**, not
 ACP providers. Installed components do not execute in Hyperlight: tools
 use Wassette's ordinary Wasmtime runtime, and layers use its ACP runtime.
 
@@ -38,13 +43,13 @@ behind this choice.
 
 ## Scope
 
-The initial language is Rust, with std-only user source, host-generated
+The current language is Rust, with std-only user source, host-generated
 `wit-bindgen` bindings and inline runtime support. Requests do not run
 Cargo, resolve third-party crates, execute proc macros or `build.rs`, or
-access a network. The build profile fixes the toolchain and compiler
+access a network. The builder image fixes the toolchain and compiler
 arguments; a request cannot supply a shell command or linker.
 
-If the required hypervisor, supported platform or signed helper is
+If the required hypervisor, supported platform or local builder image is
 unavailable, generation fails clearly. There is **no host-rustc fallback**.
 Even without Cargo, file inclusion, macro expansion, constant evaluation
 and compiler bugs make native compilation an untrusted-input boundary.
@@ -56,10 +61,12 @@ separate proposals.
 
 ## Request and result
 
-The following summarizes the conceptual contracts, not the literal JSON schema.
-The implemented request nests the source/WIT inputs under `build`, uses
+The following summarizes the conceptual request and result contract, not the
+literal adapter encoding. CLI/MCP adapters may carry the request in JSON, but
+generation has no separate operator JSON profile. The request nests its
+source/WIT inputs under `build`, uses
 `Tool` or `AcpLayer`, and selects a new or revision-checked target separately.
-The reference pages above provide the exact JSON and operator flags.
+The reference pages above provide the exact request fields and CLI options.
 
 ```text
 BuildRequest {
@@ -107,8 +114,9 @@ version-pinned packages, not network resolution.
 An ACP layer request targets the installed ACP implementation's `layer`
 world, including its agent and client interfaces. The implementation uses `wit-bindgen` 0.62's inline async runtime support.
 Both ordinary tools and the canonical ACP layer have been compiled through
-the actual helper in implementation checks. The earlier arithmetic-component
-experiment remains dated evidence; it did not establish the layer result.
+the current in-process builder in implementation checks. The earlier
+arithmetic-component experiment remains dated evidence; it did not establish
+the layer result.
 
 `AcpLayer + ExposeTools` is invalid. The actual output must match the
 requested kind. Provider-shaped or unsupported output fails rather than
@@ -124,8 +132,7 @@ authorization.
 ```mermaid
 flowchart TD
     Caller["Authorized caller"] --> Host["Bounded WIT and bindings preparation"]
-    Host --> Helper["Supervised helper: one VM per build"]
-    Helper --> VM["Hyperlight unikraft: native compiler and linker"]
+    Host --> VM["Hyperlight unikraft VM: native compiler and linker"]
     VM --> Capture["Private bounded output capture"]
     Capture --> Inspect["Actual root-name and kind inspection"]
     Inspect --> Tool["Ordinary runtime preparation"]
@@ -139,18 +146,19 @@ flowchart TD
 
 | Boundary | Responsibility |
 | --- | --- |
-| Host before compilation | Validate bounded source/WIT input; resolve only shipped dependencies; generate bindings and the inline runtime; authorize the exact request/profile. |
+| Host before compilation | Validate bounded source/WIT input; resolve only shipped dependencies; generate bindings and the inline runtime; authorize the exact request. |
 | Compiler VM | Compile and link native toolchain inputs. No host secrets, live store, project tree, management imports or guest networking. |
 | Host after compilation | Capture untrusted output, emit producer metadata, inspect and validate the exact finalized bytes, and select the effective policy. |
 | Component store | Compare semantic/source/key/owner/revision evidence, then atomically commit through its existing transaction and recovery protocol. |
 | Runtime and protocol adapters | Refresh eligible catalogs, apply explicit exposure/selection and authorization, and invoke through existing admission rules. |
 
-Host parsing, bindings generation, metadata emission and Wasmtime
-validation still process untrusted inputs. Calling a transform "pure" does
-not make it infallible or establish a hard CPU deadline. Bound input and
-output complexity, contain worker failures, and use a killable worker
-where a hard deadline is required. Do not hold a store lock during any of
-these operations.
+Host parsing, bindings generation, metadata emission and Wasmtime validation
+still process untrusted inputs. Calling a transform "pure" does not make it
+infallible or establish a hard CPU deadline. Bound input and output complexity,
+contain task failures, and do not hold a store lock during these operations.
+The VM runs in the Wassette process: Hyperlight hardware isolation and
+`interrupt_handle().kill()` cancellation remain, but a VM or host-process crash
+no longer has helper-process crash containment.
 
 ## Identity, naming and provenance
 
@@ -163,7 +171,7 @@ Keep these identifiers distinct:
 | Generated-source identity | Stable host-issued identity for an authorized series of rebuilds. Neither a name nor a content digest. |
 | Remote `PackageId` | Registry/repository identity for remote component acquisition; not the identity of a generated artifact or its builder image. |
 | Wasm digest | Digest of the finalized bytes that are validated and committed. |
-| Builder manifest digest | Immutable identity of the selected builder OCI image, separate from the Wasm digest. |
+| Builder image digest | Digest of the locally provisioned initrd, separate from the Wasm digest. |
 | `EntryRevision` | Opaque store token for authoritative artifact, policy, ownership and provenance state; not a tag or hash. |
 
 ### Producer-controlled name
@@ -194,9 +202,9 @@ for its own newly produced outputs, not a second identity parser.
 
 `SourceIdentity::Generated { id }` records a lineage whose `id` is minted by
 the host and persisted in the existing installed or retired receipt.
-It is a non-secret identifier, not a bearer credential. CLI/MCP use explicit
-operator ceilings, ACP uses bound-session approval, and ordinary component
-callers require revision-bound grants in trusted operator configuration.
+It is a non-secret identifier, not a bearer credential. CLI/MCP use the
+compiled host defaults, ACP uses bound-session approval, and ordinary component
+callers require revision-bound grants supplied by the host.
 
 New sources receive a validated `generated_<opaque-id>` private key
 independent of their semantic name.
@@ -204,7 +212,7 @@ Rebuilds keep the existing mapped key and secret association. They require
 the same exact semantic identity, admitted source and expected revision.
 
 The host binds installation approval to the captured source/WIT,
-builder profile, inspected output and selected policy. If an uninstall,
+builder image identity, inspected output and selected policy. If an uninstall,
 policy edit, ownership change or replacement happens while a build or
 permission prompt is pending, commit fails with a conflict. Do not
 silently retry against a newer revision.
@@ -220,8 +228,8 @@ Add bounded typed generation evidence to the existing `OriginEvidence`,
 not a second receipt or provenance database:
 
 - Source/WIT digests, world, requested role and declared name.
-- Compiler, linker, bindgen and inline-runtime/profile identities.
-- Builder platform, immutable image manifest and initrd digest.
+- Compiler, linker, bindgen and inline-runtime identities.
+- Builder platform and initrd digest.
 - The complete admitted-input identity and final Wasm digest.
 
 For generated acquisition, a proposed non-fetchable location is
@@ -229,7 +237,7 @@ For generated acquisition, a proposed non-fetchable location is
 absent. In particular, the builder digest does not occupy the component
 acquisition `manifest_digest` field.
 
-Host observations supply this evidence. An untrusted guest result file
+Host observations supply this evidence. An untrusted guest result
 cannot attest which image or validator ran. Digests are neither signed
 attestations nor a confidentiality or reproducibility guarantee.
 
@@ -241,7 +249,7 @@ the receipt and the store journals it atomically with the Wasm. Policy updates
 retain it; replacement, retirement and recovery treat it as part of the
 revision. The author controls source contents, which may include sensitive
 text: keep the component store private and use `retain_source: false` to opt out.
-Retention is a host storage policy and does not affect the builder profile
+Retention is a host storage policy and does not affect the builder image
 digest or compiled output. Keep attempt timestamps and job IDs out of
 authoritative receipt equality so identical builds can remain genuine
 no-ops. Generated receipts use schema 2; existing receipts retain schema 1 and their
@@ -337,9 +345,12 @@ because a JSON object contains an `err` property.
 ## MCP, ACP and component callers
 
 The feature adds a `build-component` MCP management tool and a
-`wassette component build` CLI adapter, disabled unless configured.
-The MCP adapter respects `--disable-builtin-tools`. The reference pages
-document their current experimental inputs and flags.
+`wassette component build` CLI adapter. Both are available when the binary
+includes `component-generation` and the private image is present; the MCP
+adapter also respects `--disable-builtin-tools`. Build and install require
+client/editor approval when they are made through an ACP session. Exposure
+authority is enabled by default, while rebuild remains disabled. ACP separately
+asks the editor to approve build, install, and exposure.
 
 ACP is an editor-to-agent protocol, not a tool catalog advertised to
 editors. Its component-tool broker lists ordinary tools. An MCP built-in
@@ -358,9 +369,9 @@ Generation must not treat those earlier proposals as available APIs.
 
 The common adapter is an explicit versioned
 `wassette:component-generation/builder@0.1.0` host capability with a bounded
-`build` operation. Both runtimes delegate to the same generation
-service; ordinary callers keep the ordinary runtime rather than switching
-to the ACP engine.
+`build` operation. Both runtimes delegate to the same in-process generation
+service; ordinary callers keep the ordinary runtime rather than switching to
+the ACP engine.
 
 ACP providers and layers may request this capability when authorized.
 Reuse the broker's bound session/stage context, host-owned call IDs,
@@ -380,12 +391,12 @@ explicit grant. Pass their admitted caller/revision and any originating
 ACP context from the host. If a required permission decision has no
 interactive route, deny instead of inventing a session or approval.
 
-After installation, an opted-in ACP session discovers, authorizes and
+After installation, an ACP session discovers, authorizes and
 invokes a generated ordinary tool through the **existing broker**.
 Making a newly built tool available in a running session uses
-an explicit, authorized session-scoped exposure operation on that
-broker. It is not `/install` behavior
-or permission to introduce automatic exposure defaults.
+an editor-approved session-scoped exposure operation on that broker. It is not
+`/install` behavior. Exposure is authorized by default when explicitly
+requested; the ACP editor still approves it separately.
 An ACP layer is installed only and selected at a later chain start;
 there is no hot swap, automatic chain modification or ordinary tool
 handle for its agent/client exports.
@@ -395,25 +406,37 @@ including its shared-grant limitations and explicit opt-in. Generation
 does not establish per-stage isolation or make an untrusted layer safe
 to receive a provider's shared capabilities.
 
-## Builder process and resource limits
+## In-process builder VM and resource limits
 
-Use one supervised helper process per build and one VM in that process.
-The original published-version experiment used
-`hyperlight-unikraft` 0.17.0 on macOS Apple silicon/HVF. The VM-creating
-helper must be signed with `com.apple.security.hypervisor`.
-Other compiler-host/platform combinations need their own verification;
-ordinary Wassette platform support is not evidence of builder support.
+The Wassette binary runs one Hyperlight VM per build in-process. The original
+published-version experiment used `hyperlight-unikraft` 0.17.0 on macOS Apple
+silicon/HVF. The host binary must have the platform's required Hyperlight
+entitlements, including `com.apple.security.hypervisor` on macOS. Other
+compiler-host/platform combinations need their own verification; ordinary
+Wassette platform support is not evidence of builder support.
+
+Running in-process removes the former helper process's crash-containment
+boundary: a host-process crash can take down both the service and active build.
+It does not remove Hyperlight's hardware isolation between the compiler VM and
+host. The host can interrupt a running VM with Hyperlight's interrupt handle
+when cancellation or the wall-clock deadline fires. This is not a guarantee
+against host-process failure or a substitute for a separate process boundary.
 
 Bake the native Linux Rust distribution, WASI target libraries and build
-driver into a digest-pinned initrd. The verified driver sequence compiles
+driver into the privately provisioned initrd. The host records the image's
+observed digest as generation evidence; no external operator digest is
+configured. The verified driver sequence compiles
 a staticlib, then invokes the component linker from its main thread,
 using absolute executable paths, fixed `LD_LIBRARY_PATH` and
 single-threaded linking. It avoids the observed guest process/thread
 limitations; do not assume ordinary Cargo spawning works.
 
-Release CI may build trusted drivers/images with Cargo and Docker.
-That is different from running either against request source on the host.
-Locate the packaged helper explicitly, not through caller-controlled PATH.
+Release CI may build trusted drivers/images with Cargo and Docker. That is
+different from running either against request source on the host. The runtime
+loads the privately provisioned image from
+`~/.local/share/wassette/builder/rust-initrd.cpio`, or from
+`$XDG_DATA_HOME/wassette/builder/rust-initrd.cpio` when `XDG_DATA_HOME` is set.
+There is no separate helper executable or helper digest.
 
 Mount only captured read-only source and bounded per-job output, with
 guest-private scratch for intermediates. Never mount the live store,
@@ -424,64 +447,53 @@ Keep networking and management/tool host calls unavailable in the VM.
 | --- | --- |
 | Source/WIT and dependency/type complexity | Check before parsing/staging; no network includes. |
 | Bindings and metadata | Bound generated bytes and transform work; failures are explicit. |
-| VM memory and scratch | Finite configured bounds including image overhead. |
+| VM memory and scratch | Finite per-build budgets, including image overhead. |
 | Host output and final Wasm | Enforce aggregate bytes/file counts while writing or capturing; reject links, traversal, special and unexpected files. |
-| Diagnostics and IPC | Bounded streaming buffers and explicit truncation; no guest-output-as-control-frame interpretation. |
-| Wall clock/CPU | Host deadline and VM/helper kill for non-yielding work; document platform CPU accounting rather than claiming fuel metering. |
+| Diagnostics and adapter transport | Bounded buffers and explicit truncation; guest output is never interpreted as control data. |
+| Wall clock/CPU | Host deadline and VM interrupt for non-yielding work; document platform CPU accounting rather than claiming fuel metering. |
 | Concurrency, queues and approval retention | Finite caller/global budgets; no permit release before actual job completion. |
-| Image download/unpack/cache | Bound compressed/expanded data, safe extraction, integrity checks and separate cache limits. |
+| Builder image | Read only the expected private local image and bind its observed digest to generation evidence. |
 
-The versioned builder profile supplies finite defaults and hard ceilings;
-operator configuration can lower budgets rather than letting requests raise
-them. See the [operator configuration](../reference/configuration-files.md)
-for the exact values. The experiment's scratch
-setting and measured latency are not universal performance guarantees.
+The same-binary builder uses finite compiled defaults and hard ceilings;
+requests cannot raise budgets. The experiment's scratch setting and measured
+latency are not universal performance guarantees.
 
 Guest scratch limits do not automatically cap a writable host mount.
 Use enforced quotas/capped I/O, or bounded guest scratch followed by
 capped extraction. A size check after filling the host disk is not a
 limit. Detach captured bytes from further guest writes before validation.
 
-The supervisor owns the helper, staging lease and permit until exit and
-reaping. Cancellation or a dropped waiter triggers VM cancellation;
-request `interrupt_handle().kill()`, then terminate/reap the helper if
-necessary after a bounded grace period. Handle parent-channel loss,
-reject new jobs on shutdown, and preserve accepted store transactions'
-independent completion/recovery ownership.
+The supervisor owns the VM job, staging lease and permit until VM termination
+and result handling finish. Cancellation or a dropped waiter triggers VM
+cancellation through `interrupt_handle().kill()`. Reject new jobs on shutdown
+and preserve accepted store transactions' independent completion/recovery
+ownership. Because the VM runs in-process, there is no parent channel or helper
+process to kill or reap.
 
 This hard-stop mechanism does not change ordinary Wasmtime's soft
 cancellation. Keep the builder resource pool distinct from ordinary
 invocation permits; nested requests cannot bypass either pool.
 
-Warm snapshots are optional. A reusable snapshot must predate every
-request, mount handle, output and session/authorization value, and be
-bound to the image/profile/platform. Never reuse dirty job state.
-The original restore experiment did not prove a portable cross-process
-compiler snapshot format.
+Warm snapshots are optional. A reusable snapshot must predate every request,
+mount handle, output and session/authorization value, and be bound to the image
+and platform. Never reuse dirty job state. The original restore experiment did
+not establish a portable snapshot format.
 
-## Builder acquisition and local discovery
+## Builder image and local discovery
 
-An initrd is **not a Wasm tool component**. It does not belong in the
-component store, tool catalog or wasm.directory component resolver.
-Use separate image acquisition/cache with an approved profile pinned to
-immutable OCI digests. When using an image index, retain both its
-identity and the selected platform manifest/initrd identities.
+The builder initrd is **not a Wasm tool component**. It does not belong in the
+component store, tool catalog or wasm.directory component resolver. The
+operator privately provisions it at
+`~/.local/share/wassette/builder/rust-initrd.cpio`, or at
+`$XDG_DATA_HOME/wassette/builder/rust-initrd.cpio` when `XDG_DATA_HOME` is set.
+Wassette does not download, publish or cache the image. There is no operator
+JSON profile, OCI image acquisition path, helper executable or helper digest.
 
-Preserve configured HTTP/OCI transport settings instead of constructing
-default clients. Image acquisition requires an image-capable OCI path,
-not the Wasm-specific component acquisition function.
-
-A public pinned builder image is the initial recommendation. If private
-images are supported, explicitly configured registry credentials stay
-in host acquisition. Never forward component secrets, ACP/MCP bearer
-tokens or registry credentials into the VM, diagnostics, receipts,
-wasm.directory or unrelated registries. Unsupported private auth fails
-clearly; it is not an invitation to inherit credentials.
-
-Follow existing platform directory and CLI > environment > configuration
-file conventions. Images belong in a private cache; source/intermediates
-in scoped temporary directories, separate from components and watched
-drops. Disabled generation must not start helpers or download images.
+The host hashes and reads the local image; it does not forward component
+secrets or ACP/MCP credentials into the VM, diagnostics or receipts. Keep the
+image and generated staging data private and separate from the component store
+and watched drop directories. If the feature is absent or the image is missing,
+generation is unavailable and no VM starts.
 
 Generated artifacts use Explicit ownership and Generated provenance.
 They do not impersonate a remote package or ManagedLocalSource.
@@ -492,7 +504,7 @@ grants or secrets; export/adoption needs a separately reviewed operation.
 
 ## Failure reporting
 
-Distinguish invalid input, unavailable hypervisor/helper/image, unsupported
+Distinguish invalid input, unavailable hypervisor/image, unsupported
 platform, permission denial, busy/limit failures, compiler errors,
 timeout/cancellation, invalid output, missing validator and store
 conflict. Preserve underlying typed store/runtime causes.
@@ -516,11 +528,11 @@ protocol-only, with compiler output captured separately.
 
 ## Acceptance and rollout
 
-The following cases must be covered by the eventual feature:
+The implementation's coverage includes the following observable cases:
 
 | Case | Observable result |
 | --- | --- |
-| Named tool | In-VM build, actual root name, validated commit, requested MCP/ACP exposure and exact-export invocation with compatible output. |
+| Named tool | In-VM build, actual root name, validated commit, editor-approved exposure where supported, and exact-export invocation with compatible output. |
 | Named ACP layer | In-VM build with generated bindings; matching validation; install-only; no tools or running-chain changes; later explicit selection links and exercises the layer. |
 | Failed replacement | Old artifact, policy, receipt, caches and calls unchanged; no new exposure or notification. |
 | Rebuild races | Revision changes invalidate handles/approvals; concurrent policy/edit/uninstall makes stale commit/admission fail. |
@@ -528,32 +540,17 @@ The following cases must be covered by the eventual feature:
 | Producer naming | Filename differs from actual name; missing/duplicate/nested-only names reject; opaque downloads are never stamped. |
 | Policy/InstallOnly | Rebuild preserves explicit policies/clears; hidden entries stay hidden with valid caches and after cold hydration. |
 | No-op/refresh failure | No-op still hydrates; committed-but-refresh-failed retains its receipt and distinct error. |
-| Missing isolation | No hypervisor/unsigned helper/unsupported platform fails without executing host rustc or a fallback linker. |
-| Limits and shutdown | Non-yielding build killed and reaped; output/mount bounds enforced; permits and transaction recovery survive cancellation correctly. |
-| Coexistence and credentials | No duplicate watcher install or image-as-component; public/private pulls preserve host-only credential boundaries. |
+| Missing isolation | No hypervisor or unsupported platform fails without executing host rustc or a fallback linker. |
+| Limits and shutdown | Non-yielding build is interrupted; output/mount bounds enforced; permits and transaction recovery survive cancellation correctly. |
+| Coexistence and credentials | No duplicate watcher install or image-as-component; no credentials are forwarded into the VM. |
 | Protocol/result compatibility | No compiler output on protocol stdout; WIT `err` remains data; existing ambiguous-name refusal remains. |
 
 Keep VM-dependent tests on explicitly supported runners, with portable
 adapter/store tests independent of hypervisor availability. Do not claim
 unsupported-platform coverage from a skipped compiler test.
 
-The review order remains identity/producer naming, safe replacement,
-transactional storage, scoped tools, revision-safe catalog,
-wasm.directory, local discovery, ACP tools, then generation.
-Remote and local discovery are coexistence/review-order dependencies,
-not compiler backends. Future feature code must use the final verified
-ACP predecessor rather than an incomplete earlier checkpoint.
-
-Recommend these separately reviewable units, each with its own tests and
-related documentation:
-
-1. This design and the informational review, without feature code.
-2. Bounded helper/image pipeline and named tool/layer outputs.
-3. Generated-source/evidence additions, captured installation and CLI.
-4. Explicit MCP/ACP/ordinary-component management adapters.
-
-No unit adds a second installer, broker, policy writer or catalog.
-General broker defaults, exposure persistence, stronger runtime
-revocation, source authority across sessions, initial policy details,
-numerical limits, image distribution/auth, schema compatibility and the
-exact public capability/CLI shape remain review decisions.
+This document records the design rationale and the implemented flow; it is
+not a roadmap for unfinished implementation units. Remote and local discovery
+remain separate acquisition and coexistence paths, not compiler backends.
+Generation reuses the existing installer, broker, policy operations and
+catalog rather than adding parallel subsystems.

@@ -52,7 +52,6 @@ fn build_evidence() -> wassette_builder::BuildEvidence {
         "wit_sha256": hex::encode(Sha256::digest(b"package test:generated; world tool { export run: func() -> s32; }")),
         "wit_dependencies_sha256": "55".repeat(32),
         "initrd_sha256": "33".repeat(32),
-        "builder_sha256": "66".repeat(32),
         "profile_id": "rust-std-v1",
         "profile_sha256": "77".repeat(32),
         "compiler_version": "rustc 1.98.1",
@@ -850,73 +849,71 @@ async fn recovery_never_infers_commit_from_matching_artifact_bytes() {
 }
 
 #[test]
-fn operator_configuration_is_bounded_before_deserialization() {
+fn generation_is_available_only_with_a_local_builder_image() {
     let root = tempfile::tempdir().unwrap();
-    let path = root.path().join("generation.json");
-    std::fs::write(&path, vec![b' '; MAX_CONFIG_BYTES as usize + 1]).unwrap();
-    assert!(GenerationConfig::read(&path)
-        .err()
-        .unwrap()
-        .to_string()
-        .contains("size limit"));
+    temp_env::with_var("XDG_DATA_HOME", Some(root.path().to_str().unwrap()), || {
+        let image = GenerationConfig::image_path().unwrap();
+        assert_eq!(image, root.path().join("wassette/builder/rust-initrd.cpio"));
+        assert!(GenerationConfig::discover().unwrap().is_none());
+        assert!(!image.parent().unwrap().exists());
+        std::fs::create_dir_all(image.parent().unwrap()).unwrap();
+        std::fs::write(&image, b"private builder image").unwrap();
+        let config = GenerationConfig::discover().unwrap().unwrap();
+        assert!(config.allow_build && config.allow_install && config.allow_expose);
+        assert!(!config.allow_rebuild);
+        assert!(config.retain_source && config.callers.is_empty());
+        assert_eq!(config.builder.initrd_path, image);
+        assert!(config.builder.staging_root.is_dir());
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            assert_eq!(
+                std::fs::metadata(&config.builder.staging_root)
+                    .unwrap()
+                    .permissions()
+                    .mode()
+                    & 0o777,
+                0o700
+            );
+        }
+    });
 }
 
 #[test]
-fn profile_script_pins_local_files_and_never_overwrites() {
-    use sha2::{Digest, Sha256};
+fn generation_defaults_to_the_existing_home_image_path() {
+    let root = tempfile::tempdir().unwrap();
+    temp_env::with_vars(
+        [
+            ("HOME", Some(root.path().to_str().unwrap())),
+            ("XDG_DATA_HOME", None),
+        ],
+        || {
+            assert_eq!(
+                GenerationConfig::image_path().unwrap(),
+                root.path()
+                    .join(".local/share/wassette/builder/rust-initrd.cpio")
+            );
+            assert!(GenerationConfig::discover().unwrap().is_none());
+        },
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn generation_rejects_a_public_staging_directory() {
+    use std::os::unix::fs::PermissionsExt;
 
     let root = tempfile::tempdir().unwrap();
-    let helper = root.path().join("wassette-builder");
-    let initrd = root.path().join("rust-initrd.cpio");
-    let wit = root.path().join("dependency.wit");
-    std::fs::write(&helper, b"helper bytes").unwrap();
-    std::fs::write(&initrd, b"initrd bytes").unwrap();
-    std::fs::write(&wit, "package test:dependency;\n").unwrap();
-    let output = root.path().join("profiles/operator.json");
-    let script = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../../scripts/generation-profile.py");
-    let run = |extra: &[&str]| {
-        std::process::Command::new("python3")
-            .arg(&script)
-            .arg("--helper")
-            .arg(&helper)
-            .arg("--initrd")
-            .arg(&initrd)
-            .arg("--wit-dependency")
-            .arg(&wit)
-            .arg("--output")
-            .arg(&output)
-            .args(extra)
-            .output()
-            .expect("profile tests require Python 3")
-    };
-
-    let created = run(&[]);
-    assert!(created.status.success(), "{created:?}");
-    let config = GenerationConfig::read(&output).unwrap();
-    let digest = |bytes: &[u8]| hex::encode(Sha256::digest(bytes));
-    assert_eq!(config.builder.helper_path, helper.canonicalize().unwrap());
-    assert_eq!(config.builder.helper_sha256, digest(b"helper bytes"));
-    assert_eq!(config.builder.initrd_sha256, digest(b"initrd bytes"));
-    assert_eq!(
-        config.builder.wit_dependencies,
-        ["package test:dependency;\n"]
-    );
-    assert!(config.builder.staging_root.is_dir());
-    assert!(config.allow_build && config.allow_install);
-    assert!(!config.allow_expose && !config.allow_rebuild);
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        let mode =
-            |path: &std::path::Path| std::fs::metadata(path).unwrap().permissions().mode() & 0o777;
-        assert_eq!(mode(&output), 0o600);
-        assert_eq!(mode(&config.builder.staging_root), 0o700);
-    }
-
-    let before = std::fs::read(&output).unwrap();
-    let refused = run(&["--allow-expose", "--allow-rebuild"]);
-    assert!(!refused.status.success());
-    assert!(String::from_utf8_lossy(&refused.stderr).contains("refusing to overwrite"));
-    assert_eq!(std::fs::read(&output).unwrap(), before);
+    temp_env::with_var("XDG_DATA_HOME", Some(root.path().to_str().unwrap()), || {
+        let image = GenerationConfig::image_path().unwrap();
+        let staging = image.parent().unwrap().join("staging");
+        std::fs::create_dir_all(&staging).unwrap();
+        std::fs::write(&image, b"private builder image").unwrap();
+        std::fs::set_permissions(&staging, std::fs::Permissions::from_mode(0o755)).unwrap();
+        assert!(GenerationConfig::discover()
+            .err()
+            .unwrap()
+            .to_string()
+            .contains("must not be accessible"));
+    });
 }

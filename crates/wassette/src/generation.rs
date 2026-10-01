@@ -1,10 +1,10 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT license.
 
-//! Opt-in, two-phase generation over the existing validated component store.
+//! Two-phase generation over the existing validated component store.
 
-use std::io::Read;
-use std::path::Path;
+use std::fs;
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use anyhow::{anyhow, ensure, Context, Result};
@@ -29,78 +29,98 @@ use crate::{
 };
 
 const MAX_REINSTALL_POLICY_BYTES: usize = 128 * 1024;
-const MAX_CONFIG_BYTES: u64 = 1024 * 1024;
-
 mod caller;
 pub(crate) use caller::GenerationCaller;
 pub(crate) mod host;
 pub use caller::GenerationCallerGrant;
 
-/// Trusted operator configuration, separate from every model/guest request.
-#[derive(Deserialize, Serialize)]
-#[serde(deny_unknown_fields)]
+/// Host-owned generation settings, never supplied by a model or guest.
 pub struct GenerationConfig {
-    /// Explicit packaged helper and trusted, digest-pinned local initrd.
+    /// Pinned local image and private staging path.
     pub builder: BuilderConfig,
-    /// Finite host limits; requests cannot override these.
-    #[serde(default)]
+    /// Finite resource budgets.
     pub limits: BuildLimits,
-    /// Explicit opt-in to compilation.
-    #[serde(default)]
+    /// Whether compilation is permitted.
     pub allow_build: bool,
-    /// Explicit opt-in to store mutation.
-    #[serde(default)]
+    /// Whether generated components may be installed.
     pub allow_install: bool,
-    /// Explicit opt-in to ordinary-tool eligibility.
-    #[serde(default)]
+    /// Whether generated tools may be exposed.
     pub allow_expose: bool,
-    /// Explicit opt-in to replacing an existing generated lineage.
-    #[serde(default)]
+    /// Whether existing generated lineages may be replaced.
     pub allow_rebuild: bool,
-    /// Retain the untrusted author's source alongside each installed revision.
-    #[serde(default = "retain_source_by_default")]
+    /// Whether generated source is retained for later inspection.
     pub retain_source: bool,
-    /// Optional revision-bound grants for ordinary Wasm callers without a UI route.
-    #[serde(default)]
+    /// Revision-bound ordinary caller grants.
     pub callers: Vec<GenerationCallerGrant>,
 }
 
 impl GenerationConfig {
-    /// Read a bounded operator-selected JSON file, never a model-selected path.
-    ///
-    /// Relative helper/image/staging/crate-archive paths are relative to the
-    /// configuration file.
-    pub fn read(path: &Path) -> Result<Self> {
-        let mut bytes = Vec::new();
-        std::fs::File::open(path)
-            .context("opening trusted component-generation configuration")?
-            .take(MAX_CONFIG_BYTES + 1)
-            .read_to_end(&mut bytes)?;
+    /// The installed image location, respecting an isolated XDG data home.
+    pub fn image_path() -> Result<PathBuf> {
+        let data = if let Some(path) = std::env::var_os("XDG_DATA_HOME") {
+            PathBuf::from(path)
+        } else if let Some(home) = std::env::var_os("HOME") {
+            PathBuf::from(home).join(".local/share")
+        } else {
+            anyhow::bail!("HOME or XDG_DATA_HOME is required to locate the builder image");
+        };
         ensure!(
-            bytes.len() as u64 <= MAX_CONFIG_BYTES,
-            "generation configuration exceeds its size limit"
+            data.is_absolute(),
+            "builder data directory must be absolute"
         );
-        let mut config: Self = serde_json::from_slice(&bytes)
-            .context("parsing trusted component-generation configuration")?;
-        let base = std::path::absolute(path)?
+        Ok(data.join("wassette/builder/rust-initrd.cpio"))
+    }
+
+    /// Discover the image without creating directories when it is absent.
+    pub fn discover() -> Result<Option<Self>> {
+        let image = Self::image_path()?;
+        let metadata = match fs::metadata(&image) {
+            Ok(metadata) => metadata,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+            Err(error) => return Err(error).context("checking builder image"),
+        };
+        ensure!(
+            metadata.is_file(),
+            "builder image is not a regular file: {}",
+            image.display()
+        );
+        let staging = image
             .parent()
-            .context("generation configuration has no parent directory")?
-            .to_path_buf();
-        if config.builder.helper_path.is_relative() {
-            config.builder.helper_path = base.join(&config.builder.helper_path);
+            .context("builder image has no parent")?
+            .join("staging");
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::DirBuilderExt;
+            fs::DirBuilder::new()
+                .recursive(true)
+                .mode(0o700)
+                .create(&staging)
+                .context("creating private builder staging directory")?;
         }
-        if config.builder.initrd_path.is_relative() {
-            config.builder.initrd_path = base.join(&config.builder.initrd_path);
+        #[cfg(not(unix))]
+        fs::create_dir_all(&staging).context("creating private builder staging directory")?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let metadata = fs::symlink_metadata(&staging)?;
+            ensure!(metadata.is_dir(), "builder staging is not a directory");
+            ensure!(
+                metadata.permissions().mode() & 0o077 == 0,
+                "builder staging directory must not be accessible by other users: {}",
+                staging.display()
+            );
         }
-        if config.builder.staging_root.is_relative() {
-            config.builder.staging_root = base.join(&config.builder.staging_root);
-        }
-        for krate in &mut config.builder.rust_crates {
-            if krate.archive_path.is_relative() {
-                krate.archive_path = base.join(&krate.archive_path);
-            }
-        }
-        Ok(config)
+        let builder = BuilderConfig::new(image, staging)?;
+        Ok(Some(Self {
+            builder,
+            limits: BuildLimits::default(),
+            allow_build: true,
+            allow_install: true,
+            allow_expose: true,
+            allow_rebuild: false,
+            retain_source: true,
+            callers: Vec::new(),
+        }))
     }
 
     /// Create the configured service without starting a VM.
@@ -115,10 +135,6 @@ impl GenerationConfig {
             .with_source_retention(self.retain_source)
             .with_callers(self.callers)
     }
-}
-
-fn retain_source_by_default() -> bool {
-    true
 }
 
 /// Host-issued authority; it is deliberately not deserializable from a request.
@@ -840,7 +856,7 @@ fn generation_evidence(artifact: &BuildArtifact) -> GenerationEvidence {
         wit_sha256: evidence.wit_sha256.clone(),
         wit_dependencies_sha256: evidence.wit_dependencies_sha256.clone(),
         builder_initrd_sha256: evidence.builder_initrd_sha256.clone(),
-        builder_helper_sha256: evidence.builder_helper_sha256.clone(),
+        builder_helper_sha256: None,
         builder_manifest_digest: evidence.builder_manifest_digest.clone(),
         profile: evidence.profile.clone(),
         profile_sha256: evidence.profile_sha256.clone(),
