@@ -39,10 +39,47 @@ pub async fn component_build(
     match build(request_path, component_dir, generation_config, emit_source).await {
         Ok(report) => print_value(&report, OutputFormat::Json),
         Err(error) => {
-            print_value(&error_report(&error), OutputFormat::Json)?;
+            let report = if let Some(failure) = error.downcast_ref::<SourceExportFailure>() {
+                json_source_export_failure(failure)
+            } else {
+                error_report(&error)
+            };
+            print_value(&report, OutputFormat::Json)?;
             bail!("Component generation did not complete successfully; see the JSON report for the actual commit status")
         }
     }
+}
+
+#[derive(Debug)]
+struct SourceExportFailure {
+    commit_report: serde_json::Value,
+    source: anyhow::Error,
+}
+
+impl std::fmt::Display for SourceExportFailure {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            formatter,
+            "source export failed after component commit: {}",
+            self.source
+        )
+    }
+}
+
+impl std::error::Error for SourceExportFailure {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        Some(self.source.as_ref())
+    }
+}
+
+fn json_source_export_failure(failure: &SourceExportFailure) -> serde_json::Value {
+    let mut report = failure.commit_report.clone();
+    report["status"] = serde_json::json!("committed-source-export-failed");
+    report["error"] = serde_json::json!(failure.source.to_string());
+    report["next_step"] = serde_json::json!(
+        "The component is installed; recover local files with `wassette component source` instead of rebuilding."
+    );
+    report
 }
 
 async fn build(
@@ -92,11 +129,9 @@ async fn build(
     jobs.shutdown().await;
     let report = result?;
     if let (Some(path), Some(source)) = (emit_source, emitted) {
-        write_source_layout(path, &source, false).with_context(|| {
-            format!(
-                "component {} revision {} was committed, but local source export failed; recover with `wassette component source`",
-                report["component_id"], report["revision"]
-            )
+        write_source_layout(path, &source, false).map_err(|source| SourceExportFailure {
+            commit_report: report.clone(),
+            source,
         })?;
     }
     Ok(report)
@@ -280,6 +315,25 @@ mod tests {
             assert!(write_source_layout(&output, &build, true).is_err());
             assert_eq!(fs::read_to_string(outside).unwrap(), "safe");
         }
+    }
+
+    #[test]
+    fn failed_local_export_keeps_the_committed_receipt_in_the_report() {
+        let failure = SourceExportFailure {
+            commit_report: json!({
+                "status": "installed",
+                "component_id": "example:generated",
+                "revision": "exact-revision",
+                "commit": { "cursor": 1 }
+            }),
+            source: anyhow::anyhow!("cannot write source"),
+        };
+        let report = json_source_export_failure(&failure);
+        assert_eq!(report["status"], "committed-source-export-failed");
+        assert_eq!(report["component_id"], "example:generated");
+        assert_eq!(report["revision"], "exact-revision");
+        assert_eq!(report["commit"], json!({ "cursor": 1 }));
+        assert!(report["error"].as_str().unwrap().contains("cannot write"));
     }
 
     #[tokio::test]

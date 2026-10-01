@@ -134,7 +134,10 @@ The JSON report contains the canonical commit/receipt, private storage key,
 provenance, opaque revision token, actual refresh result, and bounded preview
 diagnostics. A `committed-refresh-failed` report means installation is durable
 even though catalog refresh failed; do not repeat it as a new generation.
-`commit-unknown` and `committed-recovery-required` are also command failures:
+`committed-source-export-failed` means `--emit-source` could not write local
+files after installation; the report still includes the committed receipt and
+`component source --out` can recover them. `commit-unknown` and
+`committed-recovery-required` are also command failures:
 they retain the store `operation` ID and any exact observed commit receipt.
 Inspect and recover that operation before continuing. These reports never
 claim rollback or authorize retrying as a new generation.
