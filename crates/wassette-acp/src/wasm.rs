@@ -151,6 +151,10 @@ impl SessionFactory {
         self
     }
 
+    pub fn dynamic_tool_exposure_allowed(&self) -> bool {
+        self.layers.is_empty() || self.allow_shared_grants
+    }
+
     pub fn build_info(&self) -> crate::BuildInfo {
         self.build_info
     }
@@ -682,6 +686,10 @@ impl Session {
     pub async fn set_terminal_enabled(&self, enabled: bool) {
         let mut store = self.inner.store.lock().await;
         store.data_mut().terminal_enabled = enabled;
+    }
+
+    pub async fn tool_broker(&self) -> Option<Arc<ToolBroker>> {
+        self.inner.store.lock().await.data().tool_broker.clone()
     }
 
     /// Run `body` inside `store.run_concurrent`, pushing/popping the

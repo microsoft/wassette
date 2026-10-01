@@ -184,6 +184,7 @@ fn grouped_models_select_distinct_providers_with_colliding_ids() {
     assert!(prompt_text(&mut h, sid, "hello").contains("alpha:shared:plain:hello"));
     assert_eq!(prompt_text(&mut h, sid, "/history"), "alpha:history:1");
     assert!(prompt_text(&mut h, sid, "/version").starts_with("Wassette "));
+    assert!(prompt_text(&mut h, sid, "/tools").contains("No tools are available"));
     assert_eq!(prompt_text(&mut h, sid, "/history"), "alpha:history:1");
     let selected = select(&mut h, sid, &b);
     assert_eq!(selected["configOptions"][0]["currentValue"], b);
@@ -211,6 +212,45 @@ fn grouped_models_select_distinct_providers_with_colliding_ids() {
 }
 
 #[test]
+fn tools_toggle_applies_to_each_provider_in_the_editor_group() {
+    let Some(bin) = wassette_binary() else { return };
+    let Some(tool) = filesystem_tool() else {
+        return;
+    };
+    let Some(providers) = Providers::new(&[], &[]) else {
+        return;
+    };
+    let mut h = Harness::start_with_local_source(
+        &bin,
+        &providers.alpha,
+        Some(&tool),
+        "startup",
+        &[],
+        &[
+            "--provider",
+            providers.beta.to_str().unwrap(),
+            "--secrets-dir",
+            providers.secrets.to_str().unwrap(),
+        ],
+    );
+    initialize(&mut h);
+    let session = new_session(&mut h);
+    let sid = session["sessionId"].as_str().unwrap();
+    let beta = model_value(&session["configOptions"], "test:beta", "Shared");
+    assert!(prompt_text(&mut h, sid, "/tools list").contains("| disabled |"));
+    assert!(
+        prompt_text(&mut h, sid, "/tools enable write-file").contains("enabled for this session")
+    );
+    assert!(prompt_text(&mut h, sid, "/tools list").contains("| enabled |"));
+    select(&mut h, sid, &beta);
+    assert!(prompt_text(&mut h, sid, "/tools list").contains("| enabled |"));
+    assert!(
+        prompt_text(&mut h, sid, "/tools disable write-file").contains("disabled for this session")
+    );
+    assert!(prompt_text(&mut h, sid, "/tools list").contains("| disabled |"));
+}
+
+#[test]
 fn concurrent_callbacks_use_host_ids_and_reply_to_their_own_session() {
     let Some(bin) = wassette_binary() else { return };
     let Some(providers) = Providers::new(&[], &[]) else {
@@ -231,6 +271,12 @@ fn concurrent_callbacks_use_host_ids_and_reply_to_their_own_session() {
     assert!(
         busy_error["message"].as_str().unwrap().contains("busy"),
         "{busy_error}"
+    );
+    let busy_tools = h.prompt(a, "/tools list");
+    let tools_error = response_error(&mut h, busy_tools);
+    assert!(
+        tools_error["message"].as_str().unwrap().contains("busy"),
+        "{tools_error}"
     );
     let pb = h.prompt(b, "/permission");
     let permission_b = h.await_permission(pb);

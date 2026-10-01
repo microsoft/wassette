@@ -149,6 +149,18 @@ wassette acp --provider <PATH|URI|COMPONENT_ID>...
 * `/version` is host-owned and reports the binary's version, full commit SHA
   (with a dirty marker), and UTC build time. It shadows a provider's
   `/version` and is not forwarded to the chain.
+* `/tools` (or `/tools list`) lists all eligible ordinary exports and available
+  host tools in a markdown table. `/tools enable <name>` and
+  `/tools disable <name>` change the session's exact-export exposure, initially
+  seeded by `--tool`. Full `component-id/export` names and unique export or
+  component names are accepted; ambiguous names list candidates. Changes are
+  effective on the next turn, and admitted calls finish after disabling.
+  Each provider chain retains its own revision-bound broker and permissions.
+  The active Copilot provider's host-owned `terminal` and `build_component`
+  tools are listed when available, but controlled by the ACP terminal option
+  and operator generation profile respectively. Exposure does not grant policy
+  permissions or bypass approval; layered chains require
+  `--allow-shared-grants` to enable exports.
 * `--tool <COMPONENT_ID>` explicitly exposes an installed ordinary component
   to the ACP provider. The guest imports
   `wassette:component-tools/tools@0.1.0` to list revision-bound descriptors,
@@ -445,7 +457,7 @@ All ACP components check in `wit-bindgen` output as `src/bindings.rs`;
   During `session/new`, it also holds bounded early updates until the guest
   returns its ID, then discards updates for other IDs and flushes the
   matching ones after the response. Per-session and global limits still
-  apply. The host also advertises `/install` and `/version` after `session/new`, and
+  apply. The host also advertises `/install`, `/version` and `/tools` after `session/new`, and
   `session/load` can buffer updates because its ID is known in advance.
   The flush runs on a 200ms timer, but an inbound request naming the
   session opens the gate immediately.

@@ -538,6 +538,18 @@ pub(super) fn handle_prompt(
     if parse_version_command(&req.prompt) {
         return handle_version_command(factory.build_info(), session_key, operation, responder, cx);
     }
+    if let Some(arg) = parse_tools_command(&req.prompt) {
+        let dynamic_exposure_allowed = factory.dynamic_tool_exposure_allowed();
+        return handle_tools_command(
+            handle,
+            session_key,
+            arg,
+            dynamic_exposure_allowed,
+            operation,
+            responder,
+            cx,
+        );
+    }
 
     // Host-side `/install <wit-name>` interception. Runs entirely in
     // the host (not in the wasm chain) because the package manager
@@ -661,6 +673,162 @@ fn parse_version_command(prompt: &[schema::ContentBlock]) -> bool {
         schema::ContentBlock::Text(text) => Some(text.text.trim()),
         _ => None,
     }) == Some("/version")
+}
+
+fn parse_tools_command(prompt: &[schema::ContentBlock]) -> Option<String> {
+    let first = prompt.iter().find_map(|block| match block {
+        schema::ContentBlock::Text(text) => Some(text.text.trim()),
+        _ => None,
+    })?;
+    let rest = first.strip_prefix("/tools")?;
+    if !rest.is_empty() && !rest.starts_with(char::is_whitespace) {
+        return None;
+    }
+    Some(rest.trim().to_owned())
+}
+
+const TOOLS_USAGE: &str = "Usage: `/tools [list | enable <name> | disable <name>]`";
+
+fn handle_tools_command(
+    handle: crate::group::SessionGroup,
+    session_key: String,
+    arg: String,
+    dynamic_exposure_allowed: bool,
+    operation: tokio::sync::OwnedMutexGuard<()>,
+    responder: Responder<schema::PromptResponse>,
+    cx: ConnectionTo<Client>,
+) -> Result<(), AcpError> {
+    cx.clone().spawn(async move {
+        let _operation = operation;
+        let result = run_tools_command(&handle, &arg, dynamic_exposure_allowed).await;
+        let message = result.unwrap_or_else(|error| format!("Could not update tools: {error:#}"));
+        let chunk = schema::ContentChunk::new(schema::ContentBlock::Text(
+            schema::TextContent::new(message),
+        ));
+        let notification = schema::SessionNotification::new(
+            schema::SessionId::from(session_key),
+            schema::SessionUpdate::AgentMessageChunk(chunk),
+        );
+        if let Err(error) = cx.send_notification(notification) {
+            tracing::warn!(?error, "failed to send /tools message");
+        }
+        let resp = match translate::host_command_response() {
+            Ok(response) => response,
+            Err(error) => return responder.respond_with_error(error),
+        };
+        responder.respond(resp)
+    })?;
+    Ok(())
+}
+
+async fn run_tools_command(
+    handle: &crate::group::SessionGroup,
+    arg: &str,
+    dynamic_exposure_allowed: bool,
+) -> anyhow::Result<String> {
+    let mut words = arg.split_whitespace();
+    let action = words.next().unwrap_or("list");
+    if action == "list" && words.next().is_none() {
+        let mut inventory = handle.tool_inventory().await?;
+        inventory.sort_by(|a, b| a.name.cmp(&b.name));
+        let no_component_tools = inventory.is_empty();
+        let mut rows = inventory
+            .iter()
+            .map(|tool| {
+                format!(
+                    "| `{}` | `{}` | {} | {} |",
+                    tool.name,
+                    tool.component_id,
+                    if tool.enabled { "enabled" } else { "disabled" },
+                    table_description(&tool.description)
+                )
+            })
+            .collect::<Vec<_>>();
+        if let Some(enabled) = handle.terminal_option().filter(|_| handle.copilot_active()) {
+            rows.push(format!(
+                "| `terminal` | `host` | {} | Run terminal commands (controlled by the ACP terminal option). |",
+                if enabled { "enabled" } else { "disabled" }
+            ));
+        }
+        if handle.generation_available().await {
+            rows.push("| `build_component` | `host` | enabled | Build a WebAssembly component (controlled by the operator generation profile). |".into());
+        }
+        if rows.is_empty() {
+            return Ok("No tools are available in this session. Install an ordinary tool component or enable a host capability to see it here.".into());
+        }
+        rows.sort();
+        let mut table = format!(
+            "| Name | Component | Status | Description |\n| --- | --- | --- | --- |\n{}",
+            rows.join("\n")
+        );
+        if no_component_tools {
+            table.push_str("\n\nNo ordinary tool components are available in this session.");
+        }
+        return Ok(table);
+    }
+    if !matches!(action, "enable" | "disable") {
+        return Ok(TOOLS_USAGE.into());
+    }
+    let Some(name) = words.next() else {
+        return Ok(TOOLS_USAGE.into());
+    };
+    if words.next().is_some() {
+        return Ok(TOOLS_USAGE.into());
+    }
+    if matches!(name, "terminal" | "build_component") {
+        anyhow::bail!(
+            "`{name}` is host-owned; use the ACP terminal option or the operator generation profile instead"
+        );
+    }
+    if !dynamic_exposure_allowed {
+        anyhow::bail!(
+            "layered chains require --allow-shared-grants before ordinary tools can be exposed"
+        );
+    }
+    let inventory = handle.tool_inventory().await?;
+    let mut matches = inventory
+        .iter()
+        .filter(|tool| {
+            tool.name == name
+                || tool.component_id == name
+                || tool.export_name == name
+                || tool.normalized_name == name
+        })
+        .collect::<Vec<_>>();
+    matches.sort_by(|a, b| a.name.cmp(&b.name));
+    let tool = match matches.as_slice() {
+        [] => anyhow::bail!("unknown tool `{name}`; use `/tools list` to see available names"),
+        [tool] => tool,
+        candidates => anyhow::bail!(
+            "ambiguous tool `{name}`; choose one of: {}",
+            candidates
+                .iter()
+                .map(|tool| format!("`{}`", tool.name))
+                .collect::<Vec<_>>()
+                .join(", ")
+        ),
+    };
+    handle
+        .set_tool_enabled(tool.reference.clone(), action == "enable")
+        .await?;
+    Ok(format!(
+        "Tool `{}` {} for this session (effective on the next prompt turn).",
+        tool.name,
+        if action == "enable" {
+            "enabled"
+        } else {
+            "disabled"
+        }
+    ))
+}
+
+fn table_description(description: &str) -> String {
+    let first = description.lines().next().unwrap_or_default();
+    let mut text = first.chars().take(120).collect::<String>();
+    if first.chars().count() > 120 {
+        text.push('…');
+    }
+    text.replace('|', "\\|")
 }
 
 fn handle_version_command(
@@ -875,6 +1043,24 @@ fn send_tool_call_finish(
 mod tests {
     use super::*;
     use crate::wassette::acp::prompts::{AvailableCommand, SessionUpdate};
+
+    #[test]
+    fn tools_command_is_host_owned_and_requires_a_command_boundary() {
+        let text = |value: &str| {
+            vec![schema::ContentBlock::Text(schema::TextContent::new(
+                value.to_owned(),
+            ))]
+        };
+        assert_eq!(parse_tools_command(&text("/tools")), Some(String::new()));
+        assert_eq!(
+            parse_tools_command(&text(" /tools list ")).as_deref(),
+            Some("list")
+        );
+        assert_eq!(parse_tools_command(&text("/toolsmith")), None);
+        assert_eq!(parse_tools_command(&text("please /tools list")), None);
+        assert_eq!(table_description("first | row\nsecond"), "first \\| row");
+        assert!(table_description(&"x".repeat(121)).ends_with('…'));
+    }
 
     #[test]
     fn guest_install_command_is_forwarded_instead_of_intercepted() {

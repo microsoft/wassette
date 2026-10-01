@@ -23,6 +23,7 @@
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
+use crate::tool_broker::ToolInventoryEntry;
 use crate::translate;
 use crate::wasm::{PromptOutcome, Session, SetConfigOptionOutcome, SetModeOutcome};
 use crate::wassette::acp::content::ContentBlock;
@@ -216,6 +217,51 @@ impl SessionGroup {
         } else {
             None
         }
+    }
+
+    /// The active chain's catalog is representative of this editor session;
+    /// each chain still has its own broker view and permission decisions.
+    pub async fn tool_inventory(&self) -> anyhow::Result<Vec<ToolInventoryEntry>> {
+        let index = *self.inner.active.lock().unwrap();
+        let broker = self.inner.providers[index]
+            .session
+            .tool_broker()
+            .await
+            .ok_or_else(|| anyhow::anyhow!("Tool broker unavailable"))?;
+        broker.tool_inventory().await.map_err(Into::into)
+    }
+
+    pub async fn generation_available(&self) -> bool {
+        let index = *self.inner.active.lock().unwrap();
+        if self.inner.providers[index].component_id != COPILOT_PROVIDER_ID {
+            return false;
+        }
+        self.inner.providers[index]
+            .session
+            .tool_broker()
+            .await
+            .is_some_and(|broker| broker.generation_available())
+    }
+
+    pub fn copilot_active(&self) -> bool {
+        let index = *self.inner.active.lock().unwrap();
+        self.inner.providers[index].component_id == COPILOT_PROVIDER_ID
+    }
+
+    pub async fn set_tool_enabled(
+        &self,
+        reference: wassette::ToolRef,
+        enabled: bool,
+    ) -> anyhow::Result<()> {
+        for provider in &self.inner.providers {
+            let broker = provider
+                .session
+                .tool_broker()
+                .await
+                .ok_or_else(|| anyhow::anyhow!("Tool broker unavailable"))?;
+            broker.set_tool_enabled(reference.clone(), enabled).await?;
+        }
+        Ok(())
     }
 
     /// Toggle the host-owned `terminal` config option. Records the new

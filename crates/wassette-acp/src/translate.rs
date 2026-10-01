@@ -567,6 +567,14 @@ fn version_command_json() -> serde_json::Value {
     })
 }
 
+fn tools_command_json() -> serde_json::Value {
+    serde_json::json!({
+        "name": "tools",
+        "description": "List and toggle tools available to this session.",
+        "input": { "hint": "list | enable <name> | disable <name>" },
+    })
+}
+
 /// Advertise host commands after opening a session, even if the guest never
 /// emits an available-commands update. The guest may own `/install`, but not
 /// `/version`.
@@ -574,7 +582,7 @@ pub fn synthetic_host_commands_update(
     session_id: &str,
     host_install: bool,
 ) -> Option<schema::SessionNotification> {
-    let mut commands = vec![version_command_json()];
+    let mut commands = vec![version_command_json(), tools_command_json()];
     if host_install {
         commands.push(install_command_json());
     }
@@ -761,7 +769,7 @@ pub fn session_update_wit_to_schema(
         SessionUpdate::AvailableCommandsUpdate(cmds) => {
             let mut cmds_json: Vec<serde_json::Value> = cmds
                 .into_iter()
-                .filter(|c| c.name != "version")
+                .filter(|c| c.name != "version" && c.name != "tools")
                 .map(|c| {
                     let mut v = serde_json::json!({
                         "name": c.name,
@@ -774,6 +782,7 @@ pub fn session_update_wit_to_schema(
                 })
                 .collect();
             cmds_json.push(version_command_json());
+            cmds_json.push(tools_command_json());
             // Inject the host command only when the guest does not own its
             // name. The gate tracks that ownership for prompt dispatch.
             if !cmds_json

@@ -744,6 +744,27 @@ fn echo_provider_advertises_host_terminal_option_to_boolean_clients() {
         session["configOptions"][0]["currentValue"], false,
         "{session}"
     );
+    let sid = session["sessionId"].as_str().unwrap();
+    let id = h.prompt(sid, "/tools");
+    let (updates, _) = h.await_response(id);
+    assert!(
+        response_text(&updates).contains("No tools are available"),
+        "{updates:?}"
+    );
+    let id = h.prompt(sid, "/tools enable terminal");
+    let (updates, _) = h.await_response(id);
+    assert!(
+        response_text(&updates).contains("host-owned"),
+        "{updates:?}"
+    );
+    let id = h.request(
+        "session/set_config_option",
+        json!({"sessionId": sid, "configId": "terminal", "type": "boolean", "value": true}),
+    );
+    h.await_response(id);
+    let id = h.prompt(sid, "/tools list");
+    let (updates, _) = h.await_response(id);
+    assert!(response_text(&updates).contains("No tools are available"));
 }
 
 #[test]
@@ -937,7 +958,7 @@ fn version_is_advertised_and_reports_binary_build_without_forwarding() {
                 && update["params"]["update"]["availableCommands"]
                     .as_array()
                     .is_some_and(|commands| {
-                        ["version", "install"]
+                        ["version", "install", "tools"]
                             .iter()
                             .all(|name| commands.iter().any(|command| command["name"] == *name))
                     })
@@ -964,6 +985,66 @@ fn version_is_advertised_and_reports_binary_build_without_forwarding() {
         )
     );
     assert_ne!(text, "/version", "provider received the slash command");
+}
+
+#[test]
+fn tools_command_lists_and_toggles_session_exposure() {
+    let Some((bin, provider)) = artifacts() else {
+        return;
+    };
+    let Some(tool) = filesystem_tool() else {
+        return;
+    };
+    let mut h = Harness::start_with_local_tool(&bin, &provider, &tool, "startup", false);
+    let sid = h.open_session();
+    let prompt_text = |h: &mut Harness, command: &str| {
+        let id = h.prompt(&sid, command);
+        let (updates, response) = h.await_response(id);
+        assert_eq!(response["stopReason"], "end_turn");
+        response_text(&updates)
+    };
+    let listed = prompt_text(&mut h, "/tools");
+    assert!(
+        listed.contains("| Name | Component | Status | Description |"),
+        "{listed}"
+    );
+    assert!(listed.contains("microsoft:filesystem-rs/"), "{listed}");
+    assert!(listed.contains("| disabled |"), "{listed}");
+    assert_eq!(listed, prompt_text(&mut h, "/tools list"));
+    let full_name = listed
+        .lines()
+        .find(|line| line.contains("microsoft:filesystem-rs/") && line.contains("write-file"))
+        .unwrap()
+        .split('`')
+        .nth(1)
+        .unwrap();
+    let command = h.write_command("enabled dynamically");
+    assert!(prompt_text(&mut h, &command).contains("NotFound(\"write-file\")"));
+    let ambiguous = prompt_text(&mut h, "/tools enable microsoft:filesystem-rs");
+    assert!(ambiguous.contains("ambiguous tool"), "{ambiguous}");
+    assert!(
+        ambiguous.contains("microsoft:filesystem-rs/"),
+        "{ambiguous}"
+    );
+    assert!(prompt_text(&mut h, "/tools enable not-a-tool").contains("unknown tool"));
+    assert!(prompt_text(&mut h, "/tools nonsense").contains("Usage:"));
+    let enabled = prompt_text(&mut h, &format!("/tools enable {full_name}"));
+    assert!(enabled.contains("enabled for this session"), "{enabled}");
+    assert!(prompt_text(&mut h, "/tools list").contains("| enabled |"));
+    let id = h.prompt(&sid, &command);
+    let (messages, _) = h.await_response_with_permission(id, "allow-once");
+    assert!(
+        response_text(&messages).contains("Successfully wrote"),
+        "{messages:?}"
+    );
+    let disabled = prompt_text(&mut h, "/tools disable write-file");
+    assert!(disabled.contains("disabled for this session"), "{disabled}");
+    assert!(prompt_text(&mut h, &command).contains("NotFound(\"write-file\")"));
+    assert!(
+        !h._xdg.path().join("tool-output/written.txt").exists()
+            || std::fs::read_to_string(h._xdg.path().join("tool-output/written.txt")).unwrap()
+                == "enabled dynamically"
+    );
 }
 
 #[test]
