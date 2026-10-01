@@ -146,6 +146,9 @@ pub(super) fn handle_new_session(
             )
             .map_err(|e| translate::anyhow_to_acp("new-session: provider selection", e))?;
             group.bind_editor_session_ids().await;
+            if factory.generation_available() {
+                group.enable_copilot_generation().await;
+            }
             let response = if group.is_multi_provider() {
                 translate::new_session_response_with_config_options(
                     &session_id,
@@ -227,6 +230,9 @@ pub(super) fn handle_load_session(
                 factory.boolean_config_supported(),
             )
             .map_err(|e| translate::anyhow_to_acp("load-session: provider selection", e))?;
+            if factory.generation_available() {
+                group.enable_copilot_generation().await;
+            }
             let response = translate::load_session_response_wit_to_schema(
                 resp,
                 factory.component_id(),

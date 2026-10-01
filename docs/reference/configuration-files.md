@@ -122,6 +122,10 @@ private staging directory before starting Wassette; it must not be the live
 component store. The example permits native CLI/MCP build-and-install only, not
 exposure, rebuild, or ordinary-Wasm caller access.
 
+`scripts/generation-profile.py --helper <helper> --initrd <initrd> --output
+<profile>` writes such a profile for local files, computing both digests. It
+never downloads or publishes an image and refuses to overwrite an existing file.
+
 ```json
 {
   "builder": {

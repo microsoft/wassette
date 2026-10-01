@@ -617,3 +617,251 @@ fn copilot_provider_only_advertises_terminal_when_enabled() {
         );
     }
 }
+
+/// Generation needs the feature-enabled binary (`cargo build -p
+/// wassette-mcp-server --features component-generation`) and a supported
+/// builder platform; the profile below never starts a VM.
+#[cfg(all(
+    feature = "component-generation",
+    any(
+        all(target_os = "macos", target_arch = "aarch64"),
+        all(
+            target_os = "linux",
+            any(target_arch = "aarch64", target_arch = "x86_64")
+        )
+    )
+))]
+mod generation {
+    use super::*;
+
+    /// Writes a syntactically valid operator profile whose helper digest can never
+    /// match, so the host accepts the profile at startup but never executes the
+    /// placeholder helper.
+    fn placeholder_generation_profile(dir: &Path, allow_install: bool) -> PathBuf {
+        std::fs::write(dir.join("helper"), b"not a builder").unwrap();
+        std::fs::write(dir.join("initrd"), b"not an image").unwrap();
+        std::fs::create_dir_all(dir.join("staging")).unwrap();
+        let profile = dir.join("operator.json");
+        std::fs::write(
+            &profile,
+            json!({
+                "builder": {
+                    "helper_path": "helper",
+                    "helper_sha256": "0".repeat(64),
+                    "initrd_path": "initrd",
+                    "initrd_sha256": "0".repeat(64),
+                    "staging_root": "staging",
+                    "wit_dependencies": []
+                },
+                "allow_build": true,
+                "allow_install": allow_install,
+            })
+            .to_string(),
+        )
+        .unwrap();
+        profile
+    }
+
+    /// Mock Copilot API whose first chat round calls `build_component` with
+    /// `arguments` and whose later rounds end the turn.
+    async fn build_component_mock(arguments: &Value) -> MockServer {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/copilot_internal/v2/token"))
+            .respond_with(ResponseTemplate::new(404))
+            .mount(&server)
+            .await;
+        Mock::given(method("GET"))
+            .and(path("/models"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "data": [{"id": "gpt-e2e", "capabilities": {"type": "chat"}}]
+            })))
+            .mount(&server)
+            .await;
+        let tool_call = json!({"choices": [{"delta": {"tool_calls": [{
+            "index": 0, "id": "call_build", "type": "function",
+            "function": {"name": "build_component", "arguments": arguments.to_string()}
+        }]}, "finish_reason": "tool_calls"}]});
+        Mock::given(method("POST"))
+            .and(path("/chat/completions"))
+            .respond_with(ResponseTemplate::new(200).set_body_raw(
+                format!("data: {tool_call}\n\ndata: [DONE]\n\n"),
+                "text/event-stream",
+            ))
+            .up_to_n_times(1)
+            .with_priority(1)
+            .mount(&server)
+            .await;
+        Mock::given(method("POST"))
+            .and(path("/chat/completions"))
+            .respond_with(ResponseTemplate::new(200).set_body_raw(
+                format!(
+                    "data: {}\n\ndata: [DONE]\n\n",
+                    json!({"choices": [{"delta": {"content": "done"}, "finish_reason": "stop"}]})
+                ),
+                "text/event-stream",
+            ))
+            .mount(&server)
+            .await;
+        server
+    }
+
+    /// The Copilot provider advertises `build_component` only when the host's
+    /// operator profile permits build and install, and a model call reaches the
+    /// host's `builder.generate` (and its editor approval) rather than being
+    /// rejected as disabled. The placeholder helper makes the build itself fail.
+    #[test]
+    fn copilot_provider_build_component_reaches_host_generation() {
+        let Some((bin, wasm)) = artifacts("acp-copilot-provider", "acp_copilot_provider") else {
+            return;
+        };
+        let arguments = json!({
+            "component_name": "local:answer",
+            "world": "tool",
+            "wit": "package local:answer; world tool { export answer: func() -> u32; }",
+            "source": "struct Component;\nimpl bindings::Guest for Component { fn answer() -> u32 { 42 } }\nbindings::export!(Component with_types_in bindings);\n",
+        });
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        let server = rt.block_on(build_component_mock(&arguments));
+        let base_url = server.uri();
+        let token_url = format!("{base_url}/copilot_internal/v2/token");
+        let env = [
+            ("COPILOT_GITHUB_TOKEN", "gho_e2e_generation"),
+            ("COPILOT_BASE_URL", base_url.as_str()),
+            ("COPILOT_TOKEN_URL", token_url.as_str()),
+            ("COPILOT_MODEL", "gpt-e2e"),
+        ];
+        let chat_requests = |server: &MockServer| -> Vec<Value> {
+            rt.block_on(server.received_requests())
+                .unwrap()
+                .iter()
+                .filter(|r| r.url.path() == "/chat/completions")
+                .map(|r| serde_json::from_slice(&r.body).unwrap())
+                .collect()
+        };
+        let tool_names = |chat: &Value| -> Vec<String> {
+            chat["tools"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|tool| tool["function"]["name"].as_str().unwrap().to_owned())
+                .collect()
+        };
+
+        // A profile that does not permit install keeps the tool hidden, and the
+        // model's call never reaches a mock that would request it.
+        let denied = tempfile::tempdir().unwrap();
+        let profile = placeholder_generation_profile(denied.path(), false);
+        let mut h = Harness::start(
+            &bin,
+            &wasm,
+            &[
+                "--allow-all",
+                "--generation-config",
+                profile.to_str().unwrap(),
+            ],
+            &env,
+        );
+        let (_, result) = h.prompt_once("hi");
+        drop(h);
+        // The first (tool-call) mock answered; the provider reports the unknown
+        // tool, then the fallback mock ends the turn.
+        assert_eq!(result["stopReason"], "end_turn", "{result}");
+        let chats = chat_requests(&server);
+        assert!(
+            !tool_names(&chats[0]).contains(&"build_component".to_owned()),
+            "{}",
+            chats[0]
+        );
+        drop(server);
+
+        let server = rt.block_on(build_component_mock(&arguments));
+        let base_url = server.uri();
+        let token_url = format!("{base_url}/copilot_internal/v2/token");
+        let env = [
+            ("COPILOT_GITHUB_TOKEN", "gho_e2e_generation"),
+            ("COPILOT_BASE_URL", base_url.as_str()),
+            ("COPILOT_TOKEN_URL", token_url.as_str()),
+            ("COPILOT_MODEL", "gpt-e2e"),
+        ];
+        let allowed = tempfile::tempdir().unwrap();
+        let profile = placeholder_generation_profile(allowed.path(), true);
+        let mut h = Harness::start(
+            &bin,
+            &wasm,
+            &[
+                "--allow-all",
+                "--generation-config",
+                profile.to_str().unwrap(),
+            ],
+            &env,
+        );
+        let id = h.request(
+            "initialize",
+            json!({"protocolVersion": 1, "clientCapabilities": {}}),
+        );
+        h.await_response(id);
+        let cwd = tempfile::tempdir().unwrap();
+        let id = h.request("session/new", json!({"cwd": cwd.path(), "mcpServers": []}));
+        let (_, session) = h.await_response(id);
+        let session_id = session["sessionId"].as_str().unwrap().to_owned();
+        let prompt = h.request(
+            "session/prompt",
+            json!({"sessionId": session_id, "prompt": [{"type": "text", "text": "build it"}]}),
+        );
+        let mut permissions = Vec::new();
+        let result = loop {
+            let line = h.lines.recv_timeout(LINE_TIMEOUT).unwrap_or_else(|e| {
+                panic!(
+                    "waiting for the prompt ({e}); stderr:\n{}",
+                    h.stderr.lock().unwrap()
+                )
+            });
+            let message: Value = serde_json::from_str(&line).unwrap();
+            if message["id"] == json!(prompt) && message.get("method").is_none() {
+                assert!(message.get("error").is_none(), "{message}");
+                break message["result"].clone();
+            }
+            if message["method"] == "session/request_permission" {
+                let response = json!({
+                    "jsonrpc": "2.0", "id": message["id"],
+                    "result": {"outcome": {"outcome": "selected", "optionId": "allow-once"}},
+                });
+                let stdin = h.stdin.as_mut().unwrap();
+                writeln!(stdin, "{response}").unwrap();
+                stdin.flush().unwrap();
+                permissions.push(message);
+            }
+        };
+        assert_eq!(result["stopReason"], "end_turn", "{result}");
+        assert!(
+            permissions
+                .iter()
+                .any(|p| p["params"]["toolCall"]["title"] == "Build component in isolated VM"),
+            "the host did not request build approval: {permissions:#?}"
+        );
+        let chats = chat_requests(&server);
+        assert_eq!(chats.len(), 2, "{chats:#?}");
+        assert!(
+            tool_names(&chats[0]).contains(&"build_component".to_owned()),
+            "{}",
+            chats[0]
+        );
+        let tool_result = chats[1]["messages"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|m| m["role"] == "tool")
+            .and_then(|m| m["content"].as_str())
+            .unwrap_or_else(|| panic!("no tool result: {}", chats[1]))
+            .to_owned();
+        assert!(
+            !tool_result.contains("disabled") && !tool_result.contains("unknown tool"),
+            "{tool_result}"
+        );
+        assert!(
+            tool_result.contains("unavailable") || tool_result.contains("Build failed"),
+            "{tool_result}"
+        );
+    }
+}

@@ -169,6 +169,14 @@ impl SessionFactory {
             .load(std::sync::atomic::Ordering::Relaxed)
     }
 
+    /// Whether the operator profile permits guest component generation
+    /// (build and install). Used only to tell the Copilot provider whether
+    /// to advertise its model-facing build tool; the host still checks
+    /// every request.
+    pub fn generation_available(&self) -> bool {
+        self.tool_broker.generation_available()
+    }
+
     /// Record whether the client advertised `session.configOptions.boolean`.
     /// Called once from the `initialize` handler; sessions created
     /// afterwards read it back via [`Self::boolean_config_supported`].

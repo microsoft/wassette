@@ -70,6 +70,11 @@ pub struct SessionState {
     /// with the host's default-off policy until it explicitly enables access.
     #[serde(skip)]
     pub terminal_enabled: bool,
+    /// Host-sent notice that the operator permits component generation.
+    /// Never persisted; it only controls whether `build_component` is
+    /// advertised. The host still authorizes every generation request.
+    #[serde(skip)]
+    pub generation_enabled: bool,
     #[serde(default)]
     pub cwd: String,
     /// Cumulative usage-based cost billed to this session so far, in AI Units

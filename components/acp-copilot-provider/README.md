@@ -66,11 +66,21 @@ lets it call them for up to eight rounds before answering.
 | `read_text_file`  | `fs/read_text_file`   | `read` |
 | `write_text_file` | `fs/write_text_file`  | `edit` |
 | `run_terminal_command` | host terminal | `execute` |
+| `build_component` | host component generation | `execute` |
 
 The file tools are always advertised. `run_terminal_command` is advertised
 only while the host-owned **Terminal** toggle is On; it defaults to Off, and
 the host independently refuses terminal execution while disabled. Relative
 paths are resolved against the session `cwd`.
+
+`build_component` is advertised only when the host runs with a component
+generation profile that permits build and install (see
+[Generating components from ACP](../../docs/design/acp.md#generating-components-from-acp)).
+It sends the model's Rust source and WIT to the host's
+`wassette:component-generation/builder` import; the host asks the editor to
+approve each phase itself, so this tool skips the provider's own prompt. The
+result tells the model that a new component is usable only in a **new** ACP
+session — running sessions are never hot-swapped.
 
 Each call is surfaced to the editor as a tool-call card — an initial
 `tool_call` update (status *pending*), then a `tool_call_update` when it

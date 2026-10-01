@@ -47,6 +47,10 @@ const HOST_MODEL_CONFIG_ID: &str = "model";
 pub const TERMINAL_CONFIG_ID: &str = "terminal";
 const COPILOT_PROVIDER_ID: &str = "acp-copilot-provider";
 
+/// Internal, never-advertised config option the host sends to the Copilot
+/// provider when the operator profile permits component generation.
+const GENERATION_CONFIG_ID: &str = "component-generation";
+
 /// Identity used for host-synthesized config entries (the merged model
 /// selector). `translate` drops config-option provenance on the wire, so
 /// this is informational only.
@@ -248,6 +252,36 @@ impl SessionGroup {
         }
         *self.inner.terminal_enabled.lock().unwrap() = enabled;
         Ok(())
+    }
+
+    /// Tell every Copilot provider chain that the operator permits guest
+    /// component generation, so it advertises its model-facing build tool.
+    /// Only sent when generation is available: a disabled host sends nothing
+    /// and the provider keeps the tool hidden. The host stays authoritative —
+    /// `builder.generate` still checks the profile on every call. A provider
+    /// that rejects the notification (e.g. an older build) keeps working
+    /// without the tool.
+    pub async fn enable_copilot_generation(&self) {
+        for p in &self.inner.providers {
+            if p.component_id != COPILOT_PROVIDER_ID {
+                continue;
+            }
+            match p
+                .session
+                .set_config_option(GENERATION_CONFIG_ID.to_string(), "on".to_string())
+                .await
+            {
+                SetConfigOptionOutcome::Done(_) => {}
+                SetConfigOptionOutcome::Wit(e) => tracing::warn!(
+                    provider = %p.component_id, error = ?e,
+                    "Copilot provider rejected the component-generation notification"
+                ),
+                SetConfigOptionOutcome::Trap(e) => tracing::warn!(
+                    provider = %p.component_id, error = %e,
+                    "Copilot provider trapped on the component-generation notification"
+                ),
+            }
+        }
     }
 
     async fn restore_copilot_terminal(&self, providers: &[&ProviderEntry], enabled: bool) {

@@ -284,6 +284,22 @@ impl ToolBroker {
         }
     }
 
+    /// Whether the operator profile lets guests build and install components.
+    /// Exposure and rebuild remain separately checked per request.
+    pub(crate) fn generation_available(&self) -> bool {
+        #[cfg(feature = "component-generation")]
+        {
+            self.manager.generation_service().is_ok_and(|service| {
+                let permissions = service.permissions();
+                permissions.can_build() && permissions.can_install()
+            })
+        }
+        #[cfg(not(feature = "component-generation"))]
+        {
+            false
+        }
+    }
+
     pub(crate) fn next_call_id(&self) -> String {
         format!(
             "wassette-tool-{}",
