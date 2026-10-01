@@ -49,7 +49,7 @@ pub const TERMINAL_CONFIG_ID: &str = "terminal";
 const COPILOT_PROVIDER_ID: &str = "acp-copilot-provider";
 
 /// Internal, never-advertised config option the host sends to the Copilot
-/// provider when the operator profile permits component generation.
+/// provider when a builder image enables component generation.
 const GENERATION_CONFIG_ID: &str = "component-generation";
 
 /// Identity used for host-synthesized config entries (the merged model

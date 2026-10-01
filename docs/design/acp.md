@@ -158,8 +158,8 @@ wassette acp --provider <PATH|URI|COMPONENT_ID>...
   Each provider chain retains its own revision-bound broker and permissions.
   The active Copilot provider's host-owned `terminal` and `build_component`
   tools are listed when available, but controlled by the ACP terminal option
-  and operator generation profile respectively. Exposure does not grant policy
-  permissions or bypass approval; layered chains require
+  and component-generation availability respectively. Exposure does not grant
+  policy permissions or bypass approval; layered chains require
   `--allow-shared-grants` to enable exports.
 * `--tool <COMPONENT_ID>` explicitly exposes an installed ordinary component
   to the ACP provider. The guest imports
@@ -255,51 +255,49 @@ Any ACP provider or layer may import
 `wassette:component-generation/builder@0.1.0` to build, validate and install a
 component from Rust source and WIT; providers decide how to make that host
 capability available to their models. The Copilot provider maps it to a
-`build_component` model tool. Generation is off unless the operator enables it:
+`build_component` model tool.
 
-1. Install the feature-enabled CLI and signed builder helper:
+Generation runs in the same Wassette binary when it is built with the
+`component-generation` feature and the operator has manually placed the private
+builder image at `~/.local/share/wassette/builder/rust-initrd.cpio` (or
+`$XDG_DATA_HOME/wassette/builder/rust-initrd.cpio` when `XDG_DATA_HOME` is set).
+The standard `just install` recipe builds the feature-enabled CLI; it does not
+download or install the image. No JSON profile or generation-specific
+command-line option is needed. Build and install are enabled by default and
+remain subject to editor approval. ACP enables exposure authorization by
+default, but exposing a generated ordinary tool still requires its own editor
+approval. Rebuild remains disabled by default.
 
-   ```sh
-   just install                     # or: just install release
-   ```
-
-   This builds `wassette` with `component-generation` and copies the
-   `wassette-builder` helper (signed on macOS) next to the installed executable.
-   It does not acquire a builder image. Use `just install-no-generation` to
-   install without the feature and helper; on unsupported host platforms,
-   `just install` automatically uses this mode.
-
-2. Create an operator profile from the helper and a trusted local initrd. The
-   script pins both SHA-256 digests, permits build and install only, creates a
-   private staging directory, and refuses to overwrite an existing profile:
+1. Install the feature-enabled CLI:
 
    ```sh
-   python3 scripts/generation-profile.py \
-       --helper ~/.cargo/bin/wassette-builder \
-       --initrd /path/to/rust-initrd.cpio \
-       --output ~/.config/wassette/generation.json
+   just install
    ```
 
-   Add `--allow-expose` or `--allow-rebuild` only when those operations are
-   intended. See [`generation_config`](../reference/configuration-files.md#generation_config).
+   Use `just install release` for an optimized build. On unsupported host
+   platforms, installation may omit the feature.
 
-3. Add the profile to the agent's arguments, for example in Zed:
+2. Manually place the privately provisioned builder image at its expected
+   location. Do not download or publish it as part of this setup:
 
-   ```json
-   "args": ["acp", "--allow-all", "--provider", "acp-copilot-provider",
-            "--generation-config", "/home/me/.config/wassette/generation.json"]
+   ```sh
+   mkdir -p ~/.local/share/wassette/builder
+   install -m 600 /path/to/private/rust-initrd.cpio \
+       ~/.local/share/wassette/builder/rust-initrd.cpio
    ```
 
 The host tells Copilot sessions to advertise their `build_component` adapter
-only when the profile permits both build and install; other ACP providers can
-use the same host import independently. The host stays authoritative: it checks
-the profile on every request, asks the editor to approve the build, install and
-any exposure phase, and returns `disabled` when no profile is configured.
-A generated tool component is
-installed but is not added to the running conversation; start a **new** ACP
-session with `--tool <component-id>` (or load it in the MCP server). A generated
-layer requires a new session with `--layer <component-id>`. The Copilot provider
-does not yet call ordinary `--tool` components itself.
+when generation is available; other ACP providers can use the same host import
+independently. ACP supplies build, install and exposure authority to the
+existing approval flow; the host remains authoritative and asks the editor to
+approve the build before compilation, then the install against the actual
+output and expected revision. An exposure request has its own approval and
+does not grant component policy permissions. Rebuild remains disabled by
+default and requires an explicitly matched revision. A generated tool component
+is installed but is not added to the running conversation; start
+a **new** ACP session with `--tool <component-id>` (or load it in the MCP
+server). A generated layer requires a new session with `--layer <component-id>`.
+The Copilot provider does not yet call ordinary `--tool` components itself.
 
 In layered chains, generation approval requests go directly to the bound editor
 session and bypass upstream layers, and generation requires

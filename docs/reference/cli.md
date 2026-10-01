@@ -72,15 +72,17 @@ wassette
 
 ### `wassette component build` (opt-in)
 
-Available only in binaries built with the `component-generation` feature, which
-is disabled by default. A trusted operator JSON profile must also be configured:
+Available in binaries built with the `component-generation` feature when the
+private builder image is present at
+`~/.local/share/wassette/builder/rust-initrd.cpio` (or the corresponding path
+under `$XDG_DATA_HOME` when set). `just install` builds the
+feature-enabled CLI but does not download or install the image:
 
 ```bash
-wassette component build request.json --generation-config operator-generation.json
-wassette component build request.json --generation-config operator-generation.json --emit-source ./source
+just install
+wassette component build request.json
+wassette component build request.json --emit-source ./source
 wassette component source 'example:generated' --out ./source
-wassette run --generation-config operator-generation.json
-wassette serve --generation-config operator-generation.json
 ```
 
 `request.json` contains the same inline Rust/WIT request as the
@@ -89,13 +91,15 @@ The command reads a file, not stdin. Its independent adapter transport limits
 are 2 MiB for encoded JSON and 256 KiB each for decoded source and WIT; these
 are not builder defaults. Escaped JSON can exceed the total cap even when
 decoded fields fit. Component names accept up to 512 UTF-8 bytes and worlds up
-to 256 bytes without changing their spelling. The configured builder may impose
-stricter source/WIT limits, including the shared request-plus-dependency WIT
-budget. `--component-dir` selects the managed store. `--emit-source DIR`
+to 256 bytes without changing their spelling. The builder may impose stricter
+source/WIT limits, including the shared request-plus-dependency WIT budget.
+`--component-dir` selects the managed store. `--emit-source DIR`
 optionally writes a local rebuildable source layout after a successful build;
-it refuses a non-empty directory. There is no host compiler flag: the separate `wassette-builder` executable builds
-inside Hyperlight, and the host validates captured output before installing
-through the shared component store.
+it refuses a non-empty directory. The private builder image compiles the
+request in isolation, and the host validates captured output before installing
+through the shared component store. A direct CLI invocation is the user's
+build request. Exposure is authorized by default when requested, while
+rebuild is disabled by default; ACP asks the editor to approve each phase.
 
 ### `wassette component source` (opt-in)
 
@@ -103,30 +107,23 @@ Use `wassette component source <component-id> [--revision TOKEN] [--out DIR]
 [--force] [--component-dir DIR]` to retrieve the installed revision's retained
 source. Without `--out`, it prints a rebuildable generation request as JSON.
 With `--out`, it writes `src/lib.rs`, `wit/world.wit`, and `request.json`; pass
-the latter to `wassette component build` with an operator profile (in a store
-where the component name is available). `--revision` requires an exact match
+the latter to `wassette component build` (in a store where the component name
+is available). `--revision` requires an exact match
 with the installed receipt; earlier revision bundles are removed on replacement.
 A non-empty output directory requires `--force`; symlink targets are never
 overwritten. Non-generated components, retired components and generated
-components built with `retain_source: false` have no retrievable bundle and
+components built without source retention have no retrievable bundle and
 return an error. Only the request's build inputs are retained, not builder
-paths, operator profile, policies or credentials. Authors can put arbitrary
+configuration, policies or credentials. Authors can put arbitrary
 sensitive content in source: treat the component store and exported files as
 private. No MCP source-reading tool is exposed because the existing built-in
 permission model does not separately authorize disclosure of these contents.
 
-The profile path uses CLI > `WASSETTE_GENERATION_CONFIG` > `generation_config` in
-`config.toml` precedence. The profile is trusted operator configuration, never
-part of the request. Its required builder fields include separate helper and
-initrd SHA-256 digests, a private staging directory, and an explicit list of
-inline WIT dependencies. An optional `rust_crates` list pins library crate
-archives, such as the ripgrep `grep-searcher` and `grep-regex` crates, which
-request source can `use`; the request itself cannot name dependencies. See the
-complete
-[operator profile example](configuration-files.md#generation_config).
-The profile must separately authorize building and installing.
-`ExposeTools` and rebuilding an existing generated revision require their own
-operator grants; choosing an intent does not grant permission. Installation
+The request supplies inline source and WIT; it cannot select the builder image,
+compiler configuration, or permissions. No operator JSON profile, helper
+program, helper digest, or `--generation-config` option is used.
+`ExposeTools` and rebuilding an existing generated revision require explicit
+authorization; choosing an intent does not grant permission. Installation
 defaults to `InstallOnly`. ACP layers are installed only and require explicit
 selection in a later ACP session; this command never activates or swaps layers.
 
@@ -141,13 +138,15 @@ files after installation; the report still includes the committed receipt and
 they retain the store `operation` ID and any exact observed commit receipt.
 Inspect and recover that operation before continuing. These reports never
 claim rollback or authorize retrying as a new generation.
-Interrupting the command cancels precommit work and waits for helper reaping;
-an accepted store transaction finishes rather than being aborted.
+Interrupting the command cancels precommit work and waits for the supervised
+builder child process to stop; an accepted store transaction finishes rather
+than being aborted.
 
-Only a trusted, digest-pinned **local initrd** is supported. No builder-image
-OCI download/distribution, host compiler fallback, or Cargo execution is shipped.
-Pinned crates are compiled by the image's `rustc`, so crates that need build
-scripts or procedural macros are not supported.
+Only the private local builder image at
+`~/.local/share/wassette/builder/rust-initrd.cpio` is used. Wassette does not
+download or distribute the image, and there is no host compiler/Cargo fallback.
+The image's `rustc` compiles the request; crates that need build scripts or
+procedural macros are not supported.
 
 ### `wassette component sync`
 
@@ -236,14 +235,9 @@ The initial state comes from `--tool`, remains off by default otherwise, and
 enabling does not grant file or network access or skip editor approval.
 When the Copilot provider is active, its host-owned `terminal` and
 `build_component` tools are listed if available: configure the former through
-the ACP terminal option and the latter through the operator generation profile,
-not `/tools enable`. A layered chain requires `--allow-shared-grants` to enable
-ordinary exports.
-
-With the default-off `component-generation` feature, ACP also accepts
-`--generation-config <PATH>`. The binary resolves this operator profile using
-the same CLI > `WASSETTE_GENERATION_CONFIG` > `generation_config` in `config.toml`
-precedence before ACP startup. An unset profile leaves generation disabled.
+the ACP terminal option; generation requires the `component-generation`
+feature and the private image at its expected path, not `/tools enable`. A
+layered chain requires `--allow-shared-grants` to enable ordinary exports.
 
 ### `wassette run`
 
@@ -262,7 +256,6 @@ wassette run --component-dir /custom/components
 - `--component-dir <PATH>`: Set component storage directory (default: `$XDG_DATA_HOME/wassette/components`)
 - `--local-component-dir <PATH>`: Local build drop directory, separate from the managed store
 - `--local-components <off|startup|watch>`: Local discovery mode (default: `watch`)
-- `--generation-config <PATH>`: Trusted operator generation profile; requires the opt-in `component-generation` feature
 - `--env <KEY=VALUE>`: Set environment variables (can be specified multiple times)
 - `--env-file <PATH>`: Load environment variables from a file
 - `--disable-builtin-tools`: Disable built-in tools (load-component, unload-component, etc.)
@@ -298,7 +291,6 @@ wassette serve --legacy-sessions=false --json-response
 - `--component-dir <PATH>`: Set component storage directory (default: `$XDG_DATA_HOME/wassette/components`)
 - `--local-component-dir <PATH>`: Local build drop directory
 - `--local-components <off|startup|watch>`: Local discovery mode (default: `off`)
-- `--generation-config <PATH>`: Trusted operator generation profile; requires the opt-in `component-generation` feature
 - `--env <KEY=VALUE>`: Set environment variables (can be specified multiple times)
 - `--env-file <PATH>`: Load environment variables from a file
 - `--disable-builtin-tools`: Disable built-in tools (load-component, unload-component, etc.)

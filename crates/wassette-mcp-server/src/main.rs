@@ -144,6 +144,9 @@ mod endpoints {
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    #[cfg(feature = "component-generation")]
+    wassette::generation::run_embedded_builder()?;
+
     let cli = Cli::parse();
 
     // Handle version flag
@@ -160,11 +163,6 @@ async fn main() -> Result<()> {
         let Some(Commands::Acp(mut args)) = cli.command else {
             unreachable!("just matched")
         };
-        #[cfg(feature = "component-generation")]
-        {
-            args.generation_config =
-                config::resolve_generation_config(args.generation_config.as_deref())?;
-        }
         config::resolve_acp_stores(&mut args, global_component_dir.as_deref())?;
         let local_config = config::resolve_local_source(
             &config::LocalSourceOverrides {
@@ -217,8 +215,6 @@ async fn main() -> Result<()> {
                 // Build the lifecycle manager without eagerly loading components so the
                 // background loader is the single source of tool registration.
                 let config::Config {
-                    #[cfg(feature = "component-generation")]
-                    generation_config,
                     component_dir,
                     secrets_dir,
                     environment_vars,
@@ -238,7 +234,7 @@ async fn main() -> Result<()> {
                     .await?;
 
                 #[cfg(feature = "component-generation")]
-                generation::configure(&lifecycle_manager, generation_config.as_deref())?;
+                generation::configure(&lifecycle_manager)?;
 
                 let mut background_tasks = tokio::task::JoinSet::new();
                 let local_cancel = CancellationToken::new();
@@ -350,8 +346,6 @@ async fn main() -> Result<()> {
                 // Build the lifecycle manager without eagerly loading components so the
                 // background loader is the single source of tool registration.
                 let config::Config {
-                    #[cfg(feature = "component-generation")]
-                    generation_config,
                     component_dir,
                     secrets_dir,
                     environment_vars,
@@ -374,7 +368,7 @@ async fn main() -> Result<()> {
                     .await?;
 
                 #[cfg(feature = "component-generation")]
-                generation::configure(&lifecycle_manager, generation_config.as_deref())?;
+                generation::configure(&lifecycle_manager)?;
 
                 // Provision components from manifest if provided
                 if let Some(manifest) = &manifest {
@@ -525,13 +519,11 @@ async fn main() -> Result<()> {
                 ComponentCommands::Build {
                     request,
                     component_dir,
-                    generation_config,
                     emit_source,
                 } => {
                     generation::component_build(
                         request,
                         component_dir.clone().or_else(|| cli.component_dir.clone()),
-                        generation_config.clone(),
                         emit_source.as_deref(),
                     )
                     .await?;

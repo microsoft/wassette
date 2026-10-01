@@ -191,8 +191,9 @@ pub struct GenerationEvidence {
     pub wit_dependencies_sha256: String,
     /// SHA-256 of the verified builder initrd, not the generated artifact.
     pub builder_initrd_sha256: String,
-    /// Digest of the exact packaged helper executable.
-    pub builder_helper_sha256: String,
+    /// Legacy digest of the former separate helper executable.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub builder_helper_sha256: Option<String>,
     /// Immutable builder OCI manifest digest, when the profile provides one.
     pub builder_manifest_digest: Option<String>,
     /// Versioned fixed build profile and inline-runtime identity.
@@ -209,9 +210,9 @@ pub struct GenerationEvidence {
     pub vm_runtime: String,
     /// Selected WIT world.
     pub world: String,
-    /// Compiler target, independent of the helper's host architecture.
+    /// Compiler target, independent of the host architecture.
     pub target: String,
-    /// Platform on which the helper ran.
+    /// Platform on which the builder ran.
     pub host_platform: String,
 }
 
@@ -230,7 +231,10 @@ impl GenerationEvidence {
             || !hash(&self.wit_sha256)
             || !hash(&self.wit_dependencies_sha256)
             || !hash(&self.builder_initrd_sha256)
-            || !hash(&self.builder_helper_sha256)
+            || self
+                .builder_helper_sha256
+                .as_ref()
+                .is_some_and(|digest| !hash(digest))
             || !hash(&self.profile_sha256)
             || self
                 .builder_manifest_digest

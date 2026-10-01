@@ -21,16 +21,15 @@ use crate::captured_file_digest;
 const MAX_INITRD_BYTES: u64 = 1024 * 1024 * 1024;
 
 /// Owns the exact backing hashed for boot, not merely an open source path.
-/// The operator's digest establishes integrity, not the origin's trust.
 pub(super) struct BootImage {
     path: PathBuf,
     _file: File,
+    sha256: String,
 }
 
 impl BootImage {
     pub fn capture(
         source: &Path,
-        expected: &str,
         staging: &Path,
         cancel: &CancellationToken,
         deadline: Instant,
@@ -49,18 +48,22 @@ impl BootImage {
         let (path, mut file) = snapshot(source, staging, cancel, deadline)?;
         file.seek(SeekFrom::Start(0))?;
         let actual = captured_file_digest(&mut file, MAX_INITRD_BYTES, cancel, deadline)?;
-        ensure!(
-            actual == expected,
-            "captured builder initrd digest mismatch"
-        );
         // Darwin's /dev/fd reopening shares the descriptor's file position;
         // the SDK's first CPIO scan must start at byte zero.
         file.seek(SeekFrom::Start(0))?;
-        Ok(Self { path, _file: file })
+        Ok(Self {
+            path,
+            _file: file,
+            sha256: actual,
+        })
     }
 
     pub fn path(&self) -> &Path {
         &self.path
+    }
+
+    pub fn sha256(&self) -> &str {
+        &self.sha256
     }
 }
 
@@ -164,12 +167,12 @@ mod tests {
         std::fs::write(&source, b"original-image").unwrap();
         let image = BootImage::capture(
             &source,
-            &crate::sha256(b"original-image"),
             stage.path(),
             &CancellationToken::new(),
             Instant::now() + Duration::from_secs(5),
         )
         .unwrap();
+        assert_eq!(image.sha256(), crate::sha256(b"original-image"));
         assert!(!stage.path().join("initrd.cpio").exists());
         std::fs::write(&source, b"in-place-change").unwrap();
         let replacement = root.path().join("replacement");
@@ -188,7 +191,6 @@ mod tests {
         std::fs::write(&source, b"original-image").unwrap();
         let image = BootImage::capture(
             &source,
-            &crate::sha256(b"original-image"),
             stage.path(),
             &CancellationToken::new(),
             Instant::now() + Duration::from_secs(5),
@@ -201,25 +203,19 @@ mod tests {
     }
 
     #[test]
-    fn hash_is_of_captured_bytes_and_mismatch_fails_closed() {
+    fn hash_is_of_the_captured_image_bytes() {
         let root = tempfile::tempdir().unwrap();
         let stage = tempfile::tempdir_in(root.path()).unwrap();
         let source = root.path().join("source.cpio");
         std::fs::write(&source, b"different-image").unwrap();
-        let result = BootImage::capture(
+        let image = BootImage::capture(
             &source,
-            &crate::sha256(b"expected-image"),
             stage.path(),
             &CancellationToken::new(),
             Instant::now() + Duration::from_secs(5),
-        );
-        assert!(
-            result
-                .err()
-                .unwrap()
-                .to_string()
-                .contains("captured builder initrd digest mismatch")
-        );
+        )
+        .unwrap();
+        assert_eq!(image.sha256(), crate::sha256(b"different-image"));
     }
 
     #[test]
@@ -231,7 +227,6 @@ mod tests {
         assert!(
             BootImage::capture(
                 &source,
-                &crate::sha256(b""),
                 root.path(),
                 &cancel,
                 Instant::now() + Duration::from_secs(5),
@@ -242,7 +237,6 @@ mod tests {
         assert!(
             BootImage::capture(
                 &source,
-                &crate::sha256(b""),
                 root.path(),
                 &cancel,
                 Instant::now() + Duration::from_secs(5),
@@ -292,7 +286,6 @@ mod tests {
         std::fs::write(&source, &cpio).unwrap();
         let image = BootImage::capture(
             &source,
-            &crate::sha256(&cpio),
             stage.path(),
             &CancellationToken::new(),
             Instant::now() + Duration::from_secs(5),

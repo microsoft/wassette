@@ -1,11 +1,11 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT license.
 
-//! Implementation detail of the packaged, one-job/one-VM executable.
+//! One-job/one-VM execution in a re-executed Wassette child.
 
 use std::collections::BTreeSet;
 use std::fs::File;
-use std::io::{Read, Write};
+use std::io::Write;
 use std::os::fd::{FromRawFd, RawFd};
 use std::path::Path;
 use std::sync::{Arc, Mutex};
@@ -18,7 +18,10 @@ use serde::Deserialize;
 use tokio_util::sync::CancellationToken;
 use wit_bindgen_core::{Files, WorldGenerator};
 
-use crate::{BuildError, BuildErrorKind, BuildLimits, artifact, ipc, validate_request};
+use crate::{
+    BuildArtifact, BuildError, BuildErrorKind, BuildLimits, BuildRequest, BuilderConfig, artifact,
+    validate_request,
+};
 
 mod initrd;
 mod world;
@@ -27,9 +30,11 @@ use initrd::BootImage;
 use world::RequestedWorld;
 
 #[cfg(test)]
-use crate::{BuildRequest, ComponentKind};
+use crate::ComponentKind;
 
 const DRIVER: &str = include_str!("driver.py");
+const OUTPUT_CHUNK: usize = 32 * 1024;
+const INTERNAL_ARG: &str = crate::ipc::ARGUMENT;
 
 macro_rules! runtime_files {
     ($($path:literal),* $(,)?) => {
@@ -52,45 +57,69 @@ runtime_files! {
     "rt/async_support/waitable_set.rs", "rt/async_support/wasip3_context.rs",
 }
 
-/// Called only by the packaged binary. Standard output belongs exclusively to
-/// IPC, including during Hyperlight boot (whose HostPrint normally uses stdout).
-pub fn main(allow_vm_memory: fn(), limit_transforms: fn()) -> Result<()> {
-    ensure!(
-        std::env::args()
-            .collect::<Vec<_>>()
-            .get(1)
-            .map(String::as_str)
-            == Some(ipc::ARGUMENT),
-        "expected {}; this helper is not a compiler CLI",
-        ipc::ARGUMENT
-    );
-    let mut output = protocol_stdout()?;
-    output.write_all(ipc::MAGIC)?;
-    output.flush()?;
-    watchdog(Duration::from_secs(120));
-    let result = execute(allow_vm_memory, limit_transforms);
-    match result {
-        Ok(result) => {
-            for chunk in result.diagnostics.as_bytes().chunks(ipc::CHUNK) {
-                ipc::frame(&mut output, ipc::DIAGNOSTICS, chunk)?;
-            }
-            for chunk in result.wasm.chunks(ipc::CHUNK) {
-                ipc::frame(&mut output, ipc::WASM, chunk)?;
-            }
-            ipc::frame(&mut output, ipc::SUCCESS, &[])?;
-            Ok(())
-        }
-        Err(error) => {
-            let error = BuildError::preserve_or_redact(error, BuildErrorKind::Unavailable);
-            let error = error
-                .downcast_ref::<BuildError>()
-                .expect("redacted builder error");
-            ipc::failure(&mut output, error)?;
-            // The error is already on the protocol channel, not repeated on
-            // stderr (which would consume the same diagnostics budget twice).
-            terminate(1)
-        }
+pub(crate) fn try_run_internal_helper() -> Result<bool> {
+    let args: Vec<_> = std::env::args_os().skip(1).collect();
+    if !is_internal_invocation(&args) {
+        return Ok(false);
     }
+    let mut protocol = protocol_stdout()?;
+    let result = (|| {
+        let job = crate::ipc::read_job(std::io::stdin().lock())?;
+        let stage = job.staging.canonicalize()?;
+        let staging_root = job.config.staging_root.canonicalize()?;
+        ensure!(
+            stage != staging_root && stage.starts_with(&staging_root),
+            "internal builder staging path escaped its configured root"
+        );
+        ensure!(
+            std::env::current_dir()?.canonicalize()? == stage,
+            "internal builder working directory does not match its staging path"
+        );
+        let deadline = Instant::now() + Duration::from_millis(job.limits.wall_time_ms);
+        let cancel = CancellationToken::new();
+        let result = build(
+            &job.config,
+            &job.limits,
+            job.request,
+            &job.staging,
+            &cancel,
+            deadline,
+        );
+        crate::ipc::write_result(&mut protocol, result)
+    })();
+    if let Err(error) = result {
+        let _ = writeln!(std::io::stderr(), "internal builder failed: {error}");
+    }
+    Ok(true)
+}
+
+fn is_internal_invocation(args: &[std::ffi::OsString]) -> bool {
+    args.len() == 1 && args[0] == INTERNAL_ARG
+}
+
+fn protocol_stdout() -> Result<File> {
+    unsafe {
+        let fd: RawFd = libc::dup(libc::STDOUT_FILENO);
+        ensure!(
+            fd >= 0,
+            "duplicate internal protocol stdout: {}",
+            std::io::Error::last_os_error()
+        );
+        let output = File::from_raw_fd(fd);
+        ensure!(
+            libc::dup2(libc::STDERR_FILENO, libc::STDOUT_FILENO) >= 0,
+            "redirect internal builder stdout: {}",
+            std::io::Error::last_os_error()
+        );
+        Ok(output)
+    }
+}
+
+struct Job<'a> {
+    config: &'a BuilderConfig,
+    limits: &'a BuildLimits,
+    request: &'a BuildRequest,
+    staging: &'a Path,
 }
 
 #[derive(Default)]
@@ -99,6 +128,7 @@ struct GuestOutput {
     diagnostics: String,
     rust_diagnostics: Vec<u8>,
     link_diagnostics: Vec<u8>,
+    console_bytes: usize,
     failure: Option<GuestFailure>,
     failed: bool,
 }
@@ -114,10 +144,35 @@ enum GuestFailure {
     Output,
 }
 
-fn execute(allow_vm_memory: fn(), limit_transforms: fn()) -> Result<GuestOutput> {
-    let job = ipc::read_job(std::io::stdin().lock())?;
+pub(crate) fn build(
+    config: &BuilderConfig,
+    limits: &BuildLimits,
+    request: BuildRequest,
+    staging: &Path,
+    cancel: &CancellationToken,
+    deadline: Instant,
+) -> Result<BuildArtifact> {
+    let job = Job {
+        config,
+        limits,
+        request: &request,
+        staging,
+    };
+    let (output, initrd_sha256) = execute(&job, cancel, deadline)?;
+    Ok(BuildArtifact {
+        wasm: output.wasm,
+        diagnostics: output.diagnostics,
+        evidence: crate::evidence(config, &request, &initrd_sha256),
+    })
+}
+
+fn execute(
+    job: &Job<'_>,
+    cancel: &CancellationToken,
+    deadline: Instant,
+) -> Result<(GuestOutput, String)> {
     job.limits.validate()?;
-    validate_request(&job.request, &job.limits).map_err(|error| {
+    validate_request(job.request, job.limits).map_err(|error| {
         BuildError::explain(
             &error,
             BuildErrorKind::InvalidRequest,
@@ -125,34 +180,21 @@ fn execute(allow_vm_memory: fn(), limit_transforms: fn()) -> Result<GuestOutput>
         )
     })?;
     ensure!(job.staging.is_absolute(), "invalid host staging path");
-    watchdog(Duration::from_millis(job.limits.wall_time_ms));
-    std::thread::Builder::new()
-        .name("builder-parent-pipe".into())
-        .spawn(|| {
-            let mut byte = [0];
-            // Any EOF, unexpected extra input, or broken pipe ends this process,
-            // including its VM, even if the async host has disappeared.
-            let _ = std::io::stdin().read(&mut byte);
-            terminate(125);
-        })?;
-    let cancel = CancellationToken::new();
-    let deadline = Instant::now() + Duration::from_millis(job.limits.wall_time_ms);
-    let image = BootImage::capture(
-        &job.config.initrd_path,
-        &job.config.initrd_sha256,
-        &job.staging,
-        &cancel,
-        deadline,
-    )?;
+    ensure!(!cancel.is_cancelled(), "build cancelled");
+    ensure!(Instant::now() < deadline, "build deadline exceeded");
+    let image = BootImage::capture(&job.config.initrd_path, job.staging, cancel, deadline)?;
+    let initrd_sha256 = image.sha256().to_owned();
     let mut requested =
-        RequestedWorld::resolve(&job.request, &job.config.wit_dependencies, &job.limits)?;
-    let bindings = generate_resolved_bindings(&mut requested, &job.limits).map_err(|error| {
+        RequestedWorld::resolve(job.request, &job.config.wit_dependencies, job.limits)?;
+    let bindings = generate_resolved_bindings(&mut requested, job.limits).map_err(|error| {
         BuildError::explain(
             &error,
             BuildErrorKind::InvalidWit,
             job.limits.diagnostics_bytes,
         )
     })?;
+    ensure!(!cancel.is_cancelled(), "build cancelled");
+    ensure!(Instant::now() < deadline, "build deadline exceeded");
     let exports = linker_exports(&bindings).map_err(|error| {
         BuildError::explain(
             &error,
@@ -163,7 +205,7 @@ fn execute(allow_vm_memory: fn(), limit_transforms: fn()) -> Result<GuestOutput>
     let input = job.staging.join("input");
     std::fs::create_dir(&input)?;
     prepare_sources(&input, &job.request.source, &bindings)?;
-    crate::rust_crates::stage(&job.config.rust_crates, &input, &cancel, deadline)?;
+    crate::rust_crates::stage(&job.config.rust_crates, &input, cancel, deadline)?;
     let driver_config = serde_json::json!({
         "exports": exports,
         "rust_crates": crate::rust_crates::driver_config(&job.config.rust_crates),
@@ -175,14 +217,29 @@ fn execute(allow_vm_memory: fn(), limit_transforms: fn()) -> Result<GuestOutput>
         input.join("driver.json"),
         serde_json::to_vec(&driver_config)?,
     )?;
-    allow_vm_memory();
     let output = Arc::new(Mutex::new(GuestOutput::default()));
     let sink = output.clone();
     let limits = job.limits.clone();
+    let console_sink = output.clone();
+    let console_limit = job.limits.diagnostics_bytes;
     let mut sandbox = SandboxBuilder::from_initrd(image.path())
         .scratch_mb(job.limits.guest_scratch_mib)
         .mount(Mount::ro(&input, "/input"))
         .profile(false)
+        .host_function("HostPrint", move |input| {
+            let [message]: [String; 1] =
+                serde_json::from_str(input).map_err(|error| error.to_string())?;
+            let mut output = console_sink
+                .lock()
+                .map_err(|_| "output sink poisoned".to_owned())?;
+            let used = output.console_bytes.checked_add(message.len());
+            if used.is_none_or(|size| size > console_limit) {
+                output.failed = true;
+                return Err("guest console output exceeded its budget".into());
+            }
+            output.console_bytes = used.unwrap_or_default();
+            Ok(i32::try_from(message.len()).unwrap_or(i32::MAX).to_string())
+        })
         // This is a bounded write-only extraction channel, not an application
         // tool import. There are no writable mounts, network, or other tools.
         .host_function("builder-output", move |input| {
@@ -193,10 +250,54 @@ fn execute(allow_vm_memory: fn(), limit_transforms: fn()) -> Result<GuestOutput>
         })
         .boot()
         .context("Hyperlight boot failed: unsupported hypervisor/platform, missing macOS com.apple.security.hypervisor signing, or incompatible builder profile/initrd")?;
-    let run_result = sandbox.run(DRIVER);
+    if cancel.is_cancelled() {
+        drop(sandbox);
+        return Err(BuildError::new(BuildErrorKind::Cancelled).into());
+    }
+    ensure!(
+        Instant::now() < deadline,
+        "build deadline exceeded during VM boot"
+    );
+    let interrupt = sandbox.interrupt_handle();
+    let run_result = std::thread::scope(|scope| -> Result<_> {
+        let watcher_cancel = cancel.clone();
+        let (stop_tx, stop_rx) = std::sync::mpsc::channel();
+        let watcher = scope.spawn(move || {
+            loop {
+                match stop_rx.recv_timeout(Duration::from_millis(10)) {
+                    Ok(()) | Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => return,
+                    Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {}
+                }
+                if watcher_cancel.is_cancelled() || Instant::now() >= deadline {
+                    interrupt.kill();
+                    return;
+                }
+            }
+        });
+        let result = sandbox.run(DRIVER);
+        let _ = stop_tx.send(());
+        watcher
+            .join()
+            .map_err(|_| anyhow::anyhow!("VM cancellation monitor panicked"))?;
+        Ok(result)
+    })?;
+    let console_bytes = sandbox.drain_output().len();
     drop(sandbox);
     drop(image);
-    limit_transforms();
+    if cancel.is_cancelled() {
+        return Err(BuildError::new(BuildErrorKind::Cancelled).into());
+    }
+    if Instant::now() >= deadline {
+        return Err(BuildError::new(BuildErrorKind::DeadlineExceeded).into());
+    }
+    if console_bytes > job.limits.diagnostics_bytes {
+        return Err(BuildError::with_diagnostic(
+            BuildErrorKind::InvalidOutput,
+            "Guest console output exceeded its configured budget.",
+            job.limits.diagnostics_bytes,
+        )
+        .into());
+    }
     let mut output = Arc::try_unwrap(output)
         .map_err(|_| anyhow::anyhow!("VM retained output capability"))?
         .into_inner()
@@ -268,23 +369,22 @@ fn execute(allow_vm_memory: fn(), limit_transforms: fn()) -> Result<GuestOutput>
         )
         .into());
     }
-    output.wasm =
-        artifact::name_component(output.wasm, &job.request, job.limits.wasm_bytes, || {
-            ensure!(
-                Instant::now() < deadline,
-                "deadline exceeded naming captured component"
-            );
-            Ok(())
-        })
-        .map_err(|error| {
-            BuildError::explain(
-                &error,
-                BuildErrorKind::InvalidOutput,
-                job.limits.diagnostics_bytes,
-            )
-        })?;
+    output.wasm = artifact::name_component(output.wasm, job.request, job.limits.wasm_bytes, || {
+        ensure!(
+            Instant::now() < deadline,
+            "deadline exceeded naming captured component"
+        );
+        Ok(())
+    })
+    .map_err(|error| {
+        BuildError::explain(
+            &error,
+            BuildErrorKind::InvalidOutput,
+            job.limits.diagnostics_bytes,
+        )
+    })?;
     requested
-        .validate(&output.wasm, &job.limits, deadline)
+        .validate(&output.wasm, job.limits, deadline)
         .map_err(|error| {
             BuildError::explain(
                 &error,
@@ -292,7 +392,7 @@ fn execute(allow_vm_memory: fn(), limit_transforms: fn()) -> Result<GuestOutput>
                 job.limits.diagnostics_bytes,
             )
         })?;
-    Ok(output)
+    Ok((output, initrd_sha256))
 }
 
 const GUEST_CRASHED: &str = "The compiler guest crashed before reporting a result, usually because compilation exhausted its configured guest scratch memory (limits.guest_scratch_mib).";
@@ -316,7 +416,7 @@ fn extract_chunk(output: &mut GuestOutput, input: &str, limits: &BuildLimits) ->
         serde_json::from_str(input).context("invalid guest extraction message")?;
     let bytes = base64::engine::general_purpose::STANDARD.decode(encoded)?;
     ensure!(
-        !bytes.is_empty() && bytes.len() <= ipc::CHUNK,
+        !bytes.is_empty() && bytes.len() <= OUTPUT_CHUNK,
         "invalid guest extraction chunk"
     );
     match kind.as_str() {
@@ -327,11 +427,14 @@ fn extract_chunk(output: &mut GuestOutput, input: &str, limits: &BuildLimits) ->
             );
             output.wasm.extend_from_slice(&bytes);
         }
+
         "rust-diagnostics" | "link-diagnostics" => {
             ensure!(
                 bytes.len()
                     <= limits.diagnostics_bytes.saturating_sub(
-                        output.rust_diagnostics.len() + output.link_diagnostics.len()
+                        output.rust_diagnostics.len()
+                            + output.link_diagnostics.len()
+                            + output.console_bytes
                     ),
                 "guest diagnostics exceed budget"
             );
@@ -470,43 +573,62 @@ fn prepare_sources(staging: &Path, source: &str, bindings: &str) -> Result<()> {
     Ok(())
 }
 
-fn protocol_stdout() -> Result<File> {
-    // SAFETY: dup creates an owned descriptor; dup2 redirects only this helper's
-    // fd 1. Hyperlight's prints then flow to the parent's bounded stderr reader.
-    unsafe {
-        let fd: RawFd = libc::dup(libc::STDOUT_FILENO);
-        ensure!(
-            fd >= 0,
-            "duplicate protocol stdout: {}",
-            std::io::Error::last_os_error()
-        );
-        let output = File::from_raw_fd(fd);
-        ensure!(
-            libc::dup2(libc::STDERR_FILENO, libc::STDOUT_FILENO) >= 0,
-            "redirect guest stdout: {}",
-            std::io::Error::last_os_error()
-        );
-        Ok(output)
-    }
-}
-
-fn watchdog(duration: Duration) {
-    std::thread::spawn(move || {
-        std::thread::sleep(duration);
-        // Process termination also destroys an unresponsive VM. There is no
-        // background guest to detach and no writable host guest output to flush.
-        terminate(124);
-    });
-}
-
-fn terminate(code: i32) -> ! {
-    // No exit handlers or stdio locks: they may be held by a blocked SDK call.
-    unsafe { libc::_exit(code) }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn internal_dispatch_requires_the_exact_single_argument() {
+        assert!(is_internal_invocation(&[INTERNAL_ARG.into()]));
+        assert!(!is_internal_invocation(&[]));
+        assert!(!is_internal_invocation(&[
+            INTERNAL_ARG.into(),
+            "unexpected".into()
+        ]));
+        assert!(!is_internal_invocation(&[
+            "--wassette-internal-builder-v0".into()
+        ]));
+    }
+
+    #[test]
+    fn invalid_wit_returns_bounded_redacted_diagnostics_before_vm_boot() {
+        let root = tempfile::tempdir().unwrap();
+        let image = root.path().join("image");
+        std::fs::write(&image, b"not a bootable image").unwrap();
+        let config = BuilderConfig::new(image, root.path().into()).unwrap();
+        let limits = BuildLimits {
+            diagnostics_bytes: 1024,
+            ..BuildLimits::default()
+        };
+        let request = BuildRequest {
+            component_name: "test:diagnostic".into(),
+            source: "PRIVATE_RUST_SOURCE_BODY".into(),
+            wit: "package test:broken@1.0.0;\nworld tool { export run: func() } // PRIVATE_WIT_SOURCE_BODY".into(),
+            world: "tool".into(),
+            kind: ComponentKind::Tool,
+        };
+        let staging = tempfile::tempdir_in(root.path()).unwrap();
+        let error = build(
+            &config,
+            &limits,
+            request,
+            staging.path(),
+            &CancellationToken::new(),
+            Instant::now() + Duration::from_secs(5),
+        )
+        .unwrap_err();
+        let failure = BuildError::from_error(&error).unwrap();
+        assert_eq!(failure.kind(), BuildErrorKind::InvalidWit);
+        let message = failure.diagnostic().unwrap();
+        assert!(
+            message.contains("expected") && message.contains("WIT:2:"),
+            "{message}"
+        );
+        assert!(message.len() <= limits.diagnostics_bytes);
+        assert!(!message.contains("PRIVATE_"));
+        assert!(!message.contains(root.path().to_str().unwrap()));
+        assert_eq!(std::fs::read_dir(staging.path()).unwrap().count(), 0);
+    }
 
     #[test]
     fn export_roots_include_every_function_and_post_return() {

@@ -173,7 +173,7 @@ impl SessionFactory {
             .load(std::sync::atomic::Ordering::Relaxed)
     }
 
-    /// Whether the operator profile permits guest component generation
+    /// Whether the builder image enables guest component generation
     /// (build and install). Used only to tell the Copilot provider whether
     /// to advertise its model-facing build tool; the host still checks
     /// every request.

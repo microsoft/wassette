@@ -104,13 +104,17 @@ implicit exposure defaults. Committed store changes are refreshed on catalog
 listing/call resolution; idle external changes alone do not wake the guest's
 `wait-for-change`. Local watch publishes changes through the shared catalog.
 
-## Explicit component generation
+## Component generation
 
-Build with the `component-generation` Cargo feature and pass
-`--generation-config <PATH>` to read a trusted operator profile. The profile
-selects a local, digest-pinned builder initrd and isolated helper, and independently
-enables build, install, exposure, and rebuild authority. No profile means disabled;
-guest JSON cannot choose configuration paths or grant itself authority.
+Build with the `component-generation` Cargo feature and place the private
+builder image at `~/.local/share/wassette/builder/rust-initrd.cpio` (or the
+corresponding path under `$XDG_DATA_HOME` when set). No JSON profile or
+`--generation-config` option is needed, and Wassette does not
+download the image. Build and install remain subject to editor approval.
+ACP enables the exposure permission by default so an editor-approved request
+can expose an ordinary generated tool. Exposure still requires its own editor
+approval; rebuild remains disabled by default. MCP and CLI also permit
+explicitly requested exposure when the image is available.
 
 Providers and layers may request `wassette:component-generation/builder@0.1.0`.
 The host asks for one-call build approval before starting the VM, then install
@@ -126,7 +130,7 @@ Generated ACP layers are install-only, return no tool handles, and require later
 explicit selection. Neither providers nor running chain replacements are generated.
 Cancellation before commit prevents installation; cancellation after commit
 acceptance cannot roll it back. Supervised build/install work retains its permit
-until it actually finishes, including VM termination and reaping.
+until in-process VM work and any accepted transaction finish.
 Disconnect closes the shared supervisor to new jobs, cancels precommit generation,
 and awaits all admitted jobs before returning from the transport. Accepted commits
 still finish. Ordinary Wasmtime tool cancellation remains cooperative: a
@@ -151,15 +155,17 @@ to the authorized requester, capped at 16 KiB of JSON-serialized text. Host
 error chains are not rendered, and automatic status notifications omit diagnostics.
 
 Real-VM stdio coverage is opt-in. Build the feature-enabled CLI and ACP fixtures,
-then set `WASSETTE_ACP_GENERATION_CONFIG` to a trusted local profile and run:
+then set `WASSETTE_ACP_GENERATION_IMAGE` to the path of a locally built private
+builder image before running the ignored tests. The harness copies that image
+into its isolated temporary data directory, so an image installed under your
+home directory alone is not discovered by these tests:
 
 ```sh
-cargo test -p wassette-acp --features component-generation \
+WASSETTE_ACP_GENERATION_IMAGE=/path/to/rust-initrd.cpio \
+  cargo test -p wassette-acp --features component-generation \
   --test acp_stdio generation::real_ -- --ignored --test-threads=1
 ```
 
 These tests isolate stores, secrets and builder staging; they cover phase
 denials, install-only behavior, session-local exposure, layered callers,
-disconnect cleanup and later explicit layer selection. Use an immutable signed
-helper path: Cargo can relink a helper in `target/`, invalidating its signature
-and configured digest.
+disconnect cleanup and later explicit layer selection.

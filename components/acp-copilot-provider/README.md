@@ -75,8 +75,9 @@ paths are resolved against the session `cwd`.
 
 Component generation is built into Wassette, not the Copilot provider; other
 ACP providers and layers can use the same host import. This provider's
-`build_component` model adapter is advertised only when the host runs with a
-component generation profile that permits build and install (see
+`build_component` model adapter is advertised when the host binary includes
+the `component-generation` feature and the private builder image is available
+(see
 [Generating components from ACP](../../docs/design/acp.md#generating-components-from-acp)).
 It sends the model's Rust source and WIT to the host's
 `wassette:component-generation/builder` import; the host asks the editor to

@@ -31,20 +31,12 @@ fn digest(path: &Path) -> Result<String> {
 }
 
 fn config(stage: &Path, dependencies: Vec<String>) -> Result<BuilderConfig> {
-    let helper_path =
-        PathBuf::from(std::env::var("WASSETTE_BUILDER_HELPER").context("set signed helper path")?);
     let initrd_path = PathBuf::from(
         std::env::var("WASSETTE_BUILDER_INITRD").context("set existing immutable initrd path")?,
     );
-    Ok(BuilderConfig {
-        helper_sha256: digest(&helper_path)?,
-        initrd_sha256: digest(&initrd_path)?,
-        helper_path,
-        initrd_path,
-        staging_root: stage.into(),
-        wit_dependencies: dependencies,
-        rust_crates: vec![],
-    })
+    let mut config = BuilderConfig::new(initrd_path, stage.into())?;
+    config.wit_dependencies = dependencies;
+    Ok(config)
 }
 
 fn validate(wasm: &[u8]) -> Result<()> {
@@ -54,21 +46,12 @@ fn validate(wasm: &[u8]) -> Result<()> {
 
 #[cfg(feature = "hyperlight")]
 #[tokio::test]
-async fn helper_returns_safe_wit_and_configuration_failures_without_booting() -> Result<()> {
+async fn test_executable_without_builder_dispatch_fails_closed() -> Result<()> {
     let root = tempfile::tempdir()?;
     let staging = tempfile::tempdir_in(root.path())?;
     let image = root.path().join("parser-only-image");
     std::fs::write(&image, b"not a bootable image")?;
-    let helper = PathBuf::from(env!("CARGO_BIN_EXE_wassette-builder"));
-    let config = BuilderConfig {
-        helper_sha256: digest(&helper)?,
-        initrd_sha256: digest(&image)?,
-        helper_path: helper,
-        initrd_path: image,
-        staging_root: staging.path().into(),
-        wit_dependencies: vec![],
-        rust_crates: vec![],
-    };
+    let config = BuilderConfig::new(image, staging.path().into())?;
     let limits = BuildLimits {
         diagnostics_bytes: 1024,
         ..BuildLimits::default()
@@ -85,26 +68,15 @@ async fn helper_returns_safe_wit_and_configuration_failures_without_booting() ->
         .build(request.clone(), CancellationToken::new())
         .await
         .unwrap_err();
-    let failure = BuildError::from_error(&error).context("structured WIT failure")?;
-    assert_eq!(failure.kind(), BuildErrorKind::InvalidWit);
-    let message = failure.diagnostic().context("safe WIT diagnostic")?;
-    assert!(
-        message.contains("expected") && message.contains("WIT:2:"),
-        "{message}"
-    );
-    assert!(message.len() <= 1024);
-    assert!(!message.contains("PRIVATE_"));
-    assert!(!message.contains(root.path().to_str().unwrap()));
-    assert!(!format!("{error:#}").contains("expected"));
+    let failure = BuildError::from_error(&error).context("missing internal dispatch")?;
+    assert_eq!(failure.kind(), BuildErrorKind::Unavailable);
+    assert!(failure.diagnostic().is_none());
+    assert!(!format!("{error:#}").contains("PRIVATE_"));
     assert_eq!(std::fs::read_dir(staging.path())?.count(), 0);
 
-    let builder = Builder::new(
-        BuilderConfig {
-            initrd_sha256: "0".repeat(64),
-            ..config
-        },
-        limits,
-    )?;
+    let image = config.initrd_path.clone();
+    std::fs::write(&image, b"changed after builder configuration")?;
+    let builder = Builder::new(config, limits)?;
     let error = builder
         .build(request, CancellationToken::new())
         .await
@@ -117,67 +89,8 @@ async fn helper_returns_safe_wit_and_configuration_failures_without_booting() ->
     Ok(())
 }
 
-#[cfg(feature = "hyperlight")]
-#[test]
-fn parent_pipe_loss_terminates_helper_before_vm_boot() -> Result<()> {
-    use std::io::Write;
-    use std::process::{Command, Stdio};
-    use std::time::{Duration, Instant};
-
-    let stage = tempfile::tempdir()?;
-    let image = stage.path().join("sparse-test-image");
-    std::fs::File::create(&image)?.set_len(64 * 1024 * 1024)?;
-    let helper = PathBuf::from(env!("CARGO_BIN_EXE_wassette-builder"));
-    let job = serde_json::json!({
-        "config": {
-            "helper_path": helper,
-            "helper_sha256": "0".repeat(64),
-            "initrd_path": image,
-            "initrd_sha256": "0".repeat(64),
-            "staging_root": stage.path(),
-            "wit_dependencies": [],
-        },
-        "limits": BuildLimits::default(),
-        "request": {
-            "component_name": "test:pipe",
-            "source": "struct Component;",
-            "wit": "package test:pipe; world tool { export run: func(); }",
-            "world": "tool",
-            "kind": "Tool",
-        },
-        "staging": stage.path(),
-    });
-    let bytes = serde_json::to_vec(&job)?;
-    let mut child = Command::new(helper)
-        .arg("--job-v3")
-        .env_clear()
-        .stdin(Stdio::piped())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .spawn()?;
-    let mut pipe = child.stdin.take().context("parent pipe")?;
-    pipe.write_all(b"WSBLD003")?;
-    pipe.write_all(&(bytes.len() as u32).to_le_bytes())?;
-    pipe.write_all(&bytes)?;
-    drop(pipe);
-    let deadline = Instant::now() + Duration::from_secs(3);
-    loop {
-        if let Some(status) = child.try_wait()? {
-            assert_eq!(status.code(), Some(125), "{status}");
-            break;
-        }
-        if Instant::now() >= deadline {
-            child.kill()?;
-            child.wait()?;
-            anyhow::bail!("helper survived parent pipe loss");
-        }
-        std::thread::sleep(Duration::from_millis(5));
-    }
-    Ok(())
-}
-
 #[tokio::test]
-#[ignore = "requires the packaged signed Hyperlight helper and existing Rust 1.98.1 initrd"]
+#[ignore = "requires an existing Rust 1.98.1 initrd"]
 async fn native_tool_multiple_exports_and_strings() -> Result<()> {
     let stage = tempfile::tempdir()?;
     let builder = Builder::new(config(stage.path(), vec![])?, BuildLimits::default())?;
@@ -217,7 +130,7 @@ bindings::export!(Component with_types_in bindings);
 }
 
 #[tokio::test]
-#[ignore = "requires the packaged signed Hyperlight helper and existing Rust 1.98.1 initrd"]
+#[ignore = "requires an existing Rust 1.98.1 initrd"]
 async fn native_compiler_errors_are_reported() -> Result<()> {
     let stage = tempfile::tempdir()?;
     let builder = Builder::new(config(stage.path(), vec![])?, BuildLimits::default())?;
@@ -311,7 +224,7 @@ fn wit_package(path: &Path) -> Result<String> {
 }
 
 #[tokio::test]
-#[ignore = "requires the packaged signed Hyperlight helper and existing Rust 1.98.1 initrd"]
+#[ignore = "requires an existing Rust 1.98.1 initrd"]
 async fn native_canonical_acp_layer() -> Result<()> {
     let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     let root = manifest
@@ -355,7 +268,7 @@ async fn native_canonical_acp_layer() -> Result<()> {
 }
 
 #[tokio::test]
-#[ignore = "requires the packaged signed Hyperlight helper and Rust 1.98.1 initrd"]
+#[ignore = "requires an existing Rust 1.98.1 initrd"]
 async fn native_wasm_size_limit_is_invalid_output_not_unavailable() -> Result<()> {
     let stage = tempfile::tempdir()?;
     let builder = Builder::new(
@@ -415,7 +328,7 @@ fn crate_archive(dir: &Path, package: &str, lib: &str) -> Result<PathBuf> {
 }
 
 #[tokio::test]
-#[ignore = "requires the packaged signed Hyperlight helper and existing Rust 1.98.1 initrd"]
+#[ignore = "requires an existing Rust 1.98.1 initrd"]
 async fn native_pinned_rust_crates_link_into_request_source() -> Result<()> {
     let stage = tempfile::tempdir()?;
     let crates = tempfile::tempdir()?;
