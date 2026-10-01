@@ -135,6 +135,29 @@ curl -fsSL https://raw.githubusercontent.com/microsoft/wassette/main/scripts/ins
 
 These builds are unsigned and may come from an arbitrary commit selected on `main` or another ref. Only the newest five builds are retained, and they are covered by no release promise. The channel provides stable resolution, not a stable download URL; the resolved URL changes with every build.
 
+## Installing a Source Checkout
+
+Contributors who need the CLI and the generated components under `components/`
+can install the current checkout with:
+
+```bash
+just install
+```
+
+This uses `cargo install` for the release binary, then transactionally
+reconciles the finalized ACP providers and layers through Wassette's
+local-component directory. Example components under `examples/` are not built
+or installed. Cargo's normal install-root precedence is preserved; the common
+path is `~/.cargo/bin/wassette`, not the release script's `~/.local/bin/wassette`.
+If both exist, use the absolute Cargo path in an editor or remove the older PATH
+entry that shadows it.
+
+Re-running the command upgrades the same semantic component IDs and retargets
+the managed source links to the current checkout. It never edits editor
+settings or grants component permissions. This source workflow currently
+requires Unix symlinks (Linux, macOS, or WSL); use the normal Windows
+installation methods above on native Windows.
+
 ## Homebrew Tap (Alternative)
 
 `brew install wassette` installs from `homebrew/core` and is the recommended path on both macOS and Linux. This repository also maintains its own formula, which you can use if you need a version that is not yet in `homebrew/core`:

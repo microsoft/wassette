@@ -161,6 +161,23 @@ wassette acp --provider <PATH|URI|COMPONENT_ID>...
 Point an ACP-speaking editor at it the same way you would point one at
 `wassette run`.
 
+For a source checkout, `just install` installs the executable through Cargo and
+reconciles all finalized first-party components into the shared default store.
+An editor can then keep an absolute executable path and semantic selectors
+stable across rebuilds:
+
+```text
+command: /home/me/.cargo/bin/wassette
+args: acp --provider acp-echo-provider --layer acp-uppercase-layer
+```
+
+Use repeated `--provider` arguments for multiple providers and
+`--tool microsoft:filesystem-rs` for an ordinary component. The exact Cargo
+install root may differ when `CARGO_INSTALL_ROOT`, Cargo `install.root`, or
+`CARGO_HOME` is configured. Installation does not select providers, expose
+ordinary tools to ACP without `--tool`, grant permissions, set secrets, or add
+`--allow-all` / `--allow-shared-grants`.
+
 ### Selecting between providers
 
 ```sh

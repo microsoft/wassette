@@ -73,6 +73,49 @@ async fn local_sync_uses_embedded_name_and_respects_explicit_unload() -> Result<
     Ok(())
 }
 
+#[cfg(unix)]
+#[test(tokio::test)]
+async fn local_sync_links_and_validates_acp_components() -> Result<()> {
+    let context = CliTestContext::new().await?;
+    let drops = context.temp_dir.path().join("local-components");
+    let builds = context.temp_dir.path().join("builds");
+    tokio::fs::create_dir(&drops).await?;
+    tokio::fs::create_dir(&builds).await?;
+    tokio::fs::write(drops.join("unrelated-broken.wasm"), b"not wasm").await?;
+    let artifact = builds.join("provider.wasm");
+    tokio::fs::write(
+        &artifact,
+        wat::parse_str(
+            r#"(component $"local:provider"
+                (instance $empty)
+                (export "wassette:acp/agent@7.0.0" (instance $empty)))"#,
+        )?,
+    )
+    .await?;
+
+    let (output, stderr, code) = context
+        .run_command(&[
+            "component",
+            "sync",
+            "--local-component-dir",
+            drops.to_str().context("non-UTF8 drop directory")?,
+            "--link",
+            artifact.to_str().context("non-UTF8 artifact path")?,
+        ])
+        .await?;
+    assert_eq!(code, 0, "{stderr}");
+    let report: Value = serde_json::from_str(&output)?;
+    assert_eq!(report["outcomes"].as_array().map(Vec::len), Some(1));
+    assert_eq!(report["outcomes"][0]["status"], "installed");
+    assert_eq!(report["outcomes"][0]["component_id"], "local:provider");
+    assert_eq!(report["prune_skipped"], true);
+    assert_eq!(
+        tokio::fs::read_link(drops.join("provider.wasm")).await?,
+        artifact.canonicalize()?
+    );
+    Ok(())
+}
+
 /// Helper struct for managing the test environment
 struct CliTestContext {
     #[allow(dead_code)] // Needed to keep temp directory alive

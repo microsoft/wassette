@@ -304,6 +304,9 @@ pub enum ComponentCommands {
         /// Override the local component drop directory.
         #[arg(long)]
         local_component_dir: Option<PathBuf>,
+        /// Link a finished local build into the drop directory before reconciling.
+        #[arg(long = "link", value_name = "WASM")]
+        links: Vec<PathBuf>,
         /// Reinstall a previously explicitly unloaded, unchanged local component.
         #[arg(long)]
         force: bool,
@@ -347,15 +350,25 @@ mod local_source_tests {
             "sync",
             "--local-component-dir",
             "inbox",
+            "--link",
+            "one.wasm",
+            "--link",
+            "two.wasm",
             "--force",
         ])
         .unwrap();
-        assert!(matches!(
-            args.command,
-            Some(Commands::Component {
-                command: ComponentCommands::Sync { force: true, .. }
-            })
-        ));
+        let Some(Commands::Component {
+            command: ComponentCommands::Sync {
+                force: true, links, ..
+            },
+        }) = args.command
+        else {
+            panic!("expected component sync");
+        };
+        assert_eq!(
+            links,
+            [PathBuf::from("one.wasm"), PathBuf::from("two.wasm")]
+        );
     }
 }
 

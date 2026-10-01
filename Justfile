@@ -106,22 +106,13 @@ build-component-builder mode="debug":
 build-component-generation mode="debug": (build-component-builder mode)
     cargo build -p wassette-mcp-server --features component-generation {{ if mode == "release" { "--release" } else { "" } }}
 
-install mode="debug":
-    #!/usr/bin/env bash
-    set -e
-    # Ensure the binary is built
-    just build {{ mode }}
-    # Create the installation directory
-    mkdir -p "$HOME/.local/bin"
-    # Copy the binary
-    cp bin/wassette "$HOME/.local/bin/wassette"
-    # Make it executable
-    chmod +x "$HOME/.local/bin/wassette"
-    echo "✓ Installed wassette to $HOME/.local/bin/wassette"
-    echo ""
-    echo "Make sure $HOME/.local/bin is in your PATH."
-    echo "You can add it by running:"
-    echo '  export PATH="$HOME/.local/bin:$PATH"'
+# Install this checkout's CLI and finalized components from components/.
+install-preflight:
+    python3 scripts/install-local.py --check
+
+# Install this checkout's CLI and finalized components from components/.
+install mode="release": install-preflight build-acp-examples
+    python3 scripts/install-local.py --mode {{ quote(mode) }}
 
 # Create a stable or prerelease version bump PR with the current GitHub identity.
 prepare-release version:

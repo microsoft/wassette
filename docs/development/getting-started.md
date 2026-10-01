@@ -74,7 +74,22 @@ just build release
 # Build example components
 just build-examples
 just build-examples release
+
+# Install the release CLI and generated components under components/
+just install
+
+# Use debug builds while developing the installer
+just install debug
 ```
+
+`just install` builds the ACP providers and layers under `components/`, installs
+the `wassette` binary with `cargo install`, links the finalized components into
+the configured local-component directory, and reconciles them through the
+transactional component store. It does not build or install the language
+examples under `examples/`, so their Node.js, Python, Go, and TinyGo toolchains
+are not prerequisites. Cargo chooses the user install root using its normal
+`--root` / `CARGO_INSTALL_ROOT` / Cargo config / `CARGO_HOME` precedence; the
+common default executable is `~/.cargo/bin/wassette`.
 
 ### Declaring first-party component names
 
@@ -85,6 +100,10 @@ Names are authored in
 not inferred from output filenames. Examples use their declared
 `microsoft:<project>` names; ACP components use their distinct Cargo package names,
 not the shared `wassette:acp` protocol package.
+[`scripts/component-outputs.json`](https://github.com/microsoft/wassette/blob/main/scripts/component-outputs.json)
+classifies named producers as install outputs or exclusions. Only finalized
+outputs under `components/` are installed; examples and test fixtures remain
+explicitly excluded. Keep both catalogs in agreement when adding a producer.
 
 For a new first-party producer, add its source project and intended name to that
 catalog and finish its build recipe with:

@@ -130,6 +130,21 @@ directory; `--component-dir` selects a different managed store. The two
 directories must not overlap. The command never treats a filename as the
 component ID: the artifact must have an explicit root component name.
 
+Pass `--link <WASM>` repeatedly to register finished builds as stable links in
+the resolved drop directory before reconciling:
+
+```bash
+wassette component sync \
+  --link /checkout/bin/filesystem.wasm \
+  --link /checkout/components/acp-echo-provider/target/wasm32-wasip2/release/acp_echo_provider.wasm
+```
+
+Link registration is Unix-only, refuses unrelated existing files or sources,
+and preserves the store's identity, owner, policy, secret, and revision checks.
+Ordinary components retain the normal local-source tool exposure intent. ACP
+providers and layers are validated and installed, but are not activated; select
+them with `wassette acp --provider/--layer`.
+
 See [Local component discovery](local-components.md) for platform paths,
 security checks, and the `off|startup|watch` modes.
 
@@ -154,6 +169,12 @@ the `wassette:component-tools/tools@0.1.0` guest import. Each call asks the
 editor for permission and streams ACP tool-call status updates. Layers cannot
 call ordinary tools. The provider/layers in the active chain are excluded even
 if named by `--tool`.
+
+ACP resolves `component_dir` and `secrets_dir` through the same command-line,
+`WASSETTE_*`, `config.toml`, and platform-default precedence as the rest of the
+CLI. The root `wassette --component-dir` option applies when ACP's own
+`--component-dir` is absent. This keeps semantic selectors stable when an editor
+starts Wassette from a directory other than the repository.
 
 Use `--local-components startup` to reconcile the local component drop directory
 before selecting the provider and tools, or `--local-components watch` to keep

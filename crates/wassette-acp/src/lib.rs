@@ -250,18 +250,25 @@ fn acp_engine() -> Result<Engine> {
     Ok(Engine::new(&config)?)
 }
 
-/// Validate generated ACP layers with the same engine and policy checks as ACP.
+/// Construct ACP's runtime validator for local-source installation.
 ///
 /// This compiles and checks exports; it does not instantiate a guest, establish
-/// full host-link compatibility, select a layer, or change a running chain.
-#[cfg(feature = "component-generation")]
-pub fn generation_validator(
+/// full host-link compatibility, select a stage, or change a running chain.
+pub fn local_source_validator(
     component_dir: PathBuf,
 ) -> Result<Arc<dyn ::wassette::local_source::LocalValidator>> {
     Ok(Arc::new(AcpLocalValidator::new(
         acp_engine()?,
         component_dir,
     )))
+}
+
+/// Validate generated ACP layers with the same engine and policy checks as ACP.
+#[cfg(feature = "component-generation")]
+pub fn generation_validator(
+    component_dir: PathBuf,
+) -> Result<Arc<dyn ::wassette::local_source::LocalValidator>> {
+    local_source_validator(component_dir)
 }
 
 impl LogLevel {
@@ -739,12 +746,11 @@ mod classification_tests {
         );
     }
 
-    #[cfg(feature = "component-generation")]
     #[test]
-    fn generation_validator_compiles_without_starting_or_installing_a_layer() {
+    fn local_source_validator_compiles_without_starting_or_installing_a_layer() {
         let root = tempfile::tempdir().unwrap();
         let component_dir = root.path().join("not-created");
-        let validator = generation_validator(component_dir.clone()).unwrap();
+        let validator = local_source_validator(component_dir.clone()).unwrap();
         let wasm = wat::parse_str(
             r#"(component $generated-layer
                 (core module $m (func $start unreachable) (start $start))
