@@ -10,7 +10,7 @@ use serde_json::{json, Value};
 use tracing::{debug, error, info, instrument};
 use wassette::schema::canonicalize_output_schema;
 use wassette::tool_result::present_tool_output;
-use wassette::wasm_directory::{PackageId, WasmDirectoryClient};
+use wassette::wasm_directory::{PackageSelector, WasmDirectoryClient};
 use wassette::{format_error_chain, ComponentLoadOutcome, LifecycleManager, LoadResult};
 
 #[instrument(skip(lifecycle_manager))]
@@ -91,11 +91,13 @@ pub(crate) async fn handle_load_component(
         }
         (Some(_), None) => anyhow::bail!("Argument 'version' requires a 'package'"),
         (None, Some(package)) => {
-            let package_id = PackageId::parse(package)
-                .context("Argument 'package' must be a canonical registry/repository identity")?;
+            let selector = PackageSelector::parse(package).context(
+                "Argument 'package' must be a registry/repository or namespace:package[@version] \
+                 identity",
+            )?;
             let directory = WasmDirectoryClient::from_environment()?;
             match lifecycle_manager
-                .load_package(&directory, &package_id, version)
+                .load_package(&directory, &selector, version)
                 .await
             {
                 Ok((resolved, outcome)) => {
@@ -335,6 +337,7 @@ fn create_package_load_success_result(
         "id": &outcome.component_id,
         "tools": &outcome.tool_names,
         "package": resolved.package_id.to_string(),
+        "wit_identity": &resolved.wit_identity,
         "requested_version": &resolved.requested_version,
         "selected_version": &resolved.selected_version,
         "manifest_digest": &resolved.manifest_digest,
@@ -512,7 +515,7 @@ mod tests {
                 .await
                 .unwrap_err()
                 .to_string()
-                .contains("canonical registry/repository")
+                .contains("namespace:package[@version]")
         );
         Ok(())
     }

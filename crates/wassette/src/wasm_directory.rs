@@ -12,6 +12,13 @@ use semver::Version;
 use serde::{Deserialize, Serialize};
 use url::Url;
 
+use crate::acquisition::{self, AcquiredComponent};
+use crate::store::OriginEvidence;
+use crate::{inspect_artifact, LifecycleConfig, StorageKey};
+
+#[cfg(any(test, feature = "test-fixtures"))]
+pub mod fixtures;
+
 /// The default wasm.directory API endpoint.
 pub const DEFAULT_API_BASE_URL: &str = "https://api.wasm.directory";
 
@@ -24,6 +31,8 @@ pub const DEFAULT_SEARCH_PAGE_SIZE: usize = 20;
 /// Maximum search page size accepted by wasm.directory.
 pub const MAX_SEARCH_PAGE_SIZE: usize = 100;
 const MAX_RESPONSE_BYTES: usize = 4 * 1024 * 1024;
+/// Upper bound on raw search records scanned when resolving a WIT identity.
+const MAX_WIT_SEARCH_RECORDS: usize = 1000;
 
 /// Stable remote identity for a wasm.directory package.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -64,6 +73,117 @@ impl PackageId {
 impl fmt::Display for PackageId {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}/{}", self.registry, self.repository)
+    }
+}
+
+/// A WIT package identity selector, such as `wasi:http` or `yosh:wordmark@1.0.0`.
+///
+/// Identifiers follow WIT's case rules: each kebab-case word is either all
+/// lowercase or all uppercase, and matching is exact and case-sensitive.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct WitSelector {
+    /// WIT package namespace, such as `yosh`.
+    pub namespace: String,
+    /// WIT package name, such as `wordmark`.
+    pub name: String,
+    /// Exact indexed version tag requested with `@version`.
+    pub version: Option<String>,
+}
+
+impl WitSelector {
+    /// Parse a `namespace:package[@version]` selector.
+    pub fn parse(value: &str) -> Result<Self> {
+        let (identity, version) = match value.split_once('@') {
+            Some((identity, version)) => (identity, Some(version)),
+            None => (value, None),
+        };
+        let (namespace, name) = identity
+            .split_once(':')
+            .ok_or_else(|| anyhow!("WIT package selector must be namespace:package[@version]"))?;
+        for (label, identifier) in [("namespace", namespace), ("package name", name)] {
+            if !is_wit_identifier(identifier) {
+                bail!(
+                    "Invalid WIT {label} {identifier:?}; expected kebab-case words that are \
+                     each all lowercase or all uppercase"
+                );
+            }
+        }
+        if let Some(version) = version {
+            Version::parse(version)
+                .with_context(|| format!("Invalid WIT package version {version:?}"))?;
+        }
+        Ok(Self {
+            namespace: namespace.to_owned(),
+            name: name.to_owned(),
+            version: version.map(str::to_owned),
+        })
+    }
+
+    /// Return `namespace:package`, without a version.
+    pub fn identity(&self) -> String {
+        format!("{}:{}", self.namespace, self.name)
+    }
+}
+
+impl fmt::Display for WitSelector {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}:{}", self.namespace, self.name)?;
+        if let Some(version) = &self.version {
+            write!(f, "@{version}")?;
+        }
+        Ok(())
+    }
+}
+
+/// A wasm.directory package selected by canonical identity or WIT identity.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum PackageSelector {
+    /// Canonical `registry/repository` package identity.
+    Package(PackageId),
+    /// `namespace:package[@version]` WIT identity, resolved to exactly one package.
+    Wit(WitSelector),
+}
+
+impl PackageSelector {
+    /// Parse `registry/repository` or `namespace:package[@version]`.
+    pub fn parse(value: &str) -> Result<Self> {
+        if value.contains('/') {
+            return PackageId::parse(value)
+                .map(Self::Package)
+                .context("Expected a canonical registry/repository package identity");
+        }
+        if value.contains(':') {
+            return WitSelector::parse(value).map(Self::Wit);
+        }
+        bail!(
+            "Expected a wasm.directory package as registry/repository or \
+             namespace:package[@version], got {value:?}"
+        )
+    }
+
+    /// Combine a selector's `@version` with a separately requested version.
+    fn requested_version<'a>(&'a self, requested: Option<&'a str>) -> Result<Option<&'a str>> {
+        let embedded = match self {
+            Self::Package(_) => None,
+            Self::Wit(selector) => selector.version.as_deref(),
+        };
+        match (embedded, requested) {
+            (Some(embedded), Some(requested)) if embedded != requested => bail!(
+                "Conflicting versions: selector requests {embedded:?} but version {requested:?} \
+                 was also requested"
+            ),
+            (Some(version), _) | (None, Some(version)) => Ok(Some(version)),
+            (None, None) => Ok(None),
+        }
+    }
+}
+
+impl fmt::Display for PackageSelector {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Package(package_id) => package_id.fmt(f),
+            Self::Wit(selector) => selector.fmt(f),
+        }
     }
 }
 
@@ -290,6 +410,77 @@ impl WasmDirectoryClient {
         })
     }
 
+    /// Resolve a canonical or WIT selector to a digest-pinned package version.
+    ///
+    /// WIT selectors must match exactly one runnable package's indexed WIT
+    /// identity. Zero or multiple matches are errors; candidates are never guessed.
+    pub async fn resolve(
+        &self,
+        selector: &PackageSelector,
+        requested_version: Option<&str>,
+    ) -> Result<ResolvedPackage> {
+        let requested_version = selector.requested_version(requested_version)?;
+        match selector {
+            PackageSelector::Package(package_id) => {
+                self.resolve_package(package_id, requested_version).await
+            }
+            PackageSelector::Wit(wit) => {
+                let package_id = self.find_wit_package(wit).await?;
+                let resolved = self.resolve_package(&package_id, requested_version).await?;
+                let identity = wit.identity();
+                if resolved.wit_identity.as_deref() != Some(identity.as_str()) {
+                    bail!(
+                        "wasm.directory package {package_id} no longer reports WIT identity \
+                         {identity} (reported {:?})",
+                        resolved.wit_identity
+                    );
+                }
+                Ok(resolved)
+            }
+        }
+    }
+
+    /// Find the single runnable package whose WIT identity exactly matches.
+    pub async fn find_wit_package(&self, selector: &WitSelector) -> Result<PackageId> {
+        let identity = selector.identity();
+        let mut matches = Vec::<String>::new();
+        let mut offset = 0;
+        loop {
+            let page = self
+                .search(Some(&selector.name), offset, MAX_SEARCH_PAGE_SIZE)
+                .await
+                .with_context(|| format!("Failed to search wasm.directory for {identity}"))?;
+            for package in page.packages {
+                if package.wit_identity.as_deref() == Some(identity.as_str())
+                    && !matches.contains(&package.package_id)
+                {
+                    matches.push(package.package_id);
+                }
+            }
+            match page.next_offset {
+                Some(next) if next < MAX_WIT_SEARCH_RECORDS => offset = next,
+                Some(_) => bail!(
+                    "Too many wasm.directory search results to resolve WIT identity {identity} \
+                     unambiguously; use a canonical registry/repository package identity"
+                ),
+                None => break,
+            }
+        }
+        match matches.as_slice() {
+            [] => bail!("No wasm.directory component package has WIT identity {identity}"),
+            [package_id] => PackageId::parse(package_id),
+            candidates => {
+                let mut candidates = candidates.to_vec();
+                candidates.sort();
+                bail!(
+                    "WIT identity {identity} matches multiple wasm.directory packages; \
+                     select one by its registry/repository identity: {}",
+                    candidates.join(", ")
+                )
+            }
+        }
+    }
+
     fn endpoint(&self, segments: &[&str]) -> Result<Url> {
         let mut url = self.base_url.clone();
         let mut path = url
@@ -336,6 +527,78 @@ fn validate_base_url(url: &Url) -> Result<()> {
         bail!("wasm.directory API URL must use HTTPS (HTTP is allowed only for loopback tests) and must not contain credentials, query, or fragment");
     }
     Ok(())
+}
+
+/// Resolve a package and acquire its digest-pinned artifact with the caller's
+/// configured OCI client.
+///
+/// The artifact must embed its own root component name. Registry metadata is
+/// never used as the component identity, so nameless artifacts are rejected
+/// with an error naming the package, selected version, and manifest digest.
+pub async fn acquire_package(
+    directory: &WasmDirectoryClient,
+    selector: &PackageSelector,
+    requested_version: Option<&str>,
+    config: &LifecycleConfig,
+) -> Result<(ResolvedPackage, AcquiredComponent)> {
+    let resolved = directory
+        .resolve(selector, requested_version)
+        .await
+        .with_context(|| format!("Failed to resolve wasm.directory package {selector}"))?;
+    let mut acquired = acquisition::acquire_component(&resolved.oci_reference, config, false)
+        .await
+        .with_context(|| {
+            format!(
+                "Failed to acquire {} at {} ({})",
+                resolved.package_id, resolved.selected_version, resolved.manifest_digest
+            )
+        })?;
+    if let Err(error) = inspect_artifact(&acquired.wasm)?.identity {
+        bail!(
+            "Package {} {} ({}) cannot be installed: {error}. Component IDs come only from \
+             the artifact's embedded root name, never from registry metadata. The publisher \
+             must embed a root component name before publishing, for example \
+             `wasm-tools metadata add --name <component-id> component.wasm -o component.wasm`, \
+             and then publish a new version.",
+            resolved.package_id,
+            resolved.selected_version,
+            resolved.manifest_digest,
+        );
+    }
+    let package_name = resolved
+        .package_id
+        .repository
+        .rsplit('/')
+        .next()
+        .filter(|name| !name.is_empty())
+        .context("Package identity has no repository basename")?;
+    acquired.storage_key = StorageKey::parse(&format!("local_{package_name}"))
+        .context("Package repository basename cannot form a portable storage key")?;
+    acquired.origin = OriginEvidence {
+        location: format!("wasm.directory:{}", resolved.package_id),
+        requested_version: resolved.requested_version.clone(),
+        selected_version: Some(resolved.selected_version.clone()),
+        manifest_digest: Some(resolved.manifest_digest.clone()),
+        immutable_uri: Some(resolved.oci_reference.clone()),
+        generation: None,
+    };
+    Ok((resolved, acquired))
+}
+
+fn is_wit_identifier(value: &str) -> bool {
+    !value.is_empty()
+        && value.split('-').all(|word| {
+            let mut bytes = word.bytes();
+            match bytes.next() {
+                Some(first) if first.is_ascii_lowercase() => {
+                    bytes.all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit())
+                }
+                Some(first) if first.is_ascii_uppercase() => {
+                    bytes.all(|byte| byte.is_ascii_uppercase() || byte.is_ascii_digit())
+                }
+                _ => false,
+            }
+        })
 }
 
 fn validate_page_size(limit: usize) -> Result<()> {
@@ -637,6 +900,62 @@ mod tests {
         ] {
             assert!(PackageId::parse(invalid).is_err(), "{invalid}");
         }
+    }
+
+    #[test]
+    fn package_selector_accepts_canonical_and_wit_identities() {
+        assert_eq!(
+            PackageSelector::parse("ghcr.io/owner/tool").unwrap(),
+            PackageSelector::Package(PackageId::parse("ghcr.io/owner/tool").unwrap())
+        );
+        let PackageSelector::Wit(selector) = PackageSelector::parse("yosh:wordmark").unwrap()
+        else {
+            panic!("expected a WIT selector");
+        };
+        assert_eq!(selector.identity(), "yosh:wordmark");
+        assert_eq!(selector.version, None);
+        let PackageSelector::Wit(selector) =
+            PackageSelector::parse("my-org:HTTP-client2@1.0.0-rc.1").unwrap()
+        else {
+            panic!("expected a WIT selector");
+        };
+        assert_eq!(selector.namespace, "my-org");
+        assert_eq!(selector.name, "HTTP-client2");
+        assert_eq!(selector.version.as_deref(), Some("1.0.0-rc.1"));
+        assert_eq!(selector.to_string(), "my-org:HTTP-client2@1.0.0-rc.1");
+    }
+
+    #[test]
+    fn package_selector_rejects_malformed_wit_identities() {
+        for invalid in [
+            "wordmark",
+            "yosh:",
+            ":wordmark",
+            "Yosh:wordmark",
+            "yosh:word_mark",
+            "yosh:-wordmark",
+            "yosh:1wordmark",
+            "yosh:wordmark@v1.0.0",
+            "yosh:wordmark@",
+            "yosh:wordmark:extra",
+        ] {
+            assert!(PackageSelector::parse(invalid).is_err(), "{invalid}");
+        }
+    }
+
+    #[test]
+    fn selector_version_conflicts_are_rejected() {
+        let selector = PackageSelector::parse("yosh:wordmark@1.0.0").unwrap();
+        assert_eq!(
+            selector.requested_version(Some("1.0.0")).unwrap(),
+            Some("1.0.0")
+        );
+        assert!(selector.requested_version(Some("2.0.0")).is_err());
+        let selector = PackageSelector::parse("yosh:wordmark").unwrap();
+        assert_eq!(
+            selector.requested_version(Some("2.0.0")).unwrap(),
+            Some("2.0.0")
+        );
     }
 
     #[test]
