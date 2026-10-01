@@ -139,7 +139,12 @@ wassette acp --provider <PATH|URI|COMPONENT_ID>...
 * Logs go to **stderr**, never stdout: stdout is the protocol channel.
   `--log-file` mirrors them into a timestamped file for editors that hide stderr.
 * `/install` privately captures local, OCI and HTTPS inputs, validates them with
-  the ACP engine, and commits them through the shared transactional store.
+  the ACP engine, and commits them through the shared transactional store. It
+  also accepts wasm.directory packages, resolved exactly like
+  `wassette registry get`: a WIT identity such as `/install yosh:wordmark` or
+  `/install yosh:wordmark@2.0.6`, or a canonical `registry/repository` identity
+  when no such local path exists. An installed component ID or existing path
+  always takes precedence.
   Installation does not automatically select or activate a provider.
 * `/version` is host-owned and reports the binary's version, full commit SHA
   (with a dirty marker), and UTC build time. It shadows a provider's
