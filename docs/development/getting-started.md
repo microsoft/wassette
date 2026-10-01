@@ -85,7 +85,12 @@ just install release
 `just install` installs the debug `wassette` binary with `cargo install`, which
 reuses the workspace's normal debug artifacts during development. Use `just
 install release` only when an optimized host binary is needed. Both forms build
-the ACP providers and layers and the default `wassette:file-search` tool under
+with `component-generation` and install the `wassette-builder` helper beside
+the binary (signed on macOS). On unsupported host platforms, the recipe prints
+a warning and installs without generation. If the helper build fails on a
+supported platform, use `just install-no-generation [debug|release]` to opt out.
+Both install recipes build the ACP providers and layers and the default
+`wassette:file-search` tool under
 `components/`, link the finalized components
 into the configured local-component directory, and reconcile them through the
 transactional component store. They do not build or install the language
@@ -94,10 +99,10 @@ are not prerequisites. Cargo chooses the user install root using its normal
 `--root` / `CARGO_INSTALL_ROOT` / Cargo config / `CARGO_HOME` precedence; the
 common default executable is `~/.cargo/bin/wassette`.
 
-`just install-generation [debug|release]` does the same with the opt-in
-`component-generation` feature, and also builds, signs and installs the
-`wassette-builder` helper next to the executable. It never acquires a builder
-image. See [Generating components from ACP](../design/acp.md#generating-components-from-acp).
+The helper is not a builder image: installation never acquires an initrd or
+enables generation at runtime. Create an operator profile and start ACP with
+`--generation-config <profile>` to enable it. See
+[Generating components from ACP](../design/acp.md#generating-components-from-acp).
 
 ### Declaring first-party component names
 
