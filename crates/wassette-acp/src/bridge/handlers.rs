@@ -701,7 +701,7 @@ fn handle_install_command(
 
         let result = if arg.is_empty() {
             Err(anyhow::anyhow!(
-                "missing argument; usage: `/install <path|oci://…|https://…|component-id>`"
+                "missing argument; usage: `/install <path|oci://…|https://…|namespace:package[@version]|registry/repository|component-id>`"
             ))
         } else {
             // Channel for phase messages from the install pipeline.
