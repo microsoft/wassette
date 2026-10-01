@@ -1,8 +1,20 @@
 # wassette-builder
 
-An isolated, Rust-first component compiler. The library links Hyperlight and
-invokes a fresh VM in-process for each build. The operator supplies the
-immutable compiler initrd; this crate does not acquire or publish images.
+`wassette-builder` is a library, not a standalone executable. It provides an
+isolated, Rust-first component compiler that the host application configures
+and calls through `Builder::new` and `Builder::build`. The operator supplies
+the immutable compiler initrd; this crate does not acquire or publish images.
+
+For each build, the library re-executes the host application's current
+executable with the private argument `--wassette-internal-builder-v1`. The
+application must enable the crate's `hyperlight` feature and call
+`wassette_builder::try_run_internal_helper()?` (or
+`wassette::generation::try_run_internal_helper()?`) before normal CLI argument
+parsing, returning successfully when it yields `true`. This dispatches the
+private child entry point, which runs one fresh Hyperlight VM. The parent
+can kill and reap the child independently on cancellation, timeout, or protocol
+failure; no separately installed helper executable or helper path is used.
+
 Linux requires KVM/MSHV access;
 other platforms fail closed. There is no host rustc, Cargo, linker, or interpreter
 fallback.
@@ -60,10 +72,11 @@ staging allocation. A pre-cancelled call remains `Cancelled`. The builder does
 not retain requests waiting for a slot; any bounded retry/admission policy
 belongs explicitly to the caller.
 
-Each job owns a fresh VM. Host supervision interrupts and tears down the VM on
-cancellation or timeout. Dropping the async future cancels its dedicated
-supervisor; staging and admission permits remain owned until VM teardown, even
-if the async runtime shuts down. No VM is detached.
+Each job owns a fresh child process and VM. Host supervision kills and reaps the
+child on cancellation, timeout, invalid protocol data, or excess console output.
+Dropping the async future cancels its dedicated supervisor; staging and
+admission permits remain owned until the child is reaped, even if the async
+runtime shuts down. Normal invocations return to ordinary argument parsing.
 
 Only the fresh staging directory's `input/` subdirectory is mounted,
 **read-only**. The boot snapshot is outside that mount. Source, generated
@@ -184,10 +197,13 @@ instructions, provenance, or a successful fallback.
 
 Run focused tests with `cargo test -p wassette-builder`; add
 `--features hyperlight` for bindgen/extraction tests. The ignored `real_vm`
-tests require `WASSETTE_BUILDER_INITRD`; run them serially with
-`-- --ignored --test-threads=1`. They reuse the existing image without modifying
-it. Hyperlight execution on macOS requires the consuming executable to carry
-the `com.apple.security.hypervisor` entitlement.
+tests predate re-exec and cannot dispatch the private child entry point from
+the Rust test harness. To validate a real image through the signed Wassette
+binary, run the ACP generation integration test with
+`WASSETTE_ACP_TEST_BINARY` and `WASSETTE_ACP_GENERATION_IMAGE`. It reuses the
+existing image without modifying it. On macOS the consuming executable needs
+the `com.apple.security.hypervisor` entitlement; the repository defines it in
+[`scripts/generation-entitlements.plist`](../../scripts/generation-entitlements.plist).
 `WASSETTE_BUILDER_ACP_WIT` optionally selects a specific canonical WIT snapshot
 for the layer fixture. Set `CARGO_PROFILE_DEV_DEBUG=0`,
 `CARGO_PROFILE_TEST_DEBUG=0`, and `CARGO_INCREMENTAL=0` for these builds.

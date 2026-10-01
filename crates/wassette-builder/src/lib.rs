@@ -7,6 +7,8 @@
 
 mod artifact;
 mod error;
+#[cfg(feature = "hyperlight")]
+mod ipc;
 mod rust_crates;
 mod supervise;
 
@@ -40,6 +42,33 @@ const MIB: usize = 1024 * 1024;
 /// guest runtime does not reclaim memory from exited compiler processes.
 pub const MAX_GUEST_SCRATCH_MIB: usize = 8192;
 
+/// Dispatch the private child-process entry point before normal CLI parsing.
+///
+/// Returns `true` only when the process was invoked with the exact internal
+/// builder argument; ordinary CLI invocations return `false`.
+pub fn try_run_internal_helper() -> Result<bool> {
+    #[cfg(feature = "hyperlight")]
+    {
+        helper::try_run_internal_helper()
+    }
+    #[cfg(not(feature = "hyperlight"))]
+    {
+        Ok(false)
+    }
+}
+
+/// Run the private builder child entry point, if this is that child.
+///
+/// Call before normal CLI argument parsing. Ordinary invocations return
+/// normally; the internal builder invocation exits after dispatch so it can
+/// never fall through into the application's CLI.
+pub fn run_embedded_builder() -> Result<()> {
+    if try_run_internal_helper()? {
+        std::process::exit(0);
+    }
+    Ok(())
+}
+
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub enum ComponentKind {
@@ -59,10 +88,12 @@ pub struct BuildRequest {
     pub kind: ComponentKind,
 }
 
-/// Host-only configuration. Each job captures and verifies the exact initrd
-/// backing used for boot. Digests ensure integrity; trusting the selected
-/// origin/profile remains the operator's job.
-#[derive(Debug, Clone)]
+/// Host-only configuration. The compiler image must be manually provisioned
+/// from a trusted source. Each job captures and verifies the exact initrd
+/// backing used for boot, pinning its digest in build evidence; the digest
+/// establishes integrity, not the image's origin or trustworthiness.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct BuilderConfig {
     pub initrd_path: PathBuf,
     /// Private temporary directories only, never a live component store.
@@ -260,9 +291,10 @@ impl Builder {
         })
     }
 
-    /// Cancellation (including dropping this future) interrupts and tears down
-    /// the VM. A dedicated supervisor owns its permit and staging until teardown
-    /// completes, independently of the async executor's lifetime.
+    /// Cancellation (including dropping this future) kills and reaps the
+    /// isolated builder child, which owns the VM. A dedicated supervisor owns
+    /// its permit and staging until teardown completes, independently of the
+    /// async executor's lifetime.
     ///
     /// Admission is immediate: a saturated builder returns [`BuildErrorKind::Busy`]
     /// without queuing or retaining the request for a later permit.

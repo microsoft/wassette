@@ -46,7 +46,7 @@ fn validate(wasm: &[u8]) -> Result<()> {
 
 #[cfg(feature = "hyperlight")]
 #[tokio::test]
-async fn host_returns_safe_wit_and_configuration_failures_without_booting() -> Result<()> {
+async fn test_executable_without_builder_dispatch_fails_closed() -> Result<()> {
     let root = tempfile::tempdir()?;
     let staging = tempfile::tempdir_in(root.path())?;
     let image = root.path().join("parser-only-image");
@@ -68,21 +68,14 @@ async fn host_returns_safe_wit_and_configuration_failures_without_booting() -> R
         .build(request.clone(), CancellationToken::new())
         .await
         .unwrap_err();
-    let failure = BuildError::from_error(&error).context("structured WIT failure")?;
-    assert_eq!(failure.kind(), BuildErrorKind::InvalidWit);
-    let message = failure.diagnostic().context("safe WIT diagnostic")?;
-    assert!(
-        message.contains("expected") && message.contains("WIT:2:"),
-        "{message}"
-    );
-    assert!(message.len() <= 1024);
-    assert!(!message.contains("PRIVATE_"));
-    assert!(!message.contains(root.path().to_str().unwrap()));
-    assert!(!format!("{error:#}").contains("expected"));
+    let failure = BuildError::from_error(&error).context("missing internal dispatch")?;
+    assert_eq!(failure.kind(), BuildErrorKind::Unavailable);
+    assert!(failure.diagnostic().is_none());
+    assert!(!format!("{error:#}").contains("PRIVATE_"));
     assert_eq!(std::fs::read_dir(staging.path())?.count(), 0);
 
     let image = config.initrd_path.clone();
-    std::fs::write(&image, b"changed after profile creation")?;
+    std::fs::write(&image, b"changed after builder configuration")?;
     let builder = Builder::new(config, limits)?;
     let error = builder
         .build(request, CancellationToken::new())

@@ -144,6 +144,9 @@ mod endpoints {
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    #[cfg(feature = "component-generation")]
+    wassette::generation::run_embedded_builder()?;
+
     let cli = Cli::parse();
 
     // Handle version flag

@@ -13,7 +13,8 @@ use sha2::{Digest, Sha256};
 use tokio_util::sync::CancellationToken;
 use wassette_builder::BuildArtifact;
 pub use wassette_builder::{
-    BuildError, BuildErrorKind, BuildLimits, BuildRequest, Builder, BuilderConfig, ComponentKind,
+    run_embedded_builder, try_run_internal_helper, BuildError, BuildErrorKind, BuildLimits,
+    BuildRequest, Builder, BuilderConfig, ComponentKind,
 };
 
 use crate::loader::CapturedComponent;
