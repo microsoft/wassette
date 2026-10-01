@@ -8,9 +8,11 @@
 mod artifact;
 mod error;
 mod ipc;
+mod rust_crates;
 mod supervise;
 
 pub use error::{BuildError, BuildErrorKind};
+pub use rust_crates::{CrateDependency, RustCrate};
 
 #[cfg(feature = "hyperlight")]
 #[doc(hidden)]
@@ -33,6 +35,9 @@ pub const BINDGEN_VERSION: &str = "0.62.0";
 pub const RUNTIME_VERSION: &str = "hyperlight-unikraft-0.17.0";
 pub const TARGET: &str = "wasm32-wasip2";
 const MIB: usize = 1024 * 1024;
+/// Operators may raise guest memory above the default for pinned crates: the
+/// guest runtime does not reclaim memory from exited compiler processes.
+pub const MAX_GUEST_SCRATCH_MIB: usize = 8192;
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
@@ -68,10 +73,16 @@ pub struct BuilderConfig {
     /// Complete WIT packages, in dependency-first order, chosen by the host.
     /// For ACP, supply the canonical ACP package and its dependencies here.
     pub wit_dependencies: Vec<String>,
+    /// Pinned library crates, in dependency-first order, that request source
+    /// may use. Each archive is digest-checked and compiled inside the guest.
+    #[serde(default)]
+    pub rust_crates: Vec<RustCrate>,
 }
 
 /// Finite, host-selected budgets. Values can be reduced, but cannot exceed the
-/// published profile ceilings. Requests cannot override any budget.
+/// published profile ceilings. These equal the defaults, except guest scratch,
+/// which may be raised to [`MAX_GUEST_SCRATCH_MIB`]. Requests cannot override
+/// any budget.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub struct BuildLimits {
@@ -108,7 +119,7 @@ impl BuildLimits {
             ("WIT", self.wit_bytes, max.wit_bytes),
             ("Wasm", self.wasm_bytes, max.wasm_bytes),
             ("diagnostics", self.diagnostics_bytes, max.diagnostics_bytes),
-            ("scratch", self.guest_scratch_mib, max.guest_scratch_mib),
+            ("scratch", self.guest_scratch_mib, MAX_GUEST_SCRATCH_MIB),
             (
                 "bindings",
                 self.generated_bindings_bytes,
@@ -229,6 +240,14 @@ impl Builder {
             config.wit_dependencies.len() <= 32 && dependency_bytes <= limits.wit_bytes,
             "host WIT dependency profile exceeds its budget"
         );
+        rust_crates::validate(&config.rust_crates)?;
+        for krate in &config.rust_crates {
+            ensure!(
+                krate.archive_path.is_file(),
+                "Rust crate `{}` archive is missing",
+                krate.name
+            );
+        }
         Ok(Self {
             permits: Arc::new(Semaphore::new(limits.max_parallel_jobs)),
             config: Arc::new(config),
@@ -404,12 +423,22 @@ fn evidence(config: &BuilderConfig, request: &BuildRequest) -> BuildEvidence {
         builder_manifest_digest: None,
         profile: PROFILE_ID.into(),
         // The executable digest covers the fixed driver, runtime and bindgen
-        // implementation as well as all host transformation code.
+        // implementation as well as all host transformation code. Pinned
+        // crates extend the profile; profiles without them keep their digest.
         profile_sha256: sha256(
-            format!(
-                "{PROFILE_ID}\0{}\0{}",
-                config.helper_sha256, config.initrd_sha256
-            )
+            if config.rust_crates.is_empty() {
+                format!(
+                    "{PROFILE_ID}\0{}\0{}",
+                    config.helper_sha256, config.initrd_sha256
+                )
+            } else {
+                format!(
+                    "{PROFILE_ID}\0{}\0{}\0{}",
+                    config.helper_sha256,
+                    config.initrd_sha256,
+                    rust_crates::digest(&config.rust_crates)
+                )
+            }
             .as_bytes(),
         ),
         compiler: COMPILER_VERSION.into(),
@@ -462,11 +491,19 @@ mod tests {
         assert!(
             BuildLimits {
                 wasm_bytes: usize::MAX,
-                ..limits
+                ..limits.clone()
             }
             .validate()
             .is_err()
         );
+        let scratch = |guest_scratch_mib| BuildLimits {
+            guest_scratch_mib,
+            ..limits.clone()
+        };
+        assert_eq!(limits.guest_scratch_mib, 2048);
+        scratch(MAX_GUEST_SCRATCH_MIB).validate().unwrap();
+        assert!(scratch(MAX_GUEST_SCRATCH_MIB + 1).validate().is_err());
+        assert!(scratch(0).validate().is_err());
     }
 
     fn fixture_evidence() -> BuildEvidence {
@@ -479,6 +516,7 @@ mod tests {
             initrd_sha256: "b".repeat(64),
             staging_root: "/stage".into(),
             wit_dependencies: vec!["PRIVATE_DEPENDENCY".into()],
+            rust_crates: vec![],
         };
         let evidence = evidence(&config, &request);
         assert_eq!(evidence.source_sha256, sha256(request.source.as_bytes()));
@@ -544,6 +582,35 @@ mod tests {
         let mut unknown = serde_json::to_value(expected).unwrap();
         unknown["wasm_sha256"] = "f".repeat(64).into();
         assert!(serde_json::from_value::<BuildEvidence>(unknown).is_err());
+    }
+
+    #[test]
+    fn pinned_crates_extend_profile_digest_without_changing_crate_free_profiles() {
+        let base = fixture_evidence();
+        assert_eq!(
+            base.profile_sha256,
+            sha256(format!("{PROFILE_ID}\0{}\0{}", "a".repeat(64), "b".repeat(64)).as_bytes())
+        );
+        let config = BuilderConfig {
+            helper_path: "/helper".into(),
+            helper_sha256: "a".repeat(64),
+            initrd_path: "/image".into(),
+            initrd_sha256: "b".repeat(64),
+            staging_root: "/stage".into(),
+            wit_dependencies: vec!["PRIVATE_DEPENDENCY".into()],
+            rust_crates: rust_crates::tests::fixture(),
+        };
+        let mut request = request();
+        request.source = "PRIVATE_SOURCE_SENTINEL".into();
+        let with_crates = evidence(&config, &request);
+        assert_ne!(with_crates.profile_sha256, base.profile_sha256);
+        assert_eq!(
+            BuildEvidence {
+                profile_sha256: base.profile_sha256.clone(),
+                ..with_crates
+            },
+            base
+        );
     }
 
     #[test]

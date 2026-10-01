@@ -132,7 +132,7 @@ exposure, rebuild, or ordinary-Wasm caller access.
 }
 ```
 
-All six `builder` fields are required. Both helper and initrd files must already
+The six `builder` fields shown are required. Both helper and initrd files must already
 exist; their digests are verified for each job. `wit_dependencies` contains
 **inline complete WIT package strings**, in dependency-first order, not paths,
 URLs, or registry coordinates. Use an empty list for a self-contained WIT
@@ -141,9 +141,58 @@ and its dependency graph. At most 32 packages are accepted, and their combined
 UTF-8 bytes plus the request WIT must fit `limits.wit_bytes`. The 1 MiB
 profile-file cap also includes JSON escaping and the rest of the configuration.
 
+`builder.rust_crates` is optional and defaults to an empty list. Each entry pins
+a gzip-compressed registry `.crate` archive that the guest extracts and compiles
+with the trusted `rustc` before the request source, which can then `use` the
+crate by `name`. List entries in dependency-first order; requests cannot add,
+remove or reorder them.
+
+```json
+"rust_crates": [
+  {
+    "name": "memchr",
+    "archive_path": "crates/memchr-2.8.3.crate",
+    "archive_sha256": "<Cargo.lock checksum>",
+    "root": "src/lib.rs",
+    "edition": "2021",
+    "features": ["alloc", "default", "std"]
+  },
+  {
+    "name": "aho_corasick",
+    "archive_path": "crates/aho-corasick-1.1.5.crate",
+    "archive_sha256": "<Cargo.lock checksum>",
+    "root": "src/lib.rs",
+    "edition": "2021",
+    "features": ["perf-literal", "std"],
+    "dependencies": [{ "crate": "memchr" }]
+  }
+]
+```
+
+| Crate field | Meaning |
+| --- | --- |
+| `name` | Rust crate name (`grep_searcher`, not `grep-searcher`) and request extern |
+| `archive_path` | `.crate` archive containing one top-level directory; relative paths resolve against the profile directory |
+| `archive_sha256` | Archive digest; for crates.io this is the `Cargo.lock` checksum |
+| `root` | Library root inside the archive's top-level directory |
+| `edition` | `2015`, `2018`, `2021` or `2024` |
+| `features` | Enabled Cargo features, passed as `--cfg feature="…"` |
+| `dependencies` | Earlier entries this crate links to; `rename` sets the extern name the crate's source uses |
+
+Copy the features, dependency renames, editions and roots that `cargo build -v`
+passes to `rustc` for `wasm32-wasip2`. The image has no Cargo and no host
+standard library, so crates that need build scripts or procedural macros
+(including the `multiversion_no_op` macro used by `encoding_rs` 0.8.36 and later)
+are not supported. At most 64 crates are accepted, each archive must fit 16 MiB,
+and all archives together 64 MiB. Archives are re-hashed when staged, and the
+crate list is bound into the generated component's `profile_sha256`; crate-free
+profiles keep their previous digest. Crate compiler output is not returned to
+requesters, so a failing crate reports the builder as unavailable.
+
 Omit `limits` to use the builder defaults below. If `limits` is present, supply
 all eight fields; individual fields do not have JSON defaults. Values must be
-positive and no greater than the listed ceiling.
+positive and no greater than the listed ceiling. Only `guest_scratch_mib` has
+a ceiling above its default.
 
 | `limits` field | Default | Ceiling |
 | --- | ---: | ---: |
@@ -152,9 +201,15 @@ positive and no greater than the listed ceiling.
 | `wasm_bytes` | 33554432 | 33554432 |
 | `diagnostics_bytes` | 262144 | 262144 |
 | `wall_time_ms` | 120000 | 120000 |
-| `guest_scratch_mib` | 2048 | 2048 |
+| `guest_scratch_mib` | 2048 | 8192 |
 | `generated_bindings_bytes` | 8388608 | 8388608 |
 | `max_parallel_jobs` | 1 | 4 |
+
+The guest does not reclaim memory from compiler processes that have exited,
+so each pinned crate adds to peak scratch use. A guest that exhausts its scratch
+memory reports `compilation_failed` with a diagnostic naming
+`limits.guest_scratch_mib`. The thirteen crates behind `grep-searcher` and
+`grep-regex` need `guest_scratch_mib` of 8192.
 
 The CLI/MCP adapter independently caps encoded requests at 2 MiB, decoded
 source and WIT at 256 KiB each, and each returned diagnostic string at 16 KiB of

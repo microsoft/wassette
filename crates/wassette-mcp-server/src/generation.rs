@@ -167,6 +167,44 @@ mod tests {
     }
 
     #[test]
+    fn pinned_rust_crate_archives_resolve_relative_to_profile() {
+        let root = tempfile::tempdir_in(".").unwrap();
+        let path = root.path().join("generation.json");
+        let base = std::path::absolute(root.path()).unwrap();
+        let mut profile = reference_profile();
+        let krate = |name: &str, archive: Value| {
+            json!({
+                "name": name,
+                "archive_path": archive,
+                "archive_sha256": "a".repeat(64),
+                "root": "src/lib.rs",
+                "edition": "2021",
+            })
+        };
+        profile["builder"]["rust_crates"] = json!([
+            krate("memchr", json!("crates/memchr-2.8.3.crate")),
+            krate("log", json!(base.join("absolute/log.crate"))),
+        ]);
+        fs::write(&path, serde_json::to_vec(&profile).unwrap()).unwrap();
+        let config = GenerationConfig::read(&path).unwrap();
+        let crates = &config.builder.rust_crates;
+        assert_eq!(
+            crates[0].archive_path,
+            base.join("crates/memchr-2.8.3.crate")
+        );
+        assert_eq!(crates[1].archive_path, base.join("absolute/log.crate"));
+        assert!(crates[0].features.is_empty() && crates[0].dependencies.is_empty());
+
+        assert!(
+            serde_json::from_value::<GenerationConfig>(reference_profile())
+                .unwrap()
+                .builder
+                .rust_crates
+                .is_empty()
+        );
+    }
+
+    #[test]
     fn operator_profile_accepts_one_mib_but_not_an_extra_byte() {
         const MAX_PROFILE_BYTES: usize = 1024 * 1024;
         let root = tempfile::tempdir_in(".").unwrap();

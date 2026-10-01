@@ -65,7 +65,8 @@ pub struct GenerationConfig {
 impl GenerationConfig {
     /// Read a bounded operator-selected JSON file, never a model-selected path.
     ///
-    /// Relative helper/image paths are relative to the configuration file.
+    /// Relative helper/image/staging/crate-archive paths are relative to the
+    /// configuration file.
     pub fn read(path: &Path) -> Result<Self> {
         let mut bytes = Vec::new();
         std::fs::File::open(path)
@@ -90,6 +91,11 @@ impl GenerationConfig {
         }
         if config.builder.staging_root.is_relative() {
             config.builder.staging_root = base.join(&config.builder.staging_root);
+        }
+        for krate in &mut config.builder.rust_crates {
+            if krate.archive_path.is_relative() {
+                krate.archive_path = base.join(&krate.archive_path);
+            }
         }
         Ok(config)
     }

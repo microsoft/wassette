@@ -98,7 +98,10 @@ The profile path uses CLI > `WASSETTE_GENERATION_CONFIG` > `generation_config` i
 `config.toml` precedence. The profile is trusted operator configuration, never
 part of the request. Its required builder fields include separate helper and
 initrd SHA-256 digests, a private staging directory, and an explicit list of
-inline WIT dependencies. See the complete
+inline WIT dependencies. An optional `rust_crates` list pins library crate
+archives, such as the ripgrep `grep-searcher` and `grep-regex` crates, which
+request source can `use`; the request itself cannot name dependencies. See the
+complete
 [operator profile example](configuration-files.md#generation_config).
 The profile must separately authorize building and installing.
 `ExposeTools` and rebuilding an existing generated revision require their own
@@ -119,6 +122,8 @@ an accepted store transaction finishes rather than being aborted.
 
 Only a trusted, digest-pinned **local initrd** is supported. No builder-image
 OCI download/distribution, host compiler fallback, or Cargo execution is shipped.
+Pinned crates are compiled by the image's `rustc`, so crates that need build
+scripts or procedural macros are not supported.
 
 ### `wassette component sync`
 

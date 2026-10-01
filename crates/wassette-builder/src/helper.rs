@@ -109,6 +109,7 @@ enum GuestFailure {
     Rust,
     Link,
     Profile,
+    Dependency,
     Diagnostics,
     Output,
 }
@@ -162,8 +163,10 @@ fn execute(allow_vm_memory: fn(), limit_transforms: fn()) -> Result<GuestOutput>
     let input = job.staging.join("input");
     std::fs::create_dir(&input)?;
     prepare_sources(&input, &job.request.source, &bindings)?;
+    crate::rust_crates::stage(&job.config.rust_crates, &input, &cancel, deadline)?;
     let driver_config = serde_json::json!({
         "exports": exports,
+        "rust_crates": crate::rust_crates::driver_config(&job.config.rust_crates),
         "wasm_bytes": job.limits.wasm_bytes,
         "diagnostics_bytes": job.limits.diagnostics_bytes,
         "compiler_arch": std::env::consts::ARCH,
@@ -216,7 +219,8 @@ fn execute(allow_vm_memory: fn(), limit_transforms: fn()) -> Result<GuestOutput>
             .into());
         }
         let message = match output.failure {
-            Some(GuestFailure::Profile) => {
+            // Pinned crates are operator configuration, not requester input.
+            Some(GuestFailure::Profile | GuestFailure::Dependency) => {
                 return Err(BuildError::new(BuildErrorKind::Unavailable).into());
             }
             Some(GuestFailure::Diagnostics) => {
@@ -227,6 +231,15 @@ fn execute(allow_vm_memory: fn(), limit_transforms: fn()) -> Result<GuestOutput>
             Some(GuestFailure::Output) => unreachable!("output failure handled above"),
             None if matches!(error, hyperlight_unikraft::Error::Deadlocked) => {
                 "The compiler guest is deadlocked before delivering a complete diagnostic; reduce source or diagnostic volume."
+            }
+            // Earlier diagnostics (often warnings) did not cause a guest crash.
+            None if guest_crashed(&error) => {
+                return Err(BuildError::with_diagnostic(
+                    BuildErrorKind::CompilationFailed,
+                    GUEST_CRASHED,
+                    job.limits.diagnostics_bytes,
+                )
+                .into());
             }
             None if !output.diagnostics.is_empty() => "Compilation failed.",
             None => return Err(BuildError::new(BuildErrorKind::Unavailable).into()),
@@ -280,6 +293,17 @@ fn execute(allow_vm_memory: fn(), limit_transforms: fn()) -> Result<GuestOutput>
             )
         })?;
     Ok(output)
+}
+
+const GUEST_CRASHED: &str = "The compiler guest crashed before reporting a result, usually because compilation exhausted its configured guest scratch memory (limits.guest_scratch_mib).";
+
+fn guest_crashed(error: &hyperlight_unikraft::Error) -> bool {
+    matches!(
+        error,
+        hyperlight_unikraft::Error::Hyperlight(
+            hyperlight_unikraft::hyperlight_host::HyperlightError::GuestAborted(..)
+        )
+    )
 }
 
 fn extract_chunk(output: &mut GuestOutput, input: &str, limits: &BuildLimits) -> Result<()> {
@@ -524,6 +548,20 @@ mod tests {
         .into();
         let generated = generate_bindings(&request, &[], &BuildLimits::default()).unwrap();
         assert_eq!(linker_exports(&generated).unwrap(), ["run"]);
+    }
+
+    #[test]
+    fn only_guest_kernel_aborts_are_reported_as_guest_crashes() {
+        use hyperlight_unikraft::hyperlight_host::HyperlightError;
+
+        assert!(guest_crashed(&hyperlight_unikraft::Error::Hyperlight(
+            HyperlightError::GuestAborted(0, String::new())
+        )));
+        assert!(!guest_crashed(&hyperlight_unikraft::Error::Deadlocked));
+        assert!(!guest_crashed(&hyperlight_unikraft::Error::CallFailed {
+            status: 1
+        }));
+        assert!(GUEST_CRASHED.contains("guest_scratch_mib"));
     }
 
     #[test]
