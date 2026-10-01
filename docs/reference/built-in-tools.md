@@ -24,8 +24,8 @@ Wassette comes with several built-in tools for managing components and their per
 **Parameters:**
 - Exactly one of:
   - `path` (string): Direct component source such as `file:///path/to/component.wasm` or `oci://ghcr.io/microsoft/time-server-js:1.2.3`
-  - `package` (string): Canonical wasm.directory identity such as `ghcr.io/microsoft/time-server-js`
-- `version` (string, optional): Exact indexed tag; valid only with `package`
+  - `package` (string): Canonical wasm.directory identity such as `ghcr.io/microsoft/time-server-js`, or an exact WIT identity such as `yosh:wordmark` or `yosh:wordmark@2.0.6` that must match exactly one package
+- `version` (string, optional): Exact indexed tag; valid only with `package`, and must agree with a WIT selector's `@version`
 
 The `package` form resolves the selected tag to an immutable manifest digest
 and explicitly loads an ordinary tool component. Use `wassette registry get`
@@ -42,7 +42,7 @@ ACP providers/layers cannot be loaded as ordinary MCP tools.
 ```
 When an existing component is replaced, the `status` value becomes
 `component reloaded successfully`.
-Package loads also return `package`, `requested_version`, `selected_version`,
+Package loads also return `package`, `wit_identity`, `requested_version`, `selected_version`,
 `manifest_digest`, `storage_key`, `revision`, and the persisted `receipt`.
 
 ACP providers/layers and unsupported artifact shapes cannot be loaded as

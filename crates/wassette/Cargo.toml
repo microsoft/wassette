@@ -35,6 +35,10 @@ wasmtime-wasi = { workspace = true }
 wasmtime-wasi-http = { workspace = true }
 wasmtime-wasi-config = { workspace = true }
 
+[features]
+# Loopback wasm.directory and OCI fixtures for downstream crate tests.
+test-fixtures = []
+
 [dev-dependencies]
 proptest = "1.10"
 temp-env = "0.3"
