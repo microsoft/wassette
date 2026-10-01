@@ -27,6 +27,16 @@ supported; single-provider behavior is preserved.
 In multi-provider mode, providers without model choices are omitted. The first
 eligible provider starts active; no eligible providers is an explicit error.
 
+## Boolean configuration options
+
+Clients advertising `session.configOptions.boolean` receive the host-owned
+**Terminal** toggle and the provider's **Auto-approve** toggle as booleans. The
+host projects the `allow-all` selector with exactly the `on` and `off` values
+to an ACP boolean and translates changes back to those provider values,
+preserving the existing WIT ABI. Other selectors remain unchanged. Clients
+without this capability retain the provider's select options and do not receive
+**Terminal**.
+
 ## Sandboxing
 
 Each stage is sandboxed from its Wassette policy
