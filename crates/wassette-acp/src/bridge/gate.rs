@@ -47,6 +47,11 @@ impl NotificationGate {
         Self::default()
     }
 
+    pub fn is_registered(&self, session_id: &str) -> bool {
+        let inner = self.inner.lock().unwrap();
+        inner.pending.contains(session_id) || inner.opened.contains(session_id)
+    }
+
     pub fn begin_new_session(self: &std::sync::Arc<Self>) -> NewSessionRegistration {
         self.inner.lock().unwrap().creating += 1;
         NewSessionRegistration { gate: self.clone() }

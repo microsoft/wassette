@@ -65,6 +65,12 @@ struct ProviderEntry {
     options: Mutex<Vec<SessionConfigOption>>,
 }
 
+pub struct ProviderSession {
+    pub component_id: String,
+    pub session: Session,
+    pub options: Option<Vec<SessionConfigOption>>,
+}
+
 /// A bundle of provider sessions presented to the editor as one ACP
 /// session. Cheap to clone (an `Arc`).
 #[derive(Clone)]
@@ -77,6 +83,7 @@ struct GroupInner {
     session_id: String,
     /// Providers in load order. Always non-empty.
     providers: Vec<ProviderEntry>,
+    multi_provider: bool,
     /// Index into `providers` of the active provider (backs prompts and
     /// the non-model selectors).
     active: Mutex<usize>,
@@ -93,57 +100,98 @@ struct GroupInner {
     /// advertise the `terminal` toggle at all (per the RFD, agents must
     /// not send boolean options to clients that didn't opt in).
     boolean_config_supported: bool,
+    operation: Arc<tokio::sync::Mutex<()>>,
 }
 
 impl SessionGroup {
-    /// Build a group from `(component_id, session, initial_config_options)`
-    /// tuples in provider load order and the editor-facing session id.
-    /// The first provider starts active. `boolean_config_supported`
+    /// Build a group in provider load order and the editor-facing session id.
+    /// The first provider with model choices starts active in multi-provider
+    /// mode; a single provider is passed through. `boolean_config_supported`
     /// records whether the client opted into boolean config options and
     /// gates whether the host-owned `terminal` toggle is advertised.
     pub fn new(
         session_id: String,
-        providers: Vec<(String, Session, Vec<SessionConfigOption>)>,
+        providers: Vec<ProviderSession>,
         boolean_config_supported: bool,
-    ) -> Self {
+    ) -> anyhow::Result<Self> {
         assert!(!providers.is_empty(), "SessionGroup needs >= 1 provider");
+        let multi_provider = providers.len() > 1;
+        let providers = if multi_provider {
+            let mut eligible = Vec::new();
+            for provider in providers {
+                let options = provider.options.as_deref().unwrap_or_default();
+                if validated_model(options, &provider.component_id)?.is_none() {
+                    tracing::info!(provider = %provider.component_id, "omitting provider without model choices");
+                    continue;
+                }
+                eligible.push(provider);
+            }
+            anyhow::ensure!(
+                !eligible.is_empty(),
+                "no selectable ACP providers: multi-provider sessions require at least one provider with model choices"
+            );
+            eligible
+        } else {
+            providers
+        };
         let providers = providers
             .into_iter()
-            .map(|(component_id, session, options)| ProviderEntry {
-                component_id,
-                session,
-                options: Mutex::new(options),
-            })
+            .map(
+                |ProviderSession {
+                     component_id,
+                     session,
+                     options,
+                 }| {
+                    ProviderEntry {
+                        component_id,
+                        session,
+                        options: Mutex::new(options.unwrap_or_default()),
+                    }
+                },
+            )
             .collect();
-        Self {
+        Ok(Self {
             inner: Arc::new(GroupInner {
                 session_id,
                 providers,
+                multi_provider,
                 active: Mutex::new(0),
                 model_map: Mutex::new(HashMap::new()),
                 terminal_enabled: Mutex::new(false),
                 boolean_config_supported,
+                operation: Arc::new(tokio::sync::Mutex::new(())),
             }),
-        }
+        })
     }
 
     /// Whether more than one provider is loaded (i.e. merging is active).
     pub fn is_multi_provider(&self) -> bool {
-        self.inner.providers.len() > 1
+        self.inner.multi_provider
     }
 
-    /// Point every provider chain's outbound `notify-session` updates at
-    /// the group's editor-facing session id. Each provider mints its own
-    /// per-session id; without this, updates from a switched (non-first)
-    /// provider would reach the editor tagged with an id it never saw and
-    /// be dropped. A no-op for the first provider (its id already *is* the
-    /// group id). Only called for multi-provider groups, so single-provider
-    /// sessions keep the guest id verbatim (transparent passthrough).
+    /// Reserve before spawning the request so selection cannot overtake an
+    /// accepted prompt, and cancellation never waits on the store lock.
+    pub fn begin_operation(
+        &self,
+    ) -> Result<tokio::sync::OwnedMutexGuard<()>, agent_client_protocol::Error> {
+        self.inner.operation.clone().try_lock_owned().map_err(|_| {
+            let mut error = agent_client_protocol::Error::invalid_request();
+            error.message = "session is busy; cancel or finish the current operation before changing providers or starting another operation".to_string();
+            error
+        })
+    }
+
+    /// Finish binding and release only the selected chain's creation updates.
+    /// Multi-provider chains already have this host ID before guest creation;
+    /// single-provider chains retain their native session ID.
     pub async fn bind_editor_session_ids(&self) {
-        for p in &self.inner.providers {
+        for (index, p) in self.inner.providers.iter().enumerate() {
             p.session
                 .set_editor_session_id(self.inner.session_id.clone())
                 .await;
+            if self.is_multi_provider() {
+                p.session.set_active(index == 0).await;
+            }
         }
     }
 
@@ -187,7 +235,7 @@ impl SessionGroup {
         let inner = &self.inner;
 
         // Single provider: forward verbatim.
-        if inner.providers.len() == 1 {
+        if !inner.multi_provider {
             let outcome = inner.providers[0]
                 .session
                 .set_config_option(config_id, value)
@@ -220,6 +268,14 @@ impl SessionGroup {
                 .session
                 .set_config_option(target_model_id, native)
                 .await;
+            let outcome = inner.validate_outcome(idx, outcome);
+            if matches!(outcome, SetConfigOptionOutcome::Done(_)) && idx != inner.active_idx() {
+                inner.providers[inner.active_idx()]
+                    .session
+                    .set_active(false)
+                    .await;
+                inner.providers[idx].session.set_active(true).await;
+            }
             commit_active_on_success(&inner.active, idx, &outcome);
             return inner.absorb(idx, outcome);
         }
@@ -230,6 +286,7 @@ impl SessionGroup {
             .session
             .set_config_option(config_id, value)
             .await;
+        let outcome = inner.validate_outcome(active, outcome);
         inner.absorb(active, outcome)
     }
 
@@ -272,13 +329,70 @@ fn commit_active_on_success(active: &Mutex<usize>, idx: usize, outcome: &SetConf
     }
 }
 
-fn without_model_options(options: Vec<SessionConfigOption>) -> Vec<SessionConfigOption> {
-    options.into_iter().filter(|o| !is_model(o)).collect()
+fn validated_model<'a>(
+    options: &'a [SessionConfigOption],
+    component_id: &str,
+) -> anyhow::Result<Option<&'a SessionConfigOption>> {
+    let mut models = options.iter().filter(|option| is_model(option));
+    let Some(model) = models.next() else {
+        return Ok(None);
+    };
+    anyhow::ensure!(
+        models.next().is_none(),
+        "provider `{component_id}` advertises multiple model selectors"
+    );
+    let choices = flatten_select_options(&model.options);
+    if choices.is_empty() {
+        return Ok(None);
+    }
+    anyhow::ensure!(
+        choices
+            .iter()
+            .any(|choice| choice.value == model.current_value),
+        "provider `{component_id}` advertises a current model absent from its choices"
+    );
+    let mut values = std::collections::HashSet::new();
+    anyhow::ensure!(
+        choices.iter().all(|choice| values.insert(&choice.value)),
+        "provider `{component_id}` advertises duplicate model values"
+    );
+    anyhow::ensure!(
+        !options
+            .iter()
+            .any(|option| option.id == HOST_MODEL_CONFIG_ID && !is_model(option)),
+        "provider `{component_id}` uses reserved `model` id for a non-model option"
+    );
+    Ok(Some(model))
 }
 
 impl GroupInner {
     fn active_idx(&self) -> usize {
         *self.active.lock().unwrap()
+    }
+
+    fn validate_outcome(
+        &self,
+        idx: usize,
+        outcome: SetConfigOptionOutcome,
+    ) -> SetConfigOptionOutcome {
+        if self.multi_provider
+            && let SetConfigOptionOutcome::Done(options) = &outcome
+        {
+            match validated_model(options, &self.providers[idx].component_id) {
+                Ok(Some(_)) => {}
+                Ok(None) => {
+                    return SetConfigOptionOutcome::Wit(translate::internal_error(
+                        "provider removed its model choices",
+                    ));
+                }
+                Err(error) => {
+                    return SetConfigOptionOutcome::Wit(translate::internal_error(
+                        &error.to_string(),
+                    ));
+                }
+            }
+        }
+        outcome
     }
 
     /// Store a provider's freshly returned options (on a successful
@@ -298,7 +412,7 @@ impl GroupInner {
     /// `model_map`. Single provider: verbatim passthrough. Multiple: one
     /// merged model selector plus the active provider's other selectors.
     fn build_options(&self) -> Vec<SessionConfigOption> {
-        if self.providers.len() == 1 {
+        if !self.multi_provider {
             let opts = self.providers[0].options.lock().unwrap().clone();
             // Identity decode map so model selections route uniformly.
             let mut map = HashMap::new();
@@ -348,15 +462,7 @@ impl GroupInner {
                 });
             }
         }
-        if current_value.is_empty()
-            && let Some(first) = groups.iter().flat_map(|g| g.options.iter()).next()
-        {
-            current_value = first.value.clone();
-        }
         *self.model_map.lock().unwrap() = map;
-        if groups.is_empty() {
-            return without_model_options(active_opts);
-        }
 
         let merged_model = SessionConfigOption {
             id: HOST_MODEL_CONFIG_ID.to_string(),
@@ -445,8 +551,10 @@ mod tests {
         let mut empty_model = opts[0].clone();
         empty_model.id = "model".to_string();
         empty_model.category = Some(SessionConfigOptionCategory::Model);
-        let kept = without_model_options(vec![empty_model, opts[0].clone()]);
-        assert_eq!(kept.len(), 1);
-        assert_eq!(kept[0].id, "mode");
+        assert!(
+            validated_model(&[empty_model, opts[0].clone()], "test")
+                .unwrap()
+                .is_none()
+        );
     }
 }

@@ -56,8 +56,8 @@ without ever calling downstream — which is how the
          ◀──            ◀──             ◀──
 ```
 
-One ACP session is one Wasmtime `Store` holding **every** stage of the
-chain. That is what lets a `session` resource created by the provider be
+Each provider in an ACP session has its own Wasmtime `Store` holding
+**every** stage of that provider's chain. That is what lets a `session` resource created by the provider be
 handed to the layer that wraps it without tripping resource-type
 identity, and it is why the stages share a single `WasiCtx`.
 
@@ -121,15 +121,15 @@ callbacks can select the wrong stage's identity (see Known limitations).
 ## CLI
 
 ```text
-wassette acp --provider <PATH|URI|COMPONENT_ID>
+wassette acp --provider <PATH|URI|COMPONENT_ID>...
              [--layer    <PATH|URI|COMPONENT_ID>]...
              [--component-dir <DIR>] [--secrets-dir <DIR>]
              [--allow-all] [--allow-shared-grants]
              [--log-file <PATH>] [--log-level <LEVEL>] [--log-filter <DIRECTIVE>]
 ```
 
-* Exactly one `--provider` is required. Multiple providers are rejected
-  until session IDs and outbound callbacks can be mapped safely.
+* At least one `--provider` is required. Repeat it to load distinct providers;
+  selecting the same semantic component id twice is an error.
 * `--layer` is repeatable and ordered editor-side → provider-side; the
   first `--layer` is the outermost stage. The same layer stack wraps
   every provider.
@@ -165,6 +165,54 @@ wassette acp --provider <PATH|URI|COMPONENT_ID>
 
 Point an ACP-speaking editor at it the same way you would point one at
 `wassette run`.
+
+### Selecting between providers
+
+```sh
+wassette acp --provider acp-ollama-provider --provider acp-copilot-provider
+```
+
+Each new editor session creates a separate chain for every selected provider.
+Providers without model choices are omitted in multi-provider mode. The first
+remaining provider starts active, as shown by the Model selector's current value;
+if none remain, session creation fails with an explicit error. A single provider
+without models, such as the echo provider, still works normally.
+The selector groups model choices by provider's semantic component id. Selecting
+a model switches that session to its owning provider and returns that provider's
+other configuration options. Send the advertised value unchanged:
+
+```json
+{"jsonrpc":"2.0","id":3,"method":"session/set_config_option","params":{"sessionId":"<returned session id>","configId":"model","value":"<advertised model value>"}}
+```
+
+Prompts, legacy mode changes and other configuration changes go only to the
+active provider. Switching back retains its independent in-memory conversation;
+history is neither copied between providers nor broadcast. A busy session rejects
+overlapping prompts and configuration changes: finish or cancel the current turn
+before switching. Other editor sessions remain independent.
+
+Multi-provider session ids are host-owned, even if providers return identical
+local ids. Notifications, filesystem callbacks and permission requests use the
+editor id from the start of session creation. Provider tool-call ids are
+namespaced, and replies return to their original caller, not the currently
+selected provider. Failed creation discards the partial group and held updates.
+Inactive providers' command advertisements are retained and replayed when selected.
+
+Each provider chain retains its own effective policy, secrets binding, persistent
+`/data` ownership, tool catalog view and remembered tool approvals. A permission
+granted to one provider does not authorize another provider or editor session.
+The same layer stack is instantiated independently for each provider; the existing
+`--allow-shared-grants` requirement still applies *within* each chain. Generation
+approvals still go directly to that chain's bound editor session; loading several
+providers does not change this limitation or grant generation authority.
+
+Initialization advertises Wassette as the multi-provider host and intersects
+connection-wide MCP transport capabilities. Composite session restoration and
+authentication are not implemented: multi-provider mode does not advertise
+`loadSession` or authentication methods, and rejects direct requests for them.
+Single-provider metadata, native model values and supported `session/load` remain
+unchanged. Providers stay pinned to their startup receipts; installing or
+discovering a replacement does not switch an active chain.
 
 ## Demo
 

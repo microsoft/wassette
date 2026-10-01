@@ -310,6 +310,7 @@ mod tests {
             downstream_sessions: Default::default(),
             next_downstream_rep: 1,
             editor_session_id: None,
+            provider_routing: None,
             terminal_enabled: false,
             tool_broker: None,
             tool_decisions: Vec::new(),

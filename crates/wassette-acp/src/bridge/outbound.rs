@@ -83,15 +83,21 @@ fn forward_session_update(cx: &ConnectionTo<Client>, notif: schema::SessionNotif
 fn forward_read_text_file(
     cx: &ConnectionTo<Client>,
     req: schema::ReadTextFileRequest,
-    reply: oneshot::Sender<Result<schema::ReadTextFileResponse, AcpError>>,
+    mut reply: oneshot::Sender<Result<schema::ReadTextFileResponse, AcpError>>,
 ) {
+    if reply.is_closed() {
+        return;
+    }
     let path = req.path.display().to_string();
     let host_path = req.path.clone();
     let session = req.session_id.0.to_string();
     debug!(session = %session, path = %path, "fs/read_text_file dispatched");
     let pending = cx.send_request(req);
     let _ = cx.spawn(async move {
-        let result = pending.block_task().await;
+        let result = tokio::select! {
+            _ = reply.closed() => return Ok(()),
+            result = pending.block_task() => result,
+        };
         match &result {
             Ok(_) => debug!(
                 session = %session,
@@ -134,14 +140,20 @@ fn forward_read_text_file(
 fn forward_write_text_file(
     cx: &ConnectionTo<Client>,
     req: schema::WriteTextFileRequest,
-    reply: oneshot::Sender<Result<schema::WriteTextFileResponse, AcpError>>,
+    mut reply: oneshot::Sender<Result<schema::WriteTextFileResponse, AcpError>>,
 ) {
+    if reply.is_closed() {
+        return;
+    }
     let path = req.path.display().to_string();
     let session = req.session_id.0.to_string();
     debug!(session = %session, path = %path, "fs/write_text_file dispatched");
     let pending = cx.send_request(req);
     let _ = cx.spawn(async move {
-        let result = pending.block_task().await;
+        let result = tokio::select! {
+            _ = reply.closed() => return Ok(()),
+            result = pending.block_task() => result,
+        };
         match &result {
             Ok(_) => debug!(
                 session = %session,
@@ -163,14 +175,20 @@ fn forward_write_text_file(
 fn forward_request_permission(
     cx: &ConnectionTo<Client>,
     req: schema::RequestPermissionRequest,
-    reply: oneshot::Sender<Result<schema::RequestPermissionResponse, AcpError>>,
+    mut reply: oneshot::Sender<Result<schema::RequestPermissionResponse, AcpError>>,
 ) {
+    if reply.is_closed() {
+        return;
+    }
     let session = req.session_id.0.to_string();
     let tool_call = req.tool_call.tool_call_id.0.to_string();
     debug!(session = %session, tool_call = %tool_call, "session/request_permission dispatched");
     let pending = cx.send_request(req);
     let _ = cx.spawn(async move {
-        let result = pending.block_task().await;
+        let result = tokio::select! {
+            _ = reply.closed() => return Ok(()),
+            result = pending.block_task() => result,
+        };
         match &result {
             Ok(_) => debug!(
                 session = %session,

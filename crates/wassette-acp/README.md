@@ -3,8 +3,8 @@
 > **Experimental:** `wassette acp` may change or be removed.
 
 The Agent Client Protocol (ACP) host for Wassette. `wassette acp` speaks ACP
-JSON-RPC on stdio and routes it into a chain of WebAssembly components: exactly
-one terminal **provider** (`--provider`) wrapped by zero or more bidirectional
+JSON-RPC on stdio and routes it into chains of WebAssembly components: each
+terminal **provider** (`--provider`) wrapped by zero or more bidirectional
 **layers** (`--layer`). See [the ACP design](../../docs/design/acp.md).
 
 ```sh
@@ -17,8 +17,15 @@ in the Wassette component directory — and each stage's secrets come from
 `wassette secret set <component-id> KEY=value`.
 
 Logs go to **stderr only**; stdout is the protocol channel.
-Multiple `--provider` flags are rejected until multi-provider session IDs
-and outbound callbacks can be mapped safely.
+Repeat `--provider` to offer models from multiple providers in the grouped Model
+selector. Each editor session has independent provider chains and histories;
+selection changes only that session's active provider. Session and callback ids
+are mapped by the host, and remembered tool approvals are scoped to one provider
+chain. A busy session must finish or cancel its turn before switching providers.
+Multi-provider session restoration and authentication are not advertised or
+supported; single-provider behavior is preserved.
+In multi-provider mode, providers without model choices are omitted. The first
+eligible provider starts active; no eligible providers is an explicit error.
 
 ## Sandboxing
 
@@ -30,7 +37,7 @@ and no filesystem beyond the per-session `/data` directory the host preopens
 for a provider running alone or in an opted-in chain. `--allow-all` restores
 the permissive upstream behaviour for demos.
 
-Because one ACP session is one `Store`, and a store has one `WasiCtx`, the
+Because one provider chain is one `Store`, and a store has one `WasiCtx`, the
 grants of a chain's stages are unioned. Layered chains with policy grants,
 stored secrets or `--allow-all` require `--allow-shared-grants`, which also
 mounts the provider's persistent `/data` directory into the shared context.

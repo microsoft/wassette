@@ -37,6 +37,9 @@ use wassette::store::{
 mod common;
 use common::NamedFixture;
 
+#[path = "acp_stdio/multi_provider.rs"]
+mod multi_provider;
+
 #[cfg(feature = "component-generation")]
 #[path = "acp_stdio/generation.rs"]
 mod generation;
@@ -1625,21 +1628,27 @@ fn invalid_session_selectors_do_not_advertise_install() {
 }
 
 #[test]
-fn multiple_providers_fail_with_a_clear_cli_error() {
+fn duplicate_provider_selection_fails_with_a_clear_cli_error() {
     let Some((bin, wasm)) = artifacts() else {
         return;
     };
+    let components = tempfile::tempdir().unwrap();
     let output = Command::new(bin)
         .arg("acp")
+        .arg("--component-dir")
+        .arg(components.path())
         .arg("--provider")
         .arg(&wasm)
         .arg("--provider")
         .arg(&wasm)
         .output()
         .expect("run CLI");
-    assert!(!output.status.success(), "multiple providers were accepted");
     assert!(
-        String::from_utf8_lossy(&output.stderr).contains("exactly one --provider"),
+        !output.status.success(),
+        "duplicate providers were accepted"
+    );
+    assert!(
+        String::from_utf8_lossy(&output.stderr).contains("was selected more than once"),
         "unexpected error: {}",
         String::from_utf8_lossy(&output.stderr)
     );

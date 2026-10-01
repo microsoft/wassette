@@ -25,7 +25,7 @@ use super::require_session;
 use crate::wasm::{
     PromptOutcome, SessionFactory, SessionRegistry, SetConfigOptionOutcome, SetModeOutcome,
 };
-use crate::wassette::acp::sessions::{LoadSessionResponse, NewSessionResponse};
+use crate::wassette::acp::sessions::NewSessionResponse;
 use crate::{install, translate};
 
 pub(super) async fn handle_initialize(
@@ -33,12 +33,6 @@ pub(super) async fn handle_initialize(
     req: schema::InitializeRequest,
     responder: Responder<schema::InitializeResponse>,
 ) -> Result<(), AcpError> {
-    // The wire response uses a throwaway instance; fresh session chains
-    // receive this request again before any session method.
-    let session = factory
-        .instantiate()
-        .await
-        .map_err(|e| translate::anyhow_to_acp("initialize: instantiate", e))?;
     // Whether the client opted into boolean session config options
     // (`session.configOptions.boolean`). The host-owned `terminal` toggle
     // is a boolean config option, so per the ACP boolean-config-option
@@ -63,11 +57,11 @@ pub(super) async fn handle_initialize(
     );
     factory.set_boolean_config_supported(boolean_config_supported);
     let wit_req = translate::init_request_schema_to_wit(req);
-    let result = session
-        .call_initialize(wit_req.clone())
+    let resp = factory
+        .initialize(wit_req.clone())
         .await
-        .map_err(|e| translate::trap_to_acp("initialize", e))?;
-    let resp = result.map_err(translate::wit_error_to_acp)?;
+        .map_err(|e| translate::anyhow_to_acp("initialize", e))?
+        .map_err(translate::wit_error_to_acp)?;
     factory.set_load_session_supported(resp.agent_capabilities.load_session);
     factory.set_initialize_request(wit_req).await;
     responder.respond(translate::init_response_wit_to_schema(resp))
@@ -78,6 +72,9 @@ pub(super) async fn handle_authenticate(
     req: schema::AuthenticateRequest,
     responder: Responder<schema::AuthenticateResponse>,
 ) -> Result<(), AcpError> {
+    if factory.is_multi_provider() {
+        return responder.respond_with_error(AcpError::method_not_found());
+    }
     // Throwaway instance: `authenticate` is stateless; the host doesn't
     // carry credentials between calls.
     let session = factory
@@ -93,111 +90,99 @@ pub(super) async fn handle_authenticate(
     responder.respond(translate::empty_authenticate_response()?)
 }
 
-pub(super) async fn handle_new_session(
-    factory: &SessionFactory,
+pub(super) fn handle_new_session(
+    factory: &Arc<SessionFactory>,
     registry: &Arc<SessionRegistry>,
     gate: &Arc<NotificationGate>,
     mut req: schema::NewSessionRequest,
     responder: Responder<schema::NewSessionResponse>,
     cx: ConnectionTo<Client>,
 ) -> Result<(), AcpError> {
-    // Spin up one fresh instance per loaded provider, scoped to the
-    // session's project (cwd-derived data dir under `/data`), run
-    // `new-session` on each, then group them under a single ACP session id
-    // (the first provider mints it). The group merges each provider's model
-    // selector so the editor can pick which model from which provider backs
-    // the session.
-    //
-    // Outbound updates: each provider chain mints its own session id, so for
-    // a multi-provider group we bind every chain's `notify-session` updates
-    // to the one group id (see `bind_editor_session_ids` below) — otherwise a
-    // switched provider's updates would reach the editor tagged with an id it
-    // never saw.
-    tracing::info!(
-        mcp_server_count = req.mcp_servers.len(),
-        "← wire: session/new"
-    );
+    let factory = factory.clone();
+    let registry = registry.clone();
+    let gate = gate.clone();
     resolve_workspace_cwd(&mut req.cwd);
     warn_if_unlikely_workspace(&req.cwd);
-    let creating = gate.begin_new_session();
-    let sessions = factory
-        .instantiate_group_for_project(&req.cwd)
-        .await
-        .map_err(|e| translate::anyhow_to_acp("new-session: instantiate", e))?;
-    let wit_req = translate::new_session_request_schema_to_wit(req);
-
-    // Call `new-session` on every provider chain, collecting each
-    // provider's response so we can group and merge them.
-    let mut collected: Vec<(String, crate::wasm::Session, NewSessionResponse)> =
-        Vec::with_capacity(sessions.len());
-    for (component_id, session) in sessions {
-        let result = session
-            .call_new_session(wit_req.clone())
-            .await
-            .map_err(|e| translate::trap_to_acp("new-session", e))?;
-        let resp = result.map_err(translate::wit_error_to_acp)?;
-        collected.push((component_id, session, resp));
-    }
-
-    // The group's editor-facing session id is the first provider's minted
-    // id (subsequent providers' ids are internal-only; each provider tracks
-    // its own session via its head resource, not the string id).
-    let session_id = collected[0].2.session_id.clone();
-    debug!(session = %session_id, providers = collected.len(), "session/new");
-
-    // Keep the first provider's full response for the single-provider
-    // passthrough path (preserves the legacy modes fallback verbatim).
-    let first_resp = collected[0].2.clone();
-
-    let group_entries: Vec<_> = collected
-        .into_iter()
-        .map(|(component_id, session, resp)| {
-            (
-                component_id,
-                session,
-                resp.config_options.unwrap_or_default(),
+    cx.clone().spawn(async move {
+        let host_id = factory
+            .is_multi_provider()
+            .then(|| factory.allocate_editor_session_id());
+        let creation = host_id
+            .as_ref()
+            .map(|id| registry.begin_creation(id.clone()));
+        let result = async {
+            // Bind the host ID before running any multi-provider guest code:
+            // providers can emit callbacks before returning their local IDs.
+            let pending = host_id.as_deref().map(|id| gate.register_pending(id));
+            let creating = host_id.is_none().then(|| gate.begin_new_session());
+            let sessions = factory
+                .instantiate_group_for_project(&req.cwd, host_id.as_deref())
+                .await
+                .map_err(|e| translate::anyhow_to_acp("new-session: instantiate", e))?;
+            let wit_req = translate::new_session_request_schema_to_wit(req);
+            let mut collected: Vec<(String, crate::wasm::Session, NewSessionResponse)> =
+                Vec::with_capacity(sessions.len());
+            for (component_id, session) in sessions {
+                let resp = session
+                    .call_new_session(wit_req.clone())
+                    .await
+                    .map_err(|e| translate::trap_to_acp("new-session", e))?
+                    .map_err(translate::wit_error_to_acp)?;
+                collected.push((component_id, session, resp));
+            }
+            let session_id = host_id.unwrap_or_else(|| collected[0].2.session_id.clone());
+            let first_resp = collected[0].2.clone();
+            let group = crate::group::SessionGroup::new(
+                session_id.clone(),
+                collected
+                    .into_iter()
+                    .map(|(id, session, resp)| crate::group::ProviderSession {
+                        component_id: id,
+                        session,
+                        options: resp.config_options,
+                    })
+                    .collect(),
+                factory.boolean_config_supported(),
             )
-        })
-        .collect();
-    let group = crate::group::SessionGroup::new(
-        session_id.clone(),
-        group_entries,
-        factory.boolean_config_supported(),
-    );
-    // Host imports, including ordinary Wassette tool calls, need a stable
-    // editor-facing session id even for a single-provider group.
-    group.bind_editor_session_ids().await;
-
-    let schema_resp = if group.is_multi_provider() {
-        // Route every provider chain's outbound updates through the group id
-        // so a switched (non-first) provider's notifications still reach the
-        // editor. Single-provider stays a verbatim passthrough (not bound).
-        translate::new_session_response_with_config_options(
-            &session_id,
-            group.config_options(),
-            group.terminal_option(),
-        )?
-    } else {
-        translate::new_session_response_wit_to_schema(
-            first_resp,
-            factory.component_id(),
-            group.terminal_option(),
-        )?
-    };
-    insert_session(registry, session_id.clone(), group)?;
-    let pending = gate.register_pending(&session_id);
-    drop(creating);
-    tracing::info!(session = %session_id, "→ wire: session/new response");
-    responder.respond(schema_resp)?;
-    pending.keep();
-    // Release the matching updates held during `session/new`, after the
-    // editor has learned the guest-selected ID; also advertise `/install`.
-    flush_held_notifications(gate, &session_id, &cx);
+            .map_err(|e| translate::anyhow_to_acp("new-session: provider selection", e))?;
+            group.bind_editor_session_ids().await;
+            let response = if group.is_multi_provider() {
+                translate::new_session_response_with_config_options(
+                    &session_id,
+                    group.config_options(),
+                    group.terminal_option(),
+                )?
+            } else {
+                translate::new_session_response_wit_to_schema(
+                    first_resp,
+                    factory.component_id(),
+                    group.terminal_option(),
+                )?
+            };
+            insert_session(&registry, session_id.clone(), group)?;
+            let pending = pending.unwrap_or_else(|| gate.register_pending(&session_id));
+            drop(creating);
+            Ok::<_, AcpError>((session_id, response, pending))
+        };
+        let result = await_creation(creation, result).await;
+        match result {
+            Ok((session_id, response, pending)) => {
+                if let Err(error) = responder.respond(response) {
+                    registry.remove(&session_id);
+                    return Err(error);
+                }
+                pending.keep();
+                flush_held_notifications(&gate, &session_id, &cx);
+                Ok(())
+            }
+            Err(error) => responder.respond_with_error(error),
+        }
+    })?;
     Ok(())
 }
 
-pub(super) async fn handle_load_session(
-    factory: &SessionFactory,
+pub(super) fn handle_load_session(
+    factory: &Arc<SessionFactory>,
     registry: &Arc<SessionRegistry>,
     gate: &Arc<NotificationGate>,
     mut req: schema::LoadSessionRequest,
@@ -205,70 +190,85 @@ pub(super) async fn handle_load_session(
     cx: ConnectionTo<Client>,
 ) -> Result<(), AcpError> {
     let session_key = req.session_id.0.to_string();
-    debug!(session = %session_key, "session/load");
     if !factory.load_session_supported() {
         let mut error = AcpError::invalid_params();
         error.message = "session/load is unavailable: loadSession was not advertised".to_string();
         return Err(error);
     }
-    if registry.get(&session_key).is_some() {
+    if registry.get(&session_key).is_some() || gate.is_registered(&session_key) {
         return Err(duplicate_session_error(&session_key));
     }
     let pending = gate.register_pending(&session_key);
+    let creation = registry.begin_creation(session_key.clone());
+    let factory = factory.clone();
+    let registry = registry.clone();
+    let gate = gate.clone();
     resolve_workspace_cwd(&mut req.cwd);
     warn_if_unlikely_workspace(&req.cwd);
-    let sessions = factory
-        .instantiate_group_for_project(&req.cwd)
-        .await
-        .map_err(|e| translate::anyhow_to_acp("load-session: instantiate", e))?;
-    let wit_req = translate::load_session_request_schema_to_wit(req);
-
-    let mut collected: Vec<(String, crate::wasm::Session, LoadSessionResponse)> =
-        Vec::with_capacity(sessions.len());
-    for (component_id, session) in sessions {
-        let result = session
-            .call_load_session(wit_req.clone())
-            .await
-            .map_err(|e| translate::trap_to_acp("load-session", e))?;
-        let resp = result.map_err(translate::wit_error_to_acp)?;
-        collected.push((component_id, session, resp));
-    }
-
-    let first_resp = collected[0].2.clone();
-    let group_entries: Vec<_> = collected
-        .into_iter()
-        .map(|(component_id, session, resp)| {
-            (
-                component_id,
-                session,
-                resp.config_options.unwrap_or_default(),
+    cx.clone().spawn(async move {
+        let result = async {
+            let mut sessions = factory
+                .instantiate_group_for_project(&req.cwd, Some(&session_key))
+                .await
+                .map_err(|e| translate::anyhow_to_acp("load-session: instantiate", e))?;
+            let (component_id, session) = sessions.remove(0);
+            let resp = session
+                .call_load_session(translate::load_session_request_schema_to_wit(req))
+                .await
+                .map_err(|e| translate::trap_to_acp("load-session", e))?
+                .map_err(translate::wit_error_to_acp)?;
+            let group = crate::group::SessionGroup::new(
+                session_key.clone(),
+                vec![crate::group::ProviderSession {
+                    component_id,
+                    session,
+                    options: resp.config_options.clone(),
+                }],
+                factory.boolean_config_supported(),
             )
-        })
-        .collect();
-    let group = crate::group::SessionGroup::new(
-        session_key.clone(),
-        group_entries,
-        factory.boolean_config_supported(),
-    );
-
-    group.bind_editor_session_ids().await;
-    let schema_resp = if group.is_multi_provider() {
-        translate::load_session_response_with_config_options(
-            group.config_options(),
-            group.terminal_option(),
-        )?
-    } else {
-        translate::load_session_response_wit_to_schema(
-            first_resp,
-            factory.component_id(),
-            group.terminal_option(),
-        )?
-    };
-    insert_session(registry, session_key.clone(), group)?;
-    responder.respond(schema_resp)?;
-    pending.keep();
-    flush_held_notifications(gate, &session_key, &cx);
+            .map_err(|e| translate::anyhow_to_acp("load-session: provider selection", e))?;
+            let response = translate::load_session_response_wit_to_schema(
+                resp,
+                factory.component_id(),
+                group.terminal_option(),
+            )?;
+            insert_session(&registry, session_key.clone(), group)?;
+            Ok::<_, AcpError>(response)
+        };
+        let result = await_creation(Some(creation), result).await;
+        match result {
+            Ok(response) => {
+                if let Err(error) = responder.respond(response) {
+                    registry.remove(&session_key);
+                    return Err(error);
+                }
+                pending.keep();
+                flush_held_notifications(&gate, &session_key, &cx);
+                Ok(())
+            }
+            Err(error) => responder.respond_with_error(error),
+        }
+    })?;
     Ok(())
+}
+
+async fn await_creation<T>(
+    registration: Option<crate::wasm::SessionCreation>,
+    create: impl std::future::Future<Output = Result<T, AcpError>>,
+) -> Result<T, AcpError> {
+    if let Some(registration) = registration {
+        tokio::select! {
+            biased;
+            _ = registration.cancellation.cancelled() => {
+                let mut error = AcpError::invalid_request();
+                error.message = "session creation cancelled".to_string();
+                Err(error)
+            }
+            result = create => result,
+        }
+    } else {
+        create.await
+    }
 }
 
 fn duplicate_session_error(session_id: &str) -> AcpError {
@@ -387,10 +387,12 @@ pub(super) fn handle_set_session_mode(
     let session_key = req.session_id.0.to_string();
     debug!(session = %session_key, "session/set_mode");
     let handle = require_session(registry, &session_key)?;
+    let operation = handle.begin_operation()?;
     open_gate_now(gate, &session_key, &cx);
     let mode_id = req.mode_id.0.to_string();
 
     cx.spawn(async move {
+        let _operation = operation;
         let outcome = handle.set_mode(mode_id).await;
         match outcome {
             SetModeOutcome::Done => {
@@ -423,6 +425,7 @@ pub(super) fn handle_set_session_config_option(
     let session_key = req.session_id.0.to_string();
     debug!(session = %session_key, "session/set_config_option");
     let handle = require_session(registry, &session_key)?;
+    let operation = handle.begin_operation()?;
     open_gate_now(gate, &session_key, &cx);
     let config_id = req.config_id.0.to_string();
 
@@ -449,6 +452,7 @@ pub(super) fn handle_set_session_config_option(
             }
         };
         cx.spawn(async move {
+            let _operation = operation;
             handle.set_terminal_enabled(enabled).await;
             let resp = match translate::set_config_option_response(
                 handle.config_options(),
@@ -473,6 +477,7 @@ pub(super) fn handle_set_session_config_option(
     };
 
     cx.spawn(async move {
+        let _operation = operation;
         let outcome = handle.set_config_option(config_id, value).await;
         match outcome {
             SetConfigOptionOutcome::Done(options) => {
@@ -509,6 +514,7 @@ pub(super) fn handle_prompt(
     debug!(session = %session_key, "session/prompt");
     tracing::info!(session = %session_key, block_count = req.prompt.len(), "← wire: session/prompt");
     let handle = require_session(registry, &session_key)?;
+    let operation = handle.begin_operation()?;
     // Drain the gate before this turn emits anything, so the turn's own
     // chunks can't queue behind notifications held from `session/new`.
     open_gate_now(gate, &session_key, &cx);
@@ -532,6 +538,7 @@ pub(super) fn handle_prompt(
     handle.prepare_prompt();
     let factory = factory.clone();
     cx.spawn(async move {
+        let _operation = operation;
         let outcome = handle.prompt(wit_prompt).await;
         if let Err(e) = factory.flush_outbound().await {
             return responder
@@ -572,9 +579,7 @@ pub(super) async fn handle_cancel(
     // `Cancelled` for the current turn. We don't attempt to deliver a
     // guest-side `cancel` call here: that's a TODO no-op anyway and would
     // have to queue behind the running prompt.
-    if let Some(handle) = registry.get(&key) {
-        handle.cancel();
-    }
+    registry.cancel(&key);
     Ok(())
 }
 
