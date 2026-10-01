@@ -182,6 +182,11 @@ fn producer_names_on_built_rust_and_acp_fixtures_are_inspectable() -> Result<()>
             ArtifactShape::ToolCandidate,
         ),
         (
+            "components/file-search",
+            "file_search",
+            ArtifactShape::ToolCandidate,
+        ),
+        (
             "components/acp-echo-provider",
             "acp_echo_provider",
             ArtifactShape::AcpProvider,

@@ -14,5 +14,6 @@
   "components/acp-copilot-provider": "acp-copilot-provider",
   "components/acp-echo-provider": "acp-echo-provider",
   "components/acp-ollama-provider": "acp-ollama-provider",
-  "components/acp-uppercase-layer": "acp-uppercase-layer"
+  "components/acp-uppercase-layer": "acp-uppercase-layer",
+  "components/file-search": "wassette:file-search"
 }

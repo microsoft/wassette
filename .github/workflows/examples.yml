@@ -5,6 +5,7 @@ on:
     branches: [ "main" ]
     paths:
       - 'examples/**'
+      - 'components/file-search/**'
       - '.github/workflows/examples.yml'
       - 'Justfile'
       - 'scripts/name-component.py'
@@ -13,6 +14,7 @@ on:
     branches: [ "main" ]
     paths:
       - 'examples/**'
+      - 'components/file-search/**'
       - '.github/workflows/examples.yml'
       - 'Justfile'
       - 'scripts/name-component.py'
@@ -77,6 +79,8 @@ jobs:
     strategy:
       matrix:
         component:
+          - name: file-search
+            file: file-search.wasm
           - name: arxiv-rs
             file: arxiv-rs.wasm
           - name: github-js

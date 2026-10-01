@@ -3,7 +3,8 @@
     "components/acp-copilot-provider": "components/acp-copilot-provider/target/wasm32-wasip2/release/acp_copilot_provider.wasm",
     "components/acp-echo-provider": "components/acp-echo-provider/target/wasm32-wasip2/release/acp_echo_provider.wasm",
     "components/acp-ollama-provider": "components/acp-ollama-provider/target/wasm32-wasip2/release/acp_ollama_provider.wasm",
-    "components/acp-uppercase-layer": "components/acp-uppercase-layer/target/wasm32-wasip2/release/acp_uppercase_layer.wasm"
+    "components/acp-uppercase-layer": "components/acp-uppercase-layer/target/wasm32-wasip2/release/acp_uppercase_layer.wasm",
+    "components/file-search": "components/file-search/target/wasm32-wasip2/release/file_search.wasm"
   },
   "exclude": {
     "examples/arxiv-rs": "example component",

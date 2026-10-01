@@ -143,3 +143,28 @@ fn named_test_component(root: &Path, source: &Path, name: &str) -> Result<PathBu
     staged.persist(&destination)?;
     Ok(destination)
 }
+
+static FILE_SEARCH_COMPONENT_BUILD: Once = Once::new();
+
+/// Build the default `wassette:file-search` tool exactly as it is installed and published.
+#[allow(dead_code)]
+pub fn build_file_search_component() -> Result<PathBuf> {
+    let top_level =
+        PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").context("CARGO_MANIFEST_DIR not set")?)
+            .join("../..");
+    FILE_SEARCH_COMPONENT_BUILD.call_once(|| {
+        let status = std::process::Command::new("just")
+            .current_dir(&top_level)
+            .arg("build-default-tools")
+            .status()
+            .expect("Failed to execute the default tool build");
+        assert!(
+            status.success(),
+            "Failed to build the file-search component"
+        );
+    });
+    let path =
+        top_level.join("components/file-search/target/wasm32-wasip2/release/file_search.wasm");
+    anyhow::ensure!(path.exists(), "missing built component: {}", path.display());
+    Ok(path)
+}

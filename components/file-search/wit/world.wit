@@ -1,0 +1,41 @@
+package wassette:file-search@0.1.0;
+
+/// Search file contents under directories the host has granted read access to.
+world file-search {
+    /// One line that matched the search pattern.
+    record search-match {
+        /// Path of the matching file, below the requested root.
+        path: string,
+        /// One-based line number of the match.
+        line-number: u64,
+        /// The matching line without its line terminator, truncated to 1000 bytes.
+        line: string,
+    }
+
+    /// Matches in deterministic path order.
+    record search-result {
+        /// The matching lines.
+        matches: list<search-match>,
+        /// True when more matches existed than `max-results` allowed.
+        truncated: bool,
+        /// Number of files that were searched.
+        files-searched: u64,
+    }
+
+    /// Search the contents of files below `root` for lines matching `pattern`, like ripgrep.
+    /// `root` must be an absolute directory or file path that the component has been granted
+    /// read access to (use grant-storage-permission with `fs://<root>`). Files and directories
+    /// ignored by .gitignore, .ignore, and hidden-file rules are skipped, as are binary files.
+    /// `pattern` is a Rust regular expression unless `literal` is true. Set `case-insensitive`
+    /// to ignore case. `glob` optionally restricts searched paths, e.g. "*.rs" or "src/**";
+    /// pass null to search all files. `max-results` caps the number of returned matches
+    /// (default 200, maximum 10000); pass null for the default.
+    export search-files: func(
+        root: string,
+        pattern: string,
+        literal: bool,
+        case-insensitive: bool,
+        glob: option<string>,
+        max-results: option<u32>,
+    ) -> result<search-result, string>;
+}
