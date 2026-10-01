@@ -6,6 +6,8 @@ license.workspace = true
 
 [features]
 component-generation = ["dep:wassette-builder", "dep:getrandom"]
+# Loopback wasm.directory and OCI fixtures for downstream crate tests.
+test-fixtures = []
 
 [dependencies]
 anyhow = { workspace = true }
