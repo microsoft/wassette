@@ -170,6 +170,7 @@ pub struct LocalSourceService {
     config: LocalSourceConfig,
     root_key: String,
     validator: Option<Arc<dyn LocalValidator>>,
+    adopt_explicit_local: bool,
     gate: Mutex<()>,
     events: broadcast::Sender<LocalSourceEvent>,
 }
@@ -199,6 +200,7 @@ impl LocalSourceService {
             config,
             root_key,
             validator: None,
+            adopt_explicit_local: false,
             gate: Mutex::new(()),
             events,
         })
@@ -207,6 +209,13 @@ impl LocalSourceService {
     /// Supply the trusted ACP validator for ACP-shaped drops.
     pub fn with_validator(mut self, validator: Arc<dyn LocalValidator>) -> Self {
         self.validator = Some(validator);
+        self
+    }
+
+    /// Allow explicitly requested migration of matching local-file installs to
+    /// this managed source root.
+    pub fn with_explicit_local_adoption(mut self) -> Self {
+        self.adopt_explicit_local = true;
         self
     }
 
@@ -253,6 +262,7 @@ impl LocalSourceService {
             let _gate = self.gate.lock().await;
             let root = self.config.root.clone();
             let root_key = self.root_key.clone();
+            let adopt_explicit_local = self.adopt_explicit_local;
             let sources = sources.to_vec();
             let snapshot = store_operation(self.manager.component_store(), |store| {
                 Ok(store
@@ -261,7 +271,13 @@ impl LocalSourceService {
             })
             .await?;
             tokio::task::spawn_blocking(move || {
-                prepare_and_commit_links(&root, &root_key, &snapshot.entries, &sources)
+                prepare_and_commit_links(
+                    &root,
+                    &root_key,
+                    &snapshot.entries,
+                    &sources,
+                    adopt_explicit_local,
+                )
             })
             .await
             .context("local source link worker failed")??;
@@ -462,7 +478,17 @@ impl LocalSourceService {
             }
             let previous = entries.get(&id);
             if let Some(previous) = previous {
-                if previous.binding().owner != InstallOwner::ManagedLocalSource(owner.clone()) {
+                let expected_owner = InstallOwner::ManagedLocalSource(owner.clone());
+                let adoptable = self.adopt_explicit_local
+                    && previous.binding().owner == InstallOwner::Explicit
+                    && matches!(previous.binding().source, SourceIdentity::File(_))
+                    && previous
+                        .binding()
+                        .source
+                        .as_file()
+                        .and_then(Path::file_name)
+                        == path.file_name();
+                if previous.binding().owner != expected_owner && !adoptable {
                     complete = false;
                     report.push(
                         SourceStatus::Conflict,
@@ -603,7 +629,12 @@ impl LocalSourceService {
                 hex::encode(Sha256::digest(id.as_bytes()))
             ))?,
         };
-        let source = SourceIdentity::File(self.config.root.join(&owner.relative_source));
+        let adopt_explicit_local = self.adopt_explicit_local
+            && previous.is_some_and(|entry| entry.binding().owner == InstallOwner::Explicit);
+        let source = previous.map_or_else(
+            || SourceIdentity::File(self.config.root.join(&owner.relative_source)),
+            |entry| entry.binding().source.clone(),
+        );
         let observed_id = id.to_owned();
         let observed_key = key.clone();
         let observed_source = source.clone();
@@ -707,7 +738,11 @@ impl LocalSourceService {
         )?;
         let updated = matches!(previous, Some(StoredEntry::Installed(_)));
         let outcome = store_operation(self.manager.component_store(), move |store| {
-            Ok(store.commit_install(prepared, expected)?)
+            if adopt_explicit_local {
+                Ok(store.commit_install_adopting_explicit_local(prepared, expected)?)
+            } else {
+                Ok(store.commit_install(prepared, expected)?)
+            }
         })
         .await?;
         let kind = outcome.entry.binding().kind.clone();
@@ -728,6 +763,7 @@ fn prepare_and_commit_links(
     root_key: &str,
     entries: &[StoredEntry],
     sources: &[PathBuf],
+    adopt_explicit_local: bool,
 ) -> Result<()> {
     use std::os::unix::fs::symlink;
 
@@ -771,8 +807,13 @@ fn prepare_and_commit_links(
             .iter()
             .find(|entry| entry.component_id().as_str() == component_id)
         {
+            let adoptable = adopt_explicit_local
+                && entry.binding().owner == InstallOwner::Explicit
+                && entry.binding().source.as_file().and_then(Path::file_name)
+                    == Some(name.as_os_str());
             anyhow::ensure!(
-                entry.binding().owner == InstallOwner::ManagedLocalSource(expected_owner.clone()),
+                entry.binding().owner == InstallOwner::ManagedLocalSource(expected_owner.clone())
+                    || adoptable,
                 "component `{component_id}` is owned by a different source"
             );
         }
@@ -981,6 +1022,84 @@ mod tests {
                 .await?
                 .ids(SourceStatus::Updated),
             ["linked-tool"]
+        );
+        Ok(())
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn explicit_local_file_adoption_preserves_source_and_secrets() -> Result<()> {
+        let (temp, service) = service().await?;
+        let previous = temp.path().join("previous");
+        let current = temp.path().join("current");
+        fs::create_dir(&previous)?;
+        fs::create_dir(&current)?;
+        let previous = previous.join("tool.wasm");
+        let current = current.join("tool.wasm");
+        fs::write(&previous, fixture_with_tool("linked-tool", "first"))?;
+        fs::write(&current, fixture_with_tool("linked-tool", "second"))?;
+
+        service
+            .manager
+            .load_component(&format!("file://{}", previous.display()))
+            .await?;
+        service
+            .manager
+            .set_component_secrets("linked-tool", &[("token".into(), "value".into())])
+            .await?;
+
+        assert!(service
+            .link_sources(std::slice::from_ref(&current))
+            .await
+            .is_err());
+        let service = service.with_explicit_local_adoption();
+        service.link_sources(std::slice::from_ref(&current)).await?;
+        assert_eq!(
+            service
+                .reconcile_sources_once(std::slice::from_ref(&current), false)
+                .await?
+                .ids(SourceStatus::Updated),
+            ["linked-tool"]
+        );
+
+        let snapshot = service.manager.store_snapshot("linked-tool").await?;
+        assert!(matches!(
+            snapshot.receipt.owner,
+            InstallOwner::ManagedLocalSource(_)
+        ));
+        assert_eq!(
+            snapshot.receipt.source,
+            SourceIdentity::File(previous.canonicalize()?)
+        );
+        assert_eq!(
+            service
+                .manager
+                .list_component_secrets("linked-tool", true)
+                .await?
+                .get("token"),
+            Some(&Some("value".into()))
+        );
+
+        let next = temp.path().join("next");
+        fs::create_dir(&next)?;
+        let next = next.join("tool.wasm");
+        fs::write(&next, fixture_with_tool("linked-tool", "third"))?;
+        service.link_sources(std::slice::from_ref(&next)).await?;
+        assert_eq!(
+            service
+                .reconcile_sources_once(std::slice::from_ref(&next), false)
+                .await?
+                .ids(SourceStatus::Updated),
+            ["linked-tool"]
+        );
+        assert_eq!(
+            service
+                .manager
+                .store_snapshot("linked-tool")
+                .await?
+                .receipt
+                .source,
+            SourceIdentity::File(previous.canonicalize()?)
         );
         Ok(())
     }

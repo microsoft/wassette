@@ -42,6 +42,15 @@ and embedded semantic name match the current receipt. Wassette refuses to
 replace regular files, unrelated links, explicit/registry installations, or
 conflicting names. Native Windows link registration is not currently supported.
 
+`--adopt-explicit-local` is a narrow migration for source-checkout installers.
+With `--link`, it can transfer a matching explicit local-file installation to
+managed link ownership when the semantic ID and artifact filename match. The
+original admitted file source remains the component's continuity identity, so
+existing policy and secrets stay bound. Registry, HTTPS, generated, and
+differently named file sources are never adopted. `just install` uses this
+migration to upgrade components previously loaded directly from another
+Wassette worktree.
+
 Only non-hidden `.wasm` files directly in this directory are candidates;
 subdirectories and temporary filenames are ignored. The filename is source
 location evidence, **not** the component ID. Wassette takes the ID from the

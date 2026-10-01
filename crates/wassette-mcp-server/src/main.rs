@@ -575,6 +575,7 @@ async fn main() -> Result<()> {
                     component_dir,
                     local_component_dir,
                     links,
+                    adopt_explicit_local,
                     force,
                     output_format,
                 } => {
@@ -593,8 +594,11 @@ async fn main() -> Result<()> {
                     let validator = wassette_acp::local_source_validator(
                         manager.component_root().to_path_buf(),
                     )?;
-                    let service = LocalSourceService::new(Arc::new(manager), local_config)?
+                    let mut service = LocalSourceService::new(Arc::new(manager), local_config)?
                         .with_validator(validator);
+                    if *adopt_explicit_local {
+                        service = service.with_explicit_local_adoption();
+                    }
                     service.link_sources(links).await?;
                     let report = if links.is_empty() {
                         service.reconcile_once(*force).await?

@@ -161,6 +161,25 @@ impl ComponentStore {
         prepared: PreparedInstall,
         expected: ExpectedEntry,
     ) -> Result<CommitOutcome> {
+        self.commit_install_inner(prepared, expected, false)
+    }
+
+    /// Commit a managed local installation that explicitly adopts an existing
+    /// explicit local-file binding without changing its source identity.
+    pub fn commit_install_adopting_explicit_local(
+        &self,
+        prepared: PreparedInstall,
+        expected: ExpectedEntry,
+    ) -> Result<CommitOutcome> {
+        self.commit_install_inner(prepared, expected, true)
+    }
+
+    fn commit_install_inner(
+        &self,
+        prepared: PreparedInstall,
+        expected: ExpectedEntry,
+        adopt_explicit_local: bool,
+    ) -> Result<CommitOutcome> {
         if prepared.component_id != expected.component_id
             || prepared.options.storage_key != expected.storage_key
             || prepared.options.source != expected.source
@@ -197,9 +216,14 @@ impl ComponentStore {
             }
             match (&old.owner, &prepared.options.owner) {
                 (InstallOwner::Explicit, InstallOwner::ManagedLocalSource(_)) => {
-                    return Err(conflict(
-                        "managed installation cannot take over explicit ownership",
-                    ));
+                    let allowed = adopt_explicit_local
+                        && matches!(old.source, SourceIdentity::File(_))
+                        && old.source == prepared.options.source;
+                    if !allowed {
+                        return Err(conflict(
+                            "managed installation cannot take over explicit ownership",
+                        ));
+                    }
                 }
                 (InstallOwner::ManagedLocalSource(old), InstallOwner::ManagedLocalSource(new))
                     if old != new =>

@@ -136,7 +136,14 @@ def install(root: Path, mode: str) -> None:
     )
     if not executable.is_file():
         raise FileNotFoundError(f"cargo did not leave the built executable at {executable}")
-    sync = [str(executable), "component", "sync", "--output-format", "json"]
+    sync = [
+        str(executable),
+        "component",
+        "sync",
+        "--output-format",
+        "json",
+        "--adopt-explicit-local",
+    ]
     for artifact in artifacts:
         sync.extend(["--link", str(artifact)])
     subprocess.run(sync, cwd=root, check=True)

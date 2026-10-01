@@ -1,7 +1,7 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT license.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -87,6 +87,14 @@ pub enum SourceIdentity {
 }
 
 impl SourceIdentity {
+    /// Borrow the canonical path for a local-file source.
+    pub fn as_file(&self) -> Option<&Path> {
+        match self {
+            Self::File(path) => Some(path),
+            _ => None,
+        }
+    }
+
     pub(crate) fn validate(&self) -> Result<()> {
         let valid = match self {
             Self::Generated { id } => {

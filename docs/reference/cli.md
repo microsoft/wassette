@@ -141,6 +141,10 @@ wassette component sync \
 
 Link registration is Unix-only, refuses unrelated existing files or sources,
 and preserves the store's identity, owner, policy, secret, and revision checks.
+Source-checkout installers can add `--adopt-explicit-local` to migrate a
+matching explicit local-file installation with the same semantic ID and
+filename. This never adopts registry, HTTPS, generated, or differently named
+file sources.
 Ordinary components retain the normal local-source tool exposure intent. ACP
 providers and layers are validated and installed, but are not activated; select
 them with `wassette acp --provider/--layer`.
