@@ -75,17 +75,19 @@ just build release
 just build-examples
 just build-examples release
 
-# Install the release CLI and generated components under components/
+# Install the debug CLI and generated components under components/
 just install
 
-# Use debug builds while developing the installer
-just install debug
+# Install an optimized host binary when needed
+just install release
 ```
 
-`just install` builds the ACP providers and layers under `components/`, installs
-the `wassette` binary with `cargo install`, links the finalized components into
-the configured local-component directory, and reconciles them through the
-transactional component store. It does not build or install the language
+`just install` installs the debug `wassette` binary with `cargo install`, which
+reuses the workspace's normal debug artifacts during development. Use `just
+install release` only when an optimized host binary is needed. Both forms build
+the ACP providers and layers under `components/`, link the finalized components
+into the configured local-component directory, and reconcile them through the
+transactional component store. They do not build or install the language
 examples under `examples/`, so their Node.js, Python, Go, and TinyGo toolchains
 are not prerequisites. Cargo chooses the user install root using its normal
 `--root` / `CARGO_INSTALL_ROOT` / Cargo config / `CARGO_HOME` precedence; the

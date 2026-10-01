@@ -144,7 +144,9 @@ can install the current checkout with:
 just install
 ```
 
-This uses `cargo install` for the release binary, then transactionally
+This uses `cargo install --debug` by default so repeated development installs
+can reuse the workspace's normal debug artifacts. Use `just install release`
+only when an optimized host binary is needed. The recipe then transactionally
 reconciles the finalized ACP providers and layers through Wassette's
 local-component directory. Example components under `examples/` are not built
 or installed. Cargo's normal install-root precedence is preserved; the common

@@ -111,7 +111,7 @@ install-preflight:
     python3 scripts/install-local.py --check
 
 # Install this checkout's CLI and finalized components from components/.
-install mode="release": install-preflight build-acp-examples
+install mode="debug": install-preflight build-acp-examples
     python3 scripts/install-local.py --mode {{ quote(mode) }}
 
 # Create a stable or prerelease version bump PR with the current GitHub identity.

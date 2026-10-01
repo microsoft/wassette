@@ -151,7 +151,7 @@ def install(root: Path, mode: str) -> None:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--mode", choices=("debug", "release"), default="release")
+    parser.add_argument("--mode", choices=("debug", "release"), default="debug")
     parser.add_argument(
         "--check", action="store_true", help="validate declarations and build prerequisites"
     )
