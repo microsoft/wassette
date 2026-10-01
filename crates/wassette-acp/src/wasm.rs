@@ -109,6 +109,7 @@ pub struct SessionFactory {
     boolean_config_supported: std::sync::atomic::AtomicBool,
     load_session_supported: std::sync::atomic::AtomicBool,
     initialize_request: tokio::sync::RwLock<Option<InitializeRequest>>,
+    next_editor_session: std::sync::atomic::AtomicU64,
 }
 
 impl SessionFactory {
@@ -137,6 +138,7 @@ impl SessionFactory {
             boolean_config_supported: std::sync::atomic::AtomicBool::new(false),
             load_session_supported: std::sync::atomic::AtomicBool::new(false),
             initialize_request: tokio::sync::RwLock::new(None),
+            next_editor_session: std::sync::atomic::AtomicU64::new(1),
         }
     }
 
@@ -183,11 +185,70 @@ impl SessionFactory {
         *self.initialize_request.write().await = Some(req);
     }
 
-    /// Build a session with no `/data` preopen, on the first provider.
-    /// Used for stateless calls (`initialize`, `authenticate`) which are
-    /// provider-agnostic.
+    /// Build a session with no `/data` preopen for single-provider authentication.
     pub async fn instantiate(&self) -> Result<Session> {
         self.instantiate_chain(&self.providers[0], None).await
+    }
+
+    pub fn is_multi_provider(&self) -> bool {
+        self.providers.len() > 1
+    }
+
+    pub fn allocate_editor_session_id(&self) -> String {
+        let id = self
+            .next_editor_session
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        format!("wassette-{id}")
+    }
+
+    /// Initialize every configured chain; only advertise connection-wide
+    /// capabilities that all providers can actually honour.
+    pub async fn initialize(
+        &self,
+        req: InitializeRequest,
+    ) -> Result<Result<InitializeResponse, Error>> {
+        let mut responses = Vec::with_capacity(self.providers.len());
+        for (index, provider) in self.providers.iter().enumerate() {
+            let session = self.instantiate_chain(provider, None).await?;
+            if self.is_multi_provider() {
+                session.configure_provider_route(index).await;
+            }
+            let response = match session.call_initialize(req.clone()).await? {
+                Ok(response) => response,
+                Err(error) => return Ok(Err(error)),
+            };
+            responses.push(response);
+        }
+        let mut response = responses.remove(0);
+        for other in responses {
+            anyhow::ensure!(
+                other.protocol_version == response.protocol_version,
+                "providers negotiated different ACP protocol versions"
+            );
+            response.agent_capabilities.mcp_capabilities.http &=
+                other.agent_capabilities.mcp_capabilities.http;
+            response.agent_capabilities.mcp_capabilities.sse &=
+                other.agent_capabilities.mcp_capabilities.sse;
+        }
+        if self.is_multi_provider() {
+            // A group has multiple independent persisted histories, not one
+            // provider-native ID that can safely be passed to every provider.
+            response.agent_capabilities.load_session = false;
+            response.auth_methods.clear();
+            response.agent_info = Some(crate::wassette::acp::init::ImplementationInfo {
+                name: "wassette-acp".to_string(),
+                title: Some(format!(
+                    "Wassette ({})",
+                    self.providers
+                        .iter()
+                        .map(|p| p.component_id.as_str())
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                )),
+                version: env!("CARGO_PKG_VERSION").to_string(),
+            });
+        }
+        Ok(Ok(response))
     }
 
     /// Component id of the first provider. Used by the bridge to label
@@ -230,6 +291,7 @@ impl SessionFactory {
     pub async fn instantiate_group_for_project(
         &self,
         cwd: &std::path::Path,
+        editor_session_id: Option<&str>,
     ) -> Result<Vec<(String, Session)>> {
         let project_id = project_id_from_cwd(cwd);
         let project_dir = self.data_root.join(&project_id);
@@ -241,11 +303,17 @@ impl SessionFactory {
             .clone()
             .context("session requested before initialize")?;
         let mut out = Vec::with_capacity(self.providers.len());
-        for provider in &self.providers {
+        for (index, provider) in self.providers.iter().enumerate() {
             let session = self
                 .instantiate_chain(provider, Some(&project_dir))
                 .await
                 .with_context(|| format!("instantiating provider `{}`", provider.component_id))?;
+            if let Some(id) = editor_session_id {
+                session.set_editor_session_id(id.to_string()).await;
+            }
+            if self.is_multi_provider() {
+                session.configure_provider_route(index).await;
+            }
             session
                 .call_initialize(initialize_request.clone())
                 .await
@@ -343,6 +411,7 @@ impl SessionFactory {
             downstream_sessions: std::collections::HashMap::new(),
             next_downstream_rep: 1,
             editor_session_id: None,
+            provider_routing: None,
             terminal_enabled: false,
             tool_broker: Some(Arc::new(self.tool_broker.session_view())),
             tool_decisions: Vec::new(),
@@ -546,13 +615,48 @@ impl Session {
         self.inner.cancel.send_replace(false);
     }
 
-    /// Stamp this chain's outbound `notify-session` updates with `id`
-    /// (the editor-facing group session id), overriding the guest-minted
-    /// id. Used by [`crate::group`] so a switched (non-first) provider's
-    /// updates still reach the editor under the group's id.
+    /// Bind editor callbacks and host tool/generation calls to this session,
+    /// overriding provider-local string IDs at the outer chain boundary.
     pub async fn set_editor_session_id(&self, id: String) {
         let mut store = self.inner.store.lock().await;
         store.data_mut().editor_session_id = Some(id);
+    }
+
+    async fn configure_provider_route(&self, index: usize) {
+        self.inner.store.lock().await.data_mut().provider_routing =
+            Some(crate::state::ProviderRouting {
+                namespace: format!("provider-{index}"),
+                active: false,
+                commands: None,
+                initial_updates: Some(Vec::new()),
+            });
+    }
+
+    pub async fn set_active(&self, active: bool) {
+        let mut store = self.inner.store.lock().await;
+        let state = store.data_mut();
+        let Some(routing) = &mut state.provider_routing else {
+            return;
+        };
+        let changed = routing.active != active;
+        routing.active = active;
+        let updates = if let Some(initial) = routing.initial_updates.take() {
+            initial
+        } else if changed {
+            vec![routing.commands.clone().unwrap_or_else(|| {
+                crate::wassette::acp::prompts::SessionUpdate::AvailableCommandsUpdate(Vec::new())
+            })]
+        } else {
+            Vec::new()
+        };
+        if active
+            && let Some(id) = &state.editor_session_id
+            && let ClientSink::Outbound(outbound) = &state.stages[self.inner.head_idx].sink
+        {
+            for update in updates {
+                crate::client_impl::notify_editor_session(outbound, id.clone(), update).await;
+            }
+        }
     }
 
     /// Enable or disable host-side terminal (CLI) execution for this
@@ -851,12 +955,14 @@ pub struct SessionRegistry {
     // through here, or wait for ACP to add an editor-driven close
     // signal.
     sessions: Mutex<HashMap<String, crate::group::SessionGroup>>,
+    creating: Mutex<HashMap<String, tokio_util::sync::CancellationToken>>,
 }
 
 impl SessionRegistry {
     pub fn new() -> Self {
         Self {
             sessions: Mutex::new(HashMap::new()),
+            creating: Mutex::new(HashMap::new()),
         }
     }
 
@@ -885,7 +991,32 @@ impl SessionRegistry {
         self.lock().get(id).cloned()
     }
 
+    pub fn begin_creation(self: &Arc<Self>, id: String) -> SessionCreation {
+        let cancellation = tokio_util::sync::CancellationToken::new();
+        self.creating
+            .lock()
+            .unwrap()
+            .insert(id.clone(), cancellation.clone());
+        SessionCreation {
+            registry: self.clone(),
+            id,
+            cancellation,
+        }
+    }
+
+    pub fn cancel(&self, id: &str) {
+        if let Some(cancellation) = self.creating.lock().unwrap().get(id) {
+            cancellation.cancel();
+        }
+        if let Some(group) = self.get(id) {
+            group.cancel();
+        }
+    }
+
     pub fn clear(&self) {
+        for (_, cancellation) in self.creating.lock().unwrap().drain() {
+            cancellation.cancel();
+        }
         let mut sessions = self.lock();
         for group in sessions.values() {
             group.cancel();
@@ -893,9 +1024,20 @@ impl SessionRegistry {
         sessions.clear();
     }
 
-    #[allow(dead_code)]
     pub fn remove(&self, id: &str) -> Option<crate::group::SessionGroup> {
         self.lock().remove(id)
+    }
+}
+
+pub struct SessionCreation {
+    registry: Arc<SessionRegistry>,
+    id: String,
+    pub cancellation: tokio_util::sync::CancellationToken,
+}
+
+impl Drop for SessionCreation {
+    fn drop(&mut self) {
+        self.registry.creating.lock().unwrap().remove(&self.id);
     }
 }
 
@@ -1813,6 +1955,7 @@ mod terminal_tests {
             downstream_sessions: std::collections::HashMap::new(),
             next_downstream_rep: 1,
             editor_session_id: None,
+            provider_routing: None,
             terminal_enabled: false,
             tool_broker: None,
             tool_decisions: Vec::new(),
@@ -1867,6 +2010,27 @@ mod terminal_tests {
 
     #[tokio::test]
     async fn terminal_config_toggle_controls_every_provider_spawn() {
+        use crate::wassette::acp::sessions::{
+            ComponentSource, SessionConfigOption, SessionConfigOptionCategory,
+            SessionConfigSelectOption, SessionConfigSelectOptions,
+        };
+        let options = || {
+            Some(vec![SessionConfigOption {
+                id: "model".into(),
+                name: "Model".into(),
+                description: None,
+                category: Some(SessionConfigOptionCategory::Model),
+                current_value: "default".into(),
+                options: SessionConfigSelectOptions::Ungrouped(vec![SessionConfigSelectOption {
+                    value: "default".into(),
+                    name: "Default".into(),
+                    description: None,
+                }]),
+                provided_by: ComponentSource {
+                    component_id: "test".into(),
+                },
+            }])
+        };
         let engine = Engine::default();
         let (primary_cancel, _) = watch::channel(false);
         let primary = Session::new(Store::new(&engine, test_host_state()), 0, primary_cancel);
@@ -1875,19 +2039,20 @@ mod terminal_tests {
         let group = crate::group::SessionGroup::new(
             "test-session".to_string(),
             vec![
-                (
-                    "local:first-provider".to_string(),
-                    primary.clone(),
-                    Vec::new(),
-                ),
-                (
-                    "local:second-provider".to_string(),
-                    secondary.clone(),
-                    Vec::new(),
-                ),
+                crate::group::ProviderSession {
+                    component_id: "local:first-provider".to_string(),
+                    session: primary.clone(),
+                    options: options(),
+                },
+                crate::group::ProviderSession {
+                    component_id: "local:second-provider".to_string(),
+                    session: secondary.clone(),
+                    options: options(),
+                },
             ],
             true,
-        );
+        )
+        .unwrap();
 
         assert_eq!(group.terminal_option(), Some(false));
         let disabled = {
@@ -1972,6 +2137,21 @@ mod terminal_tests {
         assert!(!secondary.inner.store.lock().await.data().terminal_enabled);
     }
 
+    #[test]
+    fn creation_registrations_cancel_and_clean_up() {
+        let registry = Arc::new(SessionRegistry::new());
+        let creation = registry.begin_creation("pending".into());
+        assert_eq!(registry.creating.lock().unwrap().len(), 1);
+        registry.cancel("pending");
+        assert!(creation.cancellation.is_cancelled());
+        drop(creation);
+        assert!(registry.creating.lock().unwrap().is_empty());
+        let next = registry.begin_creation("next".into());
+        registry.clear();
+        assert!(next.cancellation.is_cancelled());
+        assert!(registry.creating.lock().unwrap().is_empty());
+    }
+
     #[tokio::test]
     async fn registry_rejects_duplicate_ids_without_replacing_a_session() {
         let engine = Engine::default();
@@ -1979,9 +2159,14 @@ mod terminal_tests {
         let session = Session::new(Store::new(&engine, test_host_state()), 0, cancel);
         let group = crate::group::SessionGroup::new(
             "same-id".into(),
-            vec![("local:echo".into(), session, Vec::new())],
+            vec![crate::group::ProviderSession {
+                component_id: "local:echo".into(),
+                session,
+                options: None,
+            }],
             true,
-        );
+        )
+        .unwrap();
         group.set_terminal_enabled(true).await;
         let registry = SessionRegistry::new();
         registry.insert("same-id".into(), group.clone()).unwrap();

@@ -121,7 +121,6 @@ pub async fn run(
                     responder,
                     cx,
                 )
-                .await
             },
             agent_client_protocol::on_receive_request!(),
         )
@@ -135,7 +134,6 @@ pub async fn run(
                     responder,
                     cx,
                 )
-                .await
             },
             agent_client_protocol::on_receive_request!(),
         )

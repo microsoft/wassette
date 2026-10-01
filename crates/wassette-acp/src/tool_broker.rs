@@ -611,15 +611,18 @@ impl ToolBroker {
             raw_input: Some(arguments_json.clone()),
             raw_output,
         };
-        let cancellation = track_call(
-            accessor,
-            session_id.clone(),
-            &call_id,
-            snapshot(
-                ToolCallStatus::Failed,
-                Some("Tool call cancelled; execution may still be finishing.".to_string()),
-            ),
-        )?;
+        let mut cancelled_snapshot = snapshot(
+            ToolCallStatus::Failed,
+            Some("Tool call cancelled; execution may still be finishing.".to_string()),
+        );
+        // Cancellation bypasses the chain, so apply the same namespace as
+        // the normal notification and permission callbacks at the boundary.
+        accessor.with(|mut access| {
+            if let Some(route) = &access.get().provider_routing {
+                cancelled_snapshot.id = route.tool_call_id(&cancelled_snapshot.id);
+            }
+        });
+        let cancellation = track_call(accessor, session_id.clone(), &call_id, cancelled_snapshot)?;
         crate::client_impl::notify_session(
             accessor,
             session_id.clone(),

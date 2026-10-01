@@ -101,13 +101,38 @@ fn routing(accessor: &Accessor<impl Send, HasSelf<HostState>>) -> Routing {
     })
 }
 
+fn editor_session_id(
+    accessor: &Accessor<impl Send, HasSelf<HostState>>,
+    native: String,
+) -> Result<String, Error> {
+    accessor.with(|mut access| {
+        let state = access.get();
+        match &state.editor_session_id {
+            Some(id) => Ok(id.clone()),
+            None if state.provider_routing.is_some() => Err(translate::internal_error(
+                "editor callback requested before session binding",
+            )),
+            None => Ok(native),
+        }
+    })
+}
+
 pub(crate) async fn notify_session<T: Send>(
     accessor: &Accessor<T, HasSelf<HostState>>,
     session_id: SessionId,
-    update: SessionUpdate,
+    mut update: SessionUpdate,
 ) {
     match routing(accessor) {
         Routing::Outbound(outbound) => {
+            let active = accessor.with(|mut a| {
+                a.get()
+                    .provider_routing
+                    .as_mut()
+                    .is_none_or(|route| route.update(&mut update))
+            });
+            if !active {
+                return;
+            }
             let session_id = accessor
                 .with(|mut a| a.get().editor_session_id.clone())
                 .unwrap_or(session_id);
@@ -170,10 +195,19 @@ pub(crate) async fn request_editor_permission(
 
 pub(crate) async fn request_permission<T: Send>(
     accessor: &Accessor<T, HasSelf<HostState>>,
-    req: RequestPermissionRequest,
+    mut req: RequestPermissionRequest,
 ) -> Result<RequestPermissionResponse, Error> {
     match routing(accessor) {
-        Routing::Outbound(outbound) => request_editor_permission(&outbound, req).await,
+        Routing::Outbound(outbound) => {
+            req.session_id = editor_session_id(accessor, req.session_id)?;
+            accessor.with(|mut a| {
+                let state = a.get();
+                if let Some(route) = &state.provider_routing {
+                    req.tool_call.id = route.tool_call_id(&req.tool_call.id);
+                }
+            });
+            request_editor_permission(&outbound, req).await
+        }
         Routing::Upstream { idx, bindings } => {
             let res = spawn_upstream(accessor, idx, "request-permission", |reply| {
                 RequestPermissionTask {
@@ -374,12 +408,13 @@ impl<T: Send> client::HostWithStore<T> for HasSelf<HostState> {
 
     fn read_text_file(
         accessor: &Accessor<T, Self>,
-        req: ReadTextFileRequest,
+        mut req: ReadTextFileRequest,
     ) -> impl ::core::future::Future<Output = Result<ReadTextFileResponse, Error>> + Send {
         let route = routing(accessor);
         async move {
             match route {
                 Routing::Outbound(outbound) => {
+                    req.session_id = editor_session_id(accessor, req.session_id)?;
                     let schema_req = translate::read_text_file_request_wit_to_schema(req);
                     let resp = send_and_await(
                         &outbound,
@@ -407,12 +442,13 @@ impl<T: Send> client::HostWithStore<T> for HasSelf<HostState> {
 
     fn write_text_file(
         accessor: &Accessor<T, Self>,
-        req: WriteTextFileRequest,
+        mut req: WriteTextFileRequest,
     ) -> impl ::core::future::Future<Output = Result<(), Error>> + Send {
         let route = routing(accessor);
         async move {
             match route {
                 Routing::Outbound(outbound) => {
+                    req.session_id = editor_session_id(accessor, req.session_id)?;
                     let schema_req = translate::write_text_file_request_wit_to_schema(req);
                     send_and_await(
                         &outbound,

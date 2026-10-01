@@ -16,6 +16,7 @@ build-test-components:
 test:
     just build-test-components
     just build-acp-examples
+    just build-acp-routing-fixture
     (cd components/acp-copilot-provider && cargo test)
     cargo build -p wassette-mcp-server
     cargo test --workspace -- --nocapture
@@ -64,6 +65,7 @@ acp-bindgen:
 test-acp:
     just build-acp-examples
     just build-acp-tool-fixture
+    just build-acp-routing-fixture
     (cd components/acp-copilot-provider && cargo test)
     cargo build -p wassette-mcp-server
     cargo test -p wassette-acp -- --nocapture
@@ -72,6 +74,10 @@ test-acp:
 build-acp-tool-fixture:
     (cd examples/filesystem-rs && cargo build --release --target wasm32-wasip2)
     just name-component examples/filesystem-rs examples/filesystem-rs/target/wasm32-wasip2/release/filesystem.wasm
+
+# Offline provider with deliberately colliding local IDs for routing tests.
+build-acp-routing-fixture:
+    (cd crates/wassette-acp/tests/fixtures/routing-provider && CARGO_TARGET_DIR=target cargo build --locked --release --target wasm32-wasip2)
 
 build mode="debug":
     mkdir -p bin

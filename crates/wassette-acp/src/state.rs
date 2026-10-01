@@ -132,10 +132,11 @@ pub struct HostState {
     pub downstream_sessions: std::collections::HashMap<u32, wasmtime::component::ResourceAny>,
     /// Monotonic counter for keys in [`Self::downstream_sessions`].
     pub next_downstream_rep: u32,
-    /// Bound editor session id for outbound updates and host tool calls.
-    /// Set for every chain after session creation, including single-provider
-    /// sessions. `None` means session binding has not completed yet.
+    /// Bound editor ID for callbacks and host tool/generation calls.
+    /// Multi-provider chains bind before creation; a single provider binds
+    /// once its native ID is known. `None` means no session binding yet.
     pub editor_session_id: Option<String>,
+    pub provider_routing: Option<ProviderRouting>,
     /// Whether the host may execute terminal (CLI) commands on behalf of
     /// the guest via the `client.terminal` resource. Driven by the
     /// host-owned `terminal` boolean session config option (default
@@ -148,6 +149,40 @@ pub struct HostState {
     /// Editor permission decisions, scoped to this session and exact revision.
     pub tool_decisions: Vec<(ToolRef, bool)>,
     pub(crate) active_tool_calls: ActiveToolCalls,
+}
+
+/// Per-chain routing, never shared with another provider's store.
+pub struct ProviderRouting {
+    pub namespace: String,
+    pub active: bool,
+    pub commands: Option<crate::wassette::acp::prompts::SessionUpdate>,
+    pub initial_updates: Option<Vec<crate::wassette::acp::prompts::SessionUpdate>>,
+}
+
+impl ProviderRouting {
+    pub fn tool_call_id(&self, id: &str) -> String {
+        format!("{}:{id}", self.namespace)
+    }
+
+    pub fn update(&mut self, update: &mut crate::wassette::acp::prompts::SessionUpdate) -> bool {
+        use crate::wassette::acp::prompts::SessionUpdate;
+        match update {
+            SessionUpdate::AvailableCommandsUpdate(_) => self.commands = Some(update.clone()),
+            SessionUpdate::ToolCall(call) | SessionUpdate::ToolCallUpdate(call) => {
+                call.id = self.tool_call_id(&call.id);
+            }
+            _ => {}
+        }
+        if let Some(updates) = &mut self.initial_updates {
+            if updates.len() < 64 {
+                updates.push(update.clone());
+            } else {
+                tracing::warn!("dropping excess provider creation notification");
+            }
+            return false;
+        }
+        self.active
+    }
 }
 
 impl HostState {
@@ -231,3 +266,37 @@ impl crate::wassette::acp::prompts::Host for HostState {}
 impl crate::wassette::acp::filesystem::Host for HostState {}
 impl crate::wassette::acp::init::Host for HostState {}
 impl crate::wassette::component_tools::tools::Host for HostState {}
+
+#[cfg(test)]
+mod routing_tests {
+    use super::*;
+    use crate::wassette::acp::content::{ContentBlock, TextContent};
+    use crate::wassette::acp::prompts::SessionUpdate;
+
+    #[test]
+    fn creation_updates_are_bounded_and_inactive_updates_are_not_forwarded() {
+        let mut route = ProviderRouting {
+            namespace: "provider-1".into(),
+            active: false,
+            commands: None,
+            initial_updates: Some(Vec::new()),
+        };
+        for _ in 0..100 {
+            let mut update = SessionUpdate::AgentMessageChunk(ContentBlock::Text(TextContent {
+                text: "creation".into(),
+            }));
+            assert!(!route.update(&mut update));
+        }
+        assert_eq!(route.initial_updates.take().unwrap().len(), 64);
+        let mut commands = SessionUpdate::AvailableCommandsUpdate(Vec::new());
+        assert!(!route.update(&mut commands));
+        assert!(route.commands.is_some());
+        route.active = true;
+        assert!(route.update(&mut commands));
+        assert_eq!(route.tool_call_id("collision"), "provider-1:collision");
+        assert_ne!(
+            route.tool_call_id("provider-0:collision"),
+            "provider-0:collision"
+        );
+    }
+}

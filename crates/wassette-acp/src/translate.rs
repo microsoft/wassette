@@ -212,18 +212,6 @@ pub fn new_session_response_with_config_options(
     synth("new-session response", json)
 }
 
-/// Build a `session/load` response from a host-merged config-option set
-/// (the multi-provider path).
-pub fn load_session_response_with_config_options(
-    config_options: Vec<SessionConfigOption>,
-    terminal: Option<bool>,
-) -> Result<schema::LoadSessionResponse, AcpError> {
-    let json = serde_json::json!({
-        "configOptions": config_options_json(config_options, terminal)?,
-    });
-    synth("load-session response", json)
-}
-
 // -----------------------------------------------------------------------------
 // Load session
 // -----------------------------------------------------------------------------

@@ -118,8 +118,8 @@ pub use crate::wassette::acp::agent as layer_agent;
 #[derive(clap::Args, Debug)]
 pub struct AcpArgs {
     /// Path, URI, or component id of a terminal ACP **provider** wasm
-    /// component (the bottom of a chain). Exactly one is required.
-    /// Multi-provider sessions are not yet supported.
+    /// component (the bottom of a chain). Repeat to make multiple providers
+    /// available in the session's model selector. At least one is required.
     ///
     /// Accepts anything `wassette component load` does — a filesystem
     /// path (`./my-agent.wasm`), an `oci://` reference, or an `https://`
@@ -287,10 +287,8 @@ pub async fn run(
     local_source_config: ::wassette::local_source::LocalSourceConfig,
 ) -> Result<()> {
     eprintln!("Notice: wassette acp is experimental and may change or be removed.");
-    if args.providers.len() != 1 {
-        anyhow::bail!(
-            "wassette acp requires exactly one --provider (multi-provider sessions are not yet supported)"
-        );
+    if args.providers.is_empty() {
+        anyhow::bail!("wassette acp requires at least one --provider");
     }
     // rustls 0.23 links both crypto backends in this dependency graph
     // (wasmtime-wasi-http + oci-client pull `aws-lc-rs`; reqwest/hyper-rustls
@@ -368,6 +366,9 @@ pub async fn run(
                     .resolve_validated(arg, None, &engine, Some(StageKind::Provider))
                     .await
                     .with_context(|| format!("resolving provider `{arg}`"))?;
+                if providers.iter().any(|provider| provider.component_id == resolved.component_id) {
+                    anyhow::bail!("provider `{}` was selected more than once", resolved.component_id);
+                }
                 secrets.register(resolved.snapshot.receipt.secret_binding()?)?;
                 let sandbox = Sandbox::load(
                     args.allow_all,
