@@ -9,6 +9,7 @@ use sha2::{Digest, Sha256};
 use tokio_util::sync::CancellationToken;
 use wassette_builder::{
     BuildError, BuildErrorKind, BuildLimits, BuildRequest, Builder, BuilderConfig, ComponentKind,
+    CrateDependency, RustCrate,
 };
 
 fn digest(path: &Path) -> Result<String> {
@@ -42,6 +43,7 @@ fn config(stage: &Path, dependencies: Vec<String>) -> Result<BuilderConfig> {
         initrd_path,
         staging_root: stage.into(),
         wit_dependencies: dependencies,
+        rust_crates: vec![],
     })
 }
 
@@ -65,6 +67,7 @@ async fn helper_returns_safe_wit_and_configuration_failures_without_booting() ->
         initrd_path: image,
         staging_root: staging.path().into(),
         wit_dependencies: vec![],
+        rust_crates: vec![],
     };
     let limits = BuildLimits {
         diagnostics_bytes: 1024,
@@ -388,6 +391,94 @@ async fn native_wasm_size_limit_is_invalid_output_not_unavailable() -> Result<()
             .diagnostic()
             .context("output-limit diagnostic")?
             .contains("output budget")
+    );
+    assert_eq!(std::fs::read_dir(stage.path())?.count(), 0);
+    Ok(())
+}
+
+fn crate_archive(dir: &Path, package: &str, lib: &str) -> Result<PathBuf> {
+    let root = dir.join(package);
+    std::fs::create_dir_all(root.join("src"))?;
+    std::fs::write(root.join("src/lib.rs"), lib)?;
+    let archive = dir.join(format!("{package}.crate"));
+    // Registry archives hold one top-level directory; omit macOS AppleDouble files.
+    let status = std::process::Command::new("tar")
+        .env("COPYFILE_DISABLE", "1")
+        .arg("-czf")
+        .arg(&archive)
+        .arg("-C")
+        .arg(dir)
+        .arg(package)
+        .status()?;
+    anyhow::ensure!(status.success(), "tar failed");
+    Ok(archive)
+}
+
+#[tokio::test]
+#[ignore = "requires the packaged signed Hyperlight helper and existing Rust 1.98.1 initrd"]
+async fn native_pinned_rust_crates_link_into_request_source() -> Result<()> {
+    let stage = tempfile::tempdir()?;
+    let crates = tempfile::tempdir()?;
+    let base = crate_archive(
+        crates.path(),
+        "pinned-base-0.1.0",
+        r#"#[cfg(feature = "loud")]
+pub fn word() -> &'static str { "PINNED" }"#,
+    )?;
+    let greeting = crate_archive(
+        crates.path(),
+        "pinned-greeting-0.1.0",
+        "pub fn greet(name: &str) -> String { format!(\"{} {name}\", renamed_base::word()) }",
+    )?;
+    let mut config = config(stage.path(), vec![])?;
+    config.rust_crates = vec![
+        RustCrate {
+            name: "pinned_base".into(),
+            archive_sha256: digest(&base)?,
+            archive_path: base,
+            root: "src/lib.rs".into(),
+            edition: "2021".into(),
+            features: vec!["loud".into()],
+            dependencies: vec![],
+        },
+        RustCrate {
+            name: "pinned_greeting".into(),
+            archive_sha256: digest(&greeting)?,
+            archive_path: greeting,
+            root: "src/lib.rs".into(),
+            edition: "2021".into(),
+            features: vec![],
+            dependencies: vec![CrateDependency {
+                krate: "pinned_base".into(),
+                rename: Some("renamed_base".into()),
+            }],
+        },
+    ];
+    let builder = Builder::new(config, BuildLimits::default())?;
+    let result = builder
+        .build(
+            BuildRequest {
+                component_name: "builder:pinned-crates".into(),
+                source: "struct Component;
+impl bindings::Guest for Component {
+    fn greet(name: String) -> String { pinned_greeting::greet(&name) }
+}
+bindings::export!(Component with_types_in bindings);"
+                    .into(),
+                wit: "package test:crates; world tool { export greet: func(name: string) -> string; }"
+                    .into(),
+                world: "tool".into(),
+                kind: ComponentKind::Tool,
+            },
+            CancellationToken::new(),
+        )
+        .await?;
+    validate(&result.wasm)?;
+    assert!(
+        result
+            .wasm
+            .windows(b"PINNED".len())
+            .any(|window| window == b"PINNED")
     );
     assert_eq!(std::fs::read_dir(stage.path())?.count(), 0);
     Ok(())

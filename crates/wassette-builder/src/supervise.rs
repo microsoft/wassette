@@ -241,6 +241,7 @@ mod tests {
             initrd_sha256: sha256(b"image"),
             staging_root: dir.path().into(),
             wit_dependencies: vec![],
+            rust_crates: vec![],
         };
         let builder = Builder::new(
             config,

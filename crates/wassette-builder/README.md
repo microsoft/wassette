@@ -61,7 +61,8 @@ Requests are strict serde structs, with no flags, commands, paths, profiles,
 Cargo manifests or dependencies. Defaults cap source at 1 MiB, combined WIT
 at 256 KiB, final named Wasm at 32 MiB, diagnostics at 256 KiB, the job at
 120 seconds, and guest scratch at 2048 MiB. Settings are host-only, finite,
-validated, and cannot raise these ceilings. A builder admits one job by
+validated, and cannot raise these ceilings, except that guest scratch may be
+raised to 8192 MiB for profiles with pinned crates. A builder admits one job by
 default (host-configurable up to four); applications should share the builder
 to share its admission limit. Admission uses `try_acquire_owned`: saturation
 returns a typed `Busy` error immediately, without a queue, timer, helper or
@@ -79,7 +80,8 @@ No VM is detached.
 Only the fresh staging directory's `input/` subdirectory is mounted,
 **read-only**. The boot snapshot is outside that mount. Source, generated
 bindings, fixed driver parameters and the inline binding runtime are the only
-host input files visible to the guest. There are no writable host mounts,
+host input files visible to the guest, together with any operator-pinned crate
+archives copied from `BuilderConfig::rust_crates` and re-hashed while staging. There are no writable host mounts,
 live stores, project mounts, secrets, network policies or application tool
 imports. Compilation, linking,
 intermediate files and diagnostics reside in bounded guest scratch. A single
@@ -93,6 +95,22 @@ fill a finite guest pipe before the Python reader resumes. Such jobs fail
 explicitly with the SDK's `guest is deadlocked` error instead of returning
 partial output. The driver additionally caps bytes while draining both
 diagnostic pipes; there is no unbounded `communicate()` capture.
+
+## Pinned crates
+
+`BuilderConfig::rust_crates` lists registry `.crate` archives in
+dependency-first order. The driver extracts each archive with Python's `data`
+tar filter, compiles it to an rlib with the fixed target and optimisation flags,
+`--cap-lints=allow`, its pinned features and its dependency externs, then passes
+every crate to the request source with `--extern`. Crate output and failures
+are redacted from requesters and reported as `Unavailable`. The image has no
+Cargo and no host standard library, so build scripts and procedural macros
+cannot run. The guest also does not reclaim memory from exited compiler
+processes: the ripgrep `grep-searcher`/`grep-regex` graph of thirteen crates
+needs 8192 MiB of guest scratch. A guest crash, typically from scratch
+exhaustion, is reported as `CompilationFailed` with a diagnostic naming
+`limits.guest_scratch_mib`, rather than as an unrelated compiler diagnostic or
+an unavailable builder. The crate list is part of `profile_sha256`.
 
 Pure host WIT parsing, bindgen and captured-component validation run in the
 disposable helper with a 2 GiB Rust-allocation ceiling, finite
@@ -112,8 +130,8 @@ Use `AcpLayer` with WIT exporting both `wassette:acp/agent` and
 `BuilderConfig::wit_dependencies`, dependency-first, then include the layer
 world from request WIT. The original canonical source bodies are not placed in
 evidence. Native async traits, resources, streams and futures use wit-bindgen
-0.62's inline runtime. This std-only profile does not provide application
-crates, `async-spawn`, procedural macros or build scripts.
+0.62's inline runtime. Application crates are available only when pinned
+in the profile; `async-spawn`, procedural macros and build scripts are not.
 
 Every generated canonical export, callback, destructor and post-return
 function is rooted at link time; exports are not hardcoded to the example.

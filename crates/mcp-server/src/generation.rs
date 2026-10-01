@@ -995,6 +995,7 @@ mod tests {
                 initrd_sha256: String::new(),
                 staging_root: Default::default(),
                 wit_dependencies: Vec::new(),
+                rust_crates: Vec::new(),
             },
             BuildLimits {
                 source_bytes: 0,
