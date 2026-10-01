@@ -147,7 +147,8 @@ just install
 This uses `cargo install --debug` by default so repeated development installs
 can reuse the workspace's normal debug artifacts. Use `just install release`
 only when an optimized host binary is needed. The recipe then transactionally
-reconciles the finalized ACP providers and layers through Wassette's
+reconciles the finalized ACP providers and layers, and the default
+[`wassette:file-search`](./reference/file-search.md) tool, through Wassette's
 local-component directory. Example components under `examples/` are not built
 or installed. Cargo's normal install-root precedence is preserved; the common
 path is `~/.cargo/bin/wassette`, not the release script's `~/.local/bin/wassette`.

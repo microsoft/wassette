@@ -1,0 +1,15 @@
+$schema: https://raw.githubusercontent.com/microsoft/policy-mcp/main/schema/policy-v1.0.schema.json
+# Default policy for wassette:file-search.
+#
+# The tool has no ambient filesystem access. It can only search directories
+# granted here or with `grant-storage-permission`, and it only needs read
+# access. It never needs network, environment, or write permissions.
+version: "1.0"
+description: "wassette:file-search reads only explicitly granted directories"
+permissions: {}
+# Example: allow searching one project directory.
+# permissions:
+#   storage:
+#     allow:
+#       - uri: "fs:///path/to/project"
+#         access: ["read"]

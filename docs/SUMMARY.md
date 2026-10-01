@@ -30,6 +30,7 @@
 
 - [CLI](./reference/cli.md)
 - [Built-in Tools](./reference/built-in-tools.md)
+- [File Search Tool](./reference/file-search.md)
 - [Permissions](./reference/permissions.md)
 - [Environment Variables](./reference/environment-variables.md)
 - [config.toml](./reference/configuration-files.md)

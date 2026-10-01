@@ -1,0 +1,27 @@
+[package]
+name = "file-search"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+description = "Default Wassette tool that searches file contents under granted directories"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+grep-regex = "0.1.14"
+grep-searcher = "0.1.17"
+ignore = "0.4.25"
+wit-bindgen = "0.62.0"
+
+[dev-dependencies]
+tempfile = "3"
+
+[profile.release]
+codegen-units = 1
+opt-level = "s"
+debug = false
+strip = true
+lto = true
+
+[workspace]

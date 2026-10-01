@@ -85,7 +85,8 @@ just install release
 `just install` installs the debug `wassette` binary with `cargo install`, which
 reuses the workspace's normal debug artifacts during development. Use `just
 install release` only when an optimized host binary is needed. Both forms build
-the ACP providers and layers under `components/`, link the finalized components
+the ACP providers and layers and the default `wassette:file-search` tool under
+`components/`, link the finalized components
 into the configured local-component directory, and reconcile them through the
 transactional component store. They do not build or install the language
 examples under `examples/`, so their Node.js, Python, Go, and TinyGo toolchains
@@ -101,7 +102,9 @@ Names are authored in
 [`scripts/component-names.json`](https://github.com/microsoft/wassette/blob/main/scripts/component-names.json),
 not inferred from output filenames. Examples use their declared
 `microsoft:<project>` names; ACP components use their distinct Cargo package names,
-not the shared `wassette:acp` protocol package.
+not the shared `wassette:acp` protocol package; default tools such as
+`components/file-search` use `wassette:<tool>` names and are built with
+`just build-default-tools`.
 [`scripts/component-outputs.json`](https://github.com/microsoft/wassette/blob/main/scripts/component-outputs.json)
 classifies named producers as install outputs or exclusions. Only finalized
 outputs under `components/` are installed; examples and test fixtures remain
@@ -137,6 +140,7 @@ just test
 # Build test components separately
 just build-test-components
 just build-acp-examples
+just build-default-tools
 just clean-test-components
 
 # Run specific tests

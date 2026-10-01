@@ -141,6 +141,7 @@ jobs:
         just build-test-components
         just build-acp-examples
         just build-acp-routing-fixture
+        just build-default-tools
         cargo build -p wassette-mcp-server
         WASSETTE_ACP_TEST_BINARY="$PWD/target/debug/wassette" cargo llvm-cov --all-features --workspace --ignore-run-fail --no-report
         cargo llvm-cov report --lcov --output-path lcov.info

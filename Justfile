@@ -17,7 +17,9 @@ test:
     just build-test-components
     just build-acp-examples
     just build-acp-routing-fixture
+    just build-default-tools
     (cd components/acp-copilot-provider && cargo test)
+    (cd components/file-search && cargo test --locked)
     cargo build -p wassette-mcp-server
     cargo test --workspace -- --nocapture
     cargo test --doc --workspace -- --nocapture
@@ -54,6 +56,12 @@ build-acp-examples:
     just name-component components/acp-ollama-provider components/acp-ollama-provider/target/wasm32-wasip2/release/acp_ollama_provider.wasm
     (cd components/acp-copilot-provider && cargo build --release --target wasm32-wasip2)
     just name-component components/acp-copilot-provider components/acp-copilot-provider/target/wasm32-wasip2/release/acp_copilot_provider.wasm
+
+# Build the first-party tool components published and installed with Wassette
+build-default-tools:
+    just ensure-wit-docs-inject
+    (cd components/file-search && cargo build --locked --release --target wasm32-wasip2)
+    just finalize-component components/file-search components/file-search/target/wasm32-wasip2/release/file_search.wasm
 
 # Regenerate the ACP components' checked-in `bindings.rs` from
 # crates/wassette-acp/wit/acp. Needs a matching `wit-bindgen` CLI.
@@ -111,7 +119,7 @@ install-preflight:
     python3 scripts/install-local.py --check
 
 # Install this checkout's CLI and finalized components from components/.
-install mode="debug": install-preflight build-acp-examples
+install mode="debug": install-preflight build-acp-examples build-default-tools
     python3 scripts/install-local.py --mode {{ quote(mode) }}
 
 # Create a stable or prerelease version bump PR with the current GitHub identity.
@@ -211,6 +219,7 @@ finalize-component project wasm_path:
 build-examples mode="debug":
     mkdir -p bin
     just ensure-wit-docs-inject
+    just build-default-tools
     (cd examples/fetch-rs && just build {{ mode }})
     (cd examples/filesystem-rs && just build {{ mode }})
     (cd examples/get-weather-js && just build)
@@ -252,6 +261,7 @@ build-examples mode="debug":
     cp examples/context7-rs/target/wasm32-wasip2/{{ mode }}/context7.wasm bin/context7-rs.wasm
     cp examples/get-open-meteo-weather-js/weather.wasm bin/get-open-meteo-weather-js.wasm
     cp examples/github-js/github.wasm bin/github-js.wasm
+    cp components/file-search/target/wasm32-wasip2/release/file_search.wasm bin/file-search.wasm
     
 clean:
     cargo clean
