@@ -939,7 +939,7 @@ async fn wasm_directory_package_install_is_digest_pinned_until_explicit_load() -
     use sha2::{Digest, Sha256};
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
     use url::Url;
-    use wasm_directory::{PackageId, WasmDirectoryClient};
+    use wasm_directory::{PackageId, PackageSelector, WasmDirectoryClient};
 
     let layers = [ImageLayer::new(
         component(7)?,
@@ -1090,15 +1090,18 @@ async fn wasm_directory_package_install_is_digest_pinned_until_explicit_load() -
         .build()
         .await?;
     let directory = WasmDirectoryClient::new(Url::parse(&format!("http://{api_address}"))?)?;
-    let package = PackageId::new(registry_address.to_string(), repository.to_owned())?;
+    let package = PackageSelector::Package(PackageId::new(
+        registry_address.to_string(),
+        repository.to_owned(),
+    )?);
     let (resolved, outcome) =
         tokio::time::timeout(WAIT, manager.install_package(&directory, &package, None)).await??;
     let (_, unchanged) =
         tokio::time::timeout(WAIT, manager.install_package(&directory, &package, None)).await??;
-    let colliding_package = PackageId::new(
+    let colliding_package = PackageSelector::Package(PackageId::new(
         registry_address.to_string(),
         colliding_repository.to_owned(),
-    )?;
+    )?);
     let collision = tokio::time::timeout(
         WAIT,
         manager.install_package(&directory, &colliding_package, None),
@@ -1195,4 +1198,172 @@ async fn safe_replacement_public_load_uses_configured_http_client() -> Result<()
     let request = request.context("configured HTTP proxy was never contacted")???;
     assert!(request.starts_with("CONNECT safe-replacement.invalid:443 HTTP/1.1\r\n"));
     before.assert_unchanged(&fixture.manager).await
+}
+
+async fn directory_manager(components: &TempDir, secrets: &TempDir) -> Result<LifecycleManager> {
+    use oci_client::client::{ClientConfig, ClientProtocol};
+
+    LifecycleManager::builder(components.path())
+        .with_secrets_dir(secrets.path())
+        .with_eager_loading(false)
+        .with_oci_client(oci_client::Client::new(ClientConfig {
+            protocol: ClientProtocol::Http,
+            ..Default::default()
+        }))
+        .build()
+        .await
+}
+
+#[tokio::test]
+async fn wit_selector_installs_exactly_matching_digest_pinned_package() -> Result<()> {
+    use wasm_directory::fixtures::{FixturePackage, WasmDirectoryFixture};
+    use wasm_directory::PackageSelector;
+
+    let fixture = WasmDirectoryFixture::start(vec![
+        FixturePackage::new(
+            "owner/safe-replacement",
+            Some("demo:replacement"),
+            [("1.0.0", component(1)?), ("1.2.0", component(2)?)],
+        ),
+        FixturePackage::new(
+            "owner/other",
+            Some("demo:replacement-extra"),
+            [("9.0.0", component(9)?)],
+        ),
+    ])
+    .await?;
+    let directory = fixture.directory()?;
+    let components = test_dir()?;
+    let secrets = test_dir()?;
+    let manager = directory_manager(&components, &secrets).await?;
+
+    let selector = PackageSelector::parse("demo:replacement")?;
+    let (resolved, outcome) =
+        tokio::time::timeout(WAIT, manager.install_package(&directory, &selector, None)).await??;
+    assert_eq!(
+        resolved.package_id.to_string(),
+        fixture.package_id("owner/safe-replacement")
+    );
+    assert_eq!(resolved.selected_version, "1.2.0");
+    assert_eq!(
+        resolved.manifest_digest,
+        fixture.digest("owner/safe-replacement", "1.2.0")
+    );
+    let crate::store::StoredEntry::Installed(receipt) = &outcome.entry else {
+        bail!("expected an installed receipt");
+    };
+    assert_eq!(receipt.component_id.as_str(), ID);
+    assert_eq!(
+        receipt.origin.manifest_digest.as_deref(),
+        Some(resolved.manifest_digest.as_str())
+    );
+
+    let pinned = PackageSelector::parse("demo:replacement@1.0.0")?;
+    let (resolved, _) =
+        tokio::time::timeout(WAIT, manager.install_package(&directory, &pinned, None)).await??;
+    assert_eq!(resolved.selected_version, "1.0.0");
+    assert_eq!(resolved.requested_version.as_deref(), Some("1.0.0"));
+    assert_eq!(
+        resolved.manifest_digest,
+        fixture.digest("owner/safe-replacement", "1.0.0")
+    );
+    let conflict = manager
+        .install_package(&directory, &pinned, Some("1.2.0"))
+        .await
+        .unwrap_err();
+    assert!(
+        format!("{conflict:#}").contains("Conflicting versions"),
+        "{conflict:#}"
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn wit_selector_rejects_missing_and_ambiguous_identities() -> Result<()> {
+    use wasm_directory::fixtures::{FixturePackage, WasmDirectoryFixture};
+    use wasm_directory::PackageSelector;
+
+    let fixture = WasmDirectoryFixture::start(vec![
+        FixturePackage::new("first/tool", Some("demo:tool"), [("1.0.0", component(1)?)]),
+        FixturePackage::new("second/tool", Some("demo:tool"), [("1.0.0", component(2)?)]),
+        FixturePackage::new("third/tool", Some("Demo:tool"), [("1.0.0", component(3)?)]),
+    ])
+    .await?;
+    let directory = fixture.directory()?;
+    let components = test_dir()?;
+    let secrets = test_dir()?;
+    let manager = directory_manager(&components, &secrets).await?;
+
+    let missing = manager
+        .install_package(&directory, &PackageSelector::parse("demo:absent")?, None)
+        .await
+        .unwrap_err();
+    assert!(
+        format!("{missing:#}")
+            .contains("No wasm.directory component package has WIT identity demo:absent"),
+        "{missing:#}"
+    );
+
+    let ambiguous = manager
+        .install_package(&directory, &PackageSelector::parse("demo:tool")?, None)
+        .await
+        .unwrap_err();
+    let message = format!("{ambiguous:#}");
+    assert!(message.contains("matches multiple"), "{message}");
+    assert!(
+        message.contains(&fixture.package_id("first/tool")),
+        "{message}"
+    );
+    assert!(
+        message.contains(&fixture.package_id("second/tool")),
+        "{message}"
+    );
+    assert!(
+        !message.contains(&fixture.package_id("third/tool")),
+        "{message}"
+    );
+    assert!(manager.store_snapshot(ID).await.is_err());
+    Ok(())
+}
+
+#[tokio::test]
+async fn nameless_package_reports_digest_and_publisher_fix() -> Result<()> {
+    use wasm_directory::fixtures::{FixturePackage, WasmDirectoryFixture};
+    use wasm_directory::PackageSelector;
+
+    let nameless = wat::parse_str(
+        r#"(component
+            (core module (func (export "run") (result i32) i32.const 1)))"#,
+    )?;
+    let fixture = WasmDirectoryFixture::start(vec![FixturePackage::new(
+        "owner/nameless",
+        Some("demo:nameless"),
+        [("2.0.6", nameless)],
+    )])
+    .await?;
+    let directory = fixture.directory()?;
+    let components = test_dir()?;
+    let secrets = test_dir()?;
+    let manager = directory_manager(&components, &secrets).await?;
+
+    let error = manager
+        .install_package(&directory, &PackageSelector::parse("demo:nameless")?, None)
+        .await
+        .unwrap_err();
+    let message = format!("{error:#}");
+    assert!(
+        message.contains(&fixture.package_id("owner/nameless")),
+        "{message}"
+    );
+    assert!(
+        message.contains(fixture.digest("owner/nameless", "2.0.6")),
+        "{message}"
+    );
+    assert!(message.contains("missing root component name"), "{message}");
+    assert!(
+        message.contains("wasm-tools metadata add --name"),
+        "{message}"
+    );
+    assert!(manager.catalog().await?.tools.is_empty());
+    Ok(())
 }
