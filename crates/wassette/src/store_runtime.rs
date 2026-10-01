@@ -8,11 +8,11 @@ use crate::acquisition::AcquiredComponent;
 use crate::policy_internal::PolicyCommit;
 use crate::store::{
     ArtifactSnapshot, CommitOutcome, ExpectedEntry, InstallIntent, InstallOptions, InstallOwner,
-    OriginEvidence, PolicyProvenance, PreparedCache, PreparedInstall, PreparedPolicy,
-    StoredArtifactKind, StoredEntry, ValidationEvidence,
+    PolicyProvenance, PreparedCache, PreparedInstall, PreparedPolicy, StoredArtifactKind,
+    StoredEntry, ValidationEvidence,
 };
 use crate::store_support::{source_binding_key, store_operation};
-use crate::wasm_directory::{PackageId, ResolvedPackage, WasmDirectoryClient};
+use crate::wasm_directory::{self, PackageSelector, ResolvedPackage, WasmDirectoryClient};
 
 pub(crate) const CACHE_SCHEMA: &str = "wassette-tools-v1";
 
@@ -214,12 +214,12 @@ impl LifecycleManager {
     pub async fn install_package(
         &self,
         directory: &WasmDirectoryClient,
-        package_id: &PackageId,
+        selector: &PackageSelector,
         requested_version: Option<&str>,
     ) -> Result<(ResolvedPackage, CommitOutcome)> {
-        let (resolved, acquired) = self
-            .acquire_directory_package(directory, package_id, requested_version)
-            .await?;
+        let (resolved, acquired) =
+            wasm_directory::acquire_package(directory, selector, requested_version, &self.config)
+                .await?;
         let PreparedAcquiredInstall {
             expected,
             guard,
@@ -254,53 +254,14 @@ impl LifecycleManager {
     pub async fn load_package(
         &self,
         directory: &WasmDirectoryClient,
-        package_id: &PackageId,
+        selector: &PackageSelector,
         requested_version: Option<&str>,
     ) -> Result<(ResolvedPackage, ComponentLoadOutcome)> {
-        let (resolved, acquired) = self
-            .acquire_directory_package(directory, package_id, requested_version)
-            .await?;
+        let (resolved, acquired) =
+            wasm_directory::acquire_package(directory, selector, requested_version, &self.config)
+                .await?;
         let outcome = self.install_acquired(acquired, None).await?;
         Ok((resolved, outcome))
-    }
-
-    async fn acquire_directory_package(
-        &self,
-        directory: &WasmDirectoryClient,
-        package_id: &PackageId,
-        requested_version: Option<&str>,
-    ) -> Result<(ResolvedPackage, AcquiredComponent)> {
-        let resolved = directory
-            .resolve_package(package_id, requested_version)
-            .await
-            .with_context(|| format!("Failed to resolve wasm.directory package {package_id}"))?;
-        let mut acquired =
-            acquisition::acquire_component(&resolved.oci_reference, &self.config, false)
-                .await
-                .with_context(|| {
-                    format!(
-                        "Failed to acquire {} at {}",
-                        resolved.package_id, resolved.selected_version
-                    )
-                })?;
-        let package_name = resolved
-            .package_id
-            .repository
-            .rsplit('/')
-            .next()
-            .filter(|name| !name.is_empty())
-            .context("Package identity has no repository basename")?;
-        acquired.storage_key = StorageKey::parse(&format!("local_{package_name}"))
-            .context("Package repository basename cannot form a portable storage key")?;
-        acquired.origin = OriginEvidence {
-            location: format!("wasm.directory:{}", resolved.package_id),
-            requested_version: resolved.requested_version.clone(),
-            selected_version: Some(resolved.selected_version.clone()),
-            manifest_digest: Some(resolved.manifest_digest.clone()),
-            immutable_uri: Some(resolved.oci_reference.clone()),
-            generation: None,
-        };
-        Ok((resolved, acquired))
     }
 
     async fn prepare_acquired_install(

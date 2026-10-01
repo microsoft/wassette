@@ -481,8 +481,9 @@ This is particularly useful for:
 
 ## Registry Management
 
-Registry commands discover and install packages from wasm.directory using
-their canonical `registry/repository` identities.
+Registry commands discover and install packages from wasm.directory. Packages
+are selected by their canonical `registry/repository` identity or by their exact
+WIT identity, `namespace:package[@version]`.
 
 ### `wassette registry search`
 
@@ -542,13 +543,18 @@ catalog. Direct local component operations remain available offline.
 ### `wassette registry get`
 
 Install a wasm.directory package by its canonical `registry/repository`
-identity. The selected version is resolved to an OCI manifest digest before
-download; by default, Wassette selects the highest indexed stable semver
-version, falling back to prereleases only when no stable version exists.
+identity or its WIT identity. The selected version is resolved to an OCI
+manifest digest before download; by default, Wassette selects the highest
+indexed stable semver version, falling back to prereleases only when no stable
+version exists.
 
 ```bash
 # Install the package found by registry search
 wassette registry get ghcr.io/microsoft/get-weather-js
+
+# Install by WIT identity, optionally pinning a version
+wassette registry get yosh:wordmark
+wassette registry get yosh:wordmark@2.0.6
 
 # Pin an exact indexed tag
 wassette registry get ghcr.io/microsoft/get-weather-js --version 1.2.3
@@ -565,8 +571,20 @@ ACP provider. To explicitly expose an ordinary tool package through MCP, call
 `wassette component load PATH` command remains the direct path/OCI/HTTPS load
 flow.
 
-`--version` matches an exact indexed tag (including non-semver tags). Search
-and package resolution require wasm.directory; direct local paths remain
+`--version` matches an exact indexed tag (including non-semver tags). A WIT
+selector's `@version` is also an exact tag and must agree with `--version` when
+both are given. A WIT selector must match the `wit_identity` of exactly one
+wasm.directory component package, compared case-sensitively; zero matches is an
+error, and multiple matches list the candidate `registry/repository` identities
+to choose from instead of guessing.
+
+The component ID is always the artifact's embedded root component name, never
+registry metadata. A package published without one fails with an error naming
+the package, version and manifest digest; its publisher must embed a name, for
+example with `wasm-tools metadata add --name <component-id>`, and publish a new
+version.
+
+Search and package resolution require wasm.directory; direct local paths remain
 available offline. There is no fallback to the removed bundled catalog.
 
 ## Policy Management
