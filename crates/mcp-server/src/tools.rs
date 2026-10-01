@@ -213,7 +213,7 @@ fn get_builtin_tools() -> Vec<Tool> {
         Tool::new_with_raw(
             Cow::Borrowed("load-component"),
             Some(Cow::Borrowed(
-                "Loads a component from a direct path/URI or a wasm.directory package identity. Package inputs are resolved to a digest-pinned version.",
+                "Loads a component from a direct path/URI or a wasm.directory package. Packages are selected by registry/repository or exact WIT identity (namespace:package[@version]) and resolved to a digest-pinned version.",
             )),
             Arc::new(
                 serde_json::from_value(json!({
@@ -225,7 +225,7 @@ fn get_builtin_tools() -> Vec<Tool> {
                         },
                         "package": {
                             "type": "string",
-                            "description": "Canonical wasm.directory registry/repository package identity"
+                            "description": "wasm.directory package as registry/repository, or an exact WIT identity namespace:package[@version] that must match exactly one package"
                         },
                         "version": {
                             "type": "string",

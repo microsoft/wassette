@@ -498,7 +498,8 @@ pub enum RegistryCommands {
     },
     /// Install a package from wasm.directory without exposing its tools.
     Get {
-        /// Canonical registry/repository package identity
+        /// Package as registry/repository, or an exact WIT identity
+        /// namespace:package[@version] matching exactly one package
         component: String,
         /// Exact indexed package version to install
         #[arg(long)]
@@ -515,6 +516,19 @@ pub enum RegistryCommands {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn registry_get_accepts_wit_selector() {
+        let cli =
+            Cli::try_parse_from(["wassette", "registry", "get", "yosh:wordmark@2.0.6"]).unwrap();
+        let Some(Commands::Registry {
+            command: RegistryCommands::Get { component, .. },
+        }) = cli.command
+        else {
+            panic!("expected registry get");
+        };
+        assert_eq!(component, "yosh:wordmark@2.0.6");
+    }
 
     #[test]
     fn registry_get_accepts_canonical_package_and_exact_version() {
