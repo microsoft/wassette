@@ -93,6 +93,10 @@ checks and policy validation; it does not prove they can link or instantiate.
 Provider/layer activation remains an explicit selection at startup, and ordinary
 tools still require `--tool <COMPONENT_ID>`.
 
+The built-in `/version` reports the binary's version, commit SHA (and dirty
+marker), and UTC build time without forwarding to the provider. It takes
+precedence over a provider's `/version`.
+
 **Not implemented:** `/install` accepts ACP artifacts only, not ordinary tools
 or registry package selectors. There are no `--tool-path`, `--tool-package` or
 `--expose-tools local` adapters. Those interfaces remain proposals rather than

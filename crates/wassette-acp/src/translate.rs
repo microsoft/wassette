@@ -552,10 +552,6 @@ pub fn empty_authenticate_response() -> Result<schema::AuthenticateResponse, Acp
 }
 
 /// JSON shape advertised for the host-side `/install` slash command.
-/// Centralised so both [`session_update_wit_to_schema`] (injection into
-/// chain-emitted updates) and [`synthetic_install_command_update`]
-/// (host-emitted update for chains that never advertise commands)
-/// agree on description and hint.
 fn install_command_json() -> serde_json::Value {
     serde_json::json!({
         "name": "install",
@@ -564,14 +560,27 @@ fn install_command_json() -> serde_json::Value {
     })
 }
 
-/// Synthetic `available_commands_update` notification advertising
-/// just the host-side `/install` command. Sent on every `session/new`
-/// and `session/load` so `/install` shows up even when no layer ever
-/// emits an `available-commands-update`.
-pub fn synthetic_install_command_update(session_id: &str) -> Option<schema::SessionNotification> {
+fn version_command_json() -> serde_json::Value {
+    serde_json::json!({
+        "name": "version",
+        "description": "Show the Wassette version, commit and UTC build time.",
+    })
+}
+
+/// Advertise host commands after opening a session, even if the guest never
+/// emits an available-commands update. The guest may own `/install`, but not
+/// `/version`.
+pub fn synthetic_host_commands_update(
+    session_id: &str,
+    host_install: bool,
+) -> Option<schema::SessionNotification> {
+    let mut commands = vec![version_command_json()];
+    if host_install {
+        commands.push(install_command_json());
+    }
     let upd: schema::SessionUpdate = serde_json::from_value(serde_json::json!({
         "sessionUpdate": "available_commands_update",
-        "availableCommands": [install_command_json()],
+        "availableCommands": commands,
     }))
     .ok()?;
     let sid = schema::SessionId::from(session_id.to_string());
@@ -589,10 +598,8 @@ pub fn guest_advertises_install(update: &SessionUpdate) -> Option<bool> {
     }
 }
 
-/// `PromptResponse` returned by the host-side `/install` command:
-/// always `end_turn` regardless of success (the outcome is reported as
-/// a streamed agent chunk).
-pub fn install_command_response() -> Result<schema::PromptResponse, AcpError> {
+/// End a host-side slash command turn after sending its updates.
+pub fn host_command_response() -> Result<schema::PromptResponse, AcpError> {
     prompt_response_wit_to_schema(PromptResponse {
         stop_reason: StopReason::EndTurn,
     })
@@ -754,6 +761,7 @@ pub fn session_update_wit_to_schema(
         SessionUpdate::AvailableCommandsUpdate(cmds) => {
             let mut cmds_json: Vec<serde_json::Value> = cmds
                 .into_iter()
+                .filter(|c| c.name != "version")
                 .map(|c| {
                     let mut v = serde_json::json!({
                         "name": c.name,
@@ -765,6 +773,7 @@ pub fn session_update_wit_to_schema(
                     v
                 })
                 .collect();
+            cmds_json.push(version_command_json());
             // Inject the host command only when the guest does not own its
             // name. The gate tracks that ownership for prompt dispatch.
             if !cmds_json
@@ -1706,6 +1715,36 @@ mod tests {
         assert_eq!(json["sessionId"], "s1");
         assert_eq!(json["update"]["sessionUpdate"], "agent_message_chunk");
         assert_eq!(json["update"]["content"]["text"], "hi");
+    }
+
+    #[test]
+    fn guest_version_command_is_replaced_by_host_version() {
+        use crate::wassette::acp::prompts::AvailableCommand;
+
+        let guest = SessionUpdate::AvailableCommandsUpdate(vec![
+            AvailableCommand {
+                name: "version".into(),
+                description: "Guest version".into(),
+                input: None,
+            },
+            AvailableCommand {
+                name: "other".into(),
+                description: "Other command".into(),
+                input: None,
+            },
+        ]);
+        let notif = session_update_wit_to_schema("s".into(), guest).unwrap();
+        let commands = serde_json::to_value(notif).unwrap()["update"]["availableCommands"]
+            .as_array()
+            .unwrap()
+            .clone();
+        assert_eq!(
+            commands.iter().filter(|c| c["name"] == "version").count(),
+            1
+        );
+        assert!(commands.iter().any(|c| c["name"] == "other"));
+        assert!(commands.iter().any(|c| c["name"] == "install"));
+        assert!(commands.iter().all(|c| c["description"] != "Guest version"));
     }
 
     #[test]

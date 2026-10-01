@@ -906,6 +906,67 @@ fn install_local_path_reports_receipt_backed_installation() {
 }
 
 #[test]
+fn version_is_advertised_and_reports_binary_build_without_forwarding() {
+    let Some((bin, wasm)) = artifacts() else {
+        return;
+    };
+    let binary_version = Command::new(&bin)
+        .arg("--version")
+        .output()
+        .expect("run --version");
+    assert!(binary_version.status.success());
+    let metadata = String::from_utf8(binary_version.stdout).unwrap();
+    let field = |name: &str| {
+        metadata
+            .split(&format!("{name}:\""))
+            .nth(1)
+            .unwrap_or_else(|| panic!("missing {name}: {metadata}"))
+            .split('"')
+            .next()
+            .unwrap()
+            .to_string()
+    };
+    let mut h = Harness::start(&bin, &wasm, &[]);
+    let sid = h.open_session_without_grace();
+    std::thread::sleep(GATE_FLUSH_GRACE);
+    let advertised = h.drain_pending();
+    assert!(
+        advertised.iter().any(|update| {
+            update["params"]["sessionId"] == sid
+                && update["params"]["update"]["sessionUpdate"] == "available_commands_update"
+                && update["params"]["update"]["availableCommands"]
+                    .as_array()
+                    .is_some_and(|commands| {
+                        ["version", "install"]
+                            .iter()
+                            .all(|name| commands.iter().any(|command| command["name"] == *name))
+                    })
+        }),
+        "missing host commands: {advertised:?}"
+    );
+
+    let id = h.prompt(&sid, "/version");
+    let (updates, response) = h.await_response(id);
+    assert_eq!(response["stopReason"], "end_turn");
+    let text = response_text(&updates);
+    assert_eq!(
+        text,
+        format!(
+            "Wassette {} (commit {}{}, built {})",
+            metadata.split_whitespace().next().unwrap(),
+            field("GitRevision"),
+            if field("BuildStatus") == "Modified" {
+                "-dirty"
+            } else {
+                ""
+            },
+            field("BuildTime")
+        )
+    );
+    assert_ne!(text, "/version", "provider received the slash command");
+}
+
+#[test]
 fn generation_import_is_disabled_without_an_operator_profile() {
     let Some((bin, provider)) = artifacts() else {
         return;

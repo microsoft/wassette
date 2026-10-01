@@ -183,9 +183,13 @@ fn grouped_models_select_distinct_providers_with_colliding_ids() {
     assert_eq!(first["configOptions"][0]["currentValue"], a);
     assert!(prompt_text(&mut h, sid, "hello").contains("alpha:shared:plain:hello"));
     assert_eq!(prompt_text(&mut h, sid, "/history"), "alpha:history:1");
+    assert!(prompt_text(&mut h, sid, "/version").starts_with("Wassette "));
+    assert_eq!(prompt_text(&mut h, sid, "/history"), "alpha:history:1");
     let selected = select(&mut h, sid, &b);
     assert_eq!(selected["configOptions"][0]["currentValue"], b);
     assert!(prompt_text(&mut h, sid, "hello").contains("beta:shared:plain:hello"));
+    assert_eq!(prompt_text(&mut h, sid, "/history"), "beta:history:1");
+    assert!(prompt_text(&mut h, sid, "/version").starts_with("Wassette "));
     assert_eq!(prompt_text(&mut h, sid, "/history"), "beta:history:1");
     let second = new_session(&mut h);
     let sid2 = second["sessionId"].as_str().unwrap();
@@ -222,6 +226,12 @@ fn concurrent_callbacks_use_host_ids_and_reply_to_their_own_session() {
     select(&mut h, b, &beta);
     let pa = h.prompt(a, "/permission");
     let permission_a = h.await_permission(pa);
+    let busy_version = h.prompt(a, "/version");
+    let busy_error = response_error(&mut h, busy_version);
+    assert!(
+        busy_error["message"].as_str().unwrap().contains("busy"),
+        "{busy_error}"
+    );
     let pb = h.prompt(b, "/permission");
     let permission_b = h.await_permission(pb);
     assert_eq!(permission_a["params"]["sessionId"], a);
