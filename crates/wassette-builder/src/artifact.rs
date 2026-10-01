@@ -1,17 +1,22 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT license.
 
+#[cfg(any(test, feature = "hyperlight"))]
 use anyhow::{Context, Result, ensure};
+#[cfg(any(test, feature = "hyperlight"))]
 use wasm_encoder::{ComponentNameSection, ComponentSection, Encode};
+#[cfg(any(test, feature = "hyperlight"))]
 use wasmparser::{
     BinaryReader, ComponentExternalKind, ComponentName, ComponentNameSectionReader, Encoding,
     Parser, Payload,
 };
 
+#[cfg(any(test, feature = "hyperlight"))]
 use crate::{BuildRequest, ComponentKind};
 
 /// Only root metadata and routing shape are observed here. This is NOT L1
 /// validation or Wasmtime preparation, which must be performed by the parent.
+#[cfg(any(test, feature = "hyperlight"))]
 pub(crate) fn name_component(
     mut wasm: Vec<u8>,
     request: &BuildRequest,

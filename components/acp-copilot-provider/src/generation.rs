@@ -4,8 +4,8 @@
 //! Copilot model adapter for Wassette's host-owned component-generation import.
 //!
 //! The host advertises nothing here: it notifies this provider through an
-//! internal config option when the operator profile permits building and
-//! installing components, and remains the authority on every request. It
+//! internal config option when generation is available, and remains the
+//! authority on every request. It
 //! prompts the editor for each phase (build, install, exposure), so this
 //! provider does not add a permission prompt of its own.
 
@@ -32,9 +32,9 @@ pub fn tool_def() -> Value {
                 `world tool { export answer: func() -> u32; }` write \
                 `struct Component; impl bindings::Guest for Component { fn answer() -> u32 { 42 } } \
                 bindings::export!(Component with_types_in bindings);`. Only `std` and crates \
-                pinned by the operator are available; there is no network or Cargo.toml. \
-                This conversation's tools never change: a component built here becomes \
-                usable only in a NEW session that selects it.",
+                pinned by the host are available; there is no network or Cargo.toml. \
+                Exposure of a generated tool requires editor approval; ACP layers require \
+                explicit selection in a new session.",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -62,7 +62,7 @@ pub fn tool_def() -> Value {
                     "intent": {
                         "type": "string",
                         "enum": ["install-only", "expose-tools"],
-                        "description": "`install-only` (default) persists the component without exposing tools. `expose-tools` also asks to expose its tools; it needs separate operator permission and does not apply to ACP layers."
+                        "description": "`expose-tools` (default for tools) installs the component and asks the editor to approve exposing its tools. `install-only` persists without exposure and is the default for ACP layers."
                     },
                     "expected_revision": {
                         "type": "string",
@@ -88,11 +88,12 @@ pub fn request_json(args: &Value) -> Result<String, String> {
         "acp-layer" => "AcpLayer",
         other => return Err(format!("unknown kind '{other}' (expected tool or acp-layer)")),
     };
-    let intent = match args
-        .get("intent")
-        .and_then(Value::as_str)
-        .unwrap_or("install-only")
-    {
+    let default_intent = if kind == "Tool" {
+        "expose-tools"
+    } else {
+        "install-only"
+    };
+    let intent = match args.get("intent").and_then(Value::as_str).unwrap_or(default_intent) {
         "install-only" => "InstallOnly",
         "expose-tools" => "ExposeTools",
         other => {
@@ -101,6 +102,9 @@ pub fn request_json(args: &Value) -> Result<String, String> {
             ));
         }
     };
+    if kind == "AcpLayer" && intent == "ExposeTools" {
+        return Err("ACP layers cannot expose ordinary tools; use install-only".into());
+    }
     let target = match args.get("expected_revision").and_then(Value::as_str) {
         Some(revision) if !revision.is_empty() => {
             json!({"mode": "rebuild", "expected_revision": revision})
@@ -173,17 +177,16 @@ fn describe_report(report: &GenerationReport) -> String {
 
 fn describe_error(error: &GenerationError) -> String {
     match error {
-        GenerationError::Disabled => "Component generation is disabled on this Wassette host. \
-            The operator must run a `wassette` built with the `component-generation` feature \
-            (for example `just install`) and start `wassette acp` with \
-            `--generation-config <profile>` permitting build and install."
+        GenerationError::Disabled => "Component generation is unavailable on this Wassette host. \
+            Install with `just install` and place the builder image at \
+            ~/.local/share/wassette/builder/rust-initrd.cpio."
             .to_string(),
         GenerationError::SessionNotBound => {
             "The host has no editor session bound to this request; nothing was built.".to_string()
         }
         GenerationError::PermissionDenied => "Permission denied: the user rejected an approval, \
-            or the operator profile does not allow this operation (exposure and rebuilds need \
-            separate operator permission). Nothing was installed. Do not retry unless the user \
+            or this operation is unavailable (exposure and rebuilds are disabled by default). \
+            Nothing was installed. Do not retry unless the user \
             asks."
             .to_string(),
         GenerationError::Cancelled => {
@@ -235,7 +238,7 @@ mod tests {
     }
 
     #[test]
-    fn request_defaults_to_a_new_install_only_tool() {
+    fn request_defaults_to_a_new_exposed_tool() {
         let request: Value = serde_json::from_str(&request_json(&args()).unwrap()).unwrap();
         assert_eq!(
             request,
@@ -248,7 +251,7 @@ mod tests {
                     "kind": "Tool",
                 },
                 "target": {"mode": "new"},
-                "intent": "InstallOnly",
+                "intent": "ExposeTools",
             })
         );
     }
@@ -256,16 +259,25 @@ mod tests {
     #[test]
     fn request_maps_kind_intent_and_rebuild() {
         let mut args = args();
-        args["kind"] = json!("acp-layer");
         args["intent"] = json!("expose-tools");
         args["expected_revision"] = json!("rev-1");
         let request: Value = serde_json::from_str(&request_json(&args).unwrap()).unwrap();
-        assert_eq!(request["build"]["kind"], "AcpLayer");
+        assert_eq!(request["build"]["kind"], "Tool");
         assert_eq!(request["intent"], "ExposeTools");
         assert_eq!(
             request["target"],
             json!({"mode": "rebuild", "expected_revision": "rev-1"})
         );
+    }
+
+    #[test]
+    fn layer_defaults_to_install_only_and_cannot_expose_tools() {
+        let mut args = args();
+        args["kind"] = json!("acp-layer");
+        let request: Value = serde_json::from_str(&request_json(&args).unwrap()).unwrap();
+        assert_eq!(request["intent"], "InstallOnly");
+        args["intent"] = json!("expose-tools");
+        assert!(request_json(&args).is_err());
     }
 
     #[test]
@@ -292,7 +304,7 @@ mod tests {
 
     #[test]
     fn errors_are_actionable() {
-        assert!(describe(&Err(GenerationError::Disabled)).contains("--generation-config"));
+        assert!(describe(&Err(GenerationError::Disabled)).contains("rust-initrd.cpio"));
         let text = describe(&Err(GenerationError::BuildFailed("E0425".into())));
         assert!(text.contains("E0425") && text.contains("again"), "{text}");
     }

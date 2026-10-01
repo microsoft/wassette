@@ -120,6 +120,7 @@ impl BuildError {
         error
     }
 
+    #[cfg(feature = "hyperlight")]
     pub(crate) fn set_truncated(&mut self, truncated: bool) {
         self.diagnostic_truncated |= truncated;
     }
@@ -157,7 +158,7 @@ impl fmt::Display for BuildError {
             BuildErrorKind::CompilationFailed => "component compilation failed",
             BuildErrorKind::InvalidOutput => "invalid generated component",
             BuildErrorKind::Unavailable => {
-                "builder unavailable (helper, profile, or hypervisor configuration)"
+                "builder unavailable (profile or hypervisor configuration)"
             }
             BuildErrorKind::Internal => "builder failed",
         })

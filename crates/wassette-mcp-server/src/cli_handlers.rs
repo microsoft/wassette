@@ -128,8 +128,6 @@ pub async fn handle_component_list_cli(
 pub async fn create_lifecycle_manager(component_dir: Option<PathBuf>) -> Result<LifecycleManager> {
     let config = config::Config::from_serve(
         &crate::commands::Serve {
-            #[cfg(feature = "component-generation")]
-            generation_config: None,
             component_dir,
             local_component_dir: None,
             local_components: None,
@@ -156,8 +154,6 @@ pub async fn create_configured_lifecycle_manager(
     config: config::Config,
 ) -> Result<LifecycleManager> {
     let config::Config {
-        #[cfg(feature = "component-generation")]
-            generation_config: _,
         component_dir,
         secrets_dir,
         environment_vars,

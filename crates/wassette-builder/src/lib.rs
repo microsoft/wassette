@@ -1,13 +1,12 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT license.
 
-//! Native compilation happens only inside a fresh, packaged Hyperlight helper.
+//! Native compilation happens only inside a fresh Hyperlight VM.
 //! This crate neither installs components nor grants ownership or capabilities.
 //! Returned bytes still require the parent's L1 and matching runtime validation.
 
 mod artifact;
 mod error;
-mod ipc;
 mod rust_crates;
 mod supervise;
 
@@ -15,21 +14,23 @@ pub use error::{BuildError, BuildErrorKind};
 pub use rust_crates::{CrateDependency, RustCrate};
 
 #[cfg(feature = "hyperlight")]
-#[doc(hidden)]
-pub mod helper;
+mod helper;
 
+#[cfg(feature = "hyperlight")]
 use std::fs::File;
+#[cfg(feature = "hyperlight")]
 use std::io::Read;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use anyhow::{Context, Result, ensure};
 use serde::{Deserialize, Serialize};
+#[cfg(any(test, feature = "hyperlight"))]
 use sha2::{Digest, Sha256};
 use tokio::sync::{Semaphore, TryAcquireError};
 use tokio_util::sync::CancellationToken;
 
-pub const PROFILE_ID: &str = "wassette-rust-1.98.1-std-wasip2-v3";
+pub const PROFILE_ID: &str = "wassette-rust-1.98.1-std-wasip2-v4-inline";
 pub const COMPILER_VERSION: &str = "1.98.1";
 pub const BINDGEN_VERSION: &str = "0.62.0";
 pub const RUNTIME_VERSION: &str = "hyperlight-unikraft-0.17.0";
@@ -58,16 +59,12 @@ pub struct BuildRequest {
     pub kind: ComponentKind,
 }
 
-/// Host-only configuration. Provision the packaged helper immutably. Each job
-/// captures and verifies the exact initrd backing used for boot. Digests ensure
-/// integrity; trusting the selected origin/profile remains the operator's job.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
+/// Host-only configuration. Each job captures and verifies the exact initrd
+/// backing used for boot. Digests ensure integrity; trusting the selected
+/// origin/profile remains the operator's job.
+#[derive(Debug, Clone)]
 pub struct BuilderConfig {
-    pub helper_path: PathBuf,
-    pub helper_sha256: String,
     pub initrd_path: PathBuf,
-    pub initrd_sha256: String,
     /// Private temporary directories only, never a live component store.
     pub staging_root: PathBuf,
     /// Complete WIT packages, in dependency-first order, chosen by the host.
@@ -75,8 +72,22 @@ pub struct BuilderConfig {
     pub wit_dependencies: Vec<String>,
     /// Pinned library crates, in dependency-first order, that request source
     /// may use. Each archive is digest-checked and compiled inside the guest.
-    #[serde(default)]
     pub rust_crates: Vec<RustCrate>,
+}
+
+impl BuilderConfig {
+    /// Create a builder profile for an existing immutable compiler image.
+    ///
+    /// The initrd is captured and hashed when a build starts, so configuration
+    /// discovery does not need to read the potentially large image.
+    pub fn new(initrd_path: PathBuf, staging_root: PathBuf) -> Result<Self> {
+        Ok(Self {
+            initrd_path,
+            staging_root,
+            wit_dependencies: Vec::new(),
+            rust_crates: Vec::new(),
+        })
+    }
 }
 
 /// Finite, host-selected budgets. Values can be reduced, but cannot exceed the
@@ -151,8 +162,6 @@ pub struct BuildEvidence {
     pub wit_dependencies_sha256: String,
     #[serde(alias = "initrd_sha256")]
     pub builder_initrd_sha256: String,
-    #[serde(alias = "builder_sha256")]
-    pub builder_helper_sha256: String,
     /// No OCI manifest is selected by the local-initrd profile.
     #[serde(default)]
     pub builder_manifest_digest: Option<String>,
@@ -215,7 +224,6 @@ impl Builder {
             "unsupported builder platform; requires Apple silicon HVF or Linux KVM/MSHV"
         );
         for (label, path) in [
-            ("helper", &config.helper_path),
             ("initrd", &config.initrd_path),
             ("staging", &config.staging_root),
         ] {
@@ -224,9 +232,6 @@ impl Builder {
                 "{label} path must be host-chosen and absolute"
             );
         }
-        validate_digest(&config.helper_sha256)?;
-        validate_digest(&config.initrd_sha256)?;
-        ensure!(config.helper_path.is_file(), "builder helper is missing");
         ensure!(config.initrd_path.is_file(), "builder initrd is missing");
         ensure!(
             config.staging_root.is_dir(),
@@ -255,9 +260,9 @@ impl Builder {
         })
     }
 
-    /// Cancellation (including dropping this future) kills and reaps the helper.
-    /// A dedicated supervisor owns its permit and staging until `wait` completes,
-    /// independently of the async executor's lifetime.
+    /// Cancellation (including dropping this future) interrupts and tears down
+    /// the VM. A dedicated supervisor owns its permit and staging until teardown
+    /// completes, independently of the async executor's lifetime.
     ///
     /// Admission is immediate: a saturated builder returns [`BuildErrorKind::Busy`]
     /// without queuing or retaining the request for a later permit.
@@ -357,24 +362,17 @@ fn validate_digest(value: &str) -> Result<()> {
     Ok(())
 }
 
+#[cfg(any(test, feature = "hyperlight"))]
 fn sha256(bytes: &[u8]) -> String {
     digest_hex(&Sha256::digest(bytes))
 }
 
+#[cfg(any(test, feature = "hyperlight"))]
 fn digest_hex(bytes: &[u8]) -> String {
     bytes.iter().map(|byte| format!("{byte:02x}")).collect()
 }
 
-fn file_digest(
-    path: &Path,
-    cap: u64,
-    cancel: &CancellationToken,
-    deadline: std::time::Instant,
-) -> Result<String> {
-    let mut file = File::open(path).context("open pinned builder input")?;
-    captured_file_digest(&mut file, cap, cancel, deadline)
-}
-
+#[cfg(feature = "hyperlight")]
 fn captured_file_digest(
     file: &mut File,
     cap: u64,
@@ -408,7 +406,8 @@ fn captured_file_digest(
     Ok(digest_hex(&hash.finalize()))
 }
 
-fn evidence(config: &BuilderConfig, request: &BuildRequest) -> BuildEvidence {
+#[cfg(any(test, feature = "hyperlight"))]
+fn evidence(config: &BuilderConfig, request: &BuildRequest, initrd_sha256: &str) -> BuildEvidence {
     let mut dependencies = Sha256::new();
     for source in &config.wit_dependencies {
         dependencies.update((source.len() as u64).to_le_bytes());
@@ -418,24 +417,19 @@ fn evidence(config: &BuilderConfig, request: &BuildRequest) -> BuildEvidence {
         source_sha256: sha256(request.source.as_bytes()),
         wit_sha256: sha256(request.wit.as_bytes()),
         wit_dependencies_sha256: digest_hex(&dependencies.finalize()),
-        builder_initrd_sha256: config.initrd_sha256.clone(),
-        builder_helper_sha256: config.helper_sha256.clone(),
+        builder_initrd_sha256: initrd_sha256.to_owned(),
         builder_manifest_digest: None,
         profile: PROFILE_ID.into(),
-        // The executable digest covers the fixed driver, runtime and bindgen
-        // implementation as well as all host transformation code. Pinned
-        // crates extend the profile; profiles without them keep their digest.
+        // The profile identifies the fixed driver, runtime and bindgen
+        // implementation. Pinned crates extend the profile digest.
         profile_sha256: sha256(
             if config.rust_crates.is_empty() {
-                format!(
-                    "{PROFILE_ID}\0{}\0{}",
-                    config.helper_sha256, config.initrd_sha256
-                )
+                format!("{PROFILE_ID}\0{}\0{}", RUNTIME_VERSION, initrd_sha256)
             } else {
                 format!(
                     "{PROFILE_ID}\0{}\0{}\0{}",
-                    config.helper_sha256,
-                    config.initrd_sha256,
+                    RUNTIME_VERSION,
+                    initrd_sha256,
                     rust_crates::digest(&config.rust_crates)
                 )
             }
@@ -506,19 +500,29 @@ mod tests {
         assert!(scratch(0).validate().is_err());
     }
 
+    #[test]
+    fn builder_config_construction_does_not_read_the_image() {
+        let config = BuilderConfig::new(
+            PathBuf::from("/missing/large-image.cpio"),
+            PathBuf::from("/private/staging"),
+        )
+        .unwrap();
+        assert_eq!(
+            config.initrd_path,
+            PathBuf::from("/missing/large-image.cpio")
+        );
+    }
+
     fn fixture_evidence() -> BuildEvidence {
         let mut request = request();
         request.source = "PRIVATE_SOURCE_SENTINEL".into();
         let config = BuilderConfig {
-            helper_path: "/helper".into(),
-            helper_sha256: "a".repeat(64),
             initrd_path: "/image".into(),
-            initrd_sha256: "b".repeat(64),
             staging_root: "/stage".into(),
             wit_dependencies: vec!["PRIVATE_DEPENDENCY".into()],
             rust_crates: vec![],
         };
-        let evidence = evidence(&config, &request);
+        let evidence = evidence(&config, &request, &"b".repeat(64));
         assert_eq!(evidence.source_sha256, sha256(request.source.as_bytes()));
         evidence
     }
@@ -530,6 +534,7 @@ mod tests {
         assert!(!serialized.contains("PRIVATE_"));
         assert!(!serialized.contains("wasm_sha256"));
         assert!(!serialized.contains("evidence_sha256"));
+        assert!(!serialized.contains("builder_helper_sha256"));
         assert_eq!(evidence, serde_json::from_str(&serialized).unwrap());
     }
 
@@ -540,7 +545,6 @@ mod tests {
             ("source_sha256", sha256(b"PRIVATE_SOURCE_SENTINEL")),
             ("wit_sha256", sha256(request().wit.as_bytes())),
             ("builder_initrd_sha256", "b".repeat(64)),
-            ("builder_helper_sha256", "a".repeat(64)),
             ("profile", PROFILE_ID.into()),
             ("compiler", COMPILER_VERSION.into()),
             ("bindgen", BINDGEN_VERSION.into()),
@@ -563,7 +567,6 @@ mod tests {
         fields.remove("builder_manifest_digest");
         for (current, prototype) in [
             ("builder_initrd_sha256", "initrd_sha256"),
-            ("builder_helper_sha256", "builder_sha256"),
             ("profile", "profile_id"),
             ("compiler", "compiler_version"),
             ("bindgen", "bindgen_version"),
@@ -589,20 +592,17 @@ mod tests {
         let base = fixture_evidence();
         assert_eq!(
             base.profile_sha256,
-            sha256(format!("{PROFILE_ID}\0{}\0{}", "a".repeat(64), "b".repeat(64)).as_bytes())
+            sha256(format!("{PROFILE_ID}\0{RUNTIME_VERSION}\0{}", "b".repeat(64)).as_bytes())
         );
         let config = BuilderConfig {
-            helper_path: "/helper".into(),
-            helper_sha256: "a".repeat(64),
             initrd_path: "/image".into(),
-            initrd_sha256: "b".repeat(64),
             staging_root: "/stage".into(),
             wit_dependencies: vec!["PRIVATE_DEPENDENCY".into()],
             rust_crates: rust_crates::tests::fixture(),
         };
         let mut request = request();
         request.source = "PRIVATE_SOURCE_SENTINEL".into();
-        let with_crates = evidence(&config, &request);
+        let with_crates = evidence(&config, &request, &"b".repeat(64));
         assert_ne!(with_crates.profile_sha256, base.profile_sha256);
         assert_eq!(
             BuildEvidence {

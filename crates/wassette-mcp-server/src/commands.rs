@@ -107,12 +107,6 @@ pub struct Run {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub component_dir: Option<PathBuf>,
 
-    /// Trusted operator JSON profile for isolated component generation (disabled when unset).
-    #[cfg(feature = "component-generation")]
-    #[arg(long)]
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub generation_config: Option<PathBuf>,
-
     /// Directory to scan for locally built components.
     #[arg(long)]
     #[serde(skip)]
@@ -146,12 +140,6 @@ pub struct Serve {
     #[arg(long)]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub component_dir: Option<PathBuf>,
-
-    /// Trusted operator JSON profile for isolated component generation (disabled when unset).
-    #[cfg(feature = "component-generation")]
-    #[arg(long)]
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub generation_config: Option<PathBuf>,
 
     /// Directory to scan for locally built components.
     #[arg(long)]
@@ -259,17 +247,14 @@ impl From<&HttpTransportFlags> for Transport {
 
 #[derive(Subcommand, Debug)]
 pub enum ComponentCommands {
-    /// Build in an isolated helper, validate, and install using the trusted operator profile.
+    /// Build in an isolated helper, validate, and install using the discovered builder image.
     #[cfg(feature = "component-generation")]
     Build {
-        /// Bounded generation request JSON file; never a compiler/profile path.
+        /// Bounded generation request JSON file; never a compiler or host path.
         request: PathBuf,
         /// Override the managed component store directory.
         #[arg(long)]
         component_dir: Option<PathBuf>,
-        /// Trusted operator JSON profile (also WASSETTE_GENERATION_CONFIG or config.toml).
-        #[arg(long)]
-        generation_config: Option<PathBuf>,
         /// Also write a rebuildable source layout to this directory.
         #[arg(long)]
         emit_source: Option<PathBuf>,
@@ -429,29 +414,28 @@ mod generation_tests {
         for command in ["run", "serve"] {
             let args =
                 Cli::try_parse_from(["wassette", command, "--generation-config", "operator.json"]);
-            assert_eq!(args.is_ok(), cfg!(feature = "component-generation"));
+            assert!(args.is_err());
         }
-        let args = Cli::try_parse_from([
+        assert_eq!(
+            Cli::try_parse_from(["wassette", "component", "build", "request.json"]).is_ok(),
+            cfg!(feature = "component-generation")
+        );
+        assert!(Cli::try_parse_from([
             "wassette",
             "component",
             "build",
             "request.json",
             "--generation-config",
             "operator.json",
-        ]);
-        assert_eq!(args.is_ok(), cfg!(feature = "component-generation"));
+        ])
+        .is_err());
     }
 
     #[cfg(feature = "component-generation")]
     #[test]
-    fn generation_flags_default_to_disabled_and_accept_only_operator_paths() {
+    fn generation_cli_rejects_host_overrides() {
         for command in ["run", "serve"] {
-            let args = Cli::try_parse_from(["wassette", command]).unwrap();
-            match args.command.unwrap() {
-                Commands::Run(run) => assert!(run.generation_config.is_none()),
-                Commands::Serve(serve) => assert!(serve.generation_config.is_none()),
-                _ => unreachable!(),
-            }
+            assert!(Cli::try_parse_from(["wassette", command]).is_ok());
         }
         assert!(Cli::try_parse_from([
             "wassette",

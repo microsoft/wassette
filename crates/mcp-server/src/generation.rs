@@ -188,7 +188,7 @@ pub fn read_request(reader: impl Read) -> Result<GenerationRequest> {
     parse_request(value)
 }
 
-/// Parse only inline build inputs, never host profiles, paths, flags or ownership.
+/// Parse only inline build inputs, never host paths, flags or ownership.
 pub fn parse_request(value: Value) -> Result<GenerationRequest> {
     serde_json::to_writer(SizeLimit(MAX_REQUEST_BYTES), &value)
         .context("generation request exceeds 2 MiB")?;
@@ -386,7 +386,7 @@ pub fn tool() -> Tool {
     Tool::new_with_raw(
         Cow::Borrowed("build-component"),
         Some(Cow::Borrowed(
-            "Build inline Rust/WIT in the operator-configured isolated helper, validate and install. InstallOnly is the default; ordinary-tool exposure and rebuild require separate operator grants. ACP layers are installed only and require later selection. No profile, host paths, compiler flags, or new policy grants are accepted.",
+            "Build inline Rust/WIT in the installed isolated builder image, validate and install. InstallOnly is the default; ordinary-tool exposure must be requested explicitly and rebuild is unavailable by default. ACP layers are installed only and require later selection. No host paths, compiler flags, or new policy grants are accepted.",
         )),
         Arc::new(serde_json::from_value(json!({
             "type": "object",
@@ -989,10 +989,7 @@ mod tests {
 
         Builder::new(
             BuilderConfig {
-                helper_path: Default::default(),
-                helper_sha256: String::new(),
                 initrd_path: Default::default(),
-                initrd_sha256: String::new(),
                 staging_root: Default::default(),
                 wit_dependencies: Vec::new(),
                 rust_crates: Vec::new(),
@@ -1003,7 +1000,7 @@ mod tests {
             },
         )
         .err()
-        .expect("invalid limits fail without opening files or starting a helper")
+        .expect("invalid limits fail without opening files or starting a VM")
     }
 
     #[test]

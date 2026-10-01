@@ -766,7 +766,7 @@ fn copilot_provider_only_advertises_terminal_when_enabled() {
 
 /// Generation needs the feature-enabled binary (`cargo build -p
 /// wassette-mcp-server --features component-generation`) and a supported
-/// builder platform; the profile below never starts a VM.
+/// builder platform.
 #[cfg(all(
     feature = "component-generation",
     any(
@@ -780,32 +780,14 @@ fn copilot_provider_only_advertises_terminal_when_enabled() {
 mod generation {
     use super::*;
 
-    /// Writes a syntactically valid operator profile whose helper digest can never
-    /// match, so the host accepts the profile at startup but never executes the
-    /// placeholder helper.
-    fn placeholder_generation_profile(dir: &Path, allow_install: bool) -> PathBuf {
-        std::fs::write(dir.join("helper"), b"not a builder").unwrap();
-        std::fs::write(dir.join("initrd"), b"not an image").unwrap();
-        std::fs::create_dir_all(dir.join("staging")).unwrap();
-        let profile = dir.join("operator.json");
-        std::fs::write(
-            &profile,
-            json!({
-                "builder": {
-                    "helper_path": "helper",
-                    "helper_sha256": "0".repeat(64),
-                    "initrd_path": "initrd",
-                    "initrd_sha256": "0".repeat(64),
-                    "staging_root": "staging",
-                    "wit_dependencies": []
-                },
-                "allow_build": true,
-                "allow_install": allow_install,
-            })
-            .to_string(),
-        )
-        .unwrap();
-        profile
+    fn start_generation(bin: &Path, wasm: &Path, image: bool, env: &[(&str, &str)]) -> Harness {
+        let xdg = tempfile::tempdir_in(".").unwrap();
+        if image {
+            let builder = xdg.path().join("data/wassette/builder");
+            std::fs::create_dir_all(&builder).unwrap();
+            std::fs::write(builder.join("rust-initrd.cpio"), b"not an image").unwrap();
+        }
+        Harness::spawn(bin, wasm, &["--allow-all"], env, xdg, Vec::new())
     }
 
     /// Mock Copilot API whose first chat round calls `build_component` with
@@ -852,10 +834,9 @@ mod generation {
         server
     }
 
-    /// The Copilot provider advertises `build_component` only when the host's
-    /// operator profile permits build and install, and a model call reaches the
-    /// host's `builder.generate` (and its editor approval) rather than being
-    /// rejected as disabled. The placeholder helper makes the build itself fail.
+    /// The Copilot provider advertises `build_component` only when the builder
+    /// image exists, and a model call reaches editor approval rather than being
+    /// rejected as disabled. The placeholder image makes the build itself fail.
     #[test]
     fn copilot_provider_build_component_reaches_host_generation() {
         let Some((bin, wasm)) = artifacts("acp-copilot-provider", "acp_copilot_provider") else {
@@ -894,20 +875,8 @@ mod generation {
                 .collect()
         };
 
-        // A profile that does not permit install keeps the tool hidden, and the
-        // model's call never reaches a mock that would request it.
-        let denied = tempfile::tempdir().unwrap();
-        let profile = placeholder_generation_profile(denied.path(), false);
-        let mut h = Harness::start(
-            &bin,
-            &wasm,
-            &[
-                "--allow-all",
-                "--generation-config",
-                profile.to_str().unwrap(),
-            ],
-            &env,
-        );
+        // Without the image, the model-facing build tool is absent.
+        let mut h = start_generation(&bin, &wasm, false, &env);
         let (_, result) = h.prompt_once("hi");
         drop(h);
         // The first (tool-call) mock answered; the provider reports the unknown
@@ -930,18 +899,7 @@ mod generation {
             ("COPILOT_TOKEN_URL", token_url.as_str()),
             ("COPILOT_MODEL", "gpt-e2e"),
         ];
-        let allowed = tempfile::tempdir().unwrap();
-        let profile = placeholder_generation_profile(allowed.path(), true);
-        let mut h = Harness::start(
-            &bin,
-            &wasm,
-            &[
-                "--allow-all",
-                "--generation-config",
-                profile.to_str().unwrap(),
-            ],
-            &env,
-        );
+        let mut h = start_generation(&bin, &wasm, true, &env);
         let id = h.request(
             "initialize",
             json!({"protocolVersion": 1, "clientCapabilities": {}}),

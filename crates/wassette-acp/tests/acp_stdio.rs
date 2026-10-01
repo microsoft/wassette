@@ -60,7 +60,12 @@ const GATE_FLUSH_GRACE: Duration = Duration::from_millis(500);
 fn wassette_binary() -> Option<PathBuf> {
     if let Some(bin) = std::env::var_os("WASSETTE_ACP_TEST_BINARY") {
         let bin = PathBuf::from(bin);
-        return bin.is_file().then_some(bin);
+        assert!(
+            bin.is_file(),
+            "WASSETTE_ACP_TEST_BINARY is not a file: {}",
+            bin.display()
+        );
+        return Some(bin);
     }
     let exe = std::env::current_exe().ok()?;
     let profile_dir = exe.parent()?.parent()?;
@@ -243,7 +248,6 @@ impl Harness {
             .env("WASSETTE_CONFIG_FILE", config.join("config.toml"))
             .env_remove("WASSETTE_LOCAL_COMPONENT_DIR")
             .env_remove("WASSETTE_LOCAL_COMPONENTS")
-            .env_remove("WASSETTE_GENERATION_CONFIG")
             // The host prefers RUST_LOG over --log-level; clear it so a
             // developer's ambient value cannot change what is logged.
             .env_remove("RUST_LOG")
@@ -1048,12 +1052,23 @@ fn tools_command_lists_and_toggles_session_exposure() {
 }
 
 #[test]
-fn generation_import_is_disabled_without_an_operator_profile() {
+fn generation_import_is_disabled_without_a_builder_image() {
     let Some((bin, provider)) = artifacts() else {
         return;
     };
     let mut h = Harness::start(&bin, &provider, &[]);
     let sid = h.open_session();
+    #[cfg(feature = "component-generation")]
+    {
+        let id = h.prompt(&sid, "/tools list");
+        let (messages, _) = h.await_response(id);
+        let listing = response_text(&messages);
+        assert!(
+            listing.contains("~/.local/share/wassette/builder/rust-initrd.cpio"),
+            "{listing}"
+        );
+        assert!(!listing.contains("| `build_component` | `host` | enabled |"));
+    }
     let id = h.prompt(&sid, "/generate {}");
     let (messages, response) = h.await_response_with_permission(id, "allow-once");
     assert_eq!(response["stopReason"], "end_turn");

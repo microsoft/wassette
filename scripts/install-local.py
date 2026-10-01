@@ -5,7 +5,6 @@
 """Install this checkout's CLI and finalized components from components/."""
 
 import argparse
-import hashlib
 import json
 import os
 from pathlib import Path
@@ -135,28 +134,6 @@ def cargo_install(command: List[str], root: Path) -> Path:
     return installed
 
 
-def install_builder_helper(target_directory: Path, mode: str, installed: Path) -> Path:
-    """Copy the signed builder helper next to the installed executable."""
-    helper = target_directory / mode / "wassette-builder"
-    if not helper.is_file():
-        raise FileNotFoundError(
-            f"missing builder helper {helper}; run `just build-component-builder {mode}` first"
-        )
-    destination = installed.parent / "wassette-builder"
-    staging = destination.with_name(f".wassette-builder.{os.getpid()}.tmp")
-    shutil.copy2(helper, staging)
-    os.replace(staging, destination)
-    return destination
-
-
-def sha256(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as file:
-        for chunk in iter(lambda: file.read(1 << 20), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
-
-
 def install(root: Path, mode: str, generation: bool = True) -> None:
     check_prerequisites(root)
     artifacts = validate_outputs(root)
@@ -178,13 +155,23 @@ def install(root: Path, mode: str, generation: bool = True) -> None:
     if generation:
         command.extend(["--features", "component-generation"])
     installed = cargo_install(command, root)
+    if generation and sys.platform == "darwin":
+        subprocess.run(
+            [
+                "codesign",
+                "--force",
+                "--sign",
+                "-",
+                "--entitlements",
+                str(root / "scripts/generation-entitlements.plist"),
+                str(installed),
+            ],
+            check=True,
+        )
     if generation:
-        helper = install_builder_helper(target_directory, mode, installed)
-        print(f"Builder helper: {helper}", file=sys.stderr)
-        print(f"Builder helper SHA-256: {sha256(helper)}", file=sys.stderr)
         print(
-            "Create an operator profile with scripts/generation-profile.py and pass "
-            "`--generation-config <profile>` to `wassette acp`.",
+            "Place the builder image at ~/.local/share/wassette/builder/rust-initrd.cpio "
+            "to enable component generation.",
             file=sys.stderr,
         )
 
@@ -218,13 +205,13 @@ def main() -> int:
         dest="generation",
         action="store_true",
         default=True,
-        help="build with component-generation and install the pre-built builder helper (default)",
+        help="build with component-generation (default)",
     )
     generation.add_argument(
         "--no-generation",
         dest="generation",
         action="store_false",
-        help="build without component-generation or the builder helper",
+        help="build without component-generation",
     )
     args = parser.parse_args()
     root = Path(__file__).resolve().parent.parent

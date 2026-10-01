@@ -207,11 +207,6 @@ pub struct AcpArgs {
     /// Local component discovery: off, startup, or watch.
     #[arg(long, value_enum)]
     pub local_components: Option<AcpLocalComponentsMode>,
-
-    /// Trusted operator generation profile. Never inferred from a guest request.
-    #[cfg(feature = "component-generation")]
-    #[arg(long, value_name = "PATH")]
-    pub generation_config: Option<PathBuf>,
 }
 
 /// Coarse verbosity for the host's own logs.
@@ -290,6 +285,39 @@ pub fn generation_validator(
     local_source_validator(component_dir)
 }
 
+#[cfg(feature = "component-generation")]
+/// Canonical ACP WIT dependencies available to locally generated components.
+pub fn generation_wit_dependencies() -> Vec<String> {
+    fn package(files: &[&str]) -> String {
+        let mut files = files.iter();
+        let mut package = files.next().unwrap().to_string();
+        for file in files {
+            package.push('\n');
+            package.push_str(file.split_once(';').unwrap().1);
+        }
+        package
+    }
+
+    vec![
+        include_str!("../wit/acp/deps/wasmcloud-secrets/secrets.wit").into(),
+        include_str!("../wit/acp/deps/wassette-component-tools/tools.wit").into(),
+        include_str!("../../../wit/component-generation/builder.wit").into(),
+        package(&[
+            include_str!("../wit/acp/agent.wit"),
+            include_str!("../wit/acp/client.wit"),
+            include_str!("../wit/acp/content.wit"),
+            include_str!("../wit/acp/errors.wit"),
+            include_str!("../wit/acp/filesystem.wit"),
+            include_str!("../wit/acp/init.wit"),
+            include_str!("../wit/acp/prompts.wit"),
+            include_str!("../wit/acp/sessions.wit"),
+            include_str!("../wit/acp/terminals.wit"),
+            include_str!("../wit/acp/tools.wit"),
+            include_str!("../wit/acp/world.wit"),
+        ]),
+    ]
+}
+
 impl LogLevel {
     fn as_str(self) -> &'static str {
         match self {
@@ -350,15 +378,26 @@ pub async fn run(
     let resolver = Arc::new(Resolver::with_config(lifecycle_config.clone()));
     let tool_manager = Arc::new(::wassette::LifecycleManager::from_config(lifecycle_config).await?);
     #[cfg(feature = "component-generation")]
-    if let Some(path) = &args.generation_config {
-        let service = ::wassette::generation::GenerationConfig::read(path)?
-            .into_service()?
-            .with_validator(Arc::new(AcpLocalValidator::new(
-                engine.clone(),
-                component_dir.clone(),
-            )));
-        tool_manager.enable_generation(service)?;
-    }
+    let generation_enabled =
+        if let Some(mut config) = ::wassette::generation::GenerationConfig::discover()? {
+            config.builder.wit_dependencies = generation_wit_dependencies();
+            let service = config
+                .into_service()?
+                .with_validator(Arc::new(AcpLocalValidator::new(
+                    engine.clone(),
+                    component_dir.clone(),
+                )));
+            tool_manager.enable_generation(service)?;
+            true
+        } else {
+            tracing::info!(
+                image = %::wassette::generation::GenerationConfig::image_path()?.display(),
+                "Component generation unavailable; place the builder image at this path"
+            );
+            false
+        };
+    #[cfg(not(feature = "component-generation"))]
+    let generation_enabled = false;
     let local_source = if local_source_config.mode == ::wassette::local_source::LocalMode::Off {
         None
     } else {
@@ -455,10 +494,6 @@ pub async fn run(
                 &secrets,
             )
             .await?;
-            #[cfg(feature = "component-generation")]
-            let generation_enabled = args.generation_config.is_some();
-            #[cfg(not(feature = "component-generation"))]
-            let generation_enabled = false;
             if !layers.is_empty()
                 && (!args.tools.is_empty() || generation_enabled)
                 && !args.allow_shared_grants
@@ -613,6 +648,35 @@ mod tool_args_tests {
         let parsed = TestCli::try_parse_from(["test", "--provider", "provider"]).unwrap();
         assert!(parsed.acp.local_component_dir.is_none());
         assert!(parsed.acp.local_components.is_none());
+    }
+
+    #[test]
+    fn generation_profile_argument_is_not_supported() {
+        assert!(
+            TestCli::try_parse_from([
+                "test",
+                "--provider",
+                "provider",
+                "--generation-config",
+                "operator.json",
+            ])
+            .is_err()
+        );
+    }
+
+    #[cfg(feature = "component-generation")]
+    #[test]
+    fn generated_layers_receive_the_canonical_acp_wit() {
+        let dependencies = generation_wit_dependencies();
+        assert_eq!(dependencies.len(), 4);
+        assert!(dependencies[3].contains("world layer"));
+        assert!(dependencies[3].contains("interface agent"));
+        assert_eq!(
+            dependencies[3]
+                .matches("package wassette:acp@7.0.0;")
+                .count(),
+            1
+        );
     }
 }
 

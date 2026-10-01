@@ -285,7 +285,7 @@ impl ToolBroker {
         }
     }
 
-    /// Whether the operator profile lets guests build and install components.
+    /// Whether the discovered builder lets guests build and install components.
     /// Exposure and rebuild remain separately checked per request.
     pub(crate) fn generation_available(&self) -> bool {
         #[cfg(feature = "component-generation")]
@@ -1440,7 +1440,7 @@ mod tests {
                             wit_sha256: "b".repeat(64),
                             wit_dependencies_sha256: "b".repeat(64),
                             builder_initrd_sha256: "c".repeat(64),
-                            builder_helper_sha256: "c".repeat(64),
+                            builder_helper_sha256: Some("c".repeat(64)),
                             builder_manifest_digest: None,
                             profile: "test".into(),
                             profile_sha256: "d".repeat(64),

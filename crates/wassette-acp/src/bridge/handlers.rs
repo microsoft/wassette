@@ -750,11 +750,22 @@ async fn run_tools_command(
                 if enabled { "enabled" } else { "disabled" }
             ));
         }
-        if handle.generation_available().await {
-            rows.push("| `build_component` | `host` | enabled | Build a WebAssembly component (controlled by the operator generation profile). |".into());
+        let generation_available = handle.generation_available().await;
+        if generation_available {
+            rows.push("| `build_component` | `host` | enabled | Build a WebAssembly component (with editor approval). |".into());
         }
+        #[cfg(feature = "component-generation")]
+        let generation_hint = if generation_available {
+            ""
+        } else {
+            "\n\nComponent generation is unavailable. To enable it, install the builder image at `~/.local/share/wassette/builder/rust-initrd.cpio`."
+        };
+        #[cfg(not(feature = "component-generation"))]
+        let generation_hint = "";
         if rows.is_empty() {
-            return Ok("No tools are available in this session. Install an ordinary tool component or enable a host capability to see it here.".into());
+            return Ok(format!(
+                "No tools are available in this session. Install an ordinary tool component or enable a host capability to see it here.{generation_hint}"
+            ));
         }
         rows.sort();
         let mut table = format!(
@@ -764,6 +775,7 @@ async fn run_tools_command(
         if no_component_tools {
             table.push_str("\n\nNo ordinary tool components are available in this session.");
         }
+        table.push_str(generation_hint);
         return Ok(table);
     }
     if !matches!(action, "enable" | "disable") {
@@ -777,7 +789,7 @@ async fn run_tools_command(
     }
     if matches!(name, "terminal" | "build_component") {
         anyhow::bail!(
-            "`{name}` is host-owned; use the ACP terminal option or the operator generation profile instead"
+            "`{name}` is host-owned; use the ACP terminal option or install the component builder image instead"
         );
     }
     if !dynamic_exposure_allowed {
