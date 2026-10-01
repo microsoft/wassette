@@ -429,7 +429,12 @@ impl PreparedInstall {
             }
         }
         let inspection = inspect_artifact(&wasm)?;
-        let component_id = inspection.identity.clone().map_err(anyhow::Error::from)?;
+        let component_id =
+            if let Some(package_id) = options.origin.location.strip_prefix("wasm.directory:") {
+                ComponentId::from_declared_name(package_id).map_err(anyhow::Error::from)?
+            } else {
+                inspection.identity.clone().map_err(anyhow::Error::from)?
+            };
         let kind = match inspection.shape {
             ArtifactShape::ToolCandidate => StoredArtifactKind::Tool,
             ArtifactShape::AcpProvider => StoredArtifactKind::AcpProvider,

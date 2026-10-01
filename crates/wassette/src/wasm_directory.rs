@@ -14,7 +14,7 @@ use url::Url;
 
 use crate::acquisition::{self, AcquiredComponent};
 use crate::store::OriginEvidence;
-use crate::{inspect_artifact, LifecycleConfig, StorageKey};
+use crate::{LifecycleConfig, StorageKey};
 
 #[cfg(any(test, feature = "test-fixtures"))]
 pub mod fixtures;
@@ -553,18 +553,6 @@ pub async fn acquire_package(
                 resolved.package_id, resolved.selected_version, resolved.manifest_digest
             )
         })?;
-    if let Err(error) = inspect_artifact(&acquired.wasm)?.identity {
-        bail!(
-            "Package {} {} ({}) cannot be installed: {error}. Component IDs come only from \
-             the artifact's embedded root name, never from registry metadata. The publisher \
-             must embed a root component name before publishing, for example \
-             `wasm-tools metadata add --name <component-id> component.wasm -o component.wasm`, \
-             and then publish a new version.",
-            resolved.package_id,
-            resolved.selected_version,
-            resolved.manifest_digest,
-        );
-    }
     let package_name = resolved
         .package_id
         .repository
