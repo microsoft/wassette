@@ -98,7 +98,7 @@ fn start_generation(
             "--allow-shared-grants".into(),
         ]);
     }
-    let mut harness = Harness::spawn(bin, provider, args, xdg, None);
+    let mut harness = Harness::spawn(bin, provider, args, xdg, None, &[]);
     harness.line_timeout = Duration::from_secs(180);
     harness
 }
