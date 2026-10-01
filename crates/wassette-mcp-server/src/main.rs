@@ -25,7 +25,7 @@ use tokio_util::sync::CancellationToken;
 use tracing_subscriber::layer::SubscriberExt as _;
 use tracing_subscriber::util::SubscriberInitExt as _;
 use wassette::local_source::{LocalMode, LocalSourceConfig, LocalSourceService};
-use wassette::wasm_directory::{PackageId, WasmDirectoryClient};
+use wassette::wasm_directory::{PackageSelector, WasmDirectoryClient};
 
 mod cli_handlers;
 mod commands;
@@ -58,10 +58,9 @@ async fn install_registry_package(
     component: &str,
     version: Option<&str>,
 ) -> Result<serde_json::Value> {
-    let package_id = PackageId::parse(component)
-        .context("Expected a canonical wasm.directory package identity")?;
+    let selector = PackageSelector::parse(component)?;
     let (resolved, outcome) = lifecycle_manager
-        .install_package(directory, &package_id, version)
+        .install_package(directory, &selector, version)
         .await?;
     let receipt = match &outcome.entry {
         wassette::store::StoredEntry::Installed(receipt) => receipt,
@@ -72,6 +71,7 @@ async fn install_registry_package(
     Ok(json!({
         "status": "installed",
         "package": resolved.package_id.to_string(),
+        "wit_identity": resolved.wit_identity,
         "requested_version": resolved.requested_version,
         "selected_version": resolved.selected_version,
         "manifest_digest": resolved.manifest_digest,

@@ -22,6 +22,7 @@ use wassette::store::{
     PolicyMetadata, PolicyProvenance, PreparedInstall, PreparedPolicy, StoreError, StoredEntry,
     ValidationEvidence,
 };
+use wassette::wasm_directory::{self, PackageId, PackageSelector, WasmDirectoryClient};
 
 /// One admitted snapshot; `path` is informational and must not be reopened.
 #[derive(Clone)]
@@ -73,9 +74,45 @@ fn classify(arg: &str) -> Result<Reference<'_>> {
     }
 }
 
+/// Classify a non-URI selector that names a wasm.directory package.
+///
+/// Installed names and existing paths take precedence. `namespace:package`
+/// selectors always resolve through wasm.directory; `registry/repository`
+/// only does when no such local path exists.
+fn package_selector(arg: &str) -> Result<Option<PackageSelector>> {
+    Ok(match classify(arg)? {
+        Reference::Id(id) if id.contains(':') => {
+            Some(PackageSelector::parse(id).with_context(|| {
+                format!(
+                    "no installed component `{id}`, and it is not a valid wasm.directory \
+                     `namespace:package[@version]` selector"
+                )
+            })?)
+        }
+        Reference::Path(path)
+            if !path.ends_with(".wasm")
+                && looks_like_registry(path)
+                && !Path::new(path).exists() =>
+        {
+            PackageId::parse(path).ok().map(PackageSelector::Package)
+        }
+        _ => None,
+    })
+}
+
+/// Follow the OCI convention: the first segment names a registry only when it
+/// is `localhost` or contains a `.` or `:`, and it never starts with a `.`.
+fn looks_like_registry(arg: &str) -> bool {
+    arg.split_once('/').is_some_and(|(registry, _)| {
+        !registry.starts_with('.')
+            && (registry == "localhost" || registry.contains('.') || registry.contains(':'))
+    })
+}
+
 /// Resolves with the caller's configured clients, without an ordinary MCP engine.
 pub struct Resolver {
     config: wassette::LifecycleConfig,
+    directory: Option<WasmDirectoryClient>,
 }
 
 impl Resolver {
@@ -87,7 +124,24 @@ impl Resolver {
     }
 
     pub fn with_config(config: wassette::LifecycleConfig) -> Self {
-        Self { config }
+        Self {
+            config,
+            directory: None,
+        }
+    }
+
+    /// Use an explicit wasm.directory client instead of the environment's.
+    #[cfg(test)]
+    pub fn with_directory(mut self, directory: WasmDirectoryClient) -> Self {
+        self.directory = Some(directory);
+        self
+    }
+
+    fn directory(&self) -> Result<WasmDirectoryClient> {
+        match &self.directory {
+            Some(directory) => Ok(directory.clone()),
+            None => WasmDirectoryClient::from_environment(),
+        }
     }
 
     pub fn component_dir(&self) -> &Path {
@@ -154,24 +208,28 @@ impl Resolver {
                 Err(error) => return Err(error.into()),
             }
         }
-        let uri = match classify(arg)? {
-            Reference::Id(id) => anyhow::bail!(
-                "no component `{id}` in {}; install a named ACP artifact from a path or URI first",
-                self.component_dir().display()
-            ),
-            Reference::Path(path) => {
-                let absolute = std::path::absolute(path)
-                    .with_context(|| format!("resolving component path `{path}`"))?;
-                format!("file://{}", absolute.display())
+        let acquired = match package_selector(arg)? {
+            Some(selector) => {
+                if let Some(tx) = &progress {
+                    let _ = tx.try_send(format!("Resolving `{selector}` on wasm.directory…"));
+                }
+                let (resolved, acquired) = wasm_directory::acquire_package(
+                    &self.directory()?,
+                    &selector,
+                    None,
+                    &self.config,
+                )
+                .await?;
+                if let Some(tx) = &progress {
+                    let _ = tx.try_send(format!(
+                        "Captured {} {} ({})",
+                        resolved.package_id, resolved.selected_version, resolved.manifest_digest
+                    ));
+                }
+                acquired
             }
-            Reference::Uri(uri) => uri.to_string(),
+            None => self.acquire_uri(arg, progress.as_ref()).await?,
         };
-        if let Some(tx) = &progress {
-            let _ = tx.try_send("Capturing component…".to_string());
-        }
-        let acquired = wassette::acquisition::acquire_component(&uri, &self.config, true)
-            .await
-            .with_context(|| format!("fetching component `{uri}`"))?;
         let inspection = wassette::inspect_artifact(&acquired.wasm)?;
         let component_id = inspection.identity.map_err(anyhow::Error::from)?;
         let observer = store.clone();
@@ -232,6 +290,32 @@ impl Resolver {
             },
             compiled.context("ACP validator did not compile the component")?,
         ))
+    }
+
+    async fn acquire_uri(
+        &self,
+        arg: &str,
+        progress: Option<&Sender<String>>,
+    ) -> Result<wassette::acquisition::AcquiredComponent> {
+        let uri = match classify(arg)? {
+            Reference::Id(id) => anyhow::bail!(
+                "no component `{id}` in {}; install a named ACP artifact from a path, URI or \
+                 wasm.directory package (`namespace:package[@version]`) first",
+                self.component_dir().display()
+            ),
+            Reference::Path(path) => {
+                let absolute = std::path::absolute(path)
+                    .with_context(|| format!("resolving component path `{path}`"))?;
+                format!("file://{}", absolute.display())
+            }
+            Reference::Uri(uri) => uri.to_string(),
+        };
+        if let Some(tx) = progress {
+            let _ = tx.try_send("Capturing component…".to_string());
+        }
+        wassette::acquisition::acquire_component(&uri, &self.config, true)
+            .await
+            .with_context(|| format!("fetching component `{uri}`"))
     }
 
     fn validate(
@@ -360,6 +444,154 @@ mod tests {
             assert_eq!(classify(path).unwrap(), Reference::Path(path));
         }
         assert_eq!(classify("agent").unwrap(), Reference::Id("agent"));
+    }
+
+    #[test]
+    fn package_selectors_are_recognized_after_paths_and_names() {
+        assert!(matches!(
+            package_selector("yosh:wordmark@2.0.6").unwrap(),
+            Some(PackageSelector::Wit(_))
+        ));
+        assert!(matches!(
+            package_selector("ghcr.io/yoshuawuyts/components/wordmark").unwrap(),
+            Some(PackageSelector::Package(_))
+        ));
+        assert!(package_selector("Yosh:wordmark").is_err());
+        for other in [
+            "agent",
+            "agent.wasm",
+            "./target/agent",
+            "../target/agent",
+            "target/agent",
+            "/abs/agent",
+            "oci://ghcr.io/org/agent:0.1.0",
+        ] {
+            assert!(package_selector(other).unwrap().is_none(), "{other}");
+        }
+    }
+
+    fn directory_resolver(
+        fixture: &wassette::wasm_directory::fixtures::WasmDirectoryFixture,
+        dir: &Path,
+    ) -> Resolver {
+        Resolver::with_config(
+            wassette::LifecycleManager::builder(dir)
+                .with_oci_client(fixture.oci_client())
+                .build_config()
+                .unwrap(),
+        )
+        .with_directory(fixture.directory().unwrap())
+    }
+
+    #[tokio::test]
+    async fn install_resolves_wit_selector_through_wasm_directory() {
+        use wassette::wasm_directory::fixtures::{FixturePackage, WasmDirectoryFixture};
+
+        let fixture = WasmDirectoryFixture::start(vec![
+            FixturePackage::new(
+                "owner/agent",
+                Some("demo:agent"),
+                [
+                    ("1.0.0", named_fixture("demo-agent", false)),
+                    ("1.1.0", named_fixture("demo-agent", false)),
+                ],
+            ),
+            FixturePackage::new(
+                "owner/agent-extra",
+                Some("demo:agent-extra"),
+                [("1.0.0", named_fixture("other", false))],
+            ),
+        ])
+        .await
+        .unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        let resolver = directory_resolver(&fixture, dir.path());
+        let engine = Engine::default();
+        let (tx, mut rx) = tokio::sync::mpsc::channel(8);
+
+        let installed = resolver
+            .install_validated("demo:agent", Some(tx), &engine)
+            .await
+            .unwrap();
+        assert_eq!(installed.component_id, "demo-agent");
+        let origin = &installed.snapshot.receipt.origin;
+        assert_eq!(origin.selected_version.as_deref(), Some("1.1.0"));
+        assert_eq!(
+            origin.manifest_digest.as_deref(),
+            Some(fixture.digest("owner/agent", "1.1.0"))
+        );
+        let mut messages = Vec::new();
+        while let Ok(message) = rx.try_recv() {
+            messages.push(message);
+        }
+        assert!(
+            messages
+                .iter()
+                .any(|message| message.contains(fixture.digest("owner/agent", "1.1.0"))),
+            "{messages:?}"
+        );
+
+        let pinned = resolver
+            .install_validated("demo:agent@1.0.0", None, &engine)
+            .await
+            .unwrap();
+        assert_eq!(
+            pinned.snapshot.receipt.origin.manifest_digest.as_deref(),
+            Some(fixture.digest("owner/agent", "1.0.0"))
+        );
+
+        let canonical = resolver
+            .install_validated(&fixture.package_id("owner/agent"), None, &engine)
+            .await
+            .unwrap();
+        assert_eq!(canonical.component_id, "demo-agent");
+
+        let missing = resolver
+            .install_validated("demo:absent", None, &engine)
+            .await
+            .unwrap_err();
+        assert!(
+            format!("{missing:#}").contains("No wasm.directory component package"),
+            "{missing:#}"
+        );
+    }
+
+    #[tokio::test]
+    async fn install_reports_nameless_wasm_directory_artifacts() {
+        use wassette::wasm_directory::fixtures::{FixturePackage, WasmDirectoryFixture};
+
+        let nameless = wat::parse_str(
+            r#"(component
+                (instance (;0;))
+                (export "wassette:acp/agent@7.0.0" (instance 0)))"#,
+        )
+        .unwrap();
+        let fixture = WasmDirectoryFixture::start(vec![FixturePackage::new(
+            "owner/nameless",
+            Some("demo:nameless"),
+            [("2.0.6", nameless)],
+        )])
+        .await
+        .unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        let resolver = directory_resolver(&fixture, dir.path());
+        let error = resolver
+            .install_validated("demo:nameless", None, &Engine::default())
+            .await
+            .unwrap_err();
+        let message = format!("{error:#}");
+        assert!(
+            message.contains(&fixture.package_id("owner/nameless")),
+            "{message}"
+        );
+        assert!(
+            message.contains(fixture.digest("owner/nameless", "2.0.6")),
+            "{message}"
+        );
+        assert!(
+            message.contains("wasm-tools metadata add --name"),
+            "{message}"
+        );
     }
 
     #[tokio::test]

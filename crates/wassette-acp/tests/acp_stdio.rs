@@ -129,6 +129,10 @@ impl Harness {
     /// Start `wassette acp --provider <wasm> [extra…]` with fresh XDG
     /// directories.
     fn start(bin: &Path, wasm: &Path, extra: &[&str]) -> Harness {
+        Self::start_with_env(bin, wasm, extra, &[])
+    }
+
+    fn start_with_env(bin: &Path, wasm: &Path, extra: &[&str], env: &[(&str, &str)]) -> Harness {
         let xdg = tempfile::tempdir().expect("tempdir");
         let data = xdg.path().join("data");
         let config = xdg.path().join("config");
@@ -148,6 +152,8 @@ impl Harness {
             // The host prefers RUST_LOG over --log-level; clear it so a
             // developer's ambient value cannot change what is logged.
             .env_remove("RUST_LOG")
+            .env_remove("WASSETTE_WASM_DIRECTORY_URL")
+            .envs(env.iter().copied())
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
@@ -668,6 +674,63 @@ fn install_local_path_reports_receipt_backed_installation() {
             .exists(),
         "local input was not transactionally installed"
     );
+}
+
+#[test]
+fn install_resolves_wit_selectors_through_wasm_directory() {
+    use wassette::wasm_directory::fixtures::{FixturePackage, WasmDirectoryFixture};
+
+    let Some((bin, wasm)) = artifacts() else {
+        return;
+    };
+    let runtime = tokio::runtime::Runtime::new().unwrap();
+    let fixture = runtime
+        .block_on(WasmDirectoryFixture::start(vec![
+            FixturePackage::new("owner/first", Some("demo:agent"), []),
+            FixturePackage::new("owner/second", Some("demo:agent"), []),
+        ]))
+        .unwrap();
+    let api_url = fixture.api_url.to_string();
+    let mut h = Harness::start_with_env(
+        &bin,
+        &wasm,
+        &[],
+        &[("WASSETTE_WASM_DIRECTORY_URL", &api_url)],
+    );
+    let sid = h.open_session();
+    for (selector, expected) in [
+        (
+            "demo:absent",
+            "No wasm.directory component package has WIT identity demo:absent".to_owned(),
+        ),
+        (
+            "demo:agent@1.0.0",
+            format!(
+                "matches multiple wasm.directory packages; select one by its \
+                 registry/repository identity: {}, {}",
+                fixture.package_id("owner/first"),
+                fixture.package_id("owner/second")
+            ),
+        ),
+    ] {
+        let id = h.request(
+            "session/prompt",
+            json!({"sessionId": sid, "prompt": [{"type": "text", "text": format!("/install {selector}")}]}),
+        );
+        let (updates, response) = h.await_response(id);
+        assert_eq!(response["stopReason"], "end_turn");
+        let failed = updates
+            .iter()
+            .find(|m| {
+                m["params"]["update"]["sessionUpdate"] == "tool_call_update"
+                    && m["params"]["update"]["status"] == "failed"
+            })
+            .expect("failed install tool-call update");
+        let text = failed["params"]["update"]["content"][0]["content"]["text"]
+            .as_str()
+            .expect("install result text");
+        assert!(text.contains(&expected), "{text}");
+    }
 }
 
 /// Prompting the instant `session/new` returns — inside the gate's flush

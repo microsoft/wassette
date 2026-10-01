@@ -588,6 +588,92 @@ mod tests {
     }
 
     #[test]
+    fn registry_get_and_mcp_package_load_resolve_wit_selectors() {
+        use wassette::wasm_directory::fixtures::{FixturePackage, WasmDirectoryFixture};
+
+        let runtime = tokio::runtime::Builder::new_multi_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        let root = test_root();
+        let fixture = runtime.block_on(async {
+            let one = component_uri(&root.path().join("one"), 1).await;
+            let two = component_uri(&root.path().join("two"), 2).await;
+            let read = |uri: &str| std::fs::read(uri.strip_prefix("file://").unwrap()).unwrap();
+            WasmDirectoryFixture::start(vec![FixturePackage::new(
+                "owner/catalog-fixture",
+                Some("demo:catalog-fixture"),
+                [("1.0.0", read(&one)), ("1.2.3", read(&two))],
+            )])
+            .await
+            .unwrap()
+        });
+        let api_url = fixture.api_url.to_string();
+        temp_env::with_vars(
+            [("WASSETTE_WASM_DIRECTORY_URL", Some(api_url.as_str()))],
+            || {
+                runtime.block_on(async {
+                    let manager = LifecycleManager::builder(root.path().join("store"))
+                        .with_secrets_dir(root.path().join("secrets"))
+                        .with_eager_loading(false)
+                        .with_oci_client(fixture.oci_client())
+                        .build()
+                        .await
+                        .unwrap();
+                    let directory = fixture.directory().unwrap();
+                    let package = fixture.package_id("owner/catalog-fixture");
+
+                    let installed = crate::install_registry_package(
+                        &manager,
+                        &directory,
+                        "demo:catalog-fixture",
+                        None,
+                    )
+                    .await
+                    .unwrap();
+                    assert_eq!(installed["package"], package);
+                    assert_eq!(installed["wit_identity"], "demo:catalog-fixture");
+                    assert_eq!(installed["selected_version"], "1.2.3");
+                    assert_eq!(
+                        installed["manifest_digest"],
+                        fixture.digest("owner/catalog-fixture", "1.2.3")
+                    );
+                    assert_eq!(installed["component_id"], "catalog-fixture");
+                    assert!(manager.catalog().await.unwrap().tools.is_empty());
+
+                    let request = CallToolRequestParams::new("load-component").with_arguments(
+                        serde_json::Map::from_iter([(
+                            "package".to_owned(),
+                            serde_json::json!("demo:catalog-fixture@1.0.0"),
+                        )]),
+                    );
+                    let response = handle_tools_call(request, &manager, false).await.unwrap();
+                    let result: Value =
+                        serde_json::from_str(response["content"][0]["text"].as_str().unwrap())
+                            .unwrap();
+                    assert_eq!(result["id"], "catalog-fixture", "{result}");
+                    assert_eq!(result["package"], package);
+                    assert_eq!(result["selected_version"], "1.0.0");
+                    assert_eq!(
+                        result["manifest_digest"],
+                        fixture.digest("owner/catalog-fixture", "1.0.0")
+                    );
+                    assert_eq!(manager.catalog().await.unwrap().tools.len(), 1);
+
+                    let missing =
+                        crate::install_registry_package(&manager, &directory, "demo:absent", None)
+                            .await
+                            .unwrap_err();
+                    assert!(
+                        format!("{missing:#}").contains("No wasm.directory component package"),
+                        "{missing:#}"
+                    );
+                })
+            },
+        );
+    }
+
+    #[test]
     fn registry_get_then_mcp_package_load_exposes_one_catalog_generation() {
         let runtime = tokio::runtime::Builder::new_multi_thread()
             .enable_all()
