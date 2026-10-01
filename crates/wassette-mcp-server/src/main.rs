@@ -526,11 +526,30 @@ async fn main() -> Result<()> {
                     request,
                     component_dir,
                     generation_config,
+                    emit_source,
                 } => {
                     generation::component_build(
                         request,
                         component_dir.clone().or_else(|| cli.component_dir.clone()),
                         generation_config.clone(),
+                        emit_source.as_deref(),
+                    )
+                    .await?;
+                }
+                #[cfg(feature = "component-generation")]
+                ComponentCommands::Source {
+                    id,
+                    revision,
+                    out,
+                    force,
+                    component_dir,
+                } => {
+                    generation::component_source(
+                        id,
+                        revision.as_deref(),
+                        out.as_deref(),
+                        *force,
+                        component_dir.clone().or_else(|| cli.component_dir.clone()),
                     )
                     .await?;
                 }

@@ -98,6 +98,11 @@ fn install_read_noop_and_reinstall_preserve_semantic_binding() {
     let first = install(&store, "actual:name", options("private-key"));
     let read = store.read("actual:name").unwrap();
     assert_eq!(read.wasm, wasm("actual:name"));
+    #[cfg(feature = "component-generation")]
+    assert!(matches!(
+        store.read_source("actual:name", None),
+        Err(StoreError::NotFound(_))
+    ));
     assert_eq!(read.receipt, *receipt(&first));
     assert!(matches!(
         store.read("private-key"),

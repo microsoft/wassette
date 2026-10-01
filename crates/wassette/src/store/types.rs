@@ -635,6 +635,9 @@ pub struct InstallReceipt {
     pub owner: InstallOwner,
     /// Hash of the captured Wasm artifact.
     pub artifact_sha256: String,
+    /// Digest of the private generated build request, when retention is enabled.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source_bundle_sha256: Option<String>,
     /// L1 route admitted by preparation.
     pub kind: StoredArtifactKind,
     /// Runtime checks actually performed.

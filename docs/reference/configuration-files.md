@@ -108,6 +108,14 @@ controlled booleans, all false by default:
 | `allow_expose` | Requesting ordinary-tool exposure, separately from installation |
 | `allow_rebuild` | Replacing a generated lineage at an explicitly matched revision |
 
+`retain_source` defaults to `true`. Set it to `false` to omit the private
+generated-source bundle from new installs/rebuilds. The bundle contains the
+author's exact Rust source and WIT, which may include anything the author
+supplied (including secrets); protect the managed store accordingly. This
+operator-only storage choice does not change the compiler inputs or
+`profile_sha256`. Existing retained bundles are removed on a rebuild with
+retention disabled or on uninstall.
+
 **Operator profile example:** Replace both SHA-256 placeholders with the
 64-character lowercase hexadecimal digests of the provisioned files. Create the
 private staging directory before starting Wassette; it must not be the live

@@ -77,6 +77,8 @@ is disabled by default. A trusted operator JSON profile must also be configured:
 
 ```bash
 wassette component build request.json --generation-config operator-generation.json
+wassette component build request.json --generation-config operator-generation.json --emit-source ./source
+wassette component source 'example:generated' --out ./source
 wassette run --generation-config operator-generation.json
 wassette serve --generation-config operator-generation.json
 ```
@@ -89,10 +91,29 @@ are not builder defaults. Escaped JSON can exceed the total cap even when
 decoded fields fit. Component names accept up to 512 UTF-8 bytes and worlds up
 to 256 bytes without changing their spelling. The configured builder may impose
 stricter source/WIT limits, including the shared request-plus-dependency WIT
-budget. `--component-dir` selects the managed store. There is no output
-path or host compiler flag: the separate `wassette-builder` executable builds
+budget. `--component-dir` selects the managed store. `--emit-source DIR`
+optionally writes a local rebuildable source layout after a successful build;
+it refuses a non-empty directory. There is no host compiler flag: the separate `wassette-builder` executable builds
 inside Hyperlight, and the host validates captured output before installing
 through the shared component store.
+
+### `wassette component source` (opt-in)
+
+Use `wassette component source <component-id> [--revision TOKEN] [--out DIR]
+[--force] [--component-dir DIR]` to retrieve the installed revision's retained
+source. Without `--out`, it prints a rebuildable generation request as JSON.
+With `--out`, it writes `src/lib.rs`, `wit/world.wit`, and `request.json`; pass
+the latter to `wassette component build` with an operator profile (in a store
+where the component name is available). `--revision` requires an exact match
+with the installed receipt; earlier revision bundles are removed on replacement.
+A non-empty output directory requires `--force`; symlink targets are never
+overwritten. Non-generated components, retired components and generated
+components built with `retain_source: false` have no retrievable bundle and
+return an error. Only the request's build inputs are retained, not builder
+paths, operator profile, policies or credentials. Authors can put arbitrary
+sensitive content in source: treat the component store and exported files as
+private. No MCP source-reading tool is exposed because the existing built-in
+permission model does not separately authorize disclosure of these contents.
 
 The profile path uses CLI > `WASSETTE_GENERATION_CONFIG` > `generation_config` in
 `config.toml` precedence. The profile is trusted operator configuration, never

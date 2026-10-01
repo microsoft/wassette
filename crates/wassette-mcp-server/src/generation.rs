@@ -5,10 +5,11 @@
 
 use std::path::{Path, PathBuf};
 
-use anyhow::{bail, Context, Result};
+use anyhow::{bail, ensure, Context, Result};
 use mcp_server::generation::{error_report, read_request, GenerationJobs};
 use tokio_util::sync::CancellationToken;
-use wassette::generation::GenerationConfig;
+use wassette::generation::{GenerationConfig, GenerationRequest, GenerationTarget};
+use wassette::store::InstallIntent;
 use wassette::LifecycleManager;
 
 use crate::commands::Run;
@@ -33,8 +34,9 @@ pub async fn component_build(
     request_path: &Path,
     component_dir: Option<PathBuf>,
     generation_config: Option<PathBuf>,
+    emit_source: Option<&Path>,
 ) -> Result<()> {
-    match build(request_path, component_dir, generation_config).await {
+    match build(request_path, component_dir, generation_config, emit_source).await {
         Ok(report) => print_value(&report, OutputFormat::Json),
         Err(error) => {
             print_value(&error_report(&error), OutputFormat::Json)?;
@@ -47,6 +49,7 @@ async fn build(
     request_path: &Path,
     component_dir: Option<PathBuf>,
     generation_config: Option<PathBuf>,
+    emit_source: Option<&Path>,
 ) -> Result<serde_json::Value> {
     let config = Config::from_run(
         &Run {
@@ -69,6 +72,10 @@ async fn build(
     let request = read_request(
         std::fs::File::open(request_path).context("opening component generation request")?,
     )?;
+    if let Some(path) = emit_source {
+        check_output_directory(path, false)?;
+    }
+    let emitted = emit_source.map(|_| request.build.clone());
     let jobs = GenerationJobs::default();
     let cancel = CancellationToken::new();
     let operation = jobs.build(&manager, request, cancel.clone());
@@ -83,7 +90,131 @@ async fn build(
         }
     };
     jobs.shutdown().await;
-    result
+    let report = result?;
+    if let (Some(path), Some(source)) = (emit_source, emitted) {
+        write_source_layout(path, &source, false).with_context(|| {
+            format!(
+                "component {} revision {} was committed, but local source export failed; recover with `wassette component source`",
+                report["component_id"], report["revision"]
+            )
+        })?;
+    }
+    Ok(report)
+}
+
+/// Retrieve a retained request from the authoritative component store.
+pub async fn component_source(
+    id: &str,
+    revision: Option<&str>,
+    out: Option<&Path>,
+    force: bool,
+    component_dir: Option<PathBuf>,
+) -> Result<()> {
+    let config = Config::from_run(
+        &Run {
+            component_dir,
+            generation_config: None,
+            local_component_dir: None,
+            local_components: None,
+            env_vars: Vec::new(),
+            env_file: None,
+            disable_builtin_tools: false,
+        },
+        None,
+    )?;
+    let store = wassette::store::ComponentStore::open(config.component_dir)?;
+    let id = id.to_owned();
+    let revision = revision.map(str::to_owned);
+    let source = tokio::task::spawn_blocking(move || {
+        let receipt = store.read(&id)?.receipt;
+        if let Some(expected) = revision {
+            ensure!(
+                receipt.revision.to_string() == expected,
+                "component revision does not match"
+            );
+        }
+        Ok::<_, anyhow::Error>(store.read_source(&id, Some(&receipt.revision))?)
+    })
+    .await??;
+    if let Some(out) = out {
+        write_source_layout(out, &source, force)?;
+    } else {
+        let request = rebuildable_request(source);
+        print_value(&serde_json::to_value(request)?, OutputFormat::Json)?;
+    }
+    Ok(())
+}
+
+fn rebuildable_request(build: wassette::generation::BuildRequest) -> GenerationRequest {
+    GenerationRequest {
+        build,
+        target: GenerationTarget::New,
+        intent: InstallIntent::InstallOnly,
+        reinstall_policy: None,
+    }
+}
+
+fn write_source_layout(
+    directory: &Path,
+    source: &wassette::generation::BuildRequest,
+    force: bool,
+) -> Result<()> {
+    check_output_directory(directory, force)?;
+    let src = directory.join("src");
+    let wit = directory.join("wit");
+    let files = [
+        src.join("lib.rs"),
+        wit.join("world.wit"),
+        directory.join("request.json"),
+    ];
+    for subdir in [&src, &wit] {
+        if subdir.exists() || subdir.is_symlink() {
+            ensure!(
+                subdir.is_dir() && !subdir.is_symlink(),
+                "source output subdirectory is not a real directory"
+            );
+        }
+    }
+    for path in &files {
+        if path.exists() || path.is_symlink() {
+            ensure!(
+                force && path.is_file() && !path.is_symlink(),
+                "refusing to overwrite source output {}",
+                path.display()
+            );
+        }
+    }
+    if !directory.exists() {
+        std::fs::create_dir_all(directory).context("creating source output directory")?;
+    }
+    for subdir in [&src, &wit] {
+        if !subdir.exists() {
+            std::fs::create_dir(subdir).context("creating source output subdirectory")?;
+        }
+    }
+    let request = serde_json::to_vec_pretty(&rebuildable_request(source.clone()))?;
+    for (path, bytes) in [
+        (&files[0], source.source.as_bytes()),
+        (&files[1], source.wit.as_bytes()),
+        (&files[2], request.as_slice()),
+    ] {
+        std::fs::write(path, bytes).with_context(|| format!("writing {}", path.display()))?;
+    }
+    Ok(())
+}
+
+fn check_output_directory(directory: &Path, force: bool) -> Result<()> {
+    if directory.exists() || directory.is_symlink() {
+        ensure!(
+            directory.is_dir() && !directory.is_symlink(),
+            "output must be a real directory"
+        );
+        ensure!(
+            force || std::fs::read_dir(directory)?.next().is_none(),
+            "output directory is not empty (pass --force to overwrite)"
+        );
+    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -91,7 +222,13 @@ mod tests {
     use std::fs;
 
     use serde_json::{json, Value};
+    use sha2::Digest;
     use wassette::generation::BuildLimits;
+    use wassette::store::{
+        ComponentStore, GenerationEvidence, InstallOptions, InstallOwner, OriginEvidence,
+        PolicyProvenance, PreparedInstall, PreparedPolicy, SourceIdentity, ValidationEvidence,
+    };
+    use wassette::StorageKey;
 
     use super::*;
 
@@ -106,10 +243,159 @@ mod tests {
     }
 
     #[test]
+    fn source_layout_round_trips_and_requires_force_for_nonempty_directory() {
+        let root = tempfile::tempdir().unwrap();
+        let output = root.path().join("source");
+        let build = wassette::generation::BuildRequest {
+            component_name: "example:generated".into(),
+            source: "struct Component;".into(),
+            wit: "package example:generated; world tool {}".into(),
+            world: "tool".into(),
+            kind: wassette::generation::ComponentKind::Tool,
+        };
+        write_source_layout(&output, &build, false).unwrap();
+        assert_eq!(
+            fs::read_to_string(output.join("src/lib.rs")).unwrap(),
+            build.source
+        );
+        assert_eq!(
+            fs::read_to_string(output.join("wit/world.wit")).unwrap(),
+            build.wit
+        );
+        let request = read_request(fs::File::open(output.join("request.json")).unwrap()).unwrap();
+        assert_eq!(request.build.source, build.source);
+        assert_eq!(request.build.wit, build.wit);
+        assert_eq!(
+            sha2::Sha256::digest(request.build.source.as_bytes()),
+            sha2::Sha256::digest(build.source.as_bytes()),
+        );
+        assert!(write_source_layout(&output, &build, false).is_err());
+        write_source_layout(&output, &build, true).unwrap();
+        let outside = root.path().join("outside");
+        fs::write(&outside, "safe").unwrap();
+        fs::remove_file(output.join("src/lib.rs")).unwrap();
+        #[cfg(unix)]
+        {
+            std::os::unix::fs::symlink(&outside, output.join("src/lib.rs")).unwrap();
+            assert!(write_source_layout(&output, &build, true).is_err());
+            assert_eq!(fs::read_to_string(outside).unwrap(), "safe");
+        }
+    }
+
+    #[tokio::test]
+    async fn source_command_checks_revision_and_output_overwrite() {
+        let root = tempfile::tempdir().unwrap();
+        let component_dir = root.path().join("components");
+        let store = ComponentStore::open(&component_dir).unwrap();
+        let build = wassette::generation::BuildRequest {
+            component_name: "example:generated".into(),
+            source: "struct Component;".into(),
+            wit: "package example:generated; world tool {}".into(),
+            world: "tool".into(),
+            kind: wassette::generation::ComponentKind::Tool,
+        };
+        let sha = |bytes: &[u8]| hex::encode(sha2::Sha256::digest(bytes));
+        let evidence: GenerationEvidence = serde_json::from_value(json!({
+            "source_sha256": sha(build.source.as_bytes()),
+            "wit_sha256": sha(build.wit.as_bytes()),
+            "wit_dependencies_sha256": "a".repeat(64),
+            "builder_initrd_sha256": "a".repeat(64),
+            "builder_helper_sha256": "a".repeat(64),
+            "builder_manifest_digest": null,
+            "profile": "test-profile",
+            "profile_sha256": "a".repeat(64),
+            "compiler": "rustc",
+            "bindgen": "bindgen",
+            "binding_runtime": "runtime",
+            "vm_runtime": "vm",
+            "world": build.world,
+            "target": "wasm32-wasip2",
+            "host_platform": "test"
+        }))
+        .unwrap();
+        let source = SourceIdentity::Generated { id: "a".repeat(32) };
+        let key = StorageKey::parse(&format!("generated_{}", "a".repeat(32))).unwrap();
+        let expected = store.observe(&build.component_name, &key, &source).unwrap();
+        let prepared = PreparedInstall::prepare(
+                wat::parse_str(r#"(component $"example:generated" (instance $empty) (export "empty" (instance $empty)))"#).unwrap(),
+                InstallOptions {
+                    storage_key: key,
+                    origin: OriginEvidence {
+                        location: format!("generated://{}", "a".repeat(32)),
+                        requested_version: None,
+                        selected_version: None,
+                        manifest_digest: None,
+                        immutable_uri: None,
+                        generation: Some(evidence),
+                    },
+                    source,
+                    owner: InstallOwner::Explicit,
+                    intent: InstallIntent::InstallOnly,
+                    policy: PreparedPolicy::absent(PolicyProvenance::Default),
+                    observation: None,
+                },
+                |_, _, _| Ok(ValidationEvidence::OrdinaryPrepared { runtime: "test".into() }),
+            ).unwrap();
+        let committed = store
+            .commit_generated_install(prepared, expected, Some(build.clone()))
+            .unwrap();
+        let output = root.path().join("export");
+        assert!(component_source(
+            &build.component_name,
+            Some("stale"),
+            Some(&output),
+            false,
+            Some(component_dir.clone())
+        )
+        .await
+        .is_err());
+        component_source(
+            &build.component_name,
+            Some(&committed.entry.revision().to_string()),
+            Some(&output),
+            false,
+            Some(component_dir.clone()),
+        )
+        .await
+        .unwrap();
+        assert!(component_source(
+            &build.component_name,
+            None,
+            Some(&output),
+            false,
+            Some(component_dir.clone())
+        )
+        .await
+        .is_err());
+        component_source(
+            &build.component_name,
+            None,
+            Some(&output),
+            true,
+            Some(component_dir),
+        )
+        .await
+        .unwrap();
+        let request = read_request(fs::File::open(output.join("request.json")).unwrap()).unwrap();
+        assert_eq!(
+            sha(request.build.source.as_bytes()),
+            sha(build.source.as_bytes())
+        );
+    }
+
+    #[test]
     fn reference_profile_requires_every_host_owned_builder_field() {
         let profile = reference_profile();
         let config: GenerationConfig = serde_json::from_value(profile.clone()).unwrap();
         assert_eq!(config.limits, BuildLimits::default());
+        assert!(config.retain_source);
+        let mut without_source = profile.clone();
+        without_source["retain_source"] = json!(false);
+        assert!(
+            !serde_json::from_value::<GenerationConfig>(without_source)
+                .unwrap()
+                .retain_source
+        );
         assert!(config.callers.is_empty());
         assert!(config.allow_build && config.allow_install);
         assert!(!config.allow_expose && !config.allow_rebuild);

@@ -129,6 +129,28 @@ impl ComponentStore {
         })
     }
 
+    /// Read a revision-checked generated build request, if it was retained.
+    #[cfg(feature = "component-generation")]
+    pub fn read_source(
+        &self,
+        id: &str,
+        expected: Option<&EntryRevision>,
+    ) -> Result<wassette_builder::BuildRequest> {
+        let mut capture = self.capture(Some(id), None)?;
+        let receipt = capture.installed(id)?.clone();
+        if let Some(expected) = expected {
+            check_revision(&receipt.revision, expected)?;
+        }
+        capture.verify(&receipt)?;
+        let bytes = capture.source_bytes(&receipt)?.ok_or_else(|| {
+            StoreError::NotFound(format!("no retained source for component {id}"))
+        })?;
+        let request: wassette_builder::BuildRequest = serde_json::from_slice(&bytes)
+            .map_err(|error| StoreError::Integrity(format!("invalid source bundle: {error}")))?;
+        verify_source_request(&request, &receipt)?;
+        Ok(request)
+    }
+
     /// Observe the exact binding needed for a later installation CAS.
     ///
     /// Retired state is not absence. Source identity and all physical/secret
@@ -161,7 +183,24 @@ impl ComponentStore {
         prepared: PreparedInstall,
         expected: ExpectedEntry,
     ) -> Result<CommitOutcome> {
-        self.commit_install_inner(prepared, expected, false)
+        self.commit_install_inner(prepared, expected, false, None)
+    }
+
+    /// Commit captured generated source and Wasm in one journal transaction.
+    #[cfg(feature = "component-generation")]
+    pub fn commit_generated_install(
+        &self,
+        prepared: PreparedInstall,
+        expected: ExpectedEntry,
+        source: Option<wassette_builder::BuildRequest>,
+    ) -> Result<CommitOutcome> {
+        let source = source
+            .map(|request| {
+                verify_source_request_for_install(&request, &prepared)?;
+                serde_json::to_vec(&request).map_err(anyhow::Error::from)
+            })
+            .transpose()?;
+        self.commit_install_inner(prepared, expected, false, source)
     }
 
     /// Commit a managed local installation that explicitly adopts an existing
@@ -171,7 +210,7 @@ impl ComponentStore {
         prepared: PreparedInstall,
         expected: ExpectedEntry,
     ) -> Result<CommitOutcome> {
-        self.commit_install_inner(prepared, expected, true)
+        self.commit_install_inner(prepared, expected, true, None)
     }
 
     fn commit_install_inner(
@@ -179,6 +218,7 @@ impl ComponentStore {
         prepared: PreparedInstall,
         expected: ExpectedEntry,
         adopt_explicit_local: bool,
+        source_bundle: Option<Vec<u8>>,
     ) -> Result<CommitOutcome> {
         if prepared.component_id != expected.component_id
             || prepared.options.storage_key != expected.storage_key
@@ -246,6 +286,7 @@ impl ComponentStore {
             origin: prepared.options.origin,
             owner: prepared.options.owner,
             artifact_sha256: prepared.artifact_sha256,
+            source_bundle_sha256: source_bundle.as_deref().map(digest),
             kind: prepared.kind,
             validation: prepared.validation,
             policy: prepared.options.policy.evidence,
@@ -266,6 +307,7 @@ impl ComponentStore {
             Mutation::Install {
                 wasm: prepared.wasm,
                 policy: prepared.options.policy.bytes,
+                source_bundle,
             },
         )
     }
@@ -530,6 +572,10 @@ impl ComponentStore {
             let new = match (*suffix, &mutation) {
                 (".install.json", _) => Some(record.as_slice()),
                 (".wasm", Mutation::Install { wasm, .. }) => Some(wasm.as_slice()),
+                (".source.json", Mutation::Install { source_bundle, .. }) => {
+                    source_bundle.as_deref()
+                }
+                (".source.json", Mutation::Policy(_)) => continue,
                 (".policy.yaml", Mutation::Install { policy, .. } | Mutation::Policy(policy)) => {
                     policy.as_deref()
                 }
@@ -676,6 +722,15 @@ impl ComponentStore {
                     "receipt/artifact presence mismatch".into(),
                 ));
             }
+            let source =
+                stamps.contains_key(&format!("{}.source.json", entry.storage_key().as_str()));
+            if source
+                != matches!(entry, StoredEntry::Installed(receipt) if receipt.source_bundle_sha256.is_some())
+            {
+                return Err(StoreError::Integrity(
+                    "receipt/source presence mismatch".into(),
+                ));
+            }
         }
         Ok(Index {
             head,
@@ -714,9 +769,71 @@ enum Mutation {
     Install {
         wasm: Vec<u8>,
         policy: Option<Vec<u8>>,
+        source_bundle: Option<Vec<u8>>,
     },
     Policy(Option<Vec<u8>>),
     Remove,
+}
+
+#[cfg(feature = "component-generation")]
+fn verify_source_request_for_install(
+    request: &wassette_builder::BuildRequest,
+    prepared: &PreparedInstall,
+) -> Result<()> {
+    let evidence = prepared.options.origin.generation.as_ref().ok_or_else(|| {
+        StoreError::Invalid(anyhow::anyhow!("source requires generation evidence"))
+    })?;
+    if request.component_name != prepared.component_id.as_str()
+        || digest(request.source.as_bytes()) != evidence.source_sha256
+        || digest(request.wit.as_bytes()) != evidence.wit_sha256
+        || request.world != evidence.world
+        || !matches!(
+            (&request.kind, &prepared.kind),
+            (
+                wassette_builder::ComponentKind::Tool,
+                StoredArtifactKind::Tool
+            ) | (
+                wassette_builder::ComponentKind::AcpLayer,
+                StoredArtifactKind::AcpLayer
+            )
+        )
+    {
+        return Err(StoreError::Invalid(anyhow::anyhow!(
+            "source bundle does not match generated artifact evidence"
+        )));
+    }
+    Ok(())
+}
+
+#[cfg(feature = "component-generation")]
+fn verify_source_request(
+    request: &wassette_builder::BuildRequest,
+    receipt: &InstallReceipt,
+) -> Result<()> {
+    let evidence =
+        receipt.origin.generation.as_ref().ok_or_else(|| {
+            StoreError::Integrity("source bundle has no generation evidence".into())
+        })?;
+    if request.component_name != receipt.component_id.as_str()
+        || digest(request.source.as_bytes()) != evidence.source_sha256
+        || digest(request.wit.as_bytes()) != evidence.wit_sha256
+        || request.world != evidence.world
+        || !matches!(
+            (&request.kind, &receipt.kind),
+            (
+                wassette_builder::ComponentKind::Tool,
+                StoredArtifactKind::Tool
+            ) | (
+                wassette_builder::ComponentKind::AcpLayer,
+                StoredArtifactKind::AcpLayer
+            )
+        )
+    {
+        return Err(StoreError::Integrity(
+            "source bundle differs from generation evidence".into(),
+        ));
+    }
+    Ok(())
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -800,6 +917,7 @@ impl Capture {
     }
 
     fn verify(&mut self, receipt: &InstallReceipt) -> Result<(Vec<u8>, Option<Vec<u8>>)> {
+        self.source_bytes(receipt)?;
         let key = receipt.storage_key.as_str();
         let mut get = |suffix: &str| -> Result<Option<Vec<u8>>> {
             self.pinned
@@ -836,6 +954,24 @@ impl Capture {
             ));
         }
         Ok((wasm, policy))
+    }
+
+    fn source_bytes(&mut self, receipt: &InstallReceipt) -> Result<Option<Vec<u8>>> {
+        let path = format!("{}.source.json", receipt.storage_key.as_str());
+        if let Some(file) = self.pinned.get(&path) {
+            if file.metadata()?.len() > 8 * 1024 * 1024 {
+                return Err(StoreError::Integrity(
+                    "source bundle exceeds size limit".into(),
+                ));
+            }
+        }
+        let bytes = self.pinned.get_mut(&path).map(read_bytes).transpose()?;
+        if bytes.as_deref().map(digest) != receipt.source_bundle_sha256 {
+            return Err(StoreError::Integrity(
+                "source bundle differs from receipt".into(),
+            ));
+        }
+        Ok(bytes)
     }
 }
 
@@ -929,6 +1065,11 @@ fn validate_record(entry: &StoredEntry, head: &Head) -> Result<()> {
         || !valid_revision(entry.revision())
         || !valid_revision(&receipt.revision)
         || !hash(&receipt.artifact_sha256)
+        || receipt
+            .source_bundle_sha256
+            .as_ref()
+            .is_some_and(|value| !hash(value))
+        || (receipt.source_bundle_sha256.is_some() && receipt.origin.generation.is_none())
         || !hash(&receipt.policy.metadata_sha256)
         || (receipt.policy.provenance == PolicyProvenance::Default
             && receipt.policy.sha256.is_some())
@@ -1014,6 +1155,7 @@ fn make_change(
         provenance_changed: old.is_none_or(|old| {
             old.origin != new.origin
                 || old.source != new.source
+                || old.source_bundle_sha256 != new.source_bundle_sha256
                 || old.validation != new.validation
                 || old.intent != new.intent
                 || old.observation != new.observation

@@ -17,6 +17,7 @@ pub(super) const TRANSACTIONS: &str = ".transactions";
 pub(super) const SUFFIXES: &[&str] = &[
     ".install.json",
     ".wasm",
+    ".source.json",
     ".policy.yaml",
     ".policy.meta.json",
     ".metadata.json",
@@ -250,17 +251,21 @@ impl Transaction {
         validate_target(&path)?;
         let index = self.replacements.len();
         let old = old
-            .map(|file| self.save_image(format!("old-{index}"), file))
+            .map(|file| self.save_image(format!("old-{index}"), file, &path))
             .transpose()?;
         let new = new
-            .map(|bytes| self.save_image(format!("new-{index}"), bytes))
+            .map(|bytes| self.save_image(format!("new-{index}"), bytes, &path))
             .transpose()?;
         self.replacements.push(Replacement { path, old, new });
         Ok(())
     }
 
-    fn save_image(&self, name: String, mut reader: impl Read) -> Result<Image> {
+    fn save_image(&self, name: String, mut reader: impl Read, target: &str) -> Result<Image> {
         let mut file = File::create(self.path.join(&name))?;
+        if target.ends_with(".source.json") {
+            #[cfg(unix)]
+            file.set_permissions(std::os::unix::fs::PermissionsExt::from_mode(0o600))?;
+        }
         let mut hash = Sha256::new();
         let mut buffer = [0u8; 64 * 1024];
         loop {

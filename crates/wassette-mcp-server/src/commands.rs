@@ -270,6 +270,27 @@ pub enum ComponentCommands {
         /// Trusted operator JSON profile (also WASSETTE_GENERATION_CONFIG or config.toml).
         #[arg(long)]
         generation_config: Option<PathBuf>,
+        /// Also write a rebuildable source layout to this directory.
+        #[arg(long)]
+        emit_source: Option<PathBuf>,
+    },
+    /// Read the retained source of a generated component.
+    #[cfg(feature = "component-generation")]
+    Source {
+        /// Installed generated component ID.
+        id: String,
+        /// Require this exact installed revision.
+        #[arg(long)]
+        revision: Option<String>,
+        /// Write src/lib.rs, wit/world.wit and request.json instead of printing JSON.
+        #[arg(long)]
+        out: Option<PathBuf>,
+        /// Allow writing into a non-empty output directory.
+        #[arg(long, requires = "out")]
+        force: bool,
+        /// Override the managed component store directory.
+        #[arg(long)]
+        component_dir: Option<PathBuf>,
     },
     /// Load a WebAssembly component from a file path or OCI registry.
     Load {

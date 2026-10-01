@@ -48,8 +48,8 @@ pub(super) fn wasm(name: &str, value: i32) -> Vec<u8> {
 
 fn build_evidence() -> wassette_builder::BuildEvidence {
     serde_json::from_value(serde_json::json!({
-        "source_sha256": "11".repeat(32),
-        "wit_sha256": "22".repeat(32),
+        "source_sha256": hex::encode(Sha256::digest(b"struct Component;")),
+        "wit_sha256": hex::encode(Sha256::digest(b"package test:generated; world tool { export run: func() -> s32; }")),
         "wit_dependencies_sha256": "55".repeat(32),
         "initrd_sha256": "33".repeat(32),
         "builder_sha256": "66".repeat(32),
@@ -74,13 +74,16 @@ pub(super) async fn candidate(
     wasm: Vec<u8>,
 ) -> PreparedGeneration {
     let selected = select_target(manager, &request).await.unwrap();
+    let mut evidence = build_evidence();
+    evidence.source_sha256 = hex::encode(Sha256::digest(request.build.source.as_bytes()));
+    evidence.wit_sha256 = hex::encode(Sha256::digest(request.build.wit.as_bytes()));
     let artifact = BuildArtifact {
         wasm,
         diagnostics: String::new(),
-        evidence: build_evidence(),
+        evidence,
     };
     let preview = GenerationPreview {
-        component_id: request.build.component_name,
+        component_id: request.build.component_name.clone(),
         kind: request.build.kind,
         wasm_sha256: hex::encode(Sha256::digest(&artifact.wasm)),
         expected_revision: selected
@@ -99,6 +102,7 @@ pub(super) async fn candidate(
         permissions: permissions(),
         validator: None,
         is_rebuild: matches!(request.target, GenerationTarget::Rebuild { .. }),
+        source: Some(request.build),
     }
 }
 
@@ -162,6 +166,26 @@ async fn captured_install_is_named_transactional_and_install_only_stays_hidden()
     assert_eq!(receipt.schema, 2);
     assert_eq!(receipt.artifact_sha256, outcome.preview.wasm_sha256);
     assert!(!receipt.requests_tool_exposure());
+    assert_eq!(
+        manager
+            .component_store()
+            .read_source(&name, Some(outcome.commit.entry.revision()))
+            .unwrap()
+            .source,
+        "struct Component;"
+    );
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let path = manager
+            .config
+            .component_dir()
+            .join(format!("{}.source.json", receipt.storage_key.as_str()));
+        assert_eq!(
+            std::fs::metadata(path).unwrap().permissions().mode() & 0o777,
+            0o600
+        );
+    }
     assert!(manager.catalog().await.unwrap().tools.is_empty());
     let cold = LifecycleManager::builder(manager.config.component_dir())
         .with_secrets_dir(manager.config.secrets_dir())
@@ -200,6 +224,14 @@ async fn same_lineage_rebuild_invalidates_refs_but_preserves_policy_and_secret_b
         .component_store()
         .update_policy("example:generated", first.commit.entry.revision(), policy)
         .unwrap();
+    assert_eq!(
+        manager
+            .component_store()
+            .read_source("example:generated", Some(edited.entry.revision()))
+            .unwrap()
+            .source,
+        "struct Component;"
+    );
     manager.refresh_from_store().await.unwrap();
     let old = manager
         .catalog()
@@ -224,6 +256,14 @@ async fn same_lineage_rebuild_invalidates_refs_but_preserves_policy_and_secret_b
     .await
     .unwrap();
     assert_ne!(updated.commit.entry.revision(), edited.entry.revision());
+    assert_eq!(
+        manager
+            .component_store()
+            .read_source("example:generated", Some(updated.commit.entry.revision()))
+            .unwrap()
+            .source,
+        "struct Component;"
+    );
     assert_eq!(
         updated.commit.entry.binding().secret_binding().unwrap(),
         binding
@@ -418,6 +458,18 @@ async fn another_lineage_cannot_take_over_even_after_retirement() {
             crate::store::RemovalAuthority::Explicit,
         )
         .unwrap();
+    assert!(manager
+        .component_store()
+        .read_source("example:generated", None)
+        .is_err());
+    assert!(!manager
+        .config
+        .component_dir()
+        .join(format!(
+            "{}.source.json",
+            first.commit.entry.storage_key().as_str()
+        ))
+        .exists());
     assert!(select_target(&manager, &new_source).await.is_err());
     assert!(select_target(
         &manager,
@@ -578,12 +630,188 @@ async fn postdecision_failure_preserves_operation_and_observed_receipt() {
         .as_ref()
         .expect("exact committed operation was observed");
     let current = manager.component_store().read("example:generated").unwrap();
+    assert_eq!(
+        manager
+            .component_store()
+            .read_source("example:generated", None)
+            .unwrap()
+            .source,
+        "struct Component;"
+    );
     assert_eq!(&current.receipt, observed.entry.binding());
     let report = error.recovery_report().unwrap();
     assert_eq!(report["status"], "committed-recovery-required");
     assert_eq!(report["operation"], *operation);
     assert!(!report["commit"].is_null());
     assert!(report["refresh"].is_null());
+}
+
+#[tokio::test]
+async fn mismatched_source_never_reaches_the_store() {
+    let (_root, manager) = manager().await;
+    let mut pending = candidate(
+        &manager,
+        request("example:generated", InstallIntent::InstallOnly),
+        wasm("example:generated", 1),
+    )
+    .await;
+    pending.source.as_mut().unwrap().source.push_str(" changed");
+    let error = pending
+        .install(permissions(), CancellationToken::new())
+        .await
+        .unwrap_err();
+    assert!(error.to_string().contains("source bundle does not match"));
+    assert!(manager
+        .component_store()
+        .snapshot_if_changed(None)
+        .unwrap()
+        .unwrap()
+        .entries
+        .is_empty());
+}
+
+#[tokio::test]
+async fn source_is_replaced_with_the_revision_and_opt_out_removes_it() {
+    let (_root, manager) = manager().await;
+    let first = candidate(
+        &manager,
+        request("example:generated", InstallIntent::InstallOnly),
+        wasm("example:generated", 1),
+    )
+    .await
+    .install(permissions(), CancellationToken::new())
+    .await
+    .unwrap();
+    let mut changed = rebuild("example:generated", first.commit.entry.revision());
+    changed.build.source = "struct NewComponent;".into();
+    let second = candidate(&manager, changed, wasm("example:generated", 2))
+        .await
+        .install(permissions(), CancellationToken::new())
+        .await
+        .unwrap();
+    assert!(manager
+        .component_store()
+        .read_source("example:generated", Some(first.commit.entry.revision()))
+        .is_err());
+    assert_eq!(
+        manager
+            .component_store()
+            .read_source("example:generated", None)
+            .unwrap()
+            .source,
+        "struct NewComponent;"
+    );
+    let mut without_source = candidate(
+        &manager,
+        rebuild("example:generated", second.commit.entry.revision()),
+        wasm("example:generated", 3),
+    )
+    .await;
+    without_source.source = None;
+    let third = without_source
+        .install(permissions(), CancellationToken::new())
+        .await
+        .unwrap();
+    assert!(third.commit.entry.binding().source_bundle_sha256.is_none());
+    assert!(manager
+        .component_store()
+        .read_source("example:generated", None)
+        .is_err());
+}
+
+#[tokio::test]
+async fn predecision_failure_restores_previous_source_and_wasm() {
+    let (_root, manager) = manager().await;
+    let first = candidate(
+        &manager,
+        request("example:generated", InstallIntent::InstallOnly),
+        wasm("example:generated", 1),
+    )
+    .await
+    .install(permissions(), CancellationToken::new())
+    .await
+    .unwrap();
+    let mut changed = rebuild("example:generated", first.commit.entry.revision());
+    changed.build.source = "struct Replaced;".into();
+    manager
+        .component_store()
+        .fail_next_commit_for_test("after-file-2");
+    assert!(candidate(&manager, changed, wasm("example:generated", 2))
+        .await
+        .install(permissions(), CancellationToken::new())
+        .await
+        .is_err());
+    let stored = manager.component_store().read("example:generated").unwrap();
+    assert_eq!(stored.receipt.revision, *first.commit.entry.revision());
+    assert_eq!(stored.wasm, wasm("example:generated", 1));
+    assert_eq!(
+        manager
+            .component_store()
+            .read_source("example:generated", None)
+            .unwrap()
+            .source,
+        "struct Component;"
+    );
+}
+
+#[tokio::test]
+async fn tampered_source_is_rejected_and_does_not_become_a_rebuild_input() {
+    let (_root, manager) = manager().await;
+    let installed = candidate(
+        &manager,
+        request("example:generated", InstallIntent::InstallOnly),
+        wasm("example:generated", 1),
+    )
+    .await
+    .install(permissions(), CancellationToken::new())
+    .await
+    .unwrap();
+    let path = manager.config.component_dir().join(format!(
+        "{}.source.json",
+        installed.commit.entry.storage_key().as_str()
+    ));
+    std::fs::write(path, b"not the committed request").unwrap();
+    assert!(manager
+        .component_store()
+        .read_source("example:generated", None)
+        .is_err());
+    assert!(manager.component_store().read("example:generated").is_err());
+}
+
+#[tokio::test]
+async fn retained_request_rebuilds_with_the_same_source_digest() {
+    let (_root, manager) = manager().await;
+    let first = candidate(
+        &manager,
+        request("example:generated", InstallIntent::InstallOnly),
+        wasm("example:generated", 1),
+    )
+    .await
+    .install(permissions(), CancellationToken::new())
+    .await
+    .unwrap();
+    let source = manager
+        .component_store()
+        .read_source("example:generated", None)
+        .unwrap();
+    let json = serde_json::to_vec(&GenerationRequest {
+        build: source,
+        target: GenerationTarget::New,
+        intent: InstallIntent::InstallOnly,
+        reinstall_policy: None,
+    })
+    .unwrap();
+    let replay: GenerationRequest = serde_json::from_slice(&json).unwrap();
+    let (_other_root, other_manager) = self::manager().await;
+    let second = candidate(&other_manager, replay, wasm("example:generated", 1))
+        .await
+        .install(permissions(), CancellationToken::new())
+        .await
+        .unwrap();
+    assert_eq!(
+        first.preview.evidence.source_sha256,
+        second.preview.evidence.source_sha256
+    );
 }
 
 #[tokio::test]
