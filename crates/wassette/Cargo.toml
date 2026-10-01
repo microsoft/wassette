@@ -18,6 +18,7 @@ oci-wasm = { workspace = true }
 policy = { workspace = true }
 reqwest = { workspace = true }
 rustls = { workspace = true }
+semver = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 sha2 = "0.11"
@@ -33,6 +34,10 @@ wasmtime = { workspace = true }
 wasmtime-wasi = { workspace = true }
 wasmtime-wasi-http = { workspace = true }
 wasmtime-wasi-config = { workspace = true }
+
+[features]
+# Loopback wasm.directory and OCI fixtures for downstream crate tests.
+test-fixtures = []
 
 [dev-dependencies]
 proptest = "1.10"

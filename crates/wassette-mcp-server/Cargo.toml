@@ -38,6 +38,7 @@ path = "src/main.rs"
 built = { version = "0.8", features = ["git2", "chrono"] }
 
 [dev-dependencies]
+wassette = { workspace = true, features = ["test-fixtures"] }
 proptest = "1.4"
 temp-env = "0.3"
 reqwest = { workspace = true, features = ["json"] }

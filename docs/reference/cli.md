@@ -375,40 +375,55 @@ This is particularly useful for:
 
 ## Registry Management
 
-The registry commands provide convenient access to a centralized catalog of commonly used components, making it easy to discover and fetch components without needing to remember their full OCI URIs.
+Registry commands discover and install packages from wasm.directory. Packages
+are selected by their canonical `registry/repository` identity or by their exact
+WIT identity, `namespace:package[@version]`.
 
 ### `wassette registry search`
 
-Search for components in the registry by name or description.
+Search wasm.directory for component packages. Search results are discovery
+metadata only: the advertised package kind and WIT identity are not validation
+of the artifact, and searching does not install or expose a component.
 
-**Search all components:**
+**Search all packages:**
 ```bash
-# List all available components in the registry
+# List packages indexed by wasm.directory
 wassette registry search
 ```
 
 **Search with a query:**
 ```bash
-# Search for components matching "weather"
+# Search for packages matching "weather"
 wassette registry search weather
-
-# Search is case-insensitive
-wassette registry search RUST
-
-# Search matches both name and description
-wassette registry search javascript
 ```
+
+Use `--offset` and `--limit` to continue through upstream results. The default
+page size is 20; the API limit is 100. `next_offset` advances by the raw
+wasm.directory page size, including records excluded from component results.
+The API base defaults to `https://api.wasm.directory`; set
+`WASSETTE_WASM_DIRECTORY_URL` to use a compatible self-hosted endpoint.
+Search requires the API to be reachable and does not fall back to a bundled
+catalog. Direct local component operations remain available offline.
 
 **Example output:**
 ```json
 {
   "status": "success",
+  "source": "wasm.directory",
+  "discovery_only": true,
   "count": 1,
+  "upstream_count": 1,
+  "offset": 0,
+  "limit": 20,
+  "next_offset": null,
+  "may_have_more": false,
   "components": [
     {
-      "name": "Weather Server",
+      "package_id": "ghcr.io/microsoft/get-weather-js",
       "description": "A weather component written in JavaScript",
-      "uri": "oci://ghcr.io/microsoft/get-weather-js:latest"
+      "advertised_kind": "component",
+      "wit_identity": null,
+      "tags": ["1.0.0"]
     }
   ]
 }
@@ -416,48 +431,55 @@ wassette registry search javascript
 
 **Options:**
 - `--output-format <FORMAT>`: Output format (json, yaml, table) [default: json]
+- `--offset <N>`: Upstream result offset [default: 0]
+- `--limit <N>`: Upstream page size from 1 to 100 [default: 20]
 
 ### `wassette registry get`
 
-Fetch and load a component from the registry by name or URI.
+Install a wasm.directory package by its canonical `registry/repository`
+identity or its WIT identity. The selected version is resolved to an OCI
+manifest digest before download; by default, Wassette selects the highest
+indexed stable semver version, falling back to prereleases only when no stable
+version exists.
 
-**Get by component name:**
 ```bash
-# Fetch and load a component by its name
-wassette registry get "Weather Server"
+# Install the package found by registry search
+wassette registry get ghcr.io/microsoft/get-weather-js
 
-# Names are case-insensitive
-wassette registry get "weather server"
+# Install by WIT identity, optionally pinning a version
+wassette registry get yosh:wordmark
+wassette registry get yosh:wordmark@2.0.6
+
+# Pin an exact indexed tag
+wassette registry get ghcr.io/microsoft/get-weather-js --version 1.2.3
+
+# Select a component storage directory (the old --plugin-dir name remains an alias)
+wassette registry get ghcr.io/microsoft/get-weather-js --component-dir ./components
 ```
 
-**Get by component URI:**
-```bash
-# Fetch by full OCI URI
-wassette registry get "oci://ghcr.io/microsoft/time-server-js:latest"
-```
+Installation validates the downloaded component and records its semantic
+component ID, physical storage key, package/version, manifest digest, and
+provenance. It is install-only: it does not expose tools to MCP or activate an
+ACP provider. To explicitly expose an ordinary tool package through MCP, call
+`load-component` with `package` and optional `version`. The existing
+`wassette component load PATH` command remains the direct path/OCI/HTTPS load
+flow.
 
-**With custom plugin directory:**
-```bash
-# Load to a specific directory
-wassette registry get "Fetch" --plugin-dir /custom/components
-```
+`--version` matches an exact indexed tag (including non-semver tags). A WIT
+selector's `@version` is also an exact tag and must agree with `--version` when
+both are given. A WIT selector must match the `wit_identity` of exactly one
+wasm.directory component package, compared case-sensitively; zero matches is an
+error, and multiple matches list the candidate `registry/repository` identities
+to choose from instead of guessing.
 
-This command automatically:
-1. Looks up the component in the registry
-2. Retrieves its OCI URI
-3. Downloads the component using the existing OCI client
-4. Loads it into the component storage
+The component ID is always the artifact's embedded root component name, never
+registry metadata. A package published without one fails with an error naming
+the package, version and manifest digest; its publisher must embed a name, for
+example with `wasm-tools metadata add --name <component-id>`, and publish a new
+version.
 
-**Error handling:**
-```bash
-# Component not found
-$ wassette registry get "NonExistent"
-Error: Component 'NonExistent' not found in registry. 
-Use 'wassette registry search' to list available components.
-```
-
-**Options:**
-- `--plugin-dir <PATH>`: Component storage directory
+Search and package resolution require wasm.directory; direct local paths remain
+available offline. There is no fallback to the removed bundled catalog.
 
 ## Policy Management
 
@@ -633,21 +655,22 @@ wassette registry search
 # 2. Search for specific functionality
 wassette registry search weather
 
-# 3. Get detailed information about a component
-wassette registry search "Weather Server" --output-format yaml
+# 3. Inspect metadata and canonical package identity
+wassette registry search weather --output-format yaml
 
-# 4. Fetch and load the component from the registry
-wassette registry get "Weather Server"
+# 4. Install by stable package identity; this does not expose its tools
+wassette registry get ghcr.io/microsoft/get-weather-js --version 1.2.3
 
 # 5. Configure permissions for the component
 wassette permission grant network weather-server api.openweathermap.org
 wassette permission grant memory weather-server 256Mi
 
-# 6. Verify the component is loaded and configured
+# 6. Verify the installed component and configure its permissions
 wassette component list --output-format table
 wassette policy get weather-server --output-format yaml
 
-# 7. Start the local stdio MCP server
+# 7. Start the local stdio MCP server; use MCP load-component with package/version
+#    when the tool should be explicitly exposed
 wassette run
 ```
 

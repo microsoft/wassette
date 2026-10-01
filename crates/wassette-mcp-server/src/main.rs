@@ -21,6 +21,7 @@ use rmcp::transport::streamable_http_server::{StreamableHttpServerConfig, Stream
 use serde_json::{json, Map};
 use tracing_subscriber::layer::SubscriberExt as _;
 use tracing_subscriber::util::SubscriberInitExt as _;
+use wassette::wasm_directory::{PackageSelector, WasmDirectoryClient};
 
 mod cli_handlers;
 mod commands;
@@ -29,7 +30,6 @@ mod format;
 mod manifest;
 mod permission_synthesis;
 mod provisioning_controller;
-mod registry;
 mod server;
 mod tools;
 mod utils;
@@ -44,7 +44,38 @@ use commands::{
 use format::{print_result, OutputFormat};
 use server::McpServer;
 use tools::ToolName;
-use utils::{format_build_info, load_component_registry, parse_env_var};
+use utils::{format_build_info, parse_env_var};
+
+async fn install_registry_package(
+    lifecycle_manager: &LifecycleManager,
+    directory: &WasmDirectoryClient,
+    component: &str,
+    version: Option<&str>,
+) -> Result<serde_json::Value> {
+    let selector = PackageSelector::parse(component)?;
+    let (resolved, outcome) = lifecycle_manager
+        .install_package(directory, &selector, version)
+        .await?;
+    let receipt = match &outcome.entry {
+        wassette::store::StoredEntry::Installed(receipt) => receipt,
+        wassette::store::StoredEntry::Retired(_) => {
+            bail!("Package install unexpectedly returned a retired receipt")
+        }
+    };
+    Ok(json!({
+        "status": "installed",
+        "package": resolved.package_id.to_string(),
+        "wit_identity": resolved.wit_identity,
+        "requested_version": resolved.requested_version,
+        "selected_version": resolved.selected_version,
+        "manifest_digest": resolved.manifest_digest,
+        "component_id": receipt.component_id.as_str(),
+        "storage_key": receipt.storage_key.as_str(),
+        "revision": receipt.revision.to_string(),
+        "receipt": receipt,
+        "change": outcome.change,
+    }))
+}
 
 // Health and info endpoint handlers
 mod endpoints {
@@ -884,15 +915,25 @@ async fn main() -> Result<()> {
             Commands::Registry { command } => match command {
                 RegistryCommands::Search {
                     query,
+                    offset,
+                    limit,
                     output_format,
                 } => {
-                    let components = load_component_registry()?;
-                    let results = registry::search_components(&components, query.as_deref());
+                    let page = WasmDirectoryClient::from_environment()?
+                        .search(query.as_deref(), *offset, *limit)
+                        .await?;
 
                     let result = json!({
                         "status": "success",
-                        "count": results.len(),
-                        "components": results
+                        "source": "wasm.directory",
+                        "discovery_only": true,
+                        "count": page.packages.len(),
+                        "upstream_count": page.upstream_count,
+                        "offset": page.offset,
+                        "limit": page.limit,
+                        "next_offset": page.next_offset,
+                        "may_have_more": page.may_have_more,
+                        "components": page.packages
                     });
 
                     print_result(
@@ -904,32 +945,26 @@ async fn main() -> Result<()> {
                 }
                 RegistryCommands::Get {
                     component,
+                    version,
                     plugin_dir,
+                    output_format,
                 } => {
-                    let components = load_component_registry()?;
-
-                    // Find the component by name or URI
-                    let registry_component =
-                        registry::find_component_by_name_or_uri(&components, component)
-                            .ok_or_else(|| {
-                                anyhow::anyhow!(
-                                    "Component '{}' not found in registry. Use 'wassette registry search' to list available components.",
-                                    component
-                                )
-                            })?;
-
-                    // Use the existing load-component functionality
                     let plugin_dir = plugin_dir.clone().or_else(|| cli.component_dir.clone());
                     let lifecycle_manager = create_lifecycle_manager(plugin_dir).await?;
-                    let mut args = Map::new();
-                    args.insert("path".to_string(), json!(registry_component.uri));
-                    handle_tool_cli_command(
+                    let directory = WasmDirectoryClient::from_environment()?;
+                    let result = install_registry_package(
                         &lifecycle_manager,
-                        "load-component",
-                        args,
-                        OutputFormat::Json,
+                        &directory,
+                        component,
+                        version.as_deref(),
                     )
                     .await?;
+                    print_result(
+                        &rmcp::model::CallToolResult::success(vec![
+                            rmcp::model::ContentBlock::text(serde_json::to_string_pretty(&result)?),
+                        ]),
+                        *output_format,
+                    )?;
                 }
             },
             Commands::Autocomplete { shell } => {

@@ -484,18 +484,101 @@ pub enum ToolCommands {
 pub enum RegistryCommands {
     /// Search for components in the registry.
     Search {
-        /// Search query (matches against component name and description)
+        /// Search query sent to wasm.directory
         query: Option<String>,
+        /// Offset into the upstream result set
+        #[arg(long, default_value_t = 0)]
+        offset: usize,
+        /// Maximum number of upstream records to fetch (1-100)
+        #[arg(long, default_value_t = wassette::wasm_directory::DEFAULT_SEARCH_PAGE_SIZE)]
+        limit: usize,
         /// Output format
         #[arg(short = 'o', long = "output-format", default_value = "json")]
         output_format: OutputFormat,
     },
-    /// Fetch and load a component from the registry.
+    /// Install a package from wasm.directory without exposing its tools.
     Get {
-        /// Component name or URI from the registry
+        /// Package as registry/repository, or an exact WIT identity
+        /// namespace:package[@version] matching exactly one package
         component: String,
-        /// Directory where plugins are stored. Defaults to $XDG_DATA_HOME/wassette/components
+        /// Exact indexed package version to install
         #[arg(long)]
+        version: Option<String>,
+        /// Directory where components are stored. Defaults to $XDG_DATA_HOME/wassette/components
+        #[arg(long = "component-dir", visible_alias = "plugin-dir")]
         plugin_dir: Option<PathBuf>,
+        /// Output format
+        #[arg(short = 'o', long = "output-format", default_value = "json")]
+        output_format: OutputFormat,
     },
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn registry_get_accepts_wit_selector() {
+        let cli =
+            Cli::try_parse_from(["wassette", "registry", "get", "yosh:wordmark@2.0.6"]).unwrap();
+        let Some(Commands::Registry {
+            command: RegistryCommands::Get { component, .. },
+        }) = cli.command
+        else {
+            panic!("expected registry get");
+        };
+        assert_eq!(component, "yosh:wordmark@2.0.6");
+    }
+
+    #[test]
+    fn registry_get_accepts_canonical_package_and_exact_version() {
+        let cli = Cli::try_parse_from([
+            "wassette",
+            "registry",
+            "get",
+            "ghcr.io/owner/component",
+            "--version",
+            "1.2.3",
+            "--component-dir",
+            "/tmp/components",
+        ])
+        .unwrap();
+        let Some(Commands::Registry {
+            command:
+                RegistryCommands::Get {
+                    component,
+                    version,
+                    plugin_dir,
+                    ..
+                },
+        }) = cli.command
+        else {
+            panic!("expected registry get command");
+        };
+        assert_eq!(component, "ghcr.io/owner/component");
+        assert_eq!(version.as_deref(), Some("1.2.3"));
+        assert_eq!(
+            plugin_dir.as_deref(),
+            Some(std::path::Path::new("/tmp/components"))
+        );
+
+        let legacy = Cli::try_parse_from([
+            "wassette",
+            "registry",
+            "get",
+            "ghcr.io/owner/component",
+            "--plugin-dir",
+            "/tmp/components",
+        ])
+        .unwrap();
+        assert!(matches!(
+            legacy.command,
+            Some(Commands::Registry {
+                command: RegistryCommands::Get {
+                    plugin_dir: Some(_),
+                    ..
+                }
+            })
+        ));
+    }
 }

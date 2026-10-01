@@ -8,8 +8,6 @@ use std::path::PathBuf;
 
 use anyhow::{bail, Context, Result};
 
-use crate::registry;
-
 mod built_info {
     include!(concat!(env!("OUT_DIR"), "/built.rs"));
 }
@@ -77,12 +75,6 @@ pub fn load_env_file(path: &PathBuf) -> Result<HashMap<String, String>, anyhow::
     }
 
     Ok(env_vars)
-}
-
-/// Load and parse the component registry JSON
-pub fn load_component_registry() -> Result<Vec<registry::RegistryComponent>> {
-    const COMPONENT_REGISTRY: &str = include_str!("../../../component-registry.json");
-    registry::parse_registry(COMPONENT_REGISTRY).context("Failed to parse component registry")
 }
 
 /// Formats build information similar to agentgateway's version output

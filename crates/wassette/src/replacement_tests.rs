@@ -934,6 +934,236 @@ async fn safe_replacement_oci_bundle_uses_configured_http_client() -> Result<()>
 }
 
 #[tokio::test]
+async fn wasm_directory_package_install_is_digest_pinned_until_explicit_load() -> Result<()> {
+    use oci_client::client::{ClientConfig, ClientProtocol, Config, ImageLayer};
+    use sha2::{Digest, Sha256};
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    use url::Url;
+    use wasm_directory::{PackageId, PackageSelector, WasmDirectoryClient};
+
+    let layers = [ImageLayer::new(
+        component(7)?,
+        oci_wasm::WASM_LAYER_MEDIA_TYPE.into(),
+        None,
+    )];
+    let config = Config::new(
+        serde_json::to_vec(&serde_json::json!({
+            "created": "1970-01-01T00:00:00Z",
+            "author": null,
+            "architecture": oci_wasm::WASM_ARCHITECTURE,
+            "os": oci_wasm::COMPONENT_OS,
+            "layerDigests": layers.iter().map(ImageLayer::sha256_digest).collect::<Vec<_>>(),
+            "component": { "exports": ["run"], "imports": [], "target": null }
+        }))?,
+        oci_wasm::WASM_MANIFEST_CONFIG_MEDIA_TYPE.into(),
+        None,
+    );
+    let mut manifest = oci_client::manifest::OciImageManifest::build(&layers, &config, None);
+    manifest.media_type = Some(oci_wasm::WASM_MANIFEST_MEDIA_TYPE.into());
+    let manifest_bytes = serde_json::to_vec(&manifest)?;
+    let manifest_digest = format!("sha256:{}", hex::encode(Sha256::digest(&manifest_bytes)));
+
+    let registry_listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
+    let registry_address = registry_listener.local_addr()?;
+    let registry = registry_address.to_string();
+    let repository = "owner/safe-replacement";
+    let colliding_repository = "another/safe-replacement";
+    let mut routes = HashMap::from([
+        (
+            "/v2/".to_owned(),
+            ("application/json".to_owned(), b"{}".to_vec()),
+        ),
+        (
+            format!("/v2/{repository}/manifests/{manifest_digest}"),
+            (
+                oci_wasm::WASM_MANIFEST_MEDIA_TYPE.to_owned(),
+                manifest_bytes,
+            ),
+        ),
+        (
+            format!("/v2/{repository}/blobs/{}", manifest.config.digest),
+            (config.media_type.clone(), config.data.to_vec()),
+        ),
+    ]);
+    for layer in layers {
+        for repository in [repository, colliding_repository] {
+            routes.insert(
+                format!("/v2/{repository}/blobs/{}", layer.sha256_digest()),
+                (layer.media_type.clone(), layer.data.to_vec()),
+            );
+        }
+    }
+    routes.insert(
+        format!("/v2/{colliding_repository}/manifests/{manifest_digest}"),
+        (
+            oci_wasm::WASM_MANIFEST_MEDIA_TYPE.to_owned(),
+            serde_json::to_vec(&manifest)?,
+        ),
+    );
+    routes.insert(
+        format!(
+            "/v2/{colliding_repository}/blobs/{}",
+            manifest.config.digest
+        ),
+        (config.media_type.clone(), config.data.to_vec()),
+    );
+    let registry_server = tokio::spawn(async move {
+        loop {
+            let Ok((mut socket, _)) = registry_listener.accept().await else {
+                break;
+            };
+            let routes = routes.clone();
+            tokio::spawn(async move {
+                let mut request = Vec::new();
+                let mut buffer = [0; 1024];
+                while !request.windows(4).any(|bytes| bytes == b"\r\n\r\n") {
+                    let count = socket.read(&mut buffer).await?;
+                    if count == 0 || request.len() + count > 8192 {
+                        bail!("registry received an incomplete or oversized request");
+                    }
+                    request.extend_from_slice(&buffer[..count]);
+                }
+                let request = String::from_utf8(request)?;
+                let mut words = request.split_whitespace();
+                let method = words.next().context("missing request method")?;
+                let path = words.next().context("missing request path")?;
+                let (media_type, body) = routes
+                    .get(path)
+                    .with_context(|| format!("unexpected registry route: {path}"))?;
+                let digest = hex::encode(Sha256::digest(body));
+                let headers = format!(
+                    "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nContent-Type: {media_type}\r\n\
+                     Docker-Content-Digest: sha256:{digest}\r\n\
+                     Docker-Distribution-Api-Version: registry/2.0\r\nConnection: close\r\n\r\n",
+                    body.len()
+                );
+                socket.write_all(headers.as_bytes()).await?;
+                if method != "HEAD" {
+                    socket.write_all(body).await?;
+                }
+                Ok::<_, anyhow::Error>(())
+            });
+        }
+    });
+
+    let api_listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
+    let api_address = api_listener.local_addr()?;
+    let api_digest = manifest_digest.clone();
+    let api_server = tokio::spawn(async move {
+        for _ in 0..4 {
+            let (mut socket, _) = api_listener.accept().await?;
+            let mut request = [0; 4096];
+            let bytes_read = socket.read(&mut request).await?;
+            let request = String::from_utf8_lossy(&request[..bytes_read]);
+            let request_path = request.split_whitespace().nth(1).unwrap_or_default();
+            let repository = if request_path.ends_with(colliding_repository) {
+                colliding_repository
+            } else {
+                repository
+            };
+            let body = serde_json::to_vec(&serde_json::json!({
+                "registry": registry,
+                "repository": repository,
+                "kind": "component",
+                "versions": [{"tag": "1.2.3", "digest": api_digest}],
+            }))?;
+            let headers = format!(
+                "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\
+                 Connection: close\r\n\r\n",
+                body.len()
+            );
+            socket.write_all(headers.as_bytes()).await?;
+            socket.write_all(&body).await?;
+        }
+        Ok::<_, anyhow::Error>(())
+    });
+
+    let components = test_dir()?;
+    let secrets = test_dir()?;
+    let manager = LifecycleManager::builder(components.path())
+        .with_secrets_dir(secrets.path())
+        .with_eager_loading(false)
+        .with_oci_client(oci_client::Client::new(ClientConfig {
+            protocol: ClientProtocol::Http,
+            ..Default::default()
+        }))
+        .build()
+        .await?;
+    let directory = WasmDirectoryClient::new(Url::parse(&format!("http://{api_address}"))?)?;
+    let package = PackageSelector::Package(PackageId::new(
+        registry_address.to_string(),
+        repository.to_owned(),
+    )?);
+    let (resolved, outcome) =
+        tokio::time::timeout(WAIT, manager.install_package(&directory, &package, None)).await??;
+    let (_, unchanged) =
+        tokio::time::timeout(WAIT, manager.install_package(&directory, &package, None)).await??;
+    let colliding_package = PackageSelector::Package(PackageId::new(
+        registry_address.to_string(),
+        colliding_repository.to_owned(),
+    )?);
+    let collision = tokio::time::timeout(
+        WAIT,
+        manager.install_package(&directory, &colliding_package, None),
+    )
+    .await?
+    .unwrap_err();
+    assert!(collision.to_string().contains("conflict"), "{collision:#}");
+
+    assert_eq!(resolved.manifest_digest, manifest_digest);
+    assert_eq!(resolved.selected_version, "1.2.3");
+    let receipt = match &outcome.entry {
+        store::StoredEntry::Installed(receipt) => receipt,
+        store::StoredEntry::Retired(_) => bail!("package installation returned a retired entry"),
+    };
+    assert_eq!(receipt.component_id.as_str(), package.to_string().as_str());
+    assert_eq!(receipt.storage_key.as_str(), "local_safe-replacement");
+    assert_eq!(receipt.intent, store::InstallIntent::InstallOnly);
+    assert!(outcome.change.is_some());
+    assert!(unchanged.change.is_none());
+    assert_eq!(unchanged.entry.revision(), outcome.entry.revision());
+    assert_eq!(receipt.origin.location, format!("wasm.directory:{package}"));
+    assert_eq!(
+        receipt.origin.immutable_uri.as_deref(),
+        Some(resolved.oci_reference.as_str())
+    );
+    assert!(manager.get_component(ID).await.is_none());
+    assert!(manager.catalog().await?.tools.is_empty());
+    assert_eq!(
+        tokio::fs::read(manager.component_path("local_safe-replacement")).await?,
+        component(7)?
+    );
+
+    let (loaded, load_outcome) =
+        tokio::time::timeout(WAIT, manager.load_package(&directory, &package, None)).await??;
+    let loaded_receipt = match &load_outcome.commit.entry {
+        store::StoredEntry::Installed(receipt) => receipt,
+        store::StoredEntry::Retired(_) => bail!("package load returned a retired entry"),
+    };
+    assert_eq!(loaded.manifest_digest, manifest_digest);
+    assert_eq!(loaded_receipt.intent, store::InstallIntent::ExposeTools);
+    assert!(manager
+        .get_component(package.to_string().as_str())
+        .await
+        .is_some());
+    assert!(!manager.catalog().await?.tools.is_empty());
+    let result = manager
+        .execute_component_call(package.to_string().as_str(), "run", "{}")
+        .await?;
+    assert_eq!(
+        serde_json::from_str::<Value>(&result)?,
+        serde_json::json!({ "result": 7 })
+    );
+    api_server.await??;
+    registry_server.abort();
+    match registry_server.await {
+        Err(error) if error.is_cancelled() => {}
+        result => result?,
+    }
+    Ok(())
+}
+
+#[tokio::test]
 async fn safe_replacement_public_load_uses_configured_http_client() -> Result<()> {
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
@@ -977,4 +1207,171 @@ async fn safe_replacement_public_load_uses_configured_http_client() -> Result<()
     let request = request.context("configured HTTP proxy was never contacted")???;
     assert!(request.starts_with("CONNECT safe-replacement.invalid:443 HTTP/1.1\r\n"));
     before.assert_unchanged(&fixture.manager).await
+}
+
+async fn directory_manager(components: &TempDir, secrets: &TempDir) -> Result<LifecycleManager> {
+    use oci_client::client::{ClientConfig, ClientProtocol};
+
+    LifecycleManager::builder(components.path())
+        .with_secrets_dir(secrets.path())
+        .with_eager_loading(false)
+        .with_oci_client(oci_client::Client::new(ClientConfig {
+            protocol: ClientProtocol::Http,
+            ..Default::default()
+        }))
+        .build()
+        .await
+}
+
+#[tokio::test]
+async fn wit_selector_installs_exactly_matching_digest_pinned_package() -> Result<()> {
+    use wasm_directory::fixtures::{FixturePackage, WasmDirectoryFixture};
+    use wasm_directory::PackageSelector;
+
+    let fixture = WasmDirectoryFixture::start(vec![
+        FixturePackage::new(
+            "owner/safe-replacement",
+            Some("demo:replacement"),
+            [("1.0.0", component(1)?), ("1.2.0", component(2)?)],
+        ),
+        FixturePackage::new(
+            "owner/other",
+            Some("demo:replacement-extra"),
+            [("9.0.0", component(9)?)],
+        ),
+    ])
+    .await?;
+    let directory = fixture.directory()?;
+    let components = test_dir()?;
+    let secrets = test_dir()?;
+    let manager = directory_manager(&components, &secrets).await?;
+
+    let selector = PackageSelector::parse("demo:replacement")?;
+    let (resolved, outcome) =
+        tokio::time::timeout(WAIT, manager.install_package(&directory, &selector, None)).await??;
+    assert_eq!(
+        resolved.package_id.to_string(),
+        fixture.package_id("owner/safe-replacement")
+    );
+    assert_eq!(resolved.selected_version, "1.2.0");
+    assert_eq!(
+        resolved.manifest_digest,
+        fixture.digest("owner/safe-replacement", "1.2.0")
+    );
+    let crate::store::StoredEntry::Installed(receipt) = &outcome.entry else {
+        bail!("expected an installed receipt");
+    };
+    assert_eq!(
+        receipt.component_id.as_str(),
+        fixture.package_id("owner/safe-replacement").as_str()
+    );
+    assert_eq!(
+        receipt.origin.manifest_digest.as_deref(),
+        Some(resolved.manifest_digest.as_str())
+    );
+
+    let pinned = PackageSelector::parse("demo:replacement@1.0.0")?;
+    let (resolved, _) =
+        tokio::time::timeout(WAIT, manager.install_package(&directory, &pinned, None)).await??;
+    assert_eq!(resolved.selected_version, "1.0.0");
+    assert_eq!(resolved.requested_version.as_deref(), Some("1.0.0"));
+    assert_eq!(
+        resolved.manifest_digest,
+        fixture.digest("owner/safe-replacement", "1.0.0")
+    );
+    let conflict = manager
+        .install_package(&directory, &pinned, Some("1.2.0"))
+        .await
+        .unwrap_err();
+    assert!(
+        format!("{conflict:#}").contains("Conflicting versions"),
+        "{conflict:#}"
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn wit_selector_rejects_missing_and_ambiguous_identities() -> Result<()> {
+    use wasm_directory::fixtures::{FixturePackage, WasmDirectoryFixture};
+    use wasm_directory::PackageSelector;
+
+    let fixture = WasmDirectoryFixture::start(vec![
+        FixturePackage::new("first/tool", Some("demo:tool"), [("1.0.0", component(1)?)]),
+        FixturePackage::new("second/tool", Some("demo:tool"), [("1.0.0", component(2)?)]),
+        FixturePackage::new("third/tool", Some("Demo:tool"), [("1.0.0", component(3)?)]),
+    ])
+    .await?;
+    let directory = fixture.directory()?;
+    let components = test_dir()?;
+    let secrets = test_dir()?;
+    let manager = directory_manager(&components, &secrets).await?;
+
+    let missing = manager
+        .install_package(&directory, &PackageSelector::parse("demo:absent")?, None)
+        .await
+        .unwrap_err();
+    assert!(
+        format!("{missing:#}")
+            .contains("No wasm.directory component package has WIT identity demo:absent"),
+        "{missing:#}"
+    );
+
+    let ambiguous = manager
+        .install_package(&directory, &PackageSelector::parse("demo:tool")?, None)
+        .await
+        .unwrap_err();
+    let message = format!("{ambiguous:#}");
+    assert!(message.contains("matches multiple"), "{message}");
+    assert!(
+        message.contains(&fixture.package_id("first/tool")),
+        "{message}"
+    );
+    assert!(
+        message.contains(&fixture.package_id("second/tool")),
+        "{message}"
+    );
+    assert!(
+        !message.contains(&fixture.package_id("third/tool")),
+        "{message}"
+    );
+    assert!(manager.store_snapshot(ID).await.is_err());
+    Ok(())
+}
+
+#[tokio::test]
+async fn nameless_registry_package_uses_canonical_registry_id() -> Result<()> {
+    use wasm_directory::fixtures::{FixturePackage, WasmDirectoryFixture};
+    use wasm_directory::PackageSelector;
+
+    let nameless = wat::parse_str(
+        r#"(component
+            (core module $m
+                (func (export "run") (result i32) i32.const 1))
+            (core instance $i (instantiate $m))
+            (func (export "run") (result u32)
+                (canon lift (core func $i "run"))))"#,
+    )?;
+    let fixture = WasmDirectoryFixture::start(vec![FixturePackage::new(
+        "owner/nameless",
+        Some("demo:nameless"),
+        [("2.0.6", nameless)],
+    )])
+    .await?;
+    let directory = fixture.directory()?;
+    let components = test_dir()?;
+    let secrets = test_dir()?;
+    let manager = directory_manager(&components, &secrets).await?;
+
+    let (_, outcome) = manager
+        .install_package(&directory, &PackageSelector::parse("demo:nameless")?, None)
+        .await?;
+    let crate::store::StoredEntry::Installed(receipt) = outcome.entry else {
+        bail!("expected an installed receipt");
+    };
+    assert_eq!(
+        receipt.component_id.as_str(),
+        fixture.package_id("owner/nameless")
+    );
+    assert!(manager.catalog().await?.tools.is_empty());
+    Ok(())
 }

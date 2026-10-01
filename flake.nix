@@ -36,8 +36,7 @@
               (craneLib.filterCargoSources path type)
               || (pkgs.lib.hasSuffix ".wit" path)
               || (pkgs.lib.hasSuffix "README.md" path)
-              || (pkgs.lib.hasSuffix "rust-toolchain.toml" path)
-              || (pkgs.lib.hasSuffix "component-registry.json" path);
+              || (pkgs.lib.hasSuffix "rust-toolchain.toml" path);
           };
           strictDeps = true;
 

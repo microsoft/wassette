@@ -4,10 +4,10 @@ Wassette comes with several built-in tools for managing components and their per
 
 | Tool | Description |
 |------|-------------|
-| `load-component` | Dynamically loads a new tool or component from either the filesystem or OCI registries |
+| `load-component` | Loads a component from a direct path/URI or an explicit wasm.directory package request |
 | `unload-component` | Unloads a tool or component |
 | `list-components` | Lists all currently loaded components or tools |
-| `search-components` | Lists all known components that can be fetched and loaded from the component registry |
+| `search-components` | Searches wasm.directory for component packages; results are discovery-only |
 | `get-policy` | Gets the policy information for a specific component |
 | `grant-storage-permission` | Grants storage access permission to a component, allowing it to read from and/or write to specific storage locations |
 | `grant-network-permission` | Grants network access permission to a component, allowing it to make network requests to specific hosts |
@@ -22,7 +22,15 @@ Wassette comes with several built-in tools for managing components and their per
 
 ## load-component
 **Parameters:**
-- `path` (string, required): Path to the component from either filesystem or OCI registries (e.g., `oci://ghcr.io/microsoft/time-server-js:latest` or `/path/to/component.wasm`)
+- Exactly one of:
+  - `path` (string): Direct component source such as `file:///path/to/component.wasm` or `oci://ghcr.io/microsoft/time-server-js:1.2.3`
+  - `package` (string): Canonical wasm.directory identity such as `ghcr.io/microsoft/time-server-js`, or an exact WIT identity such as `yosh:wordmark` or `yosh:wordmark@2.0.6` that must match exactly one package
+- `version` (string, optional): Exact indexed tag; valid only with `package`, and must agree with a WIT selector's `@version`
+
+The `package` form resolves the selected tag to an immutable manifest digest
+and explicitly loads an ordinary tool component. Use `wassette registry get`
+for install-only package storage; installation by itself does not expose tools.
+ACP providers/layers cannot be loaded as ordinary MCP tools.
 
 **Returns:**
 ```json
@@ -34,6 +42,8 @@ Wassette comes with several built-in tools for managing components and their per
 ```
 When an existing component is replaced, the `status` value becomes
 `component reloaded successfully`.
+Package loads also return `package`, `wit_identity`, `requested_version`, `selected_version`,
+`manifest_digest`, `storage_key`, `revision`, and the persisted `receipt`.
 
 ACP providers/layers and unsupported artifact shapes cannot be loaded as
 ordinary tools, including through cached schemas. An ordinary candidate still
@@ -77,22 +87,36 @@ ownership or revisions require an explicit retry, not an overwrite.
 ```
 
 ## search-components
-**Parameters:** None
+**Parameters:**
+- `query` (string, optional): Search query sent to wasm.directory
+- `offset` (integer, optional): Upstream result offset (default: `0`)
+- `limit` (integer, optional): Upstream page size from 1 to 100 (default: `20`)
+
+Results are discovery-only. `advertised_kind` is registry metadata, not
+validation of the downloaded artifact. Interface packages are excluded from
+component results, and no package is installed or exposed by searching.
+`next_offset` is based on raw upstream records; `may_have_more` means a later
+upstream page may exist.
 
 **Returns:**
 ```json
 {
-  "status": "Component list found",
+  "status": "success",
+  "source": "wasm.directory",
+  "discovery_only": true,
+  "count": 1,
+  "upstream_count": 1,
+  "offset": 0,
+  "limit": 20,
+  "next_offset": null,
+  "may_have_more": false,
   "components": [
     {
-      "name": "Weather Server",
+      "package_id": "ghcr.io/microsoft/get-weather-js",
       "description": "A weather component written in JavaScript",
-      "uri": "oci://ghcr.io/microsoft/get-weather-js:latest"
-    },
-    {
-      "name": "Time Server", 
-      "description": "A time server component written in JavaScript",
-      "uri": "oci://ghcr.io/microsoft/time-server-js:latest"
+      "advertised_kind": "component",
+      "wit_identity": null,
+      "tags": ["1.0.0"]
     }
   ]
 }
