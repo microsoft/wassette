@@ -680,7 +680,7 @@ mod tests {
                         installed["manifest_digest"],
                         fixture.digest("owner/catalog-fixture", "1.2.3")
                     );
-                    assert_eq!(installed["component_id"], "catalog-fixture");
+                    assert_eq!(installed["component_id"], package);
                     assert!(manager.catalog().await.unwrap().tools.is_empty());
 
                     let request = CallToolRequestParams::new("load-component").with_arguments(
@@ -693,7 +693,7 @@ mod tests {
                     let result: Value =
                         serde_json::from_str(response["content"][0]["text"].as_str().unwrap())
                             .unwrap();
-                    assert_eq!(result["id"], "catalog-fixture", "{result}");
+                    assert_eq!(result["id"], package, "{result}");
                     assert_eq!(result["package"], package);
                     assert_eq!(result["selected_version"], "1.0.0");
                     assert_eq!(
@@ -753,7 +753,7 @@ mod tests {
                     assert_eq!(installed["package"], package);
                     assert_eq!(installed["selected_version"], "1.2.3");
                     assert_eq!(installed["manifest_digest"], digest);
-                    assert_eq!(installed["component_id"], "catalog-fixture");
+                    assert_eq!(installed["component_id"], package);
                     assert_eq!(installed["storage_key"], "local_catalog-fixture");
                     assert_eq!(installed["receipt"]["intent"], "InstallOnly");
                     assert_eq!(installed["receipt"]["origin"]["selected_version"], "1.2.3");
@@ -794,7 +794,7 @@ mod tests {
                         response["result"]["content"][0]["text"].as_str().unwrap(),
                     )
                     .unwrap();
-                    assert_eq!(result["id"], "catalog-fixture");
+                    assert_eq!(result["id"], package);
                     assert_eq!(result["package"], package);
                     assert_eq!(result["selected_version"], "1.2.3");
                     assert_eq!(result["manifest_digest"], digest);
@@ -803,10 +803,7 @@ mod tests {
                     assert_eq!(result["receipt"]["origin"]["selected_version"], "1.2.3");
                     let catalog = manager.catalog().await.unwrap();
                     assert_eq!(catalog.tools.len(), 1);
-                    assert_eq!(
-                        catalog.tools[0].tool.key.component_id.as_str(),
-                        "catalog-fixture"
-                    );
+                    assert_eq!(catalog.tools[0].tool.key.component_id.as_str(), package);
                     expect_no_subscription_change(&mut receiver).await;
                     let mut extra = String::new();
                     assert!(
