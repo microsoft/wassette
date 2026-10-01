@@ -231,7 +231,16 @@ impl Resolver {
             None => self.acquire_uri(arg, progress.as_ref()).await?,
         };
         let inspection = wassette::inspect_artifact(&acquired.wasm)?;
-        let component_id = inspection.identity.map_err(anyhow::Error::from)?;
+        let component_id =
+            if let Some(package_id) = acquired.origin.location.strip_prefix("wasm.directory:") {
+                package_id.to_owned()
+            } else {
+                inspection
+                    .identity
+                    .map_err(anyhow::Error::from)?
+                    .as_str()
+                    .to_owned()
+            };
         let observer = store.clone();
         let name = component_id.as_str().to_owned();
         let key = acquired.storage_key.clone();
@@ -513,7 +522,7 @@ mod tests {
             .install_validated("demo:agent", Some(tx), &engine)
             .await
             .unwrap();
-        assert_eq!(installed.component_id, "demo-agent");
+        assert_eq!(installed.component_id, fixture.package_id("owner/agent"));
         let origin = &installed.snapshot.receipt.origin;
         assert_eq!(origin.selected_version.as_deref(), Some("1.1.0"));
         assert_eq!(
@@ -544,7 +553,7 @@ mod tests {
             .install_validated(&fixture.package_id("owner/agent"), None, &engine)
             .await
             .unwrap();
-        assert_eq!(canonical.component_id, "demo-agent");
+        assert_eq!(canonical.component_id, fixture.package_id("owner/agent"));
 
         let missing = resolver
             .install_validated("demo:absent", None, &engine)
@@ -557,7 +566,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn install_reports_nameless_wasm_directory_artifacts() {
+    async fn install_accepts_nameless_wasm_directory_artifacts() {
         use wassette::wasm_directory::fixtures::{FixturePackage, WasmDirectoryFixture};
 
         let nameless = wat::parse_str(
@@ -575,23 +584,11 @@ mod tests {
         .unwrap();
         let dir = tempfile::tempdir().unwrap();
         let resolver = directory_resolver(&fixture, dir.path());
-        let error = resolver
+        let installed = resolver
             .install_validated("demo:nameless", None, &Engine::default())
             .await
-            .unwrap_err();
-        let message = format!("{error:#}");
-        assert!(
-            message.contains(&fixture.package_id("owner/nameless")),
-            "{message}"
-        );
-        assert!(
-            message.contains(fixture.digest("owner/nameless", "2.0.6")),
-            "{message}"
-        );
-        assert!(
-            message.contains("wasm-tools metadata add --name"),
-            "{message}"
-        );
+            .unwrap();
+        assert_eq!(installed.component_id, fixture.package_id("owner/nameless"));
     }
 
     #[tokio::test]

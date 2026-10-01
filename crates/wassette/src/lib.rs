@@ -560,10 +560,18 @@ impl LifecycleManager {
         if inspection.shape != ArtifactShape::ToolCandidate {
             bail!("Cannot load ACP or unsupported artifacts as ordinary tool components");
         }
-        anyhow::ensure!(
-            inspection.identity?.as_str() == binding.component_name(),
-            "Captured component does not match the admitted semantic binding"
-        );
+        if let Ok(embedded) = &inspection.identity {
+            anyhow::ensure!(
+                embedded.as_str() == binding.component_name()
+                    || binding.component_name().contains('/'),
+                "Captured component does not match the admitted semantic binding"
+            );
+        } else {
+            anyhow::ensure!(
+                binding.component_name().contains('/'),
+                "Captured component is missing its embedded local component name"
+            );
+        }
         let policy_template = self
             .policy_manager
             .prepare_bound_template(binding, effective_policy.as_deref())

@@ -1116,7 +1116,7 @@ async fn wasm_directory_package_install_is_digest_pinned_until_explicit_load() -
         store::StoredEntry::Installed(receipt) => receipt,
         store::StoredEntry::Retired(_) => bail!("package installation returned a retired entry"),
     };
-    assert_eq!(receipt.component_id.as_str(), ID);
+    assert_eq!(receipt.component_id.as_str(), package.to_string().as_str());
     assert_eq!(receipt.storage_key.as_str(), "local_safe-replacement");
     assert_eq!(receipt.intent, store::InstallIntent::InstallOnly);
     assert!(outcome.change.is_some());
@@ -1142,9 +1142,18 @@ async fn wasm_directory_package_install_is_digest_pinned_until_explicit_load() -
     };
     assert_eq!(loaded.manifest_digest, manifest_digest);
     assert_eq!(loaded_receipt.intent, store::InstallIntent::ExposeTools);
-    assert!(manager.get_component(ID).await.is_some());
+    assert!(manager
+        .get_component(package.to_string().as_str())
+        .await
+        .is_some());
     assert!(!manager.catalog().await?.tools.is_empty());
-    assert_call(&manager, 7).await?;
+    let result = manager
+        .execute_component_call(package.to_string().as_str(), "run", "{}")
+        .await?;
+    assert_eq!(
+        serde_json::from_str::<Value>(&result)?,
+        serde_json::json!({ "result": 7 })
+    );
     api_server.await??;
     registry_server.abort();
     match registry_server.await {
@@ -1252,7 +1261,10 @@ async fn wit_selector_installs_exactly_matching_digest_pinned_package() -> Resul
     let crate::store::StoredEntry::Installed(receipt) = &outcome.entry else {
         bail!("expected an installed receipt");
     };
-    assert_eq!(receipt.component_id.as_str(), ID);
+    assert_eq!(
+        receipt.component_id.as_str(),
+        fixture.package_id("owner/safe-replacement").as_str()
+    );
     assert_eq!(
         receipt.origin.manifest_digest.as_deref(),
         Some(resolved.manifest_digest.as_str())
@@ -1327,13 +1339,17 @@ async fn wit_selector_rejects_missing_and_ambiguous_identities() -> Result<()> {
 }
 
 #[tokio::test]
-async fn nameless_package_reports_digest_and_publisher_fix() -> Result<()> {
+async fn nameless_registry_package_uses_canonical_registry_id() -> Result<()> {
     use wasm_directory::fixtures::{FixturePackage, WasmDirectoryFixture};
     use wasm_directory::PackageSelector;
 
     let nameless = wat::parse_str(
         r#"(component
-            (core module (func (export "run") (result i32) i32.const 1)))"#,
+            (core module $m
+                (func (export "run") (result i32) i32.const 1))
+            (core instance $i (instantiate $m))
+            (func (export "run") (result u32)
+                (canon lift (core func $i "run"))))"#,
     )?;
     let fixture = WasmDirectoryFixture::start(vec![FixturePackage::new(
         "owner/nameless",
@@ -1346,23 +1362,15 @@ async fn nameless_package_reports_digest_and_publisher_fix() -> Result<()> {
     let secrets = test_dir()?;
     let manager = directory_manager(&components, &secrets).await?;
 
-    let error = manager
+    let (_, outcome) = manager
         .install_package(&directory, &PackageSelector::parse("demo:nameless")?, None)
-        .await
-        .unwrap_err();
-    let message = format!("{error:#}");
-    assert!(
-        message.contains(&fixture.package_id("owner/nameless")),
-        "{message}"
-    );
-    assert!(
-        message.contains(fixture.digest("owner/nameless", "2.0.6")),
-        "{message}"
-    );
-    assert!(message.contains("missing root component name"), "{message}");
-    assert!(
-        message.contains("wasm-tools metadata add --name"),
-        "{message}"
+        .await?;
+    let crate::store::StoredEntry::Installed(receipt) = outcome.entry else {
+        bail!("expected an installed receipt");
+    };
+    assert_eq!(
+        receipt.component_id.as_str(),
+        fixture.package_id("owner/nameless")
     );
     assert!(manager.catalog().await?.tools.is_empty());
     Ok(())
