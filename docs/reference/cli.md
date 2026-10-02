@@ -195,6 +195,13 @@ ACP discovers installed providers from the shared component store and starts
 `--allow-shared-grants` flags are removed; delete them from editor
 configuration. Layers and providers are not hot-swapped into running sessions.
 
+Copilot's Auto-approve and the host Terminal toggle can change while a turn is
+running. Auto-approve applies to subsequent native tool permission checks, not
+approvals already displayed or host component-tool revision approvals. Terminal
+gates new command creation immediately after application; its model-facing tool
+list refreshes next round, and existing commands continue running. Model, mode
+and other backend settings still require an idle session.
+
 ACP resolves `component_dir` and `secrets_dir` through the same command-line,
 `WASSETTE_*`, `config.toml`, and platform-default precedence as the rest of the
 CLI. The root `wassette --component-dir` option applies when ACP's own

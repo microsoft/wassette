@@ -840,7 +840,7 @@ async fn prompt_impl(
         reasoning,
         cwd,
         mode,
-        terminal_enabled,
+        mut terminal_enabled,
         generation_enabled,
         prev_used,
         prev_cost,
@@ -959,7 +959,14 @@ async fn prompt_impl(
         // Re-read the broker catalog each round: the host may expose or retire
         // tools between rounds, and it never pushes that to us.
         let (changed, broker_error) = broker.refresh(RESERVED_TOOL_NAMES).await;
-        if changed {
+        let current_terminal = SESSIONS.with(|s| {
+            s.borrow()
+                .get(&session_id)
+                .expect("prompt session exists")
+                .terminal_enabled
+        });
+        if changed || current_terminal != terminal_enabled {
+            terminal_enabled = current_terminal;
             tools = tool_defs(terminal_enabled, generation_enabled, &broker);
         }
         if let Some(message) = broker_error {

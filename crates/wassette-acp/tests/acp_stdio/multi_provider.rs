@@ -313,12 +313,58 @@ fn cancellation_and_busy_selection_do_not_cross_provider_boundaries() {
         return;
     };
     let mut h = providers.start(&bin, &[]);
-    initialize(&mut h);
+    let initialize = h.request(
+        "initialize",
+        json!({
+            "protocolVersion": 1, "clientCapabilities": {
+                "session": {"configOptions": {"boolean": {}}}
+            }
+        }),
+    );
+    h.await_response(initialize);
     let session = new_session(&mut h);
+    let other = new_session(&mut h);
     let sid = session["sessionId"].as_str().unwrap();
     let beta = model_value(&session["configOptions"], "local:beta", "Shared");
     let prompt = h.prompt(sid, "/permission");
     let permission = h.await_permission(prompt);
+    let toggle = h.request(
+        "session/set_config_option",
+        json!({
+            "sessionId": sid, "configId": "terminal", "type": "boolean", "value": true
+        }),
+    );
+    let (_, toggled) = h.await_response(toggle);
+    assert_eq!(
+        toggled["configOptions"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|option| option["id"] == "terminal")
+            .unwrap()["currentValue"],
+        true
+    );
+    assert_eq!(
+        other["configOptions"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|option| option["id"] == "terminal")
+            .unwrap()["currentValue"],
+        false
+    );
+    let unrecognized = h.request(
+        "session/set_config_option",
+        json!({
+            "sessionId": sid, "configId": "allow-all", "value": "on"
+        }),
+    );
+    assert!(
+        response_error(&mut h, unrecognized)["message"]
+            .as_str()
+            .unwrap()
+            .contains("busy")
+    );
     let change = h.request(
         "session/set_config_option",
         json!({

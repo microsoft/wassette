@@ -393,7 +393,7 @@ pub(super) fn handle_set_session_mode(
     let session_key = req.session_id.0.to_string();
     debug!(session = %session_key, "session/set_mode");
     let handle = require_session(registry, &session_key)?;
-    let operation = handle.begin_operation()?;
+    let operation = handle.begin_configuration("mode")?;
     open_gate_now(gate, &session_key, &cx);
     let mode_id = req.mode_id.0.to_string();
 
@@ -431,9 +431,9 @@ pub(super) fn handle_set_session_config_option(
     let session_key = req.session_id.0.to_string();
     debug!(session = %session_key, "session/set_config_option");
     let handle = require_session(registry, &session_key)?;
-    let operation = handle.begin_operation()?;
-    open_gate_now(gate, &session_key, &cx);
     let config_id = req.config_id.0.to_string();
+    let operation = handle.begin_configuration(&config_id)?;
+    open_gate_now(gate, &session_key, &cx);
 
     // The `terminal` option is host-owned: the host enforces terminal
     // execution and no guest provider may grant itself host CLI access, so
@@ -460,6 +460,7 @@ pub(super) fn handle_set_session_config_option(
         };
         cx.spawn(async move {
             let _operation = operation;
+            let _setter = handle.lock_live_setter().await;
             if let Err(e) = handle.set_terminal_enabled(enabled).await {
                 return responder.respond_with_error(translate::anyhow_to_acp(
                     "set-config-option: terminal",
@@ -484,10 +485,21 @@ pub(super) fn handle_set_session_config_option(
         &handle.config_options(),
         handle.terminal_option().is_some(),
     )?;
+    if operation.live && !matches!(value.as_str(), "on" | "off") {
+        let mut error = AcpError::invalid_params();
+        error.message = format!("config option `{config_id}` expects on or off");
+        return Err(error);
+    }
 
     cx.spawn(async move {
+        let live = operation.live;
         let _operation = operation;
-        let outcome = handle.set_config_option(config_id, value).await;
+        let _setter = handle.lock_live_setter().await;
+        let outcome = if live {
+            handle.set_auto_approve(value == "on").await
+        } else {
+            handle.set_config_option(config_id, value).await
+        };
         match outcome {
             SetConfigOptionOutcome::Done(options) => {
                 let resp = match translate::set_config_option_response(

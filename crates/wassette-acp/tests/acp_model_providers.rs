@@ -150,6 +150,9 @@ impl Harness {
     ) -> Harness {
         let mut cmd = Command::new(bin);
         cmd.arg("acp").args(extra);
+        let home = xdg.path().join("home");
+        std::fs::create_dir_all(&home).expect("create isolated home");
+        cmd.env("HOME", &home);
         for sub in ["data", "config", "state"] {
             let dir = xdg.path().join(sub);
             std::fs::create_dir_all(&dir).expect("create xdg dir");
@@ -276,15 +279,73 @@ impl Harness {
                 return (notifications, msg["result"].clone());
             }
             if msg["method"] == "session/request_permission" {
-                let response = json!({
-                    "jsonrpc": "2.0", "id": msg["id"],
-                    "result": {"outcome": {"outcome": "selected", "optionId": option_id}},
-                });
-                let stdin = self.stdin.as_mut().expect("stdin is open");
-                writeln!(stdin, "{response}").expect("write permission response");
-                stdin.flush().expect("flush permission response");
+                self.respond_permission(&msg, option_id);
             }
             notifications.push(msg);
+        }
+    }
+
+    fn respond(&mut self, request: &Value, result: Value) {
+        let response = json!({"jsonrpc": "2.0", "id": request["id"], "result": result});
+        let stdin = self.stdin.as_mut().expect("stdin is open");
+        writeln!(stdin, "{response}").expect("write response");
+        stdin.flush().expect("flush response");
+    }
+
+    fn respond_permission(&mut self, request: &Value, option_id: &str) {
+        self.respond(
+            request,
+            json!({"outcome": {"outcome": "selected", "optionId": option_id}}),
+        );
+    }
+
+    fn await_request(&mut self, prompt: i64, method: &str) -> Value {
+        self.await_request_with_updates(prompt, method).1
+    }
+
+    fn await_request_with_updates(&mut self, prompt: i64, method: &str) -> (Vec<Value>, Value) {
+        let mut updates = Vec::new();
+        loop {
+            let line = self
+                .lines
+                .recv_timeout(LINE_TIMEOUT)
+                .unwrap_or_else(|error| {
+                    panic!(
+                        "waiting for {method}: {error}; stderr:\n{}",
+                        self.stderr.lock().unwrap()
+                    )
+                });
+            let message: Value = serde_json::from_str(&line).unwrap();
+            assert_ne!(
+                message["id"], prompt,
+                "prompt ended before {method}: {message}"
+            );
+            if message["method"] == method {
+                return (updates, message);
+            }
+            assert_ne!(
+                message["method"], "session/request_permission",
+                "unexpected approval before {method}: {message}"
+            );
+            updates.push(message);
+        }
+    }
+
+    fn await_error(&mut self, id: i64) -> Value {
+        loop {
+            let line = self
+                .lines
+                .recv_timeout(LINE_TIMEOUT)
+                .expect("error response");
+            let message: Value = serde_json::from_str(&line).unwrap();
+            if message["id"] == id {
+                assert!(message.get("error").is_some(), "{message}");
+                return message["error"].clone();
+            }
+            assert!(
+                message.get("method").is_some(),
+                "unexpected response: {message}"
+            );
         }
     }
 
@@ -764,6 +825,196 @@ fn copilot_provider_only_advertises_terminal_when_enabled() {
             },
             "{chat}"
         );
+    }
+}
+
+#[test]
+fn copilot_access_toggles_apply_while_native_approval_is_pending() {
+    let Some((bin, wasm)) = artifacts("acp-copilot-provider", "acp_copilot_provider") else {
+        return;
+    };
+    for boolean_supported in [true, false] {
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        let output = tempfile::tempdir().unwrap();
+        let marker = output.path().join("must-not-exist");
+        let terminal_command = format!("touch '{}'", marker.display());
+        let server = rt.block_on(async {
+            let server = MockServer::start().await;
+            let writes = sse(&[json!({"choices": [{"delta": {
+                "tool_calls": (0..3).map(|index| json!({
+                    "index": index, "id": format!("write-{index}"), "type": "function",
+                    "function": {"name": "write_text_file",
+                        "arguments": json!({"path": format!("write-{index}.txt"),
+                            "content": "live toggle"}).to_string()}
+                })).collect::<Vec<_>>()
+            }, "finish_reason": "tool_calls"}]})]);
+            copilot_mocks(
+                &server,
+                ChatScript::new([
+                    writes,
+                    tool_call_round(
+                        "terminal",
+                        "run_terminal_command",
+                        json!({"command": terminal_command}),
+                    ),
+                    text_round("done"),
+                ]),
+            )
+            .await;
+            server
+        });
+        let base_url = server.uri();
+        let token_url = format!("{base_url}/copilot_internal/v2/token");
+        let mut h = Harness::start(
+            &bin,
+            &wasm,
+            &["--allow-all"],
+            &[
+                ("COPILOT_GITHUB_TOKEN", "gho_e2e_live_toggles"),
+                ("COPILOT_BASE_URL", &base_url),
+                ("COPILOT_TOKEN_URL", &token_url),
+                ("COPILOT_MODEL", "gpt-e2e"),
+            ],
+        );
+        let id = h.request("initialize", json!({"protocolVersion": 1,
+            "clientCapabilities": {
+                "fs": {"writeTextFile": true},
+                "session": {"configOptions": {"boolean": if boolean_supported { json!({}) } else { Value::Null }}}
+            }}));
+        h.await_response(id);
+        let id = h.request(
+            "session/new",
+            json!({"cwd": output.path(), "mcpServers": []}),
+        );
+        let (_, session) = h.await_response(id);
+        let sid = session["sessionId"].as_str().unwrap();
+        let prompt = h.request(
+            "session/prompt",
+            json!({"sessionId": sid,
+            "prompt": [{"type": "text", "text": "write three files then run a command"}]}),
+        );
+        let permission = h.await_request(prompt, "session/request_permission");
+
+        for enabled in [true, false, true] {
+            let id = h.request("session/set_config_option", json!({
+                "sessionId": sid, "configId": "allow-all",
+                "type": if boolean_supported { "boolean" } else { "select" },
+                "value": if boolean_supported { json!(enabled) } else { json!(if enabled { "on" } else { "off" }) }
+            }));
+            let (updates, response) = h.await_response(id);
+            assert!(
+                updates
+                    .iter()
+                    .all(|message| message["method"] != "session/request_permission")
+            );
+            let approval = response["configOptions"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|option| option["id"] == "allow-all")
+                .unwrap();
+            assert_eq!(
+                approval["currentValue"],
+                if boolean_supported {
+                    json!(enabled)
+                } else {
+                    json!(if enabled { "on" } else { "off" })
+                }
+            );
+        }
+        for config in ["model", "mode", "unknown"] {
+            let id = h.request(
+                "session/set_config_option",
+                json!({
+                    "sessionId": sid, "configId": config, "value": "agent"
+                }),
+            );
+            assert_eq!(h.await_error(id)["code"], -32600);
+        }
+        let id = h.request(
+            "session/set_mode",
+            json!({"sessionId": sid, "modeId": "agent"}),
+        );
+        assert_eq!(h.await_error(id)["code"], -32600);
+        let id = h.request(
+            "session/set_config_option",
+            json!({
+                "sessionId": sid, "configId": "allow-all",
+                "value": if boolean_supported { json!("on") } else { json!(true) }
+            }),
+        );
+        assert_eq!(h.await_error(id)["code"], -32602);
+        if boolean_supported {
+            let id = h.request(
+                "session/set_config_option",
+                json!({
+                    "sessionId": sid, "configId": "terminal", "type": "boolean", "value": true
+                }),
+            );
+            let (_, response) = h.await_response(id);
+            assert_eq!(
+                response["configOptions"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .find(|option| option["id"] == "terminal")
+                    .unwrap()["currentValue"],
+                true
+            );
+        }
+
+        h.respond_permission(&permission, "allow-once");
+        let first = h.await_request(prompt, "fs/write_text_file");
+        h.respond(&first, json!({}));
+        let second = h.await_request(prompt, "fs/write_text_file");
+        let id = h.request(
+            "session/set_config_option",
+            json!({
+                "sessionId": sid, "configId": "allow-all",
+                "type": if boolean_supported { "boolean" } else { "select" },
+                "value": if boolean_supported { json!(false) } else { json!("off") }
+            }),
+        );
+        h.await_response(id);
+        h.respond(&second, json!({}));
+        let third_permission = h.await_request(prompt, "session/request_permission");
+        h.respond_permission(&third_permission, "allow-once");
+        let third = h.await_request(prompt, "fs/write_text_file");
+        h.respond(&third, json!({}));
+
+        let terminal_permission = h.await_request(prompt, "session/request_permission");
+        if boolean_supported {
+            let id = h.request(
+                "session/set_config_option",
+                json!({
+                    "sessionId": sid, "configId": "terminal", "type": "boolean", "value": false
+                }),
+            );
+            h.await_response(id);
+        }
+        h.respond_permission(&terminal_permission, "allow-once");
+        let (_, response) = h.await_response(prompt);
+        assert_eq!(response["stopReason"], "end_turn");
+        assert!(!marker.exists(), "disabled terminal spawned a command");
+        let requests = rt.block_on(server.received_requests()).unwrap();
+        let chats: Vec<Value> = requests
+            .iter()
+            .filter(|request| request.url.path() == "/chat/completions")
+            .map(|request| serde_json::from_slice(&request.body).unwrap())
+            .collect();
+        assert_eq!(chats.len(), 3);
+        for (round, chat) in chats.iter().enumerate() {
+            let terminal_advertised = chat["tools"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|tool| tool["function"]["name"] == "run_terminal_command");
+            assert_eq!(
+                terminal_advertised,
+                boolean_supported && round == 1,
+                "{chat}"
+            );
+        }
     }
 }
 
@@ -1304,6 +1555,12 @@ fn copilot_provider_routes_broker_tool_calls_through_the_host() {
                     json!({"path": written.to_str().unwrap(), "content": "routed"}),
                 ),
                 text_round("done"),
+                tool_call_round(
+                    "call-2",
+                    &advertised,
+                    json!({"path": written.to_str().unwrap(), "content": "must not overwrite"}),
+                ),
+                text_round("rejected"),
             ]),
         )
         .await;
@@ -1313,7 +1570,22 @@ fn copilot_provider_routes_broker_tool_calls_through_the_host() {
         "session/prompt",
         json!({"sessionId": sid, "prompt": [{"type": "text", "text": "write it"}]}),
     );
-    let (updates, response) = h.await_response_with_permission(id, "allow-once");
+    let (mut updates, permission) = h.await_request_with_updates(id, "session/request_permission");
+    let toggle = h.request(
+        "session/set_config_option",
+        json!({
+            "sessionId": sid, "configId": "allow-all", "type": "boolean", "value": true
+        }),
+    );
+    h.await_response(toggle);
+    assert!(
+        !written.exists(),
+        "Auto-approve resolved an outstanding component approval"
+    );
+    h.respond_permission(&permission, "allow-once");
+    let (remaining, response) = h.await_response_with_permission(id, "allow-once");
+    updates.extend(remaining);
+    updates.push(permission);
     assert_eq!(response["stopReason"], "end_turn", "{response}");
 
     // The host — not the provider — asked for permission and reported the
@@ -1359,6 +1631,21 @@ fn copilot_provider_routes_broker_tool_calls_through_the_host() {
         "the broker result should be a success: {result}"
     );
     assert_eq!(agent_text(&updates), "done", "{updates:#?}");
+
+    let id = h.request(
+        "session/prompt",
+        json!({
+            "sessionId": sid, "prompt": [{"type": "text", "text": "try again"}]
+        }),
+    );
+    let permission = h.await_request(id, "session/request_permission");
+    h.respond_permission(&permission, "reject-once");
+    h.await_response(id);
+    assert_eq!(
+        std::fs::read_to_string(&written).unwrap(),
+        "routed",
+        "native Auto-approve bypassed component revision approval"
+    );
 }
 
 /// Resolve the fully-qualified `write-file` export from a `/tools list` table.
