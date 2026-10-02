@@ -46,6 +46,9 @@ and `wit/acp/` are vendored from
 (Apache-2.0), ported to Wasmtime 47. The repository's copyright check
 (`./scripts/copyright.sh`, enforced in CI) stamps a Microsoft header onto every
 `.rs` file including those; it does not displace their upstream Apache-2.0
-provenance, which this section records.
+provenance, which this section records. The same applies to
+`components/acp-ollama-provider` and `components/acp-copilot-provider`, which
+are ported from the playground's `ollama-provider` and `copilot-provider`
+crates.
 `wit/acp/deps/wasmcloud-secrets/secrets.wit` is hand-authored — upstream's copy
 lives behind a registry this tree cannot reach.
