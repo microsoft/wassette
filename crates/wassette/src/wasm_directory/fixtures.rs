@@ -77,6 +77,14 @@ impl WasmDirectoryFixture {
             let mut versions = Vec::new();
             for (tag, wasm) in &package.versions {
                 let digest = publish(&mut routes, &package.repository, wasm.clone())?;
+                let manifest = routes
+                    .get(&format!("/v2/{}/manifests/{digest}", package.repository))
+                    .context("published fixture manifest is missing")?
+                    .clone();
+                routes.insert(
+                    format!("/v2/{}/manifests/{tag}", package.repository),
+                    manifest,
+                );
                 digests.insert((package.repository.clone(), tag.clone()), digest.clone());
                 versions.push(serde_json::json!({"tag": tag, "digest": digest}));
             }

@@ -7,7 +7,7 @@ use tempfile::TempDir;
 
 use super::*;
 
-const ID: &str = "declared-replacement-name";
+const ID: &str = "local:safe-replacement";
 const KEY: &str = "safe-replacement";
 const WAIT: Duration = Duration::from_secs(30);
 const POLICY: &str = r#"
@@ -34,6 +34,18 @@ fn test_dir() -> Result<TempDir> {
 fn component(value: u32) -> Result<Vec<u8>> {
     Ok(wat::parse_str(format!(
         r#"(component $declared-replacement-name
+            (core module $m
+                (func (export "run") (result i32) i32.const {value}))
+            (core instance $i (instantiate $m))
+            (func (export "run") (result u32)
+                (canon lift (core func $i "run")))
+        )"#
+    ))?)
+}
+
+fn unnamed_component(value: u32) -> Result<Vec<u8>> {
+    Ok(wat::parse_str(format!(
+        r#"(component
             (core module $m
                 (func (export "run") (result i32) i32.const {value}))
             (core instance $i (instantiate $m))
@@ -527,6 +539,21 @@ async fn safe_replacement_success_publishes_new_runtime_policy_and_native_cache(
 }
 
 #[tokio::test]
+async fn source_identity_survives_replacement_with_unnamed_artifact() -> Result<()> {
+    let fixture = Fixture::new().await?;
+    let first = fixture.load(1).await?;
+    assert_eq!(first.component_id, ID);
+    let source = fixture.source.path().join(format!("{KEY}.wasm"));
+    tokio::fs::write(&source, unnamed_component(2)?).await?;
+
+    let outcome = fixture.manager.load_component(&file_uri(&source)).await?;
+
+    assert_eq!(outcome.status, LoadResult::Replaced);
+    assert_eq!(outcome.component_id, ID);
+    assert_call(&fixture.manager, 2).await
+}
+
+#[tokio::test]
 async fn safe_replacement_bundle_preserves_explicit_policy_grants() -> Result<()> {
     let fixture = Fixture::new().await?;
     fixture.load_downloaded(1, None).await?;
@@ -917,7 +944,8 @@ async fn safe_replacement_oci_bundle_uses_configured_http_client() -> Result<()>
         result => result??,
     }
     let outcome = loaded.context("OCI bundle load timed out")??;
-    assert_eq!(outcome.component_id, ID);
+    let id = format!("{address}/{KEY}");
+    assert_eq!(outcome.component_id, id);
     assert_eq!(outcome.status, LoadResult::New);
     assert_eq!(
         tokio::fs::read(manager.component_path(KEY)).await?,
@@ -927,10 +955,15 @@ async fn safe_replacement_oci_bundle_uses_configured_http_client() -> Result<()>
         tokio::fs::read(manager.storage.policy_path(&storage_key())).await?,
         POLICY.as_bytes()
     );
-    let template = manager.get_component(ID).await.unwrap().policy_template;
+    let template = manager.get_component(&id).await.unwrap().policy_template;
     assert!(template.allowed_hosts.contains("retained.example.invalid"));
     assert!(template.network_perms.allow_tcp);
-    assert_call(&manager, 2).await
+    let result = manager.execute_component_call(&id, "run", "{}").await?;
+    assert_eq!(
+        serde_json::from_str::<Value>(&result)?,
+        serde_json::json!({ "result": 2 })
+    );
+    Ok(())
 }
 
 #[tokio::test]

@@ -532,9 +532,8 @@ fn validate_base_url(url: &Url) -> Result<()> {
 /// Resolve a package and acquire its digest-pinned artifact with the caller's
 /// configured OCI client.
 ///
-/// The artifact must embed its own root component name. Registry metadata is
-/// never used as the component identity, so nameless artifacts are rejected
-/// with an error naming the package, selected version, and manifest digest.
+/// The canonical registry/repository determines component identity. Root-name
+/// metadata is cosmetic, and unnamed artifacts are accepted.
 pub async fn acquire_package(
     directory: &WasmDirectoryClient,
     selector: &PackageSelector,

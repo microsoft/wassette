@@ -195,7 +195,7 @@ impl Harness {
         expose: bool,
     ) -> Harness {
         let initial_enable = if expose {
-            vec!["microsoft:filesystem-rs".to_owned()]
+            vec!["local:unrelated-name".to_owned()]
         } else {
             Vec::new()
         };
@@ -581,7 +581,7 @@ fn wait_for_revision(store: &ComponentStore, before: &EntryRevision) {
     let deadline = std::time::Instant::now() + Duration::from_secs(20);
     loop {
         let current = store
-            .read("microsoft:filesystem-rs")
+            .read("local:unrelated-name")
             .expect("read managed tool");
         if &current.receipt.revision != before {
             return;
@@ -1018,13 +1018,13 @@ fn tools_command_lists_and_toggles_session_exposure() {
         listed.contains("| Name | Component | Status | Description |"),
         "{listed}"
     );
-    assert!(listed.contains("microsoft:filesystem-rs/"), "{listed}");
+    assert!(listed.contains("local:unrelated-name/"), "{listed}");
     assert!(listed.contains("| enabled |"), "{listed}");
     assert!(!listed.contains("| disabled |"), "{listed}");
     assert_eq!(listed, prompt_text(&mut h, "/tools list"));
     let full_name = listed
         .lines()
-        .find(|line| line.contains("microsoft:filesystem-rs/") && line.contains("write-file"))
+        .find(|line| line.contains("local:unrelated-name/") && line.contains("write-file"))
         .unwrap()
         .split('`')
         .nth(1)
@@ -1033,12 +1033,9 @@ fn tools_command_lists_and_toggles_session_exposure() {
     let disabled = prompt_text(&mut h, &format!("/tools disable {full_name}"));
     assert!(disabled.contains("disabled for this session"), "{disabled}");
     assert!(prompt_text(&mut h, &command).contains("NotFound(\"write-file\")"));
-    let ambiguous = prompt_text(&mut h, "/tools enable microsoft:filesystem-rs");
+    let ambiguous = prompt_text(&mut h, "/tools enable local:unrelated-name");
     assert!(ambiguous.contains("ambiguous tool"), "{ambiguous}");
-    assert!(
-        ambiguous.contains("microsoft:filesystem-rs/"),
-        "{ambiguous}"
-    );
+    assert!(ambiguous.contains("local:unrelated-name/"), "{ambiguous}");
     assert!(prompt_text(&mut h, "/tools enable not-a-tool").contains("unknown tool"));
     assert!(prompt_text(&mut h, "/tools nonsense").contains("Usage:"));
     let enabled = prompt_text(&mut h, &format!("/tools enable {full_name}"));
@@ -1089,7 +1086,7 @@ fn installed_tools_appear_and_run_in_an_existing_session() {
         let (updates, _) = h.await_response(id);
         response_text(&updates)
     };
-    assert!(!list(&mut h).contains("microsoft:filesystem-rs/"));
+    assert!(!list(&mut h).contains("local:filesystem/"));
 
     let install = h.prompt(&sid, &format!("/install {}", tool.display()));
     let (installed, _) = h.await_response(install);
@@ -1107,7 +1104,7 @@ fn installed_tools_appear_and_run_in_an_existing_session() {
     let deadline = std::time::Instant::now() + Duration::from_secs(6);
     let inventory = loop {
         let inventory = list(&mut h);
-        if inventory.contains("microsoft:filesystem-rs/") {
+        if inventory.contains("local:filesystem/") {
             break inventory;
         }
         assert!(
@@ -1118,7 +1115,7 @@ fn installed_tools_appear_and_run_in_an_existing_session() {
     };
     let full_name = inventory
         .lines()
-        .find(|line| line.contains("microsoft:filesystem-rs/") && line.contains("write-file"))
+        .find(|line| line.contains("local:filesystem/") && line.contains("write-file"))
         .unwrap()
         .split('`')
         .nth(1)
@@ -1284,7 +1281,7 @@ fn startup_discovery_installs_and_exposes_local_tools() {
     let (messages, response) = h.await_response(id);
     assert_eq!(response["stopReason"], "end_turn");
     assert_eq!(response_text(&messages), "remembered file-exists");
-    let receipt = h.store().read("microsoft:filesystem-rs").unwrap().receipt;
+    let receipt = h.store().read("local:unrelated-name").unwrap().receipt;
     assert_eq!(receipt.kind, StoredArtifactKind::Tool);
     assert!(matches!(receipt.owner, InstallOwner::ManagedLocalSource(_)));
     assert_ne!(receipt.storage_key.as_str(), receipt.component_id.as_str());
@@ -1303,7 +1300,7 @@ fn watch_add_replace_remove_preserves_revision_bound_permissions() {
         &provider,
         None,
         "watch",
-        &["microsoft:filesystem-rs".to_owned()],
+        &["local:unrelated-name".to_owned()],
         &[],
     );
     let sid = h.open_session();
@@ -1317,7 +1314,7 @@ fn watch_add_replace_remove_preserves_revision_bound_permissions() {
     loop {
         let id = h.prompt(&sid, "/tools list");
         let (messages, _) = h.await_response(id);
-        if response_text(&messages).contains("microsoft:filesystem-rs/") {
+        if response_text(&messages).contains("local:unrelated-name/") {
             break;
         }
         assert!(
@@ -1336,11 +1333,7 @@ fn watch_add_replace_remove_preserves_revision_bound_permissions() {
     let (messages, _) = h.await_response(id);
     assert_eq!(response_text(&messages), "remembered write-file");
     let store = h.store();
-    let before = store
-        .read("microsoft:filesystem-rs")
-        .unwrap()
-        .receipt
-        .revision;
+    let before = store.read("local:unrelated-name").unwrap().receipt.revision;
 
     for (content, expected_requests) in [("first call", 1), ("remembered call", 0)] {
         let command = h.write_command(content);
@@ -1403,7 +1396,7 @@ fn watch_add_replace_remove_preserves_revision_bound_permissions() {
     loop {
         let id = h.prompt(&sid, "/tools list");
         let (messages, _) = h.await_response(id);
-        if !response_text(&messages).contains("microsoft:filesystem-rs/") {
+        if !response_text(&messages).contains("local:unrelated-name/") {
             break;
         }
         assert!(
@@ -1429,11 +1422,7 @@ fn replacement_while_permission_is_pending_never_executes() {
     let mut h = Harness::start_with_local_tool(&bin, &provider, &tool, "watch", true);
     let sid = h.open_session();
     let store = h.store();
-    let before = store
-        .read("microsoft:filesystem-rs")
-        .unwrap()
-        .receipt
-        .revision;
+    let before = store.read("local:unrelated-name").unwrap().receipt.revision;
     let command = h.write_command("must not run");
     let id = h.prompt(&sid, &command);
     let permission = h.await_permission(id);
@@ -1497,7 +1486,7 @@ fn local_acp_drops_are_export_checked_and_never_activated() {
         &provider,
         None,
         "watch",
-        &["discovered-agent".to_owned()],
+        &["local:candidate".to_owned()],
         &[],
     );
     let sid = h.open_session();
@@ -1523,7 +1512,7 @@ fn local_acp_drops_are_export_checked_and_never_activated() {
     let store = h.store();
     let deadline = std::time::Instant::now() + Duration::from_secs(20);
     let receipt = loop {
-        match store.read("discovered-agent") {
+        match store.read("local:candidate") {
             Ok(snapshot) => break snapshot.receipt,
             Err(wassette::store::StoreError::NotFound(_)) => {
                 assert!(
@@ -1541,7 +1530,7 @@ fn local_acp_drops_are_export_checked_and_never_activated() {
         ValidationEvidence::AcpCompiledAndExportChecked { .. }
     ));
     assert!(matches!(
-        store.read("incompatible-agent"),
+        store.read("local:bad-version"),
         Err(wassette::store::StoreError::NotFound(_))
     ));
     let id = h.prompt(&sid, "original provider remains active");

@@ -46,7 +46,7 @@ impl GenerationService {
         );
         let mut identities = HashSet::new();
         for caller in &callers {
-            crate::ComponentId::from_declared_name(&caller.component_id)?;
+            crate::ComponentId::from_name(&caller.component_id)?;
             ensure!(
                 !caller.revision.is_empty()
                     && caller.revision.len() <= 128

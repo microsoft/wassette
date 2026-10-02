@@ -778,16 +778,6 @@ impl LifecycleManager {
 
 fn validate_snapshot(snapshot: &ArtifactSnapshot) -> Result<()> {
     let inspection = inspect_artifact(&snapshot.wasm)?;
-    let identity_matches = match snapshot
-        .receipt
-        .origin
-        .location
-        .strip_prefix("wasm.directory:")
-    {
-        Some(package_id) => package_id == snapshot.receipt.component_id.as_str(),
-        None => inspection.identity? == snapshot.receipt.component_id,
-    };
-    ensure!(identity_matches, "Semantic identity mismatch");
     ensure!(
         inspection.shape == ArtifactShape::ToolCandidate,
         "Artifact is not an ordinary tool"

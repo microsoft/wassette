@@ -5,46 +5,54 @@
 
 use thiserror::Error;
 
-/// The exact name explicitly declared by a root WebAssembly component.
-///
-/// This is not a filesystem name or evidence of source ownership.
+/// A source-derived logical component name, independent of producer metadata.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct ComponentId(String);
 
 impl ComponentId {
-    pub(crate) fn from_declared_name(name: &str) -> Result<Self, IdentityError> {
-        if name.trim().is_empty() || name.chars().any(char::is_control) {
-            return Err(IdentityError::InvalidName);
-        }
+    /// Validate a source/request-derived name, preserving its exact spelling.
+    ///
+    /// Returns an error for blank names or names containing control characters.
+    pub fn from_name(name: &str) -> Result<Self, IdentityError> {
+        validate_name(name)?;
         Ok(Self(name.to_owned()))
     }
 
-    /// Return the declared name without normalization or filename sanitization.
+    /// Derive a local identity from the visible filename, not its contents.
+    pub fn from_local_path(path: &std::path::Path) -> anyhow::Result<Self> {
+        let filename = path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .ok_or_else(|| anyhow::anyhow!("component source has no UTF-8 filename"))?;
+        let stem = filename.strip_suffix(".wasm").unwrap_or(filename);
+        validate_name(stem)?;
+        Ok(Self::from_name(&format!("local:{stem}"))?)
+    }
+
+    /// Return the logical name without filename sanitization.
     pub fn as_str(&self) -> &str {
         &self.0
     }
 }
 
-/// A producer must supply exactly one valid root component-name declaration.
+pub(crate) fn validate_name(name: &str) -> Result<(), IdentityError> {
+    if name.trim().is_empty() || name.chars().any(char::is_control) {
+        return Err(IdentityError::InvalidName);
+    }
+    Ok(())
+}
+
+/// Name validation failures and cosmetic producer-name diagnostics.
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
 pub enum IdentityError {
     /// No explicit name was declared in the root component-name metadata.
-    #[error(
-        "missing root component name; the producer must declare the actual component name \
-         in the root component-name custom section"
-    )]
+    #[error("missing cosmetic root component name")]
     Missing,
     /// More than one root name was declared, whether or not the names agree.
-    #[error(
-        "ambiguous root component name; the producer must emit exactly one root \
-         component-name declaration, even when duplicate names agree"
-    )]
+    #[error("ambiguous cosmetic root component name")]
     Ambiguous,
     /// The declared name is blank or contains control characters.
-    #[error(
-        "invalid root component name; the producer must declare a nonblank name \
-         without control characters in the root component-name custom section"
-    )]
+    #[error("component name must be nonblank and contain no control characters")]
     InvalidName,
 }
 
@@ -187,24 +195,36 @@ mod tests {
             "NUL",
             "../not-a-storage-key",
         ] {
-            assert_eq!(
-                ComponentId::from_declared_name(name).unwrap().as_str(),
-                name
-            );
+            assert_eq!(ComponentId::from_name(name).unwrap().as_str(), name);
         }
         assert_ne!(
-            ComponentId::from_declared_name("Weather"),
-            ComponentId::from_declared_name("weather")
+            ComponentId::from_name("Weather"),
+            ComponentId::from_name("weather")
         );
         assert_ne!(
-            ComponentId::from_declared_name("é"),
-            ComponentId::from_declared_name("e\u{301}")
+            ComponentId::from_name("é"),
+            ComponentId::from_name("e\u{301}")
         );
         let long = "名".repeat(200);
-        assert_eq!(
-            ComponentId::from_declared_name(&long).unwrap().as_str(),
-            long
-        );
+        assert_eq!(ComponentId::from_name(&long).unwrap().as_str(), long);
+    }
+
+    #[test]
+    fn local_identity_preserves_filename_and_strips_only_wasm_suffix() {
+        for (filename, expected) in [
+            ("weather.wasm", "local:weather"),
+            ("weather.v2.wasm", "local:weather.v2"),
+            ("weather.wasm.wasm", "local:weather.wasm"),
+            ("météo.wasm", "local:météo"),
+        ] {
+            assert_eq!(
+                ComponentId::from_local_path(std::path::Path::new(filename))
+                    .unwrap()
+                    .as_str(),
+                expected,
+            );
+        }
+        assert!(ComponentId::from_local_path(std::path::Path::new(".wasm")).is_err());
     }
 
     #[test]
@@ -213,7 +233,7 @@ mod tests {
             "", " ", "\u{2003}", "\t", "a\0b", "a\nb", "a\u{7f}b", "a\u{85}b",
         ] {
             assert_eq!(
-                ComponentId::from_declared_name(name),
+                ComponentId::from_name(name),
                 Err(IdentityError::InvalidName),
                 "{name:?}"
             );

@@ -340,6 +340,7 @@ mod tests {
         };
         let sha = |bytes: &[u8]| hex::encode(sha2::Sha256::digest(bytes));
         let evidence: GenerationEvidence = serde_json::from_value(json!({
+            "component_name": build.component_name,
             "source_sha256": sha(build.source.as_bytes()),
             "wit_sha256": sha(build.wit.as_bytes()),
             "wit_dependencies_sha256": "a".repeat(64),

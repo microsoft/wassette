@@ -213,7 +213,7 @@ pub struct GenerationRequest {
 /// Captured output information suitable for an install permission prompt.
 #[derive(Debug, Clone, Serialize)]
 pub struct GenerationPreview {
-    /// Actual root identity inspected from captured output.
+    /// Logical identity supplied by the build request.
     pub component_id: String,
     /// Requested and verified output role.
     pub kind: ComponentKind,
@@ -425,7 +425,7 @@ impl GenerationService {
                 .is_none_or(|policy| policy.len() <= MAX_REINSTALL_POLICY_BYTES),
             "reinstall policy exceeds the generation input limit"
         );
-        crate::ComponentId::from_declared_name(&request.build.component_name)?;
+        crate::ComponentId::from_name(&request.build.component_name)?;
         check_cancelled(&cancel)?;
         let selected = select_target(manager, &request).await?;
         let requested_name = request.build.component_name.clone();
@@ -444,11 +444,7 @@ impl GenerationService {
             "builder evidence does not match the captured source and WIT"
         );
         let inspection = inspect_artifact(&artifact.wasm)?;
-        let component_id = inspection.identity?;
-        ensure!(
-            component_id.as_str() == requested_name,
-            "builder output has a different actual component name"
-        );
+        let component_id = crate::ComponentId::from_name(&requested_name)?;
         ensure!(
             shape_matches(&inspection.shape, &requested_kind),
             "builder output has a different component role"
@@ -513,7 +509,7 @@ impl PreparedGeneration {
         check_cancelled(&cancel)?;
         let inspection = inspect_artifact(&self.artifact.wasm)?;
         let binding = SecretBinding::new(
-            &inspection.identity.clone()?,
+            &crate::ComponentId::from_name(&id)?,
             &selected.key,
             source_binding_key(&selected.source)?,
         )?;
@@ -813,6 +809,7 @@ async fn select_target(
 fn generation_evidence(artifact: &BuildArtifact) -> GenerationEvidence {
     let evidence = &artifact.evidence;
     GenerationEvidence {
+        component_name: Some(evidence.component_name.clone()),
         source_sha256: evidence.source_sha256.clone(),
         wit_sha256: evidence.wit_sha256.clone(),
         wit_dependencies_sha256: evidence.wit_dependencies_sha256.clone(),

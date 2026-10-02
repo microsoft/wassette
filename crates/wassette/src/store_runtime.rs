@@ -277,12 +277,15 @@ impl LifecycleManager {
         explicit_policy: Option<PreparedPolicy>,
     ) -> Result<PreparedAcquiredInstall> {
         let inspection = inspect_artifact(&acquired.wasm)?;
-        let id = if let Some(package_id) = acquired.origin.location.strip_prefix("wasm.directory:")
-        {
-            package_id.to_owned()
-        } else {
-            inspection.identity?.as_str().to_owned()
-        };
+        let id = acquired.component_id()?.as_str().to_owned();
+        let key = acquired.storage_key.clone();
+        let source = acquired.source.clone();
+        let observed_id = id.clone();
+        let expected = store_operation(&self.store, move |store| {
+            Ok(store.observe_source(&observed_id, &key, &source)?)
+        })
+        .await?;
+        let id = expected.component_id().as_str().to_owned();
         anyhow::ensure!(
             inspection.shape == ArtifactShape::ToolCandidate,
             "Cannot load ACP or unsupported artifacts as ordinary tool components"
@@ -339,7 +342,7 @@ impl LifecycleManager {
         } else {
             incoming_policy(acquired.policy.clone())?
         };
-        let binding_id = ComponentId::from_declared_name(&id).map_err(anyhow::Error::from)?;
+        let binding_id = ComponentId::from_name(&id).map_err(anyhow::Error::from)?;
         let binding = SecretBinding::new(
             &binding_id,
             &acquired.storage_key,
@@ -377,7 +380,8 @@ impl LifecycleManager {
                 );
                 Ok(ValidationEvidence::OrdinaryPrepared { runtime })
             },
-        )?;
+        )?
+        .retain_existing_binding(&expected)?;
         Ok(PreparedAcquiredInstall {
             expected,
             guard,

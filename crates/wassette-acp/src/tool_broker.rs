@@ -1162,12 +1162,12 @@ mod tests {
                 .await
                 .unwrap(),
         );
-        let broker = ToolBroker::new(manager.clone(), ["semantic:two".into()]);
+        let broker = ToolBroker::new(manager.clone(), ["local:second-file".into()]);
         let empty = broker.catalog().await.unwrap();
         install_test_tool(&manager, root.path(), "semantic:one", "first-file").await;
         let visible = broker.catalog().await.unwrap();
         assert_eq!(visible.tools.len(), 1);
-        assert_eq!(visible.tools[0].component_id, "semantic:one");
+        assert_eq!(visible.tools[0].component_id, "local:first-file");
         assert_ne!(visible.generation, empty.generation);
         let selected = broker.reference(&visible.tools[0].handle).await.unwrap();
         broker
@@ -1189,7 +1189,7 @@ mod tests {
         let handle = &visible.tools[0].handle;
         let reference = broker.reference(handle).await.unwrap();
         let prepared = broker.prepare_call(reference, "{}").await.unwrap();
-        manager.unload_component("semantic:one").await.unwrap();
+        manager.unload_component("local:first-file").await.unwrap();
         assert!(matches!(
             broker.reference(handle).await,
             Err(ToolError::Stale(_))
@@ -1229,7 +1229,7 @@ mod tests {
             .set_tool_enabled(inventory[0].reference.clone(), true)
             .await
             .unwrap();
-        manager.unload_component("semantic:one").await.unwrap();
+        manager.unload_component("local:first-file").await.unwrap();
         assert!(broker.catalog().await.unwrap().tools.is_empty());
     }
 
@@ -1447,6 +1447,7 @@ mod tests {
                         manifest_digest: None,
                         immutable_uri: None,
                         generation: Some(GenerationEvidence {
+                            component_name: Some("example:generated".into()),
                             source_sha256: "a".repeat(64),
                             wit_sha256: "b".repeat(64),
                             wit_dependencies_sha256: "b".repeat(64),

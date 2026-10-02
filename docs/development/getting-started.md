@@ -88,10 +88,12 @@ install release` only when an optimized host binary is needed. Both forms build
 with `component-generation`. On unsupported host platforms, the recipe prints
 a warning and installs without generation.
 Both install recipes build the ACP providers and layers and the default
-`wassette:file-search` tool under
-`components/`, link the finalized components
-into the configured local-component directory, and reconcile them through the
-transactional component store. They do not build or install the language
+file-search tool under `components/` (its embedded root name is
+`wassette:file-search`, while its local logical ID is `local:file_search` for
+the visible `file_search.wasm` filename).
+They link the finalized components into the configured local-component
+directory and reconcile them through the transactional component store. They
+do not build or install the language
 examples under `examples/`, so their Node.js, Python, Go, and TinyGo toolchains
 are not prerequisites. Cargo chooses the user install root using its normal
 `--root` / `CARGO_INSTALL_ROOT` / Cargo config / `CARGO_HOME` precedence; the
@@ -139,9 +141,10 @@ final first-party outputs. The generic `just inject-docs` recipe does not name a
 Never use this helper to rename opaque third-party downloads.
 
 The producer tests check final names with `wassette::inspect_artifact`. This
-metadata does not authenticate a publisher or establish source continuity.
-Runtime selectors and policy/secrets keys remain unchanged until the separate
-semantic-name-to-storage-key mapping is implemented.
+metadata describes the producer output; it does not authenticate a publisher,
+establish source continuity, or determine runtime selectors. Selectors are
+source-derived, while the receipt separately binds the logical ID to an opaque
+storage key and preserves existing policy and secret ownership.
 
 ## Running Tests
 

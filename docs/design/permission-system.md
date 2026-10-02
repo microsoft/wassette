@@ -49,7 +49,10 @@ graph TB
 
 **Status**: ✅ **Implemented**
 
-Each component can have its own policy file stored as `{component_id}.policy.yaml` co-located with the component binary.
+Each component can have its own policy stored beside its artifact in the
+managed store. The filename uses the receipt's private opaque storage key, not
+the logical component ID; the receipt binds that storage entry to its source,
+policy, and secret ownership.
 
 ```rust
 // Current Implementation

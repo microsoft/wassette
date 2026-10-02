@@ -511,7 +511,7 @@ mod tests {
     use crate::store::{ArtifactSnapshot, PolicyProvenance};
     use crate::{LifecycleManager, StorageKey, WasiStateTemplate};
 
-    const TEST_COMPONENT_ID: &str = "policy:fixture/tool";
+    const TEST_COMPONENT_ID: &str = "local:private-policy-fixture";
     const TEST_STORAGE_KEY: &str = "private-policy-fixture";
 
     struct PolicyFixture {

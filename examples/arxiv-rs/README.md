@@ -15,7 +15,8 @@ just build release
 ```
 
 The compiled `.wasm` file will be in `target/wasm32-wasip2/release/arxiv_rs.wasm`,
-with the declared root component name `microsoft:arxiv-rs`.
+with the descriptive root component name `microsoft:arxiv-rs`. Loading this
+file uses the source-derived logical ID `local:arxiv_rs`.
 
 ## Usage
 
@@ -92,8 +93,8 @@ just build release
 wassette component load file://$(pwd)/target/wasm32-wasip2/release/arxiv_rs.wasm
 
 # Grant network permissions
-wassette permission grant network arxiv_rs "http://export.arxiv.org/"
-wassette permission grant network arxiv_rs "http://arxiv.org/"
+wassette permission grant network local:arxiv_rs "http://export.arxiv.org/"
+wassette permission grant network local:arxiv_rs "http://arxiv.org/"
 
 # The component functions are now available as MCP tools
 ```

@@ -147,9 +147,11 @@ their admitted revision.
 
 `/version` is host-owned and reports the binary's version, full commit SHA
 (with a dirty marker), and UTC build time. It shadows a provider's `/version`.
-`/install` currently validates and stores ACP artifacts only; it does not
-activate providers or layers in a running session. Local discovery can
-reconcile external changes in `startup` or `watch` mode.
+`/install` validates and stores ordinary Tool components and ACP artifacts.
+Tools are added to the shared catalog and enabled by default in every session;
+ACP providers are discovered at startup, and installed providers or layers do
+not replace a running chain. Local discovery can reconcile external changes in
+`startup` or `watch` mode.
 `RUST_LOG=debug` or `RUST_LOG=trace` logs full JSON-RPC payloads, including
 prompt text and any secrets a guest emits; enable it only when appropriate.
 
@@ -166,10 +168,13 @@ command: /home/me/.cargo/bin/wassette
 args: acp
 ```
 
-Install ACP providers into the shared component store before launching ACP.
-The exact Cargo install root may differ when `CARGO_INSTALL_ROOT`, Cargo
-`install.root`, or `CARGO_HOME` is configured. Installation does not grant
-permissions, set secrets, or add `--allow-all`.
+ACP discovers installed providers from the shared component store. The exact
+Cargo install root may differ when `CARGO_INSTALL_ROOT`, Cargo `install.root`,
+or `CARGO_HOME` is configured. Installation does not grant permissions, set
+secrets, or add `--allow-all`. Logical IDs remain source-derived and are used
+for policy and secret bindings, not provider selection. Existing receipt
+bindings remain with the same exact source and storage binding; Wassette does
+not automatically migrate policies or secrets when either changes.
 
 ### Multiple providers
 
@@ -268,6 +273,9 @@ layers still
 require a new session; running providers and layers are never hot-swapped.
 Ordinary tool catalogs continue to refresh while sessions remain active.
 
+The generated component's logical ID is the exact `build.component_name`
+spelling from its request; root metadata and the private opaque storage key do
+not change the ID.
 
 ## Demo
 
@@ -308,11 +316,17 @@ the protocol version and expected stage, and linking checks runtime compatibilit
 `just build-acp-examples` embeds each producer's explicitly declared Cargo package
 name (`acp-echo-provider`, `acp-uppercase-layer`, `acp-ollama-provider`, or
 `acp-copilot-provider`) at the root. The shared `wassette:acp` interface package
-does not identify a particular producer.
-Selectors use the exact embedded root semantic name; receipts separately retain
-private artifact, policy, secret and persistent-data bindings. Unnamed producers
-must add a root component name before admission. Unreceipted artifacts are
-protected legacy inventory, not filename aliases.
+does not identify a particular producer. These root names are descriptive
+producer metadata, not ACP selectors.
+
+Logical IDs come from the acquisition source: a local provider file named
+`acp_copilot_provider.wasm` has ID `local:acp_copilot_provider`; OCI and
+wasm.directory acquisitions use the canonical registry/repository without a
+tag or digest. These IDs identify policy and secret bindings, not provider
+selection. Receipts separately retain private artifact, policy, secret, and
+persistent-data bindings. Root names may be missing or differ without blocking
+admission. Unreceipted artifacts remain protected inventory, not filename
+aliases or auto-adopted components.
 
 * Provider terminal requests go directly to the host; layers cannot intercept
   or deny them. The example layer's terminal exports are unfinished.
@@ -371,8 +385,9 @@ GH_TOKEN="$(gh auth token)" cargo run -p wassette-mcp-server -- acp --allow-all
 
 To keep the token out of the environment, load the component into the
 component directory and store it as a secret instead:
-`wassette secret set acp_copilot_provider "github_token=$(gh auth token)"`,
-then run `wassette acp --allow-all`.
+`wassette secret set local:acp_copilot_provider "github_token=$(gh auth token)"`,
+then run `wassette acp --allow-all`. ACP discovers the installed provider
+automatically.
 
 `--allow-all` grants network and environment access; a policy granting the
 model's host is the least-privilege alternative. The end-to-end tests in

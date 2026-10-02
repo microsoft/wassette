@@ -55,9 +55,8 @@ exists. The regular `just install` recipe builds the feature-enabled CLI but
 does not provision or download the image.
 
 The host asks the editor to approve building and installation. Rebuilding an
-existing generated revision is disabled by default. The build request contains
-no install intent or exposure permission: ordinary catalog eligibility follows
-the installed artifact kind. Every running and future ACP session picks up a
+existing generated revision is disabled by default. Ordinary catalog
+eligibility follows the installed artifact kind. Every running and future ACP session picks up a
 generated Tool component from the shared store and enables its exports by
 default, so the model can call them on the next turn. A session can still opt
 out with `/tools disable`. Invocation still follows

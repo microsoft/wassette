@@ -27,15 +27,7 @@ impl Providers {
         let secrets = root.path().join("secrets");
         let mut paths = Vec::new();
         for (label, settings) in [("alpha", alpha_settings), ("beta", beta_settings)] {
-            let mut bytes = std::fs::read(&artifact).unwrap();
-            assert!(matches!(
-                wassette::inspect_artifact(&bytes).unwrap().identity,
-                Err(wassette::IdentityError::Missing)
-            ));
-            let mut names = wasm_encoder::ComponentNameSection::new();
-            names.component(&format!("test:{label}"));
-            bytes.push(names.id());
-            names.encode(&mut bytes);
+            let bytes = std::fs::read(&artifact).unwrap();
             let path = root.path().join(format!("{label}.wasm"));
             std::fs::write(&path, bytes).unwrap();
             let mut settings = settings.to_vec();
@@ -172,8 +164,8 @@ fn grouped_models_select_distinct_providers_with_colliding_ids() {
     let first = new_session(&mut h);
     let sid = first["sessionId"].as_str().unwrap();
     assert_ne!(sid, "collision");
-    let a = model_value(&first["configOptions"], "test:alpha", "Shared");
-    let b = model_value(&first["configOptions"], "test:beta", "Shared");
+    let a = model_value(&first["configOptions"], "local:alpha", "Shared");
+    let b = model_value(&first["configOptions"], "local:beta", "Shared");
     assert_ne!(a, b);
     assert_eq!(first["configOptions"][0]["currentValue"], a);
     assert!(prompt_text(&mut h, sid, "hello").contains("alpha:shared:plain:hello"));
@@ -226,7 +218,7 @@ fn tools_toggle_applies_to_each_provider_in_the_editor_group() {
     initialize(&mut h);
     let session = new_session(&mut h);
     let sid = session["sessionId"].as_str().unwrap();
-    let beta = model_value(&session["configOptions"], "test:beta", "Shared");
+    let beta = model_value(&session["configOptions"], "local:beta", "Shared");
     assert!(!prompt_text(&mut h, sid, "/tools list").contains("| disabled |"));
     assert!(
         prompt_text(&mut h, sid, "/tools disable write-file").contains("disabled for this session")
@@ -252,7 +244,7 @@ fn concurrent_callbacks_use_host_ids_and_reply_to_their_own_session() {
     let second = new_session(&mut h);
     let a = first["sessionId"].as_str().unwrap();
     let b = second["sessionId"].as_str().unwrap();
-    let beta = model_value(&first["configOptions"], "test:beta", "Shared");
+    let beta = model_value(&first["configOptions"], "local:beta", "Shared");
     select(&mut h, b, &beta);
     let pa = h.prompt(a, "/permission");
     let permission_a = h.await_permission(pa);
@@ -324,7 +316,7 @@ fn cancellation_and_busy_selection_do_not_cross_provider_boundaries() {
     initialize(&mut h);
     let session = new_session(&mut h);
     let sid = session["sessionId"].as_str().unwrap();
-    let beta = model_value(&session["configOptions"], "test:beta", "Shared");
+    let beta = model_value(&session["configOptions"], "local:beta", "Shared");
     let prompt = h.prompt(sid, "/permission");
     let permission = h.await_permission(prompt);
     let change = h.request(
@@ -365,8 +357,8 @@ fn provider_data_environment_and_secrets_stay_separate() {
     initialize(&mut h);
     let session = new_session(&mut h);
     let sid = session["sessionId"].as_str().unwrap();
-    let alpha = model_value(&session["configOptions"], "test:alpha", "Shared");
-    let beta = model_value(&session["configOptions"], "test:beta", "Shared");
+    let alpha = model_value(&session["configOptions"], "local:alpha", "Shared");
+    let beta = model_value(&session["configOptions"], "local:beta", "Shared");
     assert!(prompt_text(&mut h, sid, "/secret TOKEN").contains("alpha-secret"));
     prompt_text(&mut h, sid, "/data-write alpha-data");
     select(&mut h, sid, &beta);
@@ -516,8 +508,8 @@ fn model_and_other_config_changes_are_provider_local() {
     initialize(&mut h);
     let session = new_session(&mut h);
     let sid = session["sessionId"].as_str().unwrap();
-    let alpha = model_value(&session["configOptions"], "test:alpha", "Shared");
-    let beta = model_value(&session["configOptions"], "test:beta", "Alternate");
+    let alpha = model_value(&session["configOptions"], "local:alpha", "Shared");
+    let beta = model_value(&session["configOptions"], "local:beta", "Alternate");
     select(&mut h, sid, &beta);
     let id = h.request(
         "session/set_config_option",
@@ -585,14 +577,14 @@ fn ordinary_tool_approvals_are_not_shared_between_providers_or_sessions() {
         &[&providers.alpha, &providers.beta],
         Some(&tool),
         "startup",
-        &["microsoft:filesystem-rs".to_owned()],
+        &["local:unrelated-name".to_owned()],
         &["--secrets-dir", providers.secrets.to_str().unwrap()],
     );
     initialize(&mut h);
     let session = new_session(&mut h);
     let sid = session["sessionId"].as_str().unwrap();
-    let alpha = model_value(&session["configOptions"], "test:alpha", "Shared");
-    let beta = model_value(&session["configOptions"], "test:beta", "Shared");
+    let alpha = model_value(&session["configOptions"], "local:alpha", "Shared");
+    let beta = model_value(&session["configOptions"], "local:beta", "Shared");
     assert!(
         prompt_text(&mut h, sid, "/tools enable write-file").contains("enabled for this session")
     );
@@ -622,7 +614,7 @@ fn ordinary_tool_approvals_are_not_shared_between_providers_or_sessions() {
     let sid2 = second["sessionId"].as_str().unwrap();
     std::thread::sleep(GATE_FLUSH_GRACE);
     h.drain_pending();
-    assert!(prompt_text(&mut h, sid2, "/tools list").contains("microsoft:filesystem-rs/"));
+    assert!(prompt_text(&mut h, sid2, "/tools list").contains("local:unrelated-name/"));
     assert!(
         prompt_text(&mut h, sid2, "/tools enable write-file").contains("enabled for this session")
     );
@@ -661,8 +653,8 @@ fn model_less_providers_are_omitted_and_the_first_eligible_provider_is_active() 
     let sid = session["sessionId"].as_str().unwrap();
     let models = &session["configOptions"][0];
     assert_eq!(models["options"].as_array().unwrap().len(), 1);
-    assert_eq!(models["options"][0]["group"], "test:beta");
-    let beta = model_value(&session["configOptions"], "test:beta", "Shared");
+    assert_eq!(models["options"][0]["group"], "local:beta");
+    let beta = model_value(&session["configOptions"], "local:beta", "Shared");
     assert_eq!(models["currentValue"], beta);
     let text = prompt_text(&mut h, sid, "selected");
     assert!(text.contains("beta:shared:plain:selected"), "{text}");
@@ -715,7 +707,7 @@ fn a_rejected_advertised_model_does_not_switch_the_active_provider() {
     initialize(&mut h);
     let session = new_session(&mut h);
     let sid = session["sessionId"].as_str().unwrap();
-    let beta = model_value(&session["configOptions"], "test:beta", "Alternate");
+    let beta = model_value(&session["configOptions"], "local:beta", "Alternate");
     let id = h.request(
         "session/set_config_option",
         json!({
@@ -745,7 +737,7 @@ fn empty_model_choices_are_omitted_like_absent_choices() {
     );
     assert_eq!(
         session["configOptions"][0]["options"][0]["group"],
-        "test:alpha"
+        "local:alpha"
     );
     assert!(prompt_text(&mut h, sid, "selected").contains("alpha:shared:plain:selected"));
 }

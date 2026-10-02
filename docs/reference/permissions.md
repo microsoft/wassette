@@ -2,6 +2,11 @@
 
 Wassette uses a fine-grained permission system to control what resources WebAssembly components can access. This page explains how to work with permissions in your day-to-day use of Wassette.
 
+The examples below assume a local component file named `weather-tool.wasm`,
+whose logical ID is `local:weather-tool`. Use the ID reported by Wassette for
+your component: IDs come from the source (for example, canonical repository for
+OCI packages), not embedded root metadata.
+
 ## Overview
 
 Every component in Wassette runs in a secure sandbox with **deny-by-default** permissions. This means:
@@ -111,7 +116,7 @@ The recommended way to grant permissions is through your AI agent when running W
 When running Wassette as an MCP server, simply ask your AI agent to grant permissions in natural language:
 
 ```text
-Please grant storage read and write permissions to the weather-tool for fs://workspace/
+Please grant storage read and write permissions to local:weather-tool for fs://workspace/
 ```
 
 The agent will automatically use the appropriate built-in tool to apply the permission.
@@ -119,11 +124,11 @@ The agent will automatically use the appropriate built-in tool to apply the perm
 **More examples:**
 
 ```text
-Grant network access to api.weather.com for the weather-tool component
+Grant network access to api.weather.com for the local:weather-tool component
 ```
 
 ```text
-Allow the weather-tool to access the API_KEY environment variable
+Allow local:weather-tool to access the API_KEY environment variable
 ```
 
 **Available MCP tools:**
@@ -146,32 +151,32 @@ For direct management or scripting, use the `wassette permission grant` command:
 **Grant storage access:**
 ```bash
 # Read-only access to a directory
-wassette permission grant storage weather-tool fs://workspace/ --access read
+wassette permission grant storage local:weather-tool fs://workspace/ --access read
 
 # Read and write access
-wassette permission grant storage weather-tool fs://workspace/ --access read,write
+wassette permission grant storage local:weather-tool fs://workspace/ --access read,write
 
 # Access to a specific file
-wassette permission grant storage weather-tool fs://config/app.yaml --access read
+wassette permission grant storage local:weather-tool fs://config/app.yaml --access read
 ```
 
 **Grant network access:**
 ```bash
 # Allow access to a specific host
-wassette permission grant network weather-tool api.weather.com
+wassette permission grant network local:weather-tool api.weather.com
 
 # Allow localhost access
-wassette permission grant network weather-tool localhost:8080
+wassette permission grant network local:weather-tool localhost:8080
 ```
 
 **Grant environment variable access:**
 ```bash
 # Grant access to an environment variable
-wassette permission grant environment-variable weather-tool API_KEY
+wassette permission grant environment-variable local:weather-tool API_KEY
 
 # Grant access to multiple variables
-wassette permission grant environment-variable weather-tool HOME
-wassette permission grant environment-variable weather-tool PATH
+wassette permission grant environment-variable local:weather-tool HOME
+wassette permission grant environment-variable local:weather-tool PATH
 ```
 
 ### Using Policy Files
@@ -222,17 +227,17 @@ Remove previously granted permissions using the `wassette permission revoke` com
 
 **Revoke storage access:**
 ```bash
-wassette permission revoke storage weather-tool fs://workspace/
+wassette permission revoke storage local:weather-tool fs://workspace/
 ```
 
 **Revoke network access:**
 ```bash
-wassette permission revoke network weather-tool api.weather.com
+wassette permission revoke network local:weather-tool api.weather.com
 ```
 
 **Revoke environment variable access:**
 ```bash
-wassette permission revoke environment-variable weather-tool API_KEY
+wassette permission revoke environment-variable local:weather-tool API_KEY
 ```
 
 ### Reset All Permissions
@@ -240,7 +245,7 @@ wassette permission revoke environment-variable weather-tool API_KEY
 To remove all permissions for a component:
 
 ```bash
-wassette permission reset weather-tool
+wassette permission reset local:weather-tool
 ```
 
 This returns the component to its default deny-all state.
@@ -252,15 +257,15 @@ View the current permissions for a component:
 **Using CLI:**
 ```bash
 # Get policy in JSON format
-wassette policy get weather-tool
+wassette policy get local:weather-tool
 
 # Get policy in YAML format
-wassette policy get weather-tool --output-format yaml
+wassette policy get local:weather-tool --output-format yaml
 ```
 
 **Using MCP:**
 ```text
-What are the current permissions for weather-tool?
+What are the current permissions for local:weather-tool?
 ```
 
 The agent will use the `get-policy` tool to retrieve the information.

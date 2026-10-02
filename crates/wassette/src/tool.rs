@@ -21,7 +21,7 @@ use crate::{
 /// a component can change what this key describes or executes.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ToolKey {
-    /// The embedded root component name, never a filename or private storage key.
+    /// The source-derived logical name, never a private storage key.
     pub component_id: ComponentId,
     /// Exact package, interface and function names, before normalization.
     pub export: FunctionIdentifier,
@@ -81,7 +81,7 @@ impl ToolInfo {
     fn descriptor(&self) -> Result<ScopedToolDescriptor> {
         Ok(ScopedToolDescriptor {
             key: ToolKey {
-                component_id: ComponentId::from_declared_name(&self.component_id)?,
+                component_id: ComponentId::from_name(&self.component_id)?,
                 export: self.identifier.clone(),
             },
             schema: schema::canonicalize_tool_schema(&self.schema),

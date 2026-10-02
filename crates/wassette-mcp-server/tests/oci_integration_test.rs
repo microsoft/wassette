@@ -311,7 +311,10 @@ mod qr_generator_component_tests {
         // Load the component
         let outcome = manager.load_component(QR_GENERATOR_OCI_URI).await?;
 
-        assert_eq!(outcome.component_id, "test_qr-generator");
+        assert_eq!(
+            outcome.component_id,
+            "registry.mcpsearchtool.com/test/qr-generator"
+        );
         assert!(matches!(outcome.status, wassette::LoadResult::New));
 
         // Verify component is in the list
@@ -430,36 +433,26 @@ mod backwards_compatibility_tests {
     use super::*;
 
     /// Test backwards compatibility - single layer WASM artifacts should still work
-    /// This test uses environment-based authentication and gracefully skips if no auth is available
+    /// Public single-layer artifacts must load without embedded name metadata.
     #[tokio::test]
     async fn test_single_layer_wasm_compatibility() -> Result<()> {
-        // Skip in CI unless explicitly enabled with authentication
         if std::env::var("CI").is_ok() && std::env::var("ENABLE_GHCR_TESTS").is_err() {
-            println!("⚠️  Skipping GHCR test - not enabled in CI environment");
-            println!("   Set ENABLE_GHCR_TESTS=1 and provide GITHUB_TOKEN to enable");
+            println!("Skipping GHCR test: set ENABLE_GHCR_TESTS=1 in CI");
             return Ok(());
         }
-
-        // Skip if explicitly requested to skip GHCR tests
         if std::env::var("SKIP_GHCR_TESTS").is_ok() {
-            println!("⚠️  Skipping GHCR test - SKIP_GHCR_TESTS is set");
+            println!("Skipping GHCR test: SKIP_GHCR_TESTS is set");
             return Ok(());
         }
-
-        // Check for authentication (secure - supports both GH_TOKEN and GITHUB_TOKEN)
-        let github_token = std::env::var("GH_TOKEN")
+        if std::env::var("GH_TOKEN")
             .or_else(|_| std::env::var("GITHUB_TOKEN"))
-            .ok();
-        if github_token.is_none() {
-            println!("⚠️  Skipping GHCR test - no authentication available");
-            println!("   Set GITHUB_TOKEN environment variable to enable this test");
+            .is_err()
+        {
+            println!("Skipping GHCR test: authentication is not available");
             return Ok(());
         }
-
-        // First check if ghcr.io is operational
         if !is_registry_operational("https://ghcr.io").await {
-            eprintln!("⚠️  Skipping test: GitHub Container Registry is not operational");
-            eprintln!("   The registry at ghcr.io is not responding.");
+            println!("Skipping GHCR test: registry is not operational");
             return Ok(());
         }
 
@@ -473,8 +466,10 @@ mod backwards_compatibility_tests {
             "🧪 Testing backwards compatibility with single-layer WASM component: {component_uri}"
         );
 
-        // Initialize the lifecycle manager with authentication environment
-        let manager = LifecycleManager::new(temp_dir.path()).await?;
+        let manager = LifecycleManager::builder(temp_dir.path().join("components"))
+            .with_secrets_dir(temp_dir.path().join("secrets"))
+            .build()
+            .await?;
 
         // Load the component with extended timeout for network operations
         let load_result = tokio::time::timeout(
@@ -488,8 +483,7 @@ mod backwards_compatibility_tests {
                 let component_id = outcome.component_id;
                 println!("✅ Successfully loaded single-layer component: {component_id}");
 
-                // Verify component ID is not empty
-                assert!(!component_id.is_empty(), "Component ID should not be empty");
+                assert_eq!(component_id, "ghcr.io/yoshuawuyts/time");
 
                 // Single-layer components should work without a policy
                 let policy_info = manager.get_policy_info(&component_id).await;
@@ -513,30 +507,8 @@ mod backwards_compatibility_tests {
                 // This is optional but helps verify full backwards compatibility
                 println!("✅ Backwards compatibility test completed successfully");
             }
-            Ok(Err(e)) => {
-                // More specific error handling
-                let error_msg = format!("{e}");
-                if error_msg.contains("authentication") || error_msg.contains("unauthorized") {
-                    eprintln!("❌ Authentication failed for ghcr.io");
-                    eprintln!("   Error: {e}");
-                    eprintln!(
-                        "   Please check your GITHUB_TOKEN is valid and has read permissions"
-                    );
-                    return Err(e);
-                } else if error_msg.contains("network") || error_msg.contains("timeout") {
-                    println!("⚠️  Network error accessing ghcr.io - test may be unstable");
-                    println!("   Error: {e}");
-                    return Ok(()); // Gracefully skip on network issues
-                } else {
-                    eprintln!("❌ Failed to load component: {e}");
-                    return Err(e);
-                }
-            }
-            Err(_) => {
-                println!("⚠️  Timeout while loading component from ghcr.io");
-                println!("   This may indicate network connectivity issues");
-                return Ok(()); // Gracefully skip on timeout
-            }
+            Ok(Err(error)) => return Err(error),
+            Err(error) => return Err(error.into()),
         }
 
         Ok(())

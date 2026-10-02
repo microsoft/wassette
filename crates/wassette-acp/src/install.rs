@@ -27,7 +27,7 @@ use wassette::wasm_directory::{self, PackageId, PackageSelector, WasmDirectoryCl
 /// One admitted snapshot; `path` is informational and must not be reopened.
 #[derive(Clone)]
 pub struct ResolvedComponent {
-    /// Exact embedded root name, not a filename.
+    /// Source-derived logical name, or a retained historical receipt binding.
     pub component_id: String,
     /// Informational location of the store's current artifact.
     pub path: PathBuf,
@@ -263,30 +263,21 @@ impl Resolver {
             None => self.acquire_uri(arg, progress.as_ref()).await?,
         };
         let inspection = wassette::inspect_artifact(&acquired.wasm)?;
-        let component_id =
-            if let Some(package_id) = acquired.origin.location.strip_prefix("wasm.directory:") {
-                package_id.to_owned()
-            } else {
-                inspection
-                    .identity
-                    .map_err(anyhow::Error::from)?
-                    .as_str()
-                    .to_owned()
-            };
         if expected_kind.is_none() && inspection.shape == wassette::ArtifactShape::ToolCandidate {
             if let Some(tx) = &progress {
                 let _ = tx.try_send("Validating ordinary tool component…".to_string());
             }
             let manager = wassette::LifecycleManager::from_config(self.config.clone()).await?;
-            manager.load_acquired_component(acquired).await?;
+            let outcome = manager.load_acquired_component(acquired).await?;
             let reader = manager.component_store().clone();
-            let id = component_id.clone();
+            let id = outcome.component_id;
             let snapshot = tokio::task::spawn_blocking(move || reader.read(&id)).await??;
             let component = Component::new(engine, &snapshot.wasm)
                 .map_err(anyhow::Error::from)
                 .context("compiling installed ordinary tool")?;
             return Ok(self.resolved(snapshot, component));
         }
+        let component_id = acquired.component_id()?;
         let observer = store.clone();
         let name = component_id.as_str().to_owned();
         let key = acquired.storage_key.clone();
@@ -300,7 +291,7 @@ impl Resolver {
             _ => acquired.origin.location.clone(),
         };
         let (expected, policy) = tokio::task::spawn_blocking(move || {
-            let expected = observer.observe(&name, &key, &source)?;
+            let expected = observer.observe_source(&name, &key, &source)?;
             let policy = select_policy(&observer, &expected, acquired.policy, policy_source)?;
             Ok::<_, anyhow::Error>((expected, policy))
         })
@@ -327,7 +318,8 @@ impl Resolver {
                     runtime: format!("wassette-acp/{}", crate::HOST_ACP_VERSION),
                 })
             },
-        )?;
+        )?
+        .retain_existing_binding(&expected)?;
         // Keep the exact prepared bytes, rather than reopening a possibly newer
         // receipt after commit. The owned closure also finishes on cancellation.
         let outcome =
@@ -653,7 +645,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn local_install_and_semantic_selection_pin_the_same_snapshot() {
+    async fn local_install_and_source_identity_selection_pin_the_same_snapshot() {
         let dir = tempfile::tempdir().unwrap();
         let source = tempfile::tempdir().unwrap();
         let path = source.path().join("private-key.wasm");
@@ -665,14 +657,14 @@ mod tests {
             .install_validated(path.to_str().unwrap(), None, &engine)
             .await
             .unwrap();
-        assert_eq!(installed.component_id, "../namespace:agent/semantic");
+        assert_eq!(installed.component_id, "local:private-key");
         assert_eq!(
             installed.snapshot.receipt.storage_key.as_str(),
             "private-key"
         );
         let selected = resolver
             .resolve_validated(
-                "../namespace:agent/semantic",
+                "local:private-key",
                 None,
                 &engine,
                 Some(crate::state::StageKind::Provider),
@@ -688,8 +680,46 @@ mod tests {
             template: wassette::WasiStateTemplate::default(),
         }));
         let stage = crate::load_stage(&selected, sandbox).unwrap();
-        assert_eq!(stage.component_id, "../namespace:agent/semantic");
+        assert_eq!(stage.component_id, "local:private-key");
         assert_eq!(stage.storage_key.as_str(), "private-key");
+    }
+
+    #[tokio::test]
+    async fn reinstall_retains_an_existing_identity_for_the_same_source_and_key() {
+        let dir = tempfile::tempdir().unwrap();
+        let source_dir = tempfile::tempdir().unwrap();
+        let path = source_dir.path().join("agent.wasm");
+        let wasm = named_fixture("embedded:legacy", false);
+        std::fs::write(&path, &wasm).unwrap();
+        let store = ComponentStore::open(dir.path()).unwrap();
+        let resolver = Resolver::new(dir.path()).unwrap();
+        let first = resolver
+            .install_validated(path.to_str().unwrap(), None, &Engine::default())
+            .await
+            .unwrap();
+        assert_eq!(first.component_id, "local:agent");
+
+        let replacement = wat::parse_str(
+            r#"(component (instance $empty)
+                (export "wassette:acp/agent@7.0.0" (instance $empty)))"#,
+        )
+        .unwrap();
+        std::fs::write(&path, &replacement).unwrap();
+        let reinstalled = resolver
+            .install_validated(path.to_str().unwrap(), None, &Engine::default())
+            .await
+            .unwrap();
+        assert_eq!(reinstalled.component_id, "local:agent");
+        assert_eq!(reinstalled.snapshot.wasm, replacement);
+        assert_eq!(
+            store
+                .read("local:agent")
+                .unwrap()
+                .receipt
+                .component_id
+                .as_str(),
+            "local:agent"
+        );
     }
 
     #[tokio::test]
@@ -733,7 +763,7 @@ mod tests {
             );
             let snapshot = ComponentStore::open(dir.path())
                 .unwrap()
-                .read("semantic")
+                .read("local:agent")
                 .unwrap();
             assert_eq!(snapshot.wasm, original);
             assert_eq!(snapshot.receipt, installed.snapshot.receipt);
@@ -741,43 +771,50 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn unnamed_and_legacy_artifacts_are_not_runnable_by_filename() {
+    async fn unnamed_component_uses_its_local_filename_identity() {
         let dir = tempfile::tempdir().unwrap();
         let source = tempfile::tempdir().unwrap();
         let path = source.path().join("agent.wasm");
         let unnamed = wat::parse_str(
             r#"(component (instance $empty) (export "wassette:acp/agent@7.0.0" (instance $empty)))"#,
-        ).unwrap();
-        std::fs::write(&path, &unnamed).unwrap();
-        std::fs::write(
-            dir.path().join("agent.wasm"),
-            named_fixture("semantic", false),
         )
         .unwrap();
+        std::fs::write(&path, &unnamed).unwrap();
         let resolver = Resolver::new(dir.path()).unwrap();
         let engine = Engine::default();
-        assert!(
-            resolver
-                .install_validated(path.to_str().unwrap(), None, &engine)
-                .await
-                .is_err()
-        );
-        assert!(
-            resolver
-                .install_validated("agent", None, &engine)
-                .await
-                .is_err()
-        );
-        assert!(
-            resolver
-                .install_validated("semantic", None, &engine)
-                .await
-                .is_err()
-        );
+        let installed = resolver
+            .install_validated(path.to_str().unwrap(), None, &engine)
+            .await
+            .unwrap();
+        assert_eq!(installed.component_id, "local:agent");
+        let selected = resolver
+            .resolve_validated(
+                "local:agent",
+                None,
+                &engine,
+                Some(crate::state::StageKind::Provider),
+            )
+            .await
+            .unwrap();
+        assert_eq!(selected.snapshot.receipt, installed.snapshot.receipt);
     }
 
     #[tokio::test]
-    async fn ambiguous_root_names_are_rejected_without_reserving_a_slot() {
+    async fn mismatching_root_name_does_not_override_source_identity() {
+        let dir = tempfile::tempdir().unwrap();
+        let source = tempfile::tempdir().unwrap();
+        let path = source.path().join("source-name.wasm");
+        std::fs::write(&path, named_fixture("embedded:identity", false)).unwrap();
+        let installed = Resolver::new(dir.path())
+            .unwrap()
+            .install_validated(path.to_str().unwrap(), None, &Engine::default())
+            .await
+            .unwrap();
+        assert_eq!(installed.component_id, "local:source-name");
+    }
+
+    #[tokio::test]
+    async fn ambiguous_root_names_do_not_determine_local_identity() {
         use wasm_encoder::{ComponentSection, Encode};
 
         let dir = tempfile::tempdir().unwrap();
@@ -790,19 +827,11 @@ mod tests {
         names.encode(&mut wasm);
         std::fs::write(&path, wasm).unwrap();
         let resolver = Resolver::new(dir.path()).unwrap();
-        assert!(
-            resolver
-                .install_validated(path.to_str().unwrap(), None, &Engine::default())
-                .await
-                .is_err()
-        );
-        let snapshot = ComponentStore::open(dir.path())
-            .unwrap()
-            .snapshot_if_changed(None)
-            .unwrap()
+        let installed = resolver
+            .install_validated(path.to_str().unwrap(), None, &Engine::default())
+            .await
             .unwrap();
-        assert!(snapshot.entries.is_empty());
-        assert!(!dir.path().join("agent.wasm").exists());
+        assert_eq!(installed.component_id, "local:agent");
     }
 
     #[tokio::test]
@@ -824,7 +853,7 @@ mod tests {
         let store = ComponentStore::open(dir.path()).unwrap();
         store
             .update_policy(
-                "semantic",
+                "local:agent",
                 &installed.snapshot.receipt.revision,
                 PreparedPolicy::absent(PolicyProvenance::ExplicitAttachment),
             )
@@ -846,7 +875,7 @@ mod tests {
         assert!(!dir.path().join("agent.policy.yaml").exists());
         let attached = store
             .update_policy(
-                "semantic",
+                "local:agent",
                 &next.snapshot.receipt.revision,
                 PreparedPolicy::parse(
                     b"version: '1.0'\npermissions: {}\n".to_vec(),

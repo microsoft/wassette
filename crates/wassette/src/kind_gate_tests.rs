@@ -152,7 +152,8 @@ async fn current_shape_gates_same_stamp_metadata_and_all_restore_paths() -> Resu
     assert_eq!(ordinary.len(), provider.len());
     install_tool(&manager, key, &ordinary).await?;
     let descriptor = manager.list_tool_descriptors().await?.remove(0);
-    manager.registry.remove_component("agent").await;
+    let id = "local:agent-private";
+    manager.registry.remove_component(id).await;
     let path = manager.component_path(key);
     let old_metadata = std::fs::metadata(&path)?;
     let modified = old_metadata.modified()?;
@@ -167,8 +168,8 @@ async fn current_shape_gates_same_stamp_metadata_and_all_restore_paths() -> Resu
     let changed_metadata = std::fs::metadata(&path)?;
     assert_eq!(changed_metadata.len(), old_metadata.len());
     assert_eq!(changed_metadata.modified()?, modified);
-    assert!(manager.store_snapshot("agent").await.is_err());
-    assert!(manager.get_component_schema("agent").await.is_none());
+    assert!(manager.store_snapshot(id).await.is_err());
+    assert!(manager.get_component_schema(id).await.is_none());
     assert!(manager.list_tool_descriptors().await.is_err());
     assert!(manager.describe_scoped_tool(&descriptor.key).await.is_err());
     assert!(manager
@@ -191,7 +192,7 @@ async fn current_shape_gates_same_stamp_metadata_and_all_restore_paths() -> Resu
         .await
         .is_err());
     assert_eq!(notifications.load(Ordering::Relaxed), 0);
-    let error = manager.ensure_component_loaded("agent").await.unwrap_err();
+    let error = manager.ensure_component_loaded(id).await.unwrap_err();
     assert!(format!("{error:#}").contains("artifact hash"), "{error:#}");
     assert!(manager.list_tools().await.is_empty());
     assert_eq!(
@@ -220,7 +221,10 @@ async fn receipted_acp_artifacts_never_enter_ordinary_restore_paths() -> Result<
         ))?;
         let key = StorageKey::parse("agent-private")?;
         let source = store::SourceIdentity::File(root.path().join("agent-source.wasm"));
-        let expected = manager.component_store().observe("agent", &key, &source)?;
+        let id = "local:agent-source";
+        let expected = manager
+            .component_store()
+            .observe_source(id, &key, &source)?;
         let prepared = store::PreparedInstall::prepare(
             wasm,
             store::InstallOptions {
@@ -252,7 +256,7 @@ async fn receipted_acp_artifacts_never_enter_ordinary_restore_paths() -> Result<
         manager
             .component_store()
             .commit_install(prepared, expected)?;
-        assert!(manager.get_component_schema("agent").await.is_none());
+        assert!(manager.get_component_schema(id).await.is_none());
         manager.populate_registry_from_metadata().await?;
         manager.load_all_components().await?;
         manager
@@ -262,7 +266,7 @@ async fn receipted_acp_artifacts_never_enter_ordinary_restore_paths() -> Result<
         assert!(manager.list_components().await.is_empty());
         assert!(manager.list_tools().await.is_empty());
         assert!(manager.list_tool_descriptors().await?.is_empty());
-        let component_id = ComponentId::from_declared_name("agent")?;
+        let component_id = ComponentId::from_name(id)?;
         assert!(manager
             .list_tools_for_component(&component_id)
             .await
@@ -280,7 +284,7 @@ async fn receipted_acp_artifacts_never_enter_ordinary_restore_paths() -> Result<
             .invoke_scoped_tool(&key, &serde_json::json!({}))
             .await
             .is_err());
-        let error = manager.ensure_component_loaded("agent").await.unwrap_err();
+        let error = manager.ensure_component_loaded(id).await.unwrap_err();
         assert!(
             format!("{error:#}").contains("Cannot load ACP or unsupported"),
             "{error:#}"
@@ -295,24 +299,22 @@ async fn ordinary_source_discards_stale_acp_native_cache() -> Result<()> {
     let manager = manager(root.path()).await?;
     let key = "ordinary-private";
     install_tool(&manager, key, &ordinary_component()).await?;
-    let metadata = manager.load_component_metadata("ordinary").await?.unwrap();
+    let id = "local:ordinary-private";
+    let metadata = manager.load_component_metadata(id).await?.unwrap();
     let provider_cache = manager
         .runtime
         .precompile_component(&provider_component("provider"))?;
-    publish_metadata(&manager, "ordinary", &metadata, provider_cache.clone()).await?;
-    manager.registry.remove_component("ordinary").await;
+    publish_metadata(&manager, id, &metadata, provider_cache.clone()).await?;
+    manager.registry.remove_component(id).await;
 
-    manager.ensure_component_loaded("ordinary").await?;
+    manager.ensure_component_loaded(id).await?;
 
-    assert_eq!(manager.get_component_id_for_tool("run").await?, "ordinary");
+    assert_eq!(manager.get_component_id_for_tool("run").await?, id);
     assert_ne!(
         tokio::fs::read(manager.component_precompiled_path(key)).await?,
         provider_cache
     );
-    assert_eq!(
-        manager.store_snapshot("ordinary").await?.wasm,
-        ordinary_component()
-    );
+    assert_eq!(manager.store_snapshot(id).await?.wasm, ordinary_component());
     Ok(())
 }
 
@@ -322,7 +324,8 @@ async fn non_tool_replacement_is_rejected_before_staging() -> Result<()> {
     let manager = manager(root.path()).await?;
     let key = "agent-private";
     install_tool(&manager, key, &named_ordinary("agent")).await?;
-    let before = manager.store_snapshot("agent").await?;
+    let id = "local:agent-private";
+    let before = manager.store_snapshot(id).await?;
     let old_metadata =
         tokio::fs::read(manager.storage.metadata_path(&StorageKey::parse(key)?)).await?;
     let old_native = tokio::fs::read(manager.component_precompiled_path(key)).await?;
@@ -334,7 +337,7 @@ async fn non_tool_replacement_is_rejected_before_staging() -> Result<()> {
         format!("{error:#}").contains("Cannot load ACP or unsupported"),
         "{error:#}"
     );
-    let after = manager.store_snapshot("agent").await?;
+    let after = manager.store_snapshot(id).await?;
     assert_eq!(before.receipt, after.receipt);
     assert_eq!(before.wasm, after.wasm);
     assert_eq!(
@@ -345,7 +348,7 @@ async fn non_tool_replacement_is_rejected_before_staging() -> Result<()> {
         tokio::fs::read(manager.component_precompiled_path(key)).await?,
         old_native
     );
-    assert_eq!(manager.get_component_id_for_tool("run").await?, "agent");
+    assert_eq!(manager.get_component_id_for_tool("run").await?, id);
     Ok(())
 }
 
@@ -478,22 +481,23 @@ async fn cached_acp_identifiers_and_mismatched_keys_are_not_published() -> Resul
     let manager = manager(root.path()).await?;
     let key = "ordinary-private";
     install_tool(&manager, key, &ordinary_component()).await?;
-    let metadata = manager.load_component_metadata("ordinary").await?.unwrap();
+    let id = "local:ordinary-private";
+    let metadata = manager.load_component_metadata(id).await?.unwrap();
     let native = tokio::fs::read(manager.component_precompiled_path(key)).await?;
-    manager.registry.remove_component("ordinary").await;
+    manager.registry.remove_component(id).await;
     let mut acp = metadata.clone();
     acp.function_identifiers[0].package_name = Some("wassette:acp".to_owned());
     acp.function_identifiers[0].interface_name = Some("agent".to_owned());
     let mut mismatched = metadata.clone();
     mismatched.component_id = "different".to_owned();
     for invalid in [acp, mismatched] {
-        manager.registry.remove_component("ordinary").await;
-        publish_metadata(&manager, "ordinary", &invalid, native.clone()).await?;
-        assert!(manager.get_component_schema("ordinary").await.is_some());
+        manager.registry.remove_component(id).await;
+        publish_metadata(&manager, id, &invalid, native.clone()).await?;
+        assert!(manager.get_component_schema(id).await.is_some());
         manager.populate_registry_from_metadata().await?;
         let tools = manager.list_tool_descriptors().await?;
         assert_eq!(tools.len(), 1);
-        assert_eq!(tools[0].key.component_id.as_str(), "ordinary");
+        assert_eq!(tools[0].key.component_id.as_str(), id);
         assert_eq!(tools[0].key.export, metadata.function_identifiers[0]);
     }
     assert!(!is_acp_identifier(&FunctionIdentifier {
@@ -501,8 +505,8 @@ async fn cached_acp_identifiers_and_mismatched_keys_are_not_published() -> Resul
         interface_name: None,
         function_name: "wassette-acp-agent".to_owned(),
     }));
-    publish_metadata(&manager, "ordinary", &metadata, native).await?;
+    publish_metadata(&manager, id, &metadata, native).await?;
     manager.populate_registry_from_metadata().await?;
-    assert_eq!(manager.get_component_id_for_tool("run").await?, "ordinary");
+    assert_eq!(manager.get_component_id_for_tool("run").await?, id);
     Ok(())
 }
