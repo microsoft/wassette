@@ -37,7 +37,6 @@ private builder image is available at
   - `kind`: `Tool` or `AcpLayer` (case-sensitive builder enum); providers are not supported
 - `target` (object, optional): `{"mode":"new"}` by default, or
   `{"mode":"rebuild","expected_revision":"<opaque revision from prior report>"}`
-- `intent` (optional): `InstallOnly` by default, or `ExposeTools`
 - `reinstall_policy` (string, optional): Exact previous policy YAML, up to
   128 KiB, only when reinstalling a retired generated lineage; never new grants
 
@@ -52,16 +51,17 @@ source identity, or storage key can be selected in this request.
 
 Client approval to invoke the combined management tool is outside the server:
 there is **no second per-request approval dialog** between building and
-installing. Build, install, and exposure are authorized by default when the
-image is present; ACP separately asks the editor to approve each phase.
-Rebuild remains unavailable by default. Request
-intent is not a permission grant. Denied install, exposure, or rebuild
-permissions are checked before compilation.
+installing. Keep `allow_rebuild` false unless that operation is intended.
+Build and install require editor approval; generated tool components are
+enabled in every ACP session. Tool-kind eligibility follows the
+admitted artifact kind, and ACP layers require a new session. Rebuild remains
+unavailable by default. Denied permissions are checked before compilation.
 
-`InstallOnly` does not expose ordinary tools. An `AcpLayer` must use
-`InstallOnly`; its report sets `requires_selection: true` and explains that a
-later ACP session must explicitly select it. No active layers are changed, and
-agent/client interfaces are never exposed as MCP tools.
+Generated ordinary tools join the shared tool catalog after installation and
+are enabled by default in every ACP session, including the one that generated
+them. Sessions can opt out with `/tools disable`. Installing an ACP layer does
+not change a running provider chain; providers and layers are not hot-swapped.
+Agent/client interfaces are never exposed as MCP tools.
 
 **Returns:** Text and structured JSON carrying the canonical `commit` receipt
 (component ID, private storage key, provenance and revision), `refresh`,
@@ -105,8 +105,9 @@ distribute it. There is no host compiler/Cargo fallback. For setup details, see
 - `version` (string, optional): Exact indexed tag; valid only with `package`, and must agree with a WIT selector's `@version`
 
 The `package` form resolves the selected tag to an immutable manifest digest
-and explicitly loads an ordinary tool component. Use `wassette registry get`
-for install-only package storage; installation by itself does not expose tools.
+and explicitly loads an ordinary tool component into this runtime. Use
+`wassette registry get` to store a package without loading it into this runtime;
+its Tool kind still makes it eligible for the shared catalog.
 ACP providers/layers cannot be loaded as ordinary MCP tools.
 
 **Returns:**

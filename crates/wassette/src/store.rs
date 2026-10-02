@@ -162,7 +162,7 @@ impl ComponentStore {
         source: &SourceIdentity,
     ) -> Result<ExpectedEntry> {
         source.validate()?;
-        let component_id = ComponentId::from_declared_name(id).map_err(anyhow::Error::from)?;
+        let component_id = ComponentId::from_name(id).map_err(anyhow::Error::from)?;
         let capture = self.capture(Some(id), Some(storage_key))?;
         capture.admit(&component_id, storage_key, source)?;
         Ok(ExpectedEntry {
@@ -310,7 +310,6 @@ impl ComponentStore {
             validation: prepared.validation,
             policy: prepared.options.policy.evidence,
             revision,
-            intent: prepared.options.intent,
             observation: prepared.options.observation,
         };
         if let Some(StoredEntry::Installed(previous)) = &before {
@@ -1184,7 +1183,6 @@ fn make_change(
                 || old.source != new.source
                 || old.source_bundle_sha256 != new.source_bundle_sha256
                 || old.validation != new.validation
-                || old.intent != new.intent
                 || old.observation != new.observation
         }),
         owner_changed: old.is_none_or(|old| old.owner != new.owner),

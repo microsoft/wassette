@@ -18,10 +18,6 @@ impl ComponentId {
         Ok(Self(name.to_owned()))
     }
 
-    pub(crate) fn from_declared_name(name: &str) -> Result<Self, IdentityError> {
-        Self::from_name(name)
-    }
-
     /// Derive a local identity from the visible filename, not its contents.
     pub fn from_local_path(path: &std::path::Path) -> anyhow::Result<Self> {
         let filename = path
@@ -199,24 +195,18 @@ mod tests {
             "NUL",
             "../not-a-storage-key",
         ] {
-            assert_eq!(
-                ComponentId::from_declared_name(name).unwrap().as_str(),
-                name
-            );
+            assert_eq!(ComponentId::from_name(name).unwrap().as_str(), name);
         }
         assert_ne!(
-            ComponentId::from_declared_name("Weather"),
-            ComponentId::from_declared_name("weather")
+            ComponentId::from_name("Weather"),
+            ComponentId::from_name("weather")
         );
         assert_ne!(
-            ComponentId::from_declared_name("é"),
-            ComponentId::from_declared_name("e\u{301}")
+            ComponentId::from_name("é"),
+            ComponentId::from_name("e\u{301}")
         );
         let long = "名".repeat(200);
-        assert_eq!(
-            ComponentId::from_declared_name(&long).unwrap().as_str(),
-            long
-        );
+        assert_eq!(ComponentId::from_name(&long).unwrap().as_str(), long);
     }
 
     #[test]
@@ -243,7 +233,7 @@ mod tests {
             "", " ", "\u{2003}", "\t", "a\0b", "a\nb", "a\u{7f}b", "a\u{85}b",
         ] {
             assert_eq!(
-                ComponentId::from_declared_name(name),
+                ComponentId::from_name(name),
                 Err(IdentityError::InvalidName),
                 "{name:?}"
             );

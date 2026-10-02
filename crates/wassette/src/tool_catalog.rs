@@ -18,7 +18,7 @@ use wasmtime::component::Val;
 
 use crate::store::{
     ArtifactSnapshot, EntryRevision, InstallReceipt, PreparedCache, StoreCursor, StoreError,
-    StoredEntry,
+    StoredArtifactKind, StoredEntry,
 };
 use crate::store_runtime::CACHE_SCHEMA;
 use crate::store_support::store_operation;
@@ -236,8 +236,8 @@ impl PreparedInvocation {
                     .iter()
                     .find(|entry| entry.component_id() == &expected.key.component_id);
                 if !matches!(current, Some(StoredEntry::Installed(receipt))
-                    if receipt.requests_tool_exposure()
-                        && receipt.revision == expected.revision)
+                    if receipt.revision == expected.revision
+                        && receipt.kind == StoredArtifactKind::Tool)
                 {
                     return Err(ToolInvocationError::Stale(anyhow!(
                         "Component was removed, replaced or made unavailable"
@@ -433,7 +433,7 @@ impl LifecycleManager {
                 let StoredEntry::Installed(receipt) = entry else {
                     continue;
                 };
-                if !receipt.requests_tool_exposure() {
+                if receipt.kind != StoredArtifactKind::Tool {
                     continue;
                 }
                 let id = receipt.component_id.as_str().to_owned();
@@ -688,7 +688,7 @@ impl LifecycleManager {
             }
         })?;
         if snapshot.receipt.revision != reference.revision
-            || !snapshot.receipt.requests_tool_exposure()
+            || snapshot.receipt.kind != StoredArtifactKind::Tool
         {
             return Err(ToolInvocationError::Stale(anyhow!(
                 "Component revision or eligibility changed"
@@ -700,7 +700,7 @@ impl LifecycleManager {
             match current {
                 Ok(current)
                     if current.receipt.revision == reference.revision
-                        && current.receipt.requests_tool_exposure() =>
+                        && current.receipt.kind == StoredArtifactKind::Tool =>
                 {
                     return Err(error)
                 }

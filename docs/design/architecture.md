@@ -84,10 +84,11 @@ requires a `PreparedInstall` validated against the exact Wasm and effective
 policy. Ordinary loads compile, link and prepare schemas; ACP compiles and checks
 the exported stage and protocol version with its own engine. ACP evidence does
 not promise complete host linking: remaining link failures are selection errors.
-Installation alone neither exposes tools nor starts an ACP agent.
-Ordinary startup, cache hydration and restoration require `ExposeTools` intent.
-An `InstallOnly` receipt stays unexposed even with a valid tool cache or after a
-policy edit; an explicit ordinary load can commit the exposure intent.
+Installation does not start an ACP agent. An installed receipt whose kind is
+`Tool` joins the ordinary tool catalog and is enabled by default in ACP
+sessions. Running sessions refresh the catalog as the store changes. ACP
+discovers installed providers at session startup; provider and layer components
+are not hot-swapped into a running session.
 
 The store retains the flat artifact layout:
 
@@ -102,9 +103,9 @@ The store retains the flat artifact layout:
 .active-transaction
 ```
 
-Receipts separate semantic identity, private storage key, stable source, owner,
-acquisition evidence and deployment intent. They bind the Wasm hash and effective
-policy, including policy provenance and attachment metadata. An OCI manifest
+Receipts separate logical identity, private storage key, stable source, owner,
+and acquisition evidence. They bind the Wasm hash and effective policy,
+including policy provenance and attachment metadata. An OCI manifest
 digest is not the Wasm byte hash; unresolved versions/digests remain unknown.
 Every authoritative change, including a policy-only edit, advances a persistent
 store cursor and entry revision.
@@ -222,7 +223,7 @@ name, changed runtime kind, or damaged artifact.
 `list_tools_for_component` return these keys with the existing tool schemas;
 `describe_scoped_tool` selects an exact export, and `invoke_scoped_tool` calls it.
 Listing uses receipt-bound metadata when available and validated cold compilation otherwise.
-Install-only and ACP receipts cannot enter these APIs, including through caches.
+ACP provider and layer receipts cannot enter these APIs, including through caches.
 These compatibility APIs drop revision references from the atomic catalog;
 use `catalog()` when a consumer must retain permission-relevant identity.
 
@@ -306,8 +307,9 @@ prepared and admitted against their own current receipt.
 `CatalogGeneration` identifies a runtime instance and its in-memory publication
 sequence, not a store revision. Clones share it; independent managers do not.
 Only changes to references, descriptors, membership or availability advance it.
-Cache warming alone does not. Retired and InstallOnly receipts never contribute
-callable tools; `ExposeTools` eligibility still does not grant permission.
+Cache warming alone does not. Retired receipts and receipts whose kind is not
+`Tool` never contribute callable tools. Tool-kind eligibility does not grant
+session exposure or policy permission.
 
 `wait_changed(&generation)` observes **in-memory publications only**. A foreign
 token returns immediately so the caller can resnapshot; lagging consumers read

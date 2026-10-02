@@ -46,7 +46,14 @@ const HOST_MODEL_CONFIG_ID: &str = "model";
 /// is intercepted by the host. The Copilot provider also receives an
 /// internal notification to keep its model-facing tool list in sync.
 pub const TERMINAL_CONFIG_ID: &str = "terminal";
-const COPILOT_PROVIDER_ID: &str = "acp-copilot-provider";
+// Stopgap until ACP advertises internal config capabilities: all providers
+// export the same setter, and Copilot deliberately hides these options.
+fn is_copilot_provider(component_id: &str) -> bool {
+    matches!(
+        component_id,
+        "local:acp_copilot_provider" | "acp-copilot-provider"
+    )
+}
 
 /// Internal, never-advertised config option the host sends to the Copilot
 /// provider when a builder image enables component generation.
@@ -233,7 +240,7 @@ impl SessionGroup {
 
     pub async fn generation_available(&self) -> bool {
         let index = *self.inner.active.lock().unwrap();
-        if self.inner.providers[index].component_id != COPILOT_PROVIDER_ID {
+        if !is_copilot_provider(&self.inner.providers[index].component_id) {
             return false;
         }
         self.inner.providers[index]
@@ -245,7 +252,7 @@ impl SessionGroup {
 
     pub fn copilot_active(&self) -> bool {
         let index = *self.inner.active.lock().unwrap();
-        self.inner.providers[index].component_id == COPILOT_PROVIDER_ID
+        is_copilot_provider(&self.inner.providers[index].component_id)
     }
 
     pub async fn set_tool_enabled(
@@ -264,6 +271,20 @@ impl SessionGroup {
         Ok(())
     }
 
+    pub async fn enable_component_tools(&self, component_id: &str) -> anyhow::Result<Vec<String>> {
+        let mut names = None;
+        for provider in &self.inner.providers {
+            let broker = provider
+                .session
+                .tool_broker()
+                .await
+                .ok_or_else(|| anyhow::anyhow!("Tool broker unavailable"))?;
+            let enabled = broker.enable_component_tools(component_id).await?;
+            names.get_or_insert(enabled);
+        }
+        Ok(names.unwrap_or_default())
+    }
+
     /// Toggle the host-owned `terminal` config option. Records the new
     /// value and fans it out to every provider chain's [`Session`] so the
     /// `client.terminal` host impl honours it regardless of which provider
@@ -272,7 +293,7 @@ impl SessionGroup {
         let previous = *self.inner.terminal_enabled.lock().unwrap();
         let mut notified = Vec::new();
         for p in &self.inner.providers {
-            if p.component_id == COPILOT_PROVIDER_ID {
+            if is_copilot_provider(&p.component_id) {
                 match p
                     .session
                     .set_config_option(
@@ -309,7 +330,7 @@ impl SessionGroup {
     /// without the tool.
     pub async fn enable_copilot_generation(&self) {
         for p in &self.inner.providers {
-            if p.component_id != COPILOT_PROVIDER_ID {
+            if !is_copilot_provider(&p.component_id) {
                 continue;
             }
             match p

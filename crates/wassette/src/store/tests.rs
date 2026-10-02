@@ -77,10 +77,24 @@ fn options(key: &str) -> InstallOptions {
             generation: None,
         },
         owner: InstallOwner::Explicit,
-        intent: InstallIntent::InstallOnly,
         policy: PreparedPolicy::absent(PolicyProvenance::Default),
         observation: None,
     }
+}
+
+#[test]
+fn legacy_install_intent_is_ignored_when_loading_receipts() {
+    let directory = directory();
+    let store = ComponentStore::open(directory.path()).unwrap();
+    install(&store, "semantic", options("key"));
+    let path = directory.path().join("key.install.json");
+    let mut record: serde_json::Value = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+    record["Installed"]["intent"] = serde_json::json!("InstallOnly");
+    fs::write(&path, serde_json::to_vec(&record).unwrap()).unwrap();
+
+    let reopened = ComponentStore::open(directory.path()).unwrap();
+    let snapshot = reopened.read("semantic").unwrap();
+    assert_eq!(snapshot.receipt.kind, StoredArtifactKind::Tool);
 }
 
 fn prepare(name: &str, options: InstallOptions) -> PreparedInstall {

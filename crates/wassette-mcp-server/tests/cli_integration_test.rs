@@ -16,7 +16,7 @@ mod common;
 use common::{build_fetch_component, build_filesystem_component};
 
 #[test(tokio::test)]
-async fn local_sync_uses_embedded_name_and_respects_explicit_unload() -> Result<()> {
+async fn local_sync_uses_filename_and_respects_explicit_unload() -> Result<()> {
     let context = CliTestContext::new().await?;
     let drops = context.temp_dir.path().join("local-components");
     tokio::fs::create_dir(&drops).await?;
@@ -41,7 +41,7 @@ async fn local_sync_uses_embedded_name_and_respects_explicit_unload() -> Result<
     assert_eq!(code, 0, "{stderr}");
     let report: Value = serde_json::from_str(&output)?;
     assert_eq!(report["outcomes"][0]["status"], "installed");
-    assert_eq!(report["outcomes"][0]["component_id"], "local:weather");
+    assert_eq!(report["outcomes"][0]["component_id"], "local:not-the-id");
     let (output, stderr, code) = context.run_command(&["component", "list"]).await?;
     assert_eq!(code, 0, "{stderr}");
     let components: Value = serde_json::from_str(&output)?;
@@ -49,13 +49,13 @@ async fn local_sync_uses_embedded_name_and_respects_explicit_unload() -> Result<
         .as_array()
         .context("component list missing components")?
         .iter()
-        .find(|component| component["id"] == "local:weather")
+        .find(|component| component["id"] == "local:not-the-id")
         .context("local component absent from list")?;
     assert!(local["owner"]["ManagedLocalSource"].is_object());
     assert!(local["source_observation"]["artifact_sha256"].is_string());
 
     let (_, stderr, code) = context
-        .run_command(&["component", "unload", "local:weather"])
+        .run_command(&["component", "unload", "local:not-the-id"])
         .await?;
     assert_eq!(code, 0, "{stderr}");
     let (output, stderr, code) = context.run_command(&sync(false)).await?;
@@ -350,9 +350,12 @@ async fn assert_manifest_preserves_existing_policy(
         "Grant network permission failed with stderr: {stderr}"
     );
 
+    let receipt = wassette::store::ComponentStore::open(&ctx.component_dir)?
+        .read(component_id)?
+        .receipt;
     let policy_path = ctx
         .component_dir
-        .join(format!("{component_id}.policy.yaml"));
+        .join(format!("{}.policy.yaml", receipt.storage_key.as_str()));
     let policy_content = tokio::fs::read_to_string(&policy_path).await?;
     assert!(policy_content.contains(granted_host));
 

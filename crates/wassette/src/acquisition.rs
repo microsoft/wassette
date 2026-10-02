@@ -178,6 +178,14 @@ mod tests {
         let (second, _) = source_evidence("https://example.test/tool.wasm?token=second-secret")?;
         assert_ne!(first, second);
         assert_eq!(origin.location, "https://example.test/tool.wasm");
+        assert_eq!(
+            first
+                .as_ref()
+                .unwrap()
+                .component_id(&StorageKey::parse("tool")?, &origin)?
+                .as_str(),
+            "tool",
+        );
         assert!(!serde_json::to_string(&first)?.contains("first-secret"));
         assert!(!serde_json::to_string(&origin)?.contains("first-secret"));
         assert!(source_evidence("https://user:password@example.test/tool.wasm").is_err());

@@ -557,7 +557,7 @@ pub(super) fn handle_prompt(
     // design. On match we stream progress as a tool call and
     // resolve the prompt with `stop_reason = end_turn`.
     if let Some(arg) = host_install_arg(gate, &session_key, &req.prompt) {
-        return handle_install_command(factory.clone(), session_key, arg, responder, cx);
+        return handle_install_command(factory.clone(), handle, session_key, arg, responder, cx);
     }
 
     handle.prepare_prompt();
@@ -906,6 +906,7 @@ fn host_install_arg(
 /// `stop_reason = end_turn` regardless of success or failure.
 fn handle_install_command(
     factory: Arc<SessionFactory>,
+    handle: crate::group::SessionGroup,
     session_key: String,
     arg: String,
     responder: Responder<schema::PromptResponse>,
@@ -959,11 +960,35 @@ fn handle_install_command(
 
         match &result {
             Ok(installed) => {
-                let text = format!(
-                    "Ready to use `{}` at `{}`.",
-                    installed.component_id,
-                    installed.path.display()
-                );
+                let text = match installed.snapshot.receipt.kind {
+                    wassette::store::StoredArtifactKind::Tool => {
+                        match handle.enable_component_tools(&installed.component_id).await {
+                            Ok(names) if names.is_empty() => format!(
+                                "Installed `{}` at `{}`, but it has no callable tool exports.",
+                                installed.component_id,
+                                installed.path.display()
+                            ),
+                            Ok(names) => format!(
+                                "Installed `{}` and enabled its tools: {}. You can call them now.",
+                                installed.component_id,
+                                names.join(", ")
+                            ),
+                            Err(error) => format!(
+                                "Installed `{}` at `{}`, but could not enable it for this session: {error:#}. \
+                                 The component is already in the store; do not retry the installation.",
+                                installed.component_id,
+                                installed.path.display()
+                            ),
+                        }
+                    }
+                    wassette::store::StoredArtifactKind::AcpLayer
+                    | wassette::store::StoredArtifactKind::AcpProvider => format!(
+                        "Installed ACP component `{}` at `{}`. Provider and layer components \
+                         are not hot-swapped; start a new ACP session to use it.",
+                        installed.component_id,
+                        installed.path.display()
+                    ),
+                };
                 send_tool_call_finish(&cx, &session_key, &tool_call_id, "completed", &text);
             }
             Err(e) => {

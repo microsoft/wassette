@@ -81,7 +81,7 @@ impl ToolInfo {
     fn descriptor(&self) -> Result<ScopedToolDescriptor> {
         Ok(ScopedToolDescriptor {
             key: ToolKey {
-                component_id: ComponentId::from_declared_name(&self.component_id)?,
+                component_id: ComponentId::from_name(&self.component_id)?,
                 export: self.identifier.clone(),
             },
             schema: schema::canonicalize_tool_schema(&self.schema),
@@ -130,7 +130,7 @@ impl ComponentRegistryState {
 }
 
 impl LifecycleManager {
-    /// List descriptors for installed ordinary components requesting tool exposure.
+    /// List descriptors for installed ordinary tool components.
     ///
     /// Receipt-bound metadata avoids compilation when available. This compatibility
     /// view drops the revision references; use `catalog()` for permission-safe identity.
@@ -146,8 +146,8 @@ impl LifecycleManager {
 
     /// List a component's exports without collapsing normalized-name collisions.
     ///
-    /// The semantic name is resolved through the store; install-only and non-tool
-    /// receipts are rejected. Missing metadata is restored using the existing
+    /// The semantic name is resolved through the store; non-tool receipts are
+    /// rejected. Missing metadata is restored using the existing
     /// lazy loader. No protocol exposure or permissions are granted by listing.
     pub async fn list_tools_for_component(
         &self,
@@ -156,8 +156,8 @@ impl LifecycleManager {
         let id = component_id.as_str();
         let snapshot = self.store_snapshot(id).await?;
         ensure!(
-            snapshot.receipt.requests_tool_exposure(),
-            "Component '{id}' is not installed for ordinary tool exposure"
+            snapshot.receipt.kind == crate::store::StoredArtifactKind::Tool,
+            "Component '{id}' is not installed as an ordinary tool"
         );
         Ok(self
             .catalog()

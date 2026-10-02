@@ -85,7 +85,7 @@ pub struct SessionFactory {
     engine: Engine,
     /// Terminal provider stages. Every one is the bottom of its own
     /// chain; each session instantiates one chain per provider. Always
-    /// non-empty (the CLI requires at least one `--provider`).
+    /// non-empty (the CLI discovers installed providers at startup).
     providers: Vec<Stage>,
     /// Layer stages, ordered editor-side → provider-side. Empty means no
     /// layers (legacy single-component behaviour). The same layer stack

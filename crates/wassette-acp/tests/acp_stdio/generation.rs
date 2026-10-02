@@ -9,13 +9,13 @@
 //! generation::real_ -- --ignored --test-threads=1`.
 
 use wassette::generation::ComponentKind;
-use wassette::store::{InstallIntent, SourceIdentity, StoreError};
+use wassette::store::{SourceIdentity, StoreError};
 
 use super::*;
 
 const SOURCE_SENTINEL: &str = "ACP_GENERATION_PRIVATE_SOURCE_SENTINEL";
 
-fn tool_request(name: &str, value: u32, intent: InstallIntent) -> Value {
+fn tool_request(name: &str, value: u32) -> Value {
     json!({
         "build": {
             "component_name": name,
@@ -29,7 +29,6 @@ fn tool_request(name: &str, value: u32, intent: InstallIntent) -> Value {
             ),
         },
         "target": {"mode": "new"},
-        "intent": intent,
     })
 }
 
@@ -44,7 +43,7 @@ fn stage_builder_image(image: &Path, builder: &Path) {
     }
 }
 
-fn start_generation(bin: &Path, provider: &Path, selected_layer: Option<&Path>) -> Harness {
+fn start_generation(bin: &Path, provider: &Path) -> Harness {
     let image = std::env::var_os("WASSETTE_ACP_GENERATION_IMAGE")
         .expect("set WASSETTE_ACP_GENERATION_IMAGE to a locally built builder image");
     let xdg = tempfile::tempdir_in(".").unwrap();
@@ -54,20 +53,13 @@ fn start_generation(bin: &Path, provider: &Path, selected_layer: Option<&Path>) 
     stage_builder_image(Path::new(&image), &builder);
     let components = root.join("data/wassette/components");
     let secrets = root.join("config/wassette/secrets");
-    let mut args = vec![
+    let args = vec![
         "--component-dir".into(),
         components.into_os_string(),
         "--secrets-dir".into(),
         secrets.into_os_string(),
     ];
-    if let Some(layer) = selected_layer {
-        args.extend([
-            "--layer".into(),
-            layer.as_os_str().to_owned(),
-            "--allow-shared-grants".into(),
-        ]);
-    }
-    let mut harness = Harness::spawn(bin, provider, args, xdg, None, &[]);
+    let mut harness = Harness::spawn(bin, &[provider], args, xdg, None, &[], &[]);
     harness.line_timeout = Duration::from_secs(180);
     harness
 }
@@ -146,10 +138,10 @@ fn assert_absent(harness: &Harness, component: &str) {
 #[ignore = "requires a real builder image via WASSETTE_ACP_GENERATION_IMAGE"]
 fn real_generation_permissions_store_and_session_scope() {
     let (bin, provider) = artifacts().expect("build the feature-enabled CLI and ACP echo fixture");
-    let mut h = start_generation(&bin, &provider, None);
+    let mut h = start_generation(&bin, &provider);
     let session = h.open_session();
     let rejected_name = "test:acp-generation/rejected";
-    let request = tool_request(rejected_name, 40, InstallIntent::ExposeTools);
+    let request = tool_request(rejected_name, 40);
     let id = h.prompt(&session, &format!("/generate {request}"));
     let (messages, _) = await_phases(&mut h, id, &["reject-once"]);
     assert!(response_text(&messages).contains("PermissionDenied"));
@@ -166,50 +158,26 @@ fn real_generation_permissions_store_and_session_scope() {
         .unwrap()["params"]["toolCall"]["rawInput"]["operation"];
     assert_eq!(preview["wasm_sha256"].as_str().unwrap().len(), 64);
 
-    let hidden_name = "test:acp-generation/install-only";
-    let request = tool_request(hidden_name, 41, InstallIntent::InstallOnly);
+    let exposed_name = "test:acp-generation/exposed";
+    let request = tool_request(exposed_name, 42);
     let id = h.prompt(&session, &format!("/generate {request}"));
     let (messages, _) = await_phases(&mut h, id, &["allow-once", "allow-once"]);
-    assert!(
-        response_text(&messages).starts_with("generation Disposition::Installed:"),
-        "{messages:?}"
-    );
-    assert_eq!(generated_report(&messages)["component_id"], hidden_name);
-    let receipt = h.store().read(hidden_name).unwrap().receipt;
-    assert_eq!(receipt.intent, InstallIntent::InstallOnly);
-    assert!(matches!(receipt.source, SourceIdentity::Generated { .. }));
-    let id = h.prompt(&session, "/tool answer {}");
-    let (messages, _) = await_phases(&mut h, id, &[]);
-    assert!(response_text(&messages).contains("NotFound"));
-
-    let exposed_name = "test:acp-generation/exposed";
-    let request = tool_request(exposed_name, 42, InstallIntent::ExposeTools);
-    let id = h.prompt(&session, &format!("/generate {request}"));
-    let (messages, _) = await_phases(&mut h, id, &["allow-once", "allow-once", "allow-once"]);
     assert!(
         response_text(&messages).starts_with("generation Disposition::SessionTools:"),
         "{messages:?}"
     );
-    let report = generated_report(&messages);
+    assert_eq!(generated_report(&messages)["component_id"], exposed_name);
     let receipt = h.store().read(exposed_name).unwrap().receipt;
+    assert!(matches!(receipt.source, SourceIdentity::Generated { .. }));
+    let report = generated_report(&messages);
     assert_eq!(report["revision"], receipt.revision.to_string());
-    assert_eq!(receipt.intent, InstallIntent::ExposeTools);
     assert!(receipt.origin.generation.is_some());
     let permissions: Vec<_> = messages
         .iter()
         .filter(|m| m["method"] == "session/request_permission")
         .collect();
     let install = &permissions[1]["params"]["toolCall"]["rawInput"]["operation"];
-    let expose = &permissions[2]["params"]["toolCall"]["rawInput"]["operation"];
-    assert_eq!(install["wasm_sha256"], expose["preview"]["wasm_sha256"]);
     assert_eq!(install["wasm_sha256"], receipt.artifact_sha256);
-    assert!(expose["scope"].as_str().unwrap().contains("shared store"));
-    assert!(
-        expose["scope"]
-            .as_str()
-            .unwrap()
-            .contains("only this ACP session")
-    );
     for permission in permissions {
         assert!(!permission.to_string().contains(SOURCE_SENTINEL));
     }
@@ -233,7 +201,7 @@ fn real_generation_permissions_store_and_session_scope() {
     assert_eq!(response_text(&messages).trim(), "42");
 
     let cancelled_name = "test:acp-generation/cancelled";
-    let request = tool_request(cancelled_name, 43, InstallIntent::InstallOnly);
+    let request = tool_request(cancelled_name, 43);
     let id = h.prompt(&session, &format!("/generate {request}"));
     let permission = h.await_permission(id);
     h.notify("session/cancel", json!({"sessionId": session}));
@@ -247,9 +215,9 @@ fn real_generation_permissions_store_and_session_scope() {
 
 #[test]
 #[ignore = "requires a real builder image via WASSETTE_ACP_GENERATION_IMAGE"]
-fn real_generated_layer_requires_explicit_selection() {
+fn real_generated_layer_is_not_hot_swapped() {
     let (bin, provider) = artifacts().expect("build the feature-enabled CLI and ACP echo fixture");
-    let mut h = start_generation(&bin, &provider, None);
+    let mut h = start_generation(&bin, &provider);
     let session = h.open_session();
     let source = std::fs::read_to_string(
         PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -268,7 +236,6 @@ fn real_generated_layer_requires_explicit_selection() {
             "source": source.replace(declaration, ""),
         },
         "target": {"mode": "new"},
-        "intent": InstallIntent::InstallOnly,
     });
     let id = h.prompt(&session, &format!("/generate {request}"));
     let (messages, _) = await_phases(&mut h, id, &["allow-once", "allow-once"]);
@@ -280,7 +247,6 @@ fn real_generated_layer_requires_explicit_selection() {
     assert!(text.ends_with("handles []"));
     let receipt = h.store().read(name).unwrap().receipt;
     assert_eq!(receipt.kind, StoredArtifactKind::AcpLayer);
-    assert_eq!(receipt.intent, InstallIntent::InstallOnly);
     assert!(matches!(
         receipt.validation,
         ValidationEvidence::AcpCompiledAndExportChecked { .. }
@@ -288,44 +254,19 @@ fn real_generated_layer_requires_explicit_selection() {
     let id = h.prompt(&session, "/shout");
     let (messages, _) = h.await_response(id);
     assert_eq!(response_text(&messages).trim(), "/shout");
-    let components = h._xdg.path().join("data/wassette/components");
-    let secrets = h._xdg.path().join("config/wassette/secrets");
     h.close_stdin_and_wait();
-
-    let mut selected = Harness::start(
-        &bin,
-        &provider,
-        &[
-            "--component-dir",
-            components.to_str().unwrap(),
-            "--secrets-dir",
-            secrets.to_str().unwrap(),
-            "--layer",
-            name,
-            "--allow-shared-grants",
-        ],
-    );
-    let session = selected.open_session();
-    let id = selected.prompt(&session, "/shout");
-    let (messages, _) = selected.await_response(id);
-    assert!(response_text(&messages).contains("CAPS LOCK ENGAGED!"));
-    let id = selected.prompt(&session, "explicit layer");
-    let (messages, _) = selected.await_response(id);
-    assert_eq!(response_text(&messages).trim(), "EXPLICIT LAYER");
-    selected.close_stdin_and_wait();
 }
 
 #[test]
 #[ignore = "requires a real builder image via WASSETTE_ACP_GENERATION_IMAGE"]
-fn real_generation_uses_bound_editor_with_an_explicit_layer() {
+fn real_generation_uses_bound_editor_without_layers() {
     let (bin, provider) = artifacts().expect("build the feature-enabled CLI and ACP echo fixture");
-    let layer = uppercase_layer().expect("build the ACP uppercase layer fixture");
-    let mut h = start_generation(&bin, &provider, Some(&layer));
+    let mut h = start_generation(&bin, &provider);
     let session = h.open_session();
     let name = "test:acp-generation/through-layer";
-    let request = tool_request(name, 42, InstallIntent::ExposeTools);
+    let request = tool_request(name, 42);
     let id = h.prompt(&session, &format!("/generate {request}"));
-    let (messages, _) = await_phases(&mut h, id, &["allow-once", "allow-once", "allow-once"]);
+    let (messages, _) = await_phases(&mut h, id, &["allow-once", "allow-once"]);
     assert!(response_text(&messages).starts_with("generation Disposition::SessionTools:"));
     assert_eq!(generated_report(&messages)["component_id"], name);
     let id = h.prompt(&session, "/tool answer {}");
@@ -338,10 +279,10 @@ fn real_generation_uses_bound_editor_with_an_explicit_layer() {
 #[ignore = "requires a real builder image via WASSETTE_ACP_GENERATION_IMAGE"]
 fn real_generation_disconnect_waits_for_private_job_cleanup() {
     let (bin, provider) = artifacts().expect("build the feature-enabled CLI and ACP echo fixture");
-    let mut h = start_generation(&bin, &provider, None);
+    let mut h = start_generation(&bin, &provider);
     let session = h.open_session();
     let name = "test:acp-generation/disconnected";
-    let request = tool_request(name, 42, InstallIntent::InstallOnly);
+    let request = tool_request(name, 42);
     let id = h.prompt(&session, &format!("/generate {request}"));
     let permission = h.await_permission(id);
     h.respond_permission(&permission, "allow-once");

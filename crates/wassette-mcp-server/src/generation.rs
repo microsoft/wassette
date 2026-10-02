@@ -9,7 +9,6 @@ use anyhow::{bail, ensure, Context, Result};
 use mcp_server::generation::{error_report, read_request, GenerationJobs};
 use tokio_util::sync::CancellationToken;
 use wassette::generation::{GenerationConfig, GenerationRequest, GenerationTarget};
-use wassette::store::InstallIntent;
 use wassette::LifecycleManager;
 
 use crate::commands::Run;
@@ -187,7 +186,6 @@ fn rebuildable_request(build: wassette::generation::BuildRequest) -> GenerationR
     GenerationRequest {
         build,
         target: GenerationTarget::New,
-        intent: InstallIntent::InstallOnly,
         reinstall_policy: None,
     }
 }
@@ -342,6 +340,7 @@ mod tests {
         };
         let sha = |bytes: &[u8]| hex::encode(sha2::Sha256::digest(bytes));
         let evidence: GenerationEvidence = serde_json::from_value(json!({
+            "component_name": build.component_name,
             "source_sha256": sha(build.source.as_bytes()),
             "wit_sha256": sha(build.wit.as_bytes()),
             "wit_dependencies_sha256": "a".repeat(64),
@@ -376,7 +375,6 @@ mod tests {
                     },
                     source,
                     owner: InstallOwner::Explicit,
-                    intent: InstallIntent::InstallOnly,
                     policy: PreparedPolicy::absent(PolicyProvenance::Default),
                     observation: None,
                 },

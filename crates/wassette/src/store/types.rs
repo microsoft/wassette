@@ -383,24 +383,13 @@ impl ManagedLocalSource {
     }
 }
 
-/// Installation ownership, independent of provenance and intent.
+/// Installation ownership, independent of provenance and runtime activation.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum InstallOwner {
     /// An explicit operator installation, never eligible for managed pruning.
     Explicit,
     /// A particular local discovery source; cleanup must match both exact fields.
     ManagedLocalSource(ManagedLocalSource),
-}
-
-/// Installation does not by itself register tools or activate an ACP provider.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub enum InstallIntent {
-    /// Persist only.
-    InstallOnly,
-    /// The caller intends to expose ordinary tools after admission.
-    ExposeTools,
-    /// The caller intends to select this artifact through its ACP adapter.
-    AcpSelection,
 }
 
 /// The checks actually completed by the trusted runtime validator.
@@ -565,8 +554,6 @@ pub struct InstallOptions {
     pub origin: OriginEvidence,
     /// Installation owner.
     pub owner: InstallOwner,
-    /// Post-install intent, not runtime authorization.
-    pub intent: InstallIntent,
     /// Effective policy, independently selected from any source sidecar.
     pub policy: PreparedPolicy,
     /// Optional captured source observation.
@@ -711,17 +698,8 @@ pub struct InstallReceipt {
     pub policy: EffectivePolicy,
     /// Revision of this complete authoritative state.
     pub revision: EntryRevision,
-    /// Installation intent, independent of exposure or activation.
-    pub intent: InstallIntent,
     /// Last successful optional source capture.
     pub observation: Option<SourceObservation>,
-}
-
-impl InstallReceipt {
-    /// Whether this ordinary artifact requests tool exposure, not runtime authorization.
-    pub fn requests_tool_exposure(&self) -> bool {
-        self.kind == StoredArtifactKind::Tool && self.intent == InstallIntent::ExposeTools
-    }
 }
 
 /// Why an installed entry became a durable reservation.
@@ -885,7 +863,7 @@ pub struct StoreChange {
     pub artifact_changed: bool,
     /// Whether effective policy bytes/authority changed.
     pub policy_changed: bool,
-    /// Whether provenance, validation, intent, or observations changed.
+    /// Whether provenance, validation, or observations changed.
     pub provenance_changed: bool,
     /// Whether ownership changed.
     pub owner_changed: bool,
@@ -947,7 +925,7 @@ mod component_id_serde {
     pub fn deserialize<'de, D: serde::Deserializer<'de>>(
         deserializer: D,
     ) -> std::result::Result<ComponentId, D::Error> {
-        ComponentId::from_declared_name(&String::deserialize(deserializer)?)
+        ComponentId::from_name(&String::deserialize(deserializer)?)
             .map_err(serde::de::Error::custom)
     }
 }
