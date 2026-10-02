@@ -15,7 +15,7 @@ use super::*;
 
 const SOURCE_SENTINEL: &str = "ACP_GENERATION_PRIVATE_SOURCE_SENTINEL";
 
-fn tool_request(name: &str, value: u32) -> Value {
+pub(super) fn tool_request(name: &str, value: u32) -> Value {
     json!({
         "build": {
             "component_name": name,
@@ -44,6 +44,14 @@ fn stage_builder_image(image: &Path, builder: &Path) {
 }
 
 fn start_generation(bin: &Path, provider: &Path) -> Harness {
+    start_generation_with_providers(bin, &[provider], &[])
+}
+
+pub(super) fn start_generation_with_providers(
+    bin: &Path,
+    providers: &[&Path],
+    extra: &[&str],
+) -> Harness {
     let image = std::env::var_os("WASSETTE_ACP_GENERATION_IMAGE")
         .expect("set WASSETTE_ACP_GENERATION_IMAGE to a locally built builder image");
     let xdg = tempfile::tempdir_in(".").unwrap();
@@ -52,14 +60,9 @@ fn start_generation(bin: &Path, provider: &Path) -> Harness {
     std::fs::create_dir_all(&builder).unwrap();
     stage_builder_image(Path::new(&image), &builder);
     let components = root.join("data/wassette/components");
-    let secrets = root.join("config/wassette/secrets");
-    let args = vec![
-        "--component-dir".into(),
-        components.into_os_string(),
-        "--secrets-dir".into(),
-        secrets.into_os_string(),
-    ];
-    let mut harness = Harness::spawn(bin, &[provider], args, xdg, None, &[], &[]);
+    let mut args = vec!["--component-dir".into(), components.into_os_string()];
+    args.extend(extra.iter().map(std::ffi::OsString::from));
+    let mut harness = Harness::spawn(bin, providers, args, xdg, None, &[], &[]);
     harness.line_timeout = Duration::from_secs(180);
     harness
 }
@@ -89,7 +92,11 @@ fn staged_builder_image_is_hard_linked_without_modifying_source() {
     }
 }
 
-fn await_phases(harness: &mut Harness, id: i64, decisions: &[&str]) -> (Vec<Value>, Value) {
+pub(super) fn await_phases(
+    harness: &mut Harness,
+    id: i64,
+    decisions: &[&str],
+) -> (Vec<Value>, Value) {
     let mut messages = Vec::new();
     let mut phase = 0;
     loop {
@@ -115,7 +122,7 @@ fn await_phases(harness: &mut Harness, id: i64, decisions: &[&str]) -> (Vec<Valu
     }
 }
 
-fn generated_report(messages: &[Value]) -> Value {
+pub(super) fn generated_report(messages: &[Value]) -> Value {
     let text = response_text(messages);
     let start = text
         .find('{')
@@ -134,34 +141,37 @@ fn assert_absent(harness: &Harness, component: &str) {
     ));
 }
 
+fn await_private_job(harness: &Harness) -> PathBuf {
+    let staging = harness._xdg.path().join("data/wassette/builder/staging");
+    let deadline = std::time::Instant::now() + Duration::from_secs(10);
+    while std::fs::read_dir(&staging).unwrap().next().is_none() {
+        assert!(
+            std::time::Instant::now() < deadline,
+            "builder did not create its private job"
+        );
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    staging
+}
+
 #[test]
 #[ignore = "requires a real builder image via WASSETTE_ACP_GENERATION_IMAGE"]
 fn real_generation_permissions_store_and_session_scope() {
     let (bin, provider) = artifacts().expect("build the feature-enabled CLI and ACP echo fixture");
     let mut h = start_generation(&bin, &provider);
     let session = h.open_session();
-    let rejected_name = "test:acp-generation/rejected";
-    let request = tool_request(rejected_name, 40);
+    let failed_name = "test:acp-generation/failed";
+    let mut request = tool_request(failed_name, 40);
+    request["build"]["source"] = json!("this is not Rust");
     let id = h.prompt(&session, &format!("/generate {request}"));
-    let (messages, _) = await_phases(&mut h, id, &["reject-once"]);
-    assert!(response_text(&messages).contains("PermissionDenied"));
-    assert_absent(&h, rejected_name);
-
-    let id = h.prompt(&session, &format!("/generate {request}"));
-    let (messages, _) = await_phases(&mut h, id, &["allow-once", "reject-once"]);
-    assert!(response_text(&messages).contains("PermissionDenied"));
-    assert_absent(&h, rejected_name);
-    let preview = &messages
-        .iter()
-        .filter(|m| m["method"] == "session/request_permission")
-        .nth(1)
-        .unwrap()["params"]["toolCall"]["rawInput"]["operation"];
-    assert_eq!(preview["wasm_sha256"].as_str().unwrap().len(), 64);
+    let (messages, _) = await_phases(&mut h, id, &[]);
+    assert!(response_text(&messages).contains("BuildFailed"));
+    assert_absent(&h, failed_name);
 
     let exposed_name = "test:acp-generation/exposed";
     let request = tool_request(exposed_name, 42);
     let id = h.prompt(&session, &format!("/generate {request}"));
-    let (messages, _) = await_phases(&mut h, id, &["allow-once", "allow-once"]);
+    let (messages, _) = await_phases(&mut h, id, &[]);
     assert!(
         response_text(&messages).starts_with("generation Disposition::SessionTools:"),
         "{messages:?}"
@@ -172,15 +182,10 @@ fn real_generation_permissions_store_and_session_scope() {
     let report = generated_report(&messages);
     assert_eq!(report["revision"], receipt.revision.to_string());
     assert!(receipt.origin.generation.is_some());
-    let permissions: Vec<_> = messages
-        .iter()
-        .filter(|m| m["method"] == "session/request_permission")
-        .collect();
-    let install = &permissions[1]["params"]["toolCall"]["rawInput"]["operation"];
-    assert_eq!(install["wasm_sha256"], receipt.artifact_sha256);
-    for permission in permissions {
-        assert!(!permission.to_string().contains(SOURCE_SENTINEL));
-    }
+    assert_eq!(report["preview"]["wasm_sha256"], receipt.artifact_sha256);
+    let id = h.prompt(&session, "/tool answer {}");
+    let (messages, _) = await_phases(&mut h, id, &["reject-once"]);
+    assert!(response_text(&messages).contains("PermissionDenied"));
     let id = h.prompt(&session, "/tool answer {}");
     let (messages, _) = await_phases(&mut h, id, &["allow-once"]);
     assert_eq!(response_text(&messages).trim(), "42");
@@ -194,8 +199,8 @@ fn real_generation_permissions_store_and_session_scope() {
     std::thread::sleep(GATE_FLUSH_GRACE);
     h.drain_pending();
     let id = h.prompt(&other, "/tool answer {}");
-    let (messages, _) = await_phases(&mut h, id, &[]);
-    assert!(response_text(&messages).contains("NotFound"));
+    let (messages, _) = await_phases(&mut h, id, &["allow-once"]);
+    assert_eq!(response_text(&messages).trim(), "42");
     let id = h.prompt(&session, "/tool answer {}");
     let (messages, _) = await_phases(&mut h, id, &["allow-once"]);
     assert_eq!(response_text(&messages).trim(), "42");
@@ -203,10 +208,9 @@ fn real_generation_permissions_store_and_session_scope() {
     let cancelled_name = "test:acp-generation/cancelled";
     let request = tool_request(cancelled_name, 43);
     let id = h.prompt(&session, &format!("/generate {request}"));
-    let permission = h.await_permission(id);
+    await_private_job(&h);
     h.notify("session/cancel", json!({"sessionId": session}));
-    h.respond_permission(&permission, "allow-once");
-    let (_, result) = h.await_response(id);
+    let (_, result) = await_phases(&mut h, id, &[]);
     assert_eq!(result["stopReason"], "cancelled");
     assert_absent(&h, cancelled_name);
     h.close_stdin_and_wait();
@@ -238,7 +242,7 @@ fn real_generated_layer_is_not_hot_swapped() {
         "target": {"mode": "new"},
     });
     let id = h.prompt(&session, &format!("/generate {request}"));
-    let (messages, _) = await_phases(&mut h, id, &["allow-once", "allow-once"]);
+    let (messages, _) = await_phases(&mut h, id, &[]);
     let text = response_text(&messages);
     assert!(
         text.starts_with("generation Disposition::LaterSelectionRequired:"),
@@ -266,7 +270,7 @@ fn real_generation_uses_bound_editor_without_layers() {
     let name = "test:acp-generation/through-layer";
     let request = tool_request(name, 42);
     let id = h.prompt(&session, &format!("/generate {request}"));
-    let (messages, _) = await_phases(&mut h, id, &["allow-once", "allow-once"]);
+    let (messages, _) = await_phases(&mut h, id, &[]);
     assert!(response_text(&messages).starts_with("generation Disposition::SessionTools:"));
     assert_eq!(generated_report(&messages)["component_id"], name);
     let id = h.prompt(&session, "/tool answer {}");
@@ -283,18 +287,8 @@ fn real_generation_disconnect_waits_for_private_job_cleanup() {
     let session = h.open_session();
     let name = "test:acp-generation/disconnected";
     let request = tool_request(name, 42);
-    let id = h.prompt(&session, &format!("/generate {request}"));
-    let permission = h.await_permission(id);
-    h.respond_permission(&permission, "allow-once");
-    let staging = h._xdg.path().join("data/wassette/builder/staging");
-    let deadline = std::time::Instant::now() + Duration::from_secs(10);
-    while std::fs::read_dir(&staging).unwrap().next().is_none() {
-        assert!(
-            std::time::Instant::now() < deadline,
-            "builder did not create its private job"
-        );
-        std::thread::sleep(Duration::from_millis(10));
-    }
+    h.prompt(&session, &format!("/generate {request}"));
+    let staging = await_private_job(&h);
     h.close_stdin_and_wait();
     assert!(
         std::fs::read_dir(staging).unwrap().next().is_none(),

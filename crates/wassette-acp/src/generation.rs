@@ -1,7 +1,7 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT license.
 
-//! The opt-in generation import uses the existing session broker and UI routes.
+//! Host-enabled generation uses the existing session broker and UI routes.
 
 use std::sync::Arc;
 
@@ -22,7 +22,7 @@ mod types {
 ///
 /// Bindgen's `async | store` on a synchronous WIT function supplies `Access`,
 /// not `Accessor`. A synchronous host import drives the store event loop for
-/// session binding. Management approvals use the bound editor route: Wasmtime
+/// session binding. Rebuild approvals use the bound editor route: Wasmtime
 /// cannot re-enter an active upstream layer during this synchronous guest call.
 pub mod builder {
     use wasmtime::component::{Accessor, HasData, Linker};
@@ -425,9 +425,11 @@ mod enabled {
         admit(&request, ceiling)?;
         let rebuild = matches!(request.target, GenerationTarget::Rebuild { .. });
         checkpoint(interaction, &cancel)?;
-        interaction
-            .approve(Phase::Build, build_details(&request))
-            .await?;
+        if rebuild {
+            interaction
+                .approve(Phase::Build, build_details(&request))
+                .await?;
+        }
         checkpoint(interaction, &cancel)?;
         let candidate = operation
             .prepare(
@@ -437,8 +439,11 @@ mod enabled {
             )
             .await?;
         checkpoint(interaction, &cancel)?;
-        let preview = operation.preview(&candidate);
-        interaction.approve(Phase::Install, preview.clone()).await?;
+        if rebuild {
+            interaction
+                .approve(Phase::Install, operation.preview(&candidate))
+                .await?;
+        }
         checkpoint(interaction, &cancel)?;
         operation
             .install(
@@ -593,17 +598,36 @@ mod enabled {
             )
             .await;
             self.check()?;
-            match permission {
-                Ok(response)
-                    if matches!(response.outcome,
-                    PermissionOutcome::Selected(ref id) if id == "allow-once") =>
-                {
-                    Ok(())
-                }
-                Ok(_) => Err(GenerationError::PermissionDenied),
-                Err(_) => Err(GenerationError::Unavailable(
-                    "Editor permission route failed".into(),
-                )),
+            permission_result(phase, permission)
+        }
+    }
+
+    fn permission_result(
+        phase: Phase,
+        permission: Result<
+            crate::wassette::acp::tools::RequestPermissionResponse,
+            crate::wassette::acp::errors::Error,
+        >,
+    ) -> Result<(), GenerationError> {
+        match permission {
+            Ok(response)
+                if matches!(response.outcome,
+                PermissionOutcome::Selected(ref id) if id == "allow-once") =>
+            {
+                Ok(())
+            }
+            Ok(_) => Err(GenerationError::PermissionDenied),
+            Err(error) => {
+                tracing::warn!(
+                    phase = phase.title(),
+                    code = ?error.code,
+                    "Generation rebuild editor approval failed"
+                );
+                Err(GenerationError::Unavailable(format!(
+                    "Editor approval unavailable for '{}'; the editor must support \
+                     session/request_permission to rebuild a generated component",
+                    phase.title(),
+                )))
             }
         }
     }
