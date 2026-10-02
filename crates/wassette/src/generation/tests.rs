@@ -76,6 +76,7 @@ pub(super) async fn candidate(
     let mut evidence = build_evidence();
     evidence.source_sha256 = hex::encode(Sha256::digest(request.build.source.as_bytes()));
     evidence.wit_sha256 = hex::encode(Sha256::digest(request.build.wit.as_bytes()));
+    evidence.component_name = request.build.component_name.clone();
     let artifact = BuildArtifact {
         wasm,
         diagnostics: String::new(),
@@ -141,6 +142,53 @@ async fn default_manager_has_no_generation_authority() {
     assert!(!denied.can_install());
     assert!(!denied.can_expose());
     assert!(!denied.can_rebuild());
+}
+
+#[tokio::test]
+async fn request_name_controls_generated_identity_without_matching_producer_metadata() {
+    for bytes in [
+        wasm("cosmetic:other", 42),
+        wat::parse_str(
+            r#"(component
+                (core module $m (func (export "run") (result i32) i32.const 42))
+                (core instance $i (instantiate $m))
+                (func (export "run") (result s32) (canon lift (core func $i "run"))))"#,
+        )
+        .unwrap(),
+    ] {
+        let (_root, manager) = manager().await;
+        let pending = candidate(
+            &manager,
+            request("requested:tool", InstallIntent::ExposeTools),
+            bytes,
+        )
+        .await;
+        let outcome = pending
+            .install(permissions(), CancellationToken::new())
+            .await
+            .unwrap();
+        let receipt = outcome.commit.entry.binding();
+        assert_eq!(receipt.component_id.as_str(), "requested:tool");
+        assert_ne!(receipt.storage_key.as_str(), "requested:tool");
+        assert_eq!(
+            receipt
+                .origin
+                .generation
+                .as_ref()
+                .unwrap()
+                .component_name
+                .as_deref(),
+            Some("requested:tool"),
+        );
+        let output = manager
+            .execute_component_call("requested:tool", "run", "{}")
+            .await
+            .unwrap();
+        assert_eq!(
+            serde_json::from_str::<serde_json::Value>(&output).unwrap(),
+            serde_json::json!({"result": 42})
+        );
+    }
 }
 
 #[tokio::test]

@@ -30,7 +30,7 @@ private builder image is available at
 
 **Parameters:**
 - `build` (object, required):
-  - `component_name` (string): Expected embedded component name, up to 512 UTF-8 bytes; exact spelling is preserved
+  - `component_name` (string): Logical ID for the generated component, up to 512 UTF-8 bytes; exact spelling is preserved
   - `source` (string): Inline Rust source, up to 256 KiB
   - `wit` (string): Inline WIT, up to 256 KiB
   - `world` (string): Selected WIT world, up to 256 UTF-8 bytes; exact spelling is preserved
@@ -124,10 +124,14 @@ Package loads also return `package`, `wit_identity`, `requested_version`, `selec
 
 ACP providers/layers and unsupported artifact shapes cannot be loaded as
 ordinary tools, including through cached schemas. An ordinary candidate still
-needs runtime validation. The returned `id` is the exact embedded root component
-name. Use it for policy and secret operations; the receipt separately preserves
-their private storage keys. Missing or ambiguous root names and nonportable
-storage keys are rejected without filename fallback or automatic renaming.
+needs runtime validation. The returned `id` is derived from the acquisition
+source: canonical registry/repository for OCI and wasm.directory, `local:` plus
+the visible filename stem for local files and discovery, the downloaded
+filename stem for HTTPS, or the exact `build.component_name` for generated
+builds. Embedded root names are cosmetic and may be missing or different. Use
+the returned ID for policy and secret operations; the receipt separately
+preserves its private opaque storage key. New storage keys must still be
+portable; Wassette does not derive them from logical IDs.
 Artifact, effective policy and receipt are committed together for cooperating
 readers. Failed validation preserves the installed revision; conflicting
 ownership or revisions require an explicit retry, not an overwrite.

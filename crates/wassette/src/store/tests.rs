@@ -5,6 +5,7 @@ use std::process::Command;
 use std::sync::{Arc, Barrier, OnceLock};
 
 use sha2::Digest;
+use wasm_encoder::{ComponentSection, Encode};
 
 use super::*;
 
@@ -19,6 +20,18 @@ fn wasm(name: &str) -> Vec<u8> {
     wat::parse_str(format!(
         r#"(component $"{name}" (instance $empty) (export "empty" (instance $empty)))"#
     ))
+    .unwrap()
+}
+
+fn unnamed_wasm() -> Vec<u8> {
+    wat::parse_str(
+        r#"(component
+            (core module $m
+                (func (export "run") (result i32) i32.const 1))
+            (core instance $i (instantiate $m))
+            (func (export "run") (result u32)
+                (canon lift (core func $i "run"))))"#,
+    )
     .unwrap()
 }
 
@@ -38,6 +51,17 @@ fn validator(
 
 fn source() -> SourceIdentity {
     SourceIdentity::OciRepository("ghcr.io/example/tool".into())
+}
+
+fn fixture_lineage(name: &str) -> String {
+    let digest = sha2::Sha256::digest(name.as_bytes());
+    hex::encode(digest)[..32].to_owned()
+}
+
+fn source_for(name: &str) -> SourceIdentity {
+    SourceIdentity::Generated {
+        id: fixture_lineage(name),
+    }
 }
 
 fn options(key: &str) -> InstallOptions {
@@ -60,16 +84,35 @@ fn options(key: &str) -> InstallOptions {
 }
 
 fn prepare(name: &str, options: InstallOptions) -> PreparedInstall {
-    PreparedInstall::prepare(wasm(name), options, validator).unwrap()
+    PreparedInstall::prepare(wasm(name), fixture_options(name, options), validator).unwrap()
 }
 
 fn install(store: &ComponentStore, name: &str, options: InstallOptions) -> CommitOutcome {
+    let options = fixture_options(name, options);
+    let component_id = options
+        .source
+        .component_id(&options.storage_key, &options.origin)
+        .unwrap();
     let expected = store
-        .observe(name, &options.storage_key, &options.source)
+        .observe_source(component_id.as_str(), &options.storage_key, &options.source)
         .unwrap();
     store
         .commit_install(prepare(name, options), expected)
         .unwrap()
+}
+
+fn fixture_options(name: &str, mut options: InstallOptions) -> InstallOptions {
+    if matches!(&options.source, SourceIdentity::OciRepository(_)) {
+        let generated = generated_options(&fixture_lineage(name));
+        options.source = generated.source;
+        options.origin = generated.origin;
+        options.origin.generation.as_mut().unwrap().component_name = Some(name.to_owned());
+    }
+    options
+}
+
+fn observe(store: &ComponentStore, name: &str, key: &str) -> Result<ExpectedEntry> {
+    store.observe(name, &StorageKey::parse(key).unwrap(), &source_for(name))
 }
 
 fn receipt(outcome: &CommitOutcome) -> &InstallReceipt {
@@ -138,7 +181,7 @@ fn install_read_noop_and_reinstall_preserve_semantic_binding() {
 }
 
 #[test]
-fn invalid_identity_kind_runtime_and_policy_are_never_prepared() {
+fn invalid_artifact_kind_runtime_and_policy_are_never_prepared() {
     assert!(PreparedInstall::prepare(
         wat::parse_str("(component)").unwrap(),
         options("key"),
@@ -157,12 +200,17 @@ fn invalid_identity_kind_runtime_and_policy_are_never_prepared() {
         validator
     )
     .is_err());
-    let mut ambiguous = wasm_encoder::Component::new();
+    let unnamed = PreparedInstall::prepare(unnamed_wasm(), options("key"), validator).unwrap();
+    assert_eq!(unnamed.component_id().as_str(), "ghcr.io/example/tool");
+
+    let mut ambiguous = unnamed_wasm();
     let mut names = wasm_encoder::ComponentNameSection::new();
     names.component("first");
     names.component("first");
-    ambiguous.section(&names);
-    assert!(PreparedInstall::prepare(ambiguous.finish(), options("key"), validator).is_err());
+    ambiguous.push(names.id());
+    names.encode(&mut ambiguous);
+    let ambiguous = PreparedInstall::prepare(ambiguous, options("key"), validator).unwrap();
+    assert_eq!(ambiguous.component_id().as_str(), "ghcr.io/example/tool");
     assert!(PreparedInstall::prepare(vec![0, 1, 2], options("key"), validator).is_err());
     assert!(
         PreparedInstall::prepare(wasm("valid"), options("key"), |_, _, _| {
@@ -180,6 +228,84 @@ fn invalid_identity_kind_runtime_and_policy_are_never_prepared() {
     );
     assert!(PreparedPolicy::parse(b"[".to_vec(), PolicyProvenance::Bundled).is_err());
     assert!(PreparedPolicy::parse(vec![255], PolicyProvenance::ExplicitAttachment).is_err());
+}
+
+#[test]
+fn oci_identity_is_stable_across_tags_and_cosmetic_root_names() {
+    let mut first = options("first-key");
+    let first_prepared =
+        PreparedInstall::prepare(wasm("producer-name"), first.clone(), validator).unwrap();
+    first.origin.selected_version = Some("2".into());
+    first.origin.location = "oci://ghcr.io/example/tool:2".into();
+    let second =
+        PreparedInstall::prepare(wasm("unrelated-name"), first.clone(), validator).unwrap();
+    let missing = PreparedInstall::prepare(unnamed_wasm(), first, validator).unwrap();
+
+    for prepared in [first_prepared, second, missing] {
+        assert_eq!(prepared.component_id().as_str(), "ghcr.io/example/tool");
+    }
+    let wasm_directory_origin = OriginEvidence {
+        location: "wasm.directory:ghcr.io/example/tool".into(),
+        ..options("first-key").origin
+    };
+    assert_eq!(
+        source()
+            .component_id(
+                &StorageKey::parse("local_tool").unwrap(),
+                &wasm_directory_origin,
+            )
+            .unwrap()
+            .as_str(),
+        "ghcr.io/example/tool"
+    );
+}
+
+#[test]
+fn source_observation_preserves_receipt_continuity_and_rejects_stale_cas() {
+    let directory = directory();
+    let store = ComponentStore::open(directory.path()).unwrap();
+    let id = "ghcr.io/example/tool";
+    let key = StorageKey::parse("private-key").unwrap();
+    let source = source();
+    let expected = store.observe_source(id, &key, &source).unwrap();
+    let mut input = options("private-key");
+    input.origin.location = "oci://ghcr.io/example/tool:1".into();
+    let installed = store
+        .commit_install(
+            PreparedInstall::prepare(wasm("different-producer-name"), input, validator).unwrap(),
+            expected,
+        )
+        .unwrap();
+    let receipt = receipt(&installed).clone();
+
+    let expected = store
+        .observe_source("new-requested-id", &key, &source)
+        .unwrap();
+    assert_eq!(expected.component_id().as_str(), id);
+    assert_eq!(expected.entry().unwrap().binding(), &receipt);
+    let mut replacement = options("private-key");
+    replacement.origin.location = "oci://ghcr.io/example/tool:2".into();
+    let prepared = PreparedInstall::prepare(wasm("unrelated-root-name"), replacement, validator)
+        .unwrap()
+        .retain_existing_binding(&expected)
+        .unwrap();
+    assert_eq!(prepared.component_id().as_str(), id);
+
+    store
+        .update_policy(
+            id,
+            &receipt.revision,
+            policy("edited", PolicyProvenance::PermissionEdit),
+        )
+        .unwrap();
+    let mut replacement = options("private-key");
+    replacement.origin.location = "oci://ghcr.io/example/tool:2".into();
+    assert!(store
+        .commit_install(
+            PreparedInstall::prepare(wasm("another-name"), replacement, validator).unwrap(),
+            expected,
+        )
+        .is_err());
 }
 
 #[test]
@@ -222,7 +348,11 @@ fn policy_only_changes_are_revisioned_and_bundles_cannot_override_them() {
     assert!(edited.change.as_ref().unwrap().policy_changed);
     assert!(!edited.change.as_ref().unwrap().artifact_changed);
     let expected = store
-        .observe("semantic", &StorageKey::parse("key").unwrap(), &source())
+        .observe(
+            "semantic",
+            &StorageKey::parse("key").unwrap(),
+            &source_for("semantic"),
+        )
         .unwrap();
     assert!(matches!(
         store.commit_install(prepare("semantic", options("key")), expected),
@@ -238,7 +368,11 @@ fn policy_only_changes_are_revisioned_and_bundles_cannot_override_them() {
     assert!(store.read("semantic").unwrap().policy.is_none());
     assert_ne!(receipt(&cleared).revision, receipt(&edited).revision);
     let expected = store
-        .observe("semantic", &StorageKey::parse("key").unwrap(), &source())
+        .observe(
+            "semantic",
+            &StorageKey::parse("key").unwrap(),
+            &source_for("semantic"),
+        )
         .unwrap();
     assert!(store
         .commit_install(prepare("semantic", options("key")), expected)
@@ -250,8 +384,8 @@ fn provenance_and_owner_changes_alone_advance_revisions() {
     let directory = directory();
     let store = ComponentStore::open(directory.path()).unwrap();
     let first = install(&store, "semantic", options("key"));
-    let mut changed = options("key");
-    changed.origin.selected_version = Some("2".into());
+    let mut changed = fixture_options("semantic", options("key"));
+    changed.origin.generation.as_mut().unwrap().profile = "rust-std-v2".into();
     let second = install(&store, "semantic", changed);
     assert_ne!(receipt(&first).revision, receipt(&second).revision);
     let change = second.change.unwrap();
@@ -268,12 +402,12 @@ fn semantic_source_key_and_alias_reservations_survive_removal() {
     let other = SourceIdentity::OciRepository("ghcr.io/unrelated/tool".into());
     let check = || {
         for (id, key, source) in [
-            ("semantic", "another", source()),
+            ("semantic", "another", source_for("semantic")),
             ("semantic", "a__b", other.clone()),
-            ("different", "a__b", source()),
-            ("different", "A__B", source()),
-            ("different", "a_b", source()),
-            ("different", "_a_b_", source()),
+            ("different", "a__b", source_for("different")),
+            ("different", "A__B", source_for("different")),
+            ("different", "a_b", source_for("different")),
+            ("different", "_a_b_", source_for("different")),
         ] {
             assert!(matches!(
                 store.observe(id, &StorageKey::parse(key).unwrap(), &source),
@@ -291,7 +425,11 @@ fn semantic_source_key_and_alias_reservations_survive_removal() {
         .unwrap();
     check();
     assert!(store
-        .observe("semantic", &StorageKey::parse("a__b").unwrap(), &source())
+        .observe(
+            "semantic",
+            &StorageKey::parse("a__b").unwrap(),
+            &source_for("semantic")
+        )
         .is_ok());
 }
 
@@ -305,7 +443,7 @@ fn truncated_secret_aliases_are_reserved() {
         .observe(
             "second",
             &StorageKey::parse(&format!("{prefix}y")).unwrap(),
-            &source()
+            &source_for("second")
         )
         .is_err());
 }
@@ -319,28 +457,25 @@ fn explicit_adoption_blocks_stale_and_fresh_managed_cleanup() {
     managed.owner = InstallOwner::ManagedLocalSource(owner("watcher-a"));
     managed.observation = Some(SourceObservation {
         token: "build-1".into(),
-        artifact_sha256: digest(&wasm("semantic")),
+        artifact_sha256: digest(&wasm("local:source")),
         sidecar_sha256: Some("source-sidecar-not-effective-policy".into()),
     });
-    let first = install(&store, "semantic", managed.clone());
+    let id = "local:source";
+    let first = install(&store, id, managed.clone());
     let mut explicit = managed.clone();
     explicit.owner = InstallOwner::Explicit;
-    let adopted = install(&store, "semantic", explicit);
+    let adopted = install(&store, id, explicit);
     assert!(adopted.change.as_ref().unwrap().owner_changed);
     for revision in [&receipt(&first).revision, &receipt(&adopted).revision] {
         assert!(store
-            .remove(
-                "semantic",
-                revision,
-                RemovalAuthority::Owned(owner("watcher-a"))
-            )
+            .remove(id, revision, RemovalAuthority::Owned(owner("watcher-a")))
             .is_err());
     }
     let expected = store
-        .observe("semantic", &managed.storage_key, &managed.source)
+        .observe(id, &managed.storage_key, &managed.source)
         .unwrap();
     assert!(store
-        .commit_install(prepare("semantic", managed), expected)
+        .commit_install(prepare(id, managed), expected)
         .is_err());
 }
 
@@ -353,10 +488,11 @@ fn retirement_retains_previous_owner_observation_and_secrets() {
     managed.owner = InstallOwner::ManagedLocalSource(owner("watcher"));
     managed.observation = Some(SourceObservation {
         token: "capture-1".into(),
-        artifact_sha256: digest(&wasm("semantic")),
+        artifact_sha256: digest(&wasm("local:source")),
         sidecar_sha256: None,
     });
-    let first = install(&store, "semantic", managed);
+    let id = "local:source";
+    let first = install(&store, id, managed);
     fs::write(
         directory.path().join("key.secrets.json"),
         b"do-not-read-or-delete",
@@ -364,7 +500,7 @@ fn retirement_retains_previous_owner_observation_and_secrets() {
     .unwrap();
     let removed = store
         .remove(
-            "semantic",
+            id,
             &receipt(&first).revision,
             RemovalAuthority::Owned(owner("watcher")),
         )
@@ -388,7 +524,11 @@ fn independent_managers_cas_and_checked_admission() {
     let right = ComponentStore::open(directory.path()).unwrap();
     let first = install(&left, "semantic", options("key"));
     let stale = right
-        .observe("semantic", &StorageKey::parse("key").unwrap(), &source())
+        .observe(
+            "semantic",
+            &StorageKey::parse("key").unwrap(),
+            &source_for("semantic"),
+        )
         .unwrap();
     let updated = left
         .update_policy(
@@ -668,26 +808,29 @@ fn protected_legacy_inventory_never_infers_identity_or_source() {
         .iter()
         .find(|entry| entry.physical_key == "named")
         .unwrap();
-    assert_eq!(named.component_id.as_ref().unwrap().as_str(), "embedded");
+    assert_eq!(named.component_id.as_ref().unwrap().as_str(), "local:named");
     let unnamed = snapshot
         .protected
         .iter()
         .find(|entry| entry.physical_key == "unnamed")
         .unwrap();
-    assert!(unnamed.component_id.is_none());
+    assert_eq!(
+        unnamed.component_id.as_ref().unwrap().as_str(),
+        "local:unnamed"
+    );
     assert!(unnamed
         .diagnostic
         .as_ref()
         .unwrap()
-        .contains("missing root"));
+        .contains("source and validation unknown"));
     for (name, key) in [
-        ("embedded", "new"),
+        ("local:named", "new"),
         ("new", "_named_"),
         ("new", "unnamed"),
         ("new", "orphan"),
     ] {
         assert!(store
-            .observe(name, &StorageKey::parse(key).unwrap(), &source())
+            .observe(name, &StorageKey::parse(key).unwrap(), &source_for(name))
             .is_err());
     }
     assert!(!directory.path().join("named.install.json").exists());
@@ -804,6 +947,7 @@ fn every_partial_replacement_and_removal_restores_the_complete_bundle() {
                 .unwrap();
                 let mut replacement = options("key");
                 replacement.policy = policy("replacement", PolicyProvenance::Bundled);
+                let replacement = fixture_options("semantic", replacement);
                 let expected = store
                     .observe("semantic", &replacement.storage_key, &replacement.source)
                     .unwrap();
@@ -834,7 +978,11 @@ fn interrupted_new_install_rolls_back_to_genuine_absence() {
     let store = ComponentStore::open(directory.path()).unwrap();
     let before = store.snapshot_if_changed(None).unwrap().unwrap();
     let expected = store
-        .observe("semantic", &StorageKey::parse("key").unwrap(), &source())
+        .observe(
+            "semantic",
+            &StorageKey::parse("key").unwrap(),
+            &source_for("semantic"),
+        )
         .unwrap();
     *store.failpoint.lock().unwrap() = Some(("before-head", true));
     assert!(std::panic::catch_unwind(|| {
@@ -980,7 +1128,7 @@ fn origin_and_source_urls_never_persist_raw_credentials_or_queries() {
     let mut input = options("key");
     input.source = identity("secret-a");
     input.origin.location = "https://example.com/component.wasm".into();
-    install(&store, "semantic", input);
+    install(&store, "key", input);
     let record = fs::read_to_string(directory.path().join("key.install.json")).unwrap();
     assert!(!record.contains("secret-a"));
     assert!(!record.contains("token="));
@@ -1032,9 +1180,7 @@ fn default_absence_is_distinct_from_bundle_and_explicit_clearing() {
         receipt(&cleared).policy.provenance,
         PolicyProvenance::ExplicitAttachment
     );
-    let expected = store
-        .observe("semantic", &StorageKey::parse("key").unwrap(), &source())
-        .unwrap();
+    let expected = observe(&store, "semantic", "key").unwrap();
     assert!(store
         .commit_install(prepare("semantic", options("key")), expected)
         .is_err());
@@ -1058,17 +1204,17 @@ fn structured_managed_ownership_has_no_delimiter_aliases() {
     let mut input = options("key");
     input.source = SourceIdentity::File(directory.path().canonicalize().unwrap().join("source"));
     input.owner = InstallOwner::ManagedLocalSource(first.clone());
-    let installed = install(&store, "semantic", input);
+    let installed = install(&store, "local:source", input);
     assert!(store
         .remove(
-            "semantic",
+            "local:source",
             &receipt(&installed).revision,
             RemovalAuthority::Owned(second)
         )
         .is_err());
     let retired = store
         .remove(
-            "semantic",
+            "local:source",
             &receipt(&installed).revision,
             RemovalAuthority::Owned(first.clone()),
         )
@@ -1200,6 +1346,7 @@ fn generated_options(lineage: &str) -> InstallOptions {
         manifest_digest: None,
         immutable_uri: None,
         generation: Some(GenerationEvidence {
+            component_name: Some("actual:generated/name".into()),
             source_sha256: "11".repeat(32),
             wit_sha256: "22".repeat(32),
             wit_dependencies_sha256: "55".repeat(32),
@@ -1301,7 +1448,8 @@ fn generated_evidence_is_not_a_package_or_identity_override() {
 fn generation_receipt_schema_and_binding_tampering_fail_closed() {
     let root = directory();
     let store = ComponentStore::open(root.path()).unwrap();
-    let installed = install(&store, "generated", generated_options(&"ab".repeat(16)));
+    let name = "actual:generated/name";
+    let installed = install(&store, name, generated_options(&"ab".repeat(16)));
     let record_path = root.path().join("generated_private_key.install.json");
     let bytes = std::fs::read(&record_path).unwrap();
     let mut value: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
@@ -1309,12 +1457,9 @@ fn generation_receipt_schema_and_binding_tampering_fail_closed() {
     let current = value.get_mut("Installed").unwrap();
     current["schema"] = serde_json::json!(1);
     std::fs::write(&record_path, serde_json::to_vec(&value).unwrap()).unwrap();
-    assert!(store.read("generated").is_err());
+    assert!(store.read(name).is_err());
     std::fs::write(&record_path, &bytes).unwrap();
-    assert_eq!(
-        store.read("generated").unwrap().receipt,
-        *receipt(&installed)
-    );
+    assert_eq!(store.read(name).unwrap().receipt, *receipt(&installed));
     let mut value: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
     let current = value.get_mut("Installed").unwrap();
     current["origin"]
@@ -1322,7 +1467,7 @@ fn generation_receipt_schema_and_binding_tampering_fail_closed() {
         .unwrap()
         .remove("generation");
     std::fs::write(&record_path, serde_json::to_vec(&value).unwrap()).unwrap();
-    assert!(store.read("generated").is_err());
+    assert!(store.read(name).is_err());
 }
 
 #[test]

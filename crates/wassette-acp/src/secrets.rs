@@ -175,10 +175,7 @@ pub(crate) fn test_binding(component_id: &str) -> SecretBinding {
 
 #[cfg(test)]
 fn test_identity(name: &str) -> wassette::ComponentId {
-    wassette::inspect_artifact(&crate::install::named_fixture(name, false))
-        .unwrap()
-        .identity
-        .unwrap()
+    wassette::ComponentId::from_name(name).unwrap()
 }
 
 #[cfg(test)]

@@ -125,7 +125,7 @@ async fn test_fetch_component_workflow() -> Result<()> {
 
     let components_after_load = manager.list_components().await;
     assert_eq!(components_after_load.len(), 1);
-    assert_eq!(components_after_load[0], "fetch_rs");
+    assert_eq!(components_after_load[0], "local:fetch_rs");
 
     let schema = manager
         .get_component_schema(&id)
@@ -155,15 +155,15 @@ async fn test_fetch_component_workflow() -> Result<()> {
     assert!(response_body.contains("Example Domain"));
     assert!(response_body.contains("This domain is for use in documentation examples"));
 
-    // A filename change does not give the same semantic component another owner.
+    // The source filename, not embedded metadata, determines local identity.
     let sources = tempfile::tempdir()?;
     let component_path2 = sources.path().join("fetch2.wasm");
     tokio::fs::copy(&component_path, &component_path2).await?;
-    assert!(manager
+    let second_id = manager
         .load_component(&format!("file://{}", component_path2.display()))
-        .await
-        .is_err());
-    assert_eq!(manager.get_component_id_for_tool("fetch").await?, id);
+        .await?
+        .component_id;
+    assert_eq!(second_id, "local:fetch2");
 
     let distinct = wat::parse_str(
         r#"(component $fetch2
@@ -183,8 +183,8 @@ async fn test_fetch_component_workflow() -> Result<()> {
     assert!(error
         .to_string()
         .contains("Multiple components found for tool 'fetch'"));
-    assert!(error.to_string().contains("fetch_rs"));
-    assert!(error.to_string().contains("fetch2"));
+    assert!(error.to_string().contains("local:fetch_rs"));
+    assert!(error.to_string().contains("local:fetch2"));
 
     Ok(())
 }
@@ -319,6 +319,7 @@ async fn test_load_component_from_https() -> Result<()> {
     let https_url = format!("https://{addr}/fetch_rs.wasm");
     let outcome = manager.load_component(&https_url).await?;
     let id = outcome.component_id.clone();
+    assert_eq!(id, "fetch_rs");
 
     // Verify component was loaded
     let components = manager.list_components().await;
@@ -415,11 +416,12 @@ async fn test_load_component_from_oci() -> Result<()> {
 
     // Load from OCI
     let oci_url = format!("oci://{reference}");
-    manager.load_component(&oci_url).await?;
+    let outcome = manager.load_component(&oci_url).await?;
+    assert_eq!(outcome.component_id, format!("{registry_url}/fetch_rs"));
 
     // Verify component was loaded
     let components = manager.list_components().await;
-    assert!(components.contains(&"fetch_rs".to_string()));
+    assert!(components.contains(&format!("{registry_url}/fetch_rs")));
 
     Ok(())
 }

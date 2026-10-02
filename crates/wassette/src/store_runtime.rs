@@ -271,12 +271,15 @@ impl LifecycleManager {
         intent: InstallIntent,
     ) -> Result<PreparedAcquiredInstall> {
         let inspection = inspect_artifact(&acquired.wasm)?;
-        let id = if let Some(package_id) = acquired.origin.location.strip_prefix("wasm.directory:")
-        {
-            package_id.to_owned()
-        } else {
-            inspection.identity?.as_str().to_owned()
-        };
+        let id = acquired.component_id()?.as_str().to_owned();
+        let key = acquired.storage_key.clone();
+        let source = acquired.source.clone();
+        let observed_id = id.clone();
+        let expected = store_operation(&self.store, move |store| {
+            Ok(store.observe_source(&observed_id, &key, &source)?)
+        })
+        .await?;
+        let id = expected.component_id().as_str().to_owned();
         anyhow::ensure!(
             inspection.shape == ArtifactShape::ToolCandidate,
             "Cannot load ACP or unsupported artifacts as ordinary tool components"
@@ -371,7 +374,8 @@ impl LifecycleManager {
                 );
                 Ok(ValidationEvidence::OrdinaryPrepared { runtime })
             },
-        )?;
+        )?
+        .retain_existing_binding(&expected)?;
         Ok(PreparedAcquiredInstall {
             expected,
             guard,

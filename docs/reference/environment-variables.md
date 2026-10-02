@@ -119,15 +119,19 @@ WASSETTE_ALLOWED_HOSTS=wassette.internal,localhost,127.0.0.1 \
 ```bash
 export OPENWEATHER_API_KEY="your_key"
 wassette run
-wassette permission grant environment-variable weather-tool OPENWEATHER_API_KEY
+wassette permission grant environment-variable local:weather-tool OPENWEATHER_API_KEY
 ```
+
+This example assumes the component came from a local file named
+`weather-tool.wasm`. Use the source-derived ID reported by Wassette for other
+acquisition sources.
 
 ## Recommended Method
 
 Use `wassette secret set` to securely pass environment variables to components:
 
 ```bash
-wassette secret set weather-tool API_KEY "your_secret_key"
+wassette secret set local:weather-tool API_KEY "your_secret_key"
 ```
 
 This stores the secret securely and makes it available to the component when granted permission.
@@ -135,7 +139,7 @@ This stores the secret securely and makes it available to the component when gra
 ## Grant Access
 
 ```bash
-wassette permission grant environment-variable weather-tool API_KEY
+wassette permission grant environment-variable local:weather-tool API_KEY
 ```
 
 Or in policy file:

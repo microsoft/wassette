@@ -16,8 +16,10 @@ use crate::store::{
     ValidationEvidence,
 };
 
-const ALPHA: &str = "example:catalog-alpha/tool";
-const BETA: &str = "example:catalog-beta/tool";
+const ALPHA_NAME: &str = "example:catalog-alpha/tool";
+const BETA_NAME: &str = "example:catalog-beta/tool";
+const ALPHA: &str = "local:portable-alpha";
+const BETA: &str = "local:portable-beta";
 const ALIAS: &str = "math_run";
 const VERSIONED: &str = "example:math/ops@1.0.0-a.b+c";
 const COLLIDING: &str = "example:math/ops@1.0.0-a+b.c";
@@ -65,14 +67,13 @@ async fn install_bytes(
     file_stem: &str,
     bytes: &[u8],
 ) -> Result<ComponentId> {
-    let id = inspect_artifact(bytes)?.identity?;
     let path = root.join(format!("{file_stem}.wasm"));
+    let id = ComponentId::from_local_path(&path)?;
     tokio::fs::write(&path, bytes).await?;
     let outcome = manager
         .load_component(&format!("file://{}", path.display()))
         .await?;
     assert_eq!(outcome.component_id, id.as_str());
-    assert_ne!(id.as_str(), file_stem);
     Ok(id)
 }
 
@@ -86,7 +87,7 @@ async fn install(
         manager,
         root,
         "portable-alpha",
-        &component(ALPHA, &[("math", result_type, value)])?,
+        &component(ALPHA_NAME, &[("math", result_type, value)])?,
     )
     .await
 }
@@ -574,7 +575,7 @@ async fn refresh_excludes_install_only_and_acp_despite_resident_tools_and_caches
             .context("Fixture cache missing")?;
         let bytes = if acp {
             wat::parse_str(format!(
-                r#"(component ${ALPHA}
+                r#"(component ${ALPHA_NAME}
                     (instance $agent)
                     (export "wassette:acp/agent@0.1.0" (instance $agent)))"#
             ))?
@@ -626,14 +627,14 @@ async fn complete_batches_preserve_component_and_exact_export_alias_collisions()
         &writer,
         root.path(),
         "portable-alpha",
-        &component(ALPHA, &[(VERSIONED, "u32", 7), (COLLIDING, "bool", 1)])?,
+        &component(ALPHA_NAME, &[(VERSIONED, "u32", 7), (COLLIDING, "bool", 1)])?,
     )
     .await?;
     install_bytes(
         &writer,
         root.path(),
         "portable-beta",
-        &component(BETA, &[(VERSIONED, "u32", 11)])?,
+        &component(BETA_NAME, &[(VERSIONED, "u32", 11)])?,
     )
     .await?;
     let batch = reader.catalog().await?;
@@ -716,7 +717,7 @@ async fn invalid_arguments_traps_and_guest_errors_have_distinct_outcomes() -> Re
     let root = directory()?;
     let manager = manager(root.path()).await?;
     let trap = wat::parse_str(format!(
-        r#"(component ${ALPHA}
+        r#"(component ${ALPHA_NAME}
             (core module $m (func (export "run") (param i32) (result i32) unreachable))
             (core instance $i (instantiate $m))
             (func (export "run") (param "value" u32) (result u32)
@@ -741,7 +742,7 @@ async fn invalid_arguments_traps_and_guest_errors_have_distinct_outcomes() -> Re
     ));
 
     let guest_error = wat::parse_str(format!(
-        r#"(component ${ALPHA}
+        r#"(component ${ALPHA_NAME}
             (core module $m (func (export "run") (result i32) i32.const 1))
             (core instance $i (instantiate $m))
             (type $out (result))

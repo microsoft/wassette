@@ -50,7 +50,7 @@ pub trait LocalValidator: Send + Sync {
 /// A successful local membership change at its authoritative store revision.
 #[derive(Debug, Clone)]
 pub struct LocalSourceEvent {
-    /// Embedded semantic identity.
+    /// Source-derived logical identity.
     pub component_id: String,
     /// Committed revision.
     pub revision: store::EntryRevision,
@@ -107,7 +107,7 @@ pub struct SourceOutcome {
     pub status: SourceStatus,
     /// Relative source filename, absent for store-side prunes.
     pub source: Option<String>,
-    /// Embedded semantic identity, when it could be established.
+    /// Source-derived logical identity, when it could be established.
     pub component_id: Option<String>,
     /// Operator-facing reason, without artifact, policy or secret contents.
     pub detail: Option<String>,
@@ -377,7 +377,6 @@ impl LocalSourceService {
             .collect();
         let mut present = BTreeSet::new();
         let mut candidates = Vec::with_capacity(paths.len());
-        let mut id_counts = BTreeMap::<String, usize>::new();
         let mut captured_bytes = 0u64;
         for path in paths {
             let source = path.clone();
@@ -400,11 +399,6 @@ impl LocalSourceService {
                 let inspection = inspect_artifact(&capture.wasm);
                 Ok((capture, inspection))
             });
-            if let Ok((_, Ok(inspection))) = &inspected {
-                if let Ok(id) = &inspection.identity {
-                    *id_counts.entry(id.as_str().to_owned()).or_default() += 1;
-                }
-            }
             candidates.push((path, inspected));
         }
         let mut complete = true;
@@ -443,7 +437,7 @@ impl LocalSourceService {
                     continue;
                 }
             };
-            let id = match inspection.identity {
+            let id = match crate::ComponentId::from_local_path(&path) {
                 Ok(id) => id.as_str().to_owned(),
                 Err(error) => {
                     complete = false;
@@ -456,16 +450,6 @@ impl LocalSourceService {
                     continue;
                 }
             };
-            if id_counts.get(&id).copied().unwrap_or(0) != 1 {
-                complete = false;
-                report.push(
-                    SourceStatus::Conflict,
-                    Some(&label),
-                    Some(&id),
-                    Some("another source in this root declares the same component name".into()),
-                );
-                continue;
-            }
             if matches!(inspection.shape, ArtifactShape::Unsupported(_)) {
                 complete = false;
                 report.push(
@@ -476,7 +460,17 @@ impl LocalSourceService {
                 );
                 continue;
             }
-            let previous = entries.get(&id);
+            let previous = entries
+                .values()
+                .find(|entry| {
+                    entry.binding().owner == InstallOwner::ManagedLocalSource(owner.clone())
+                        || (self.adopt_explicit_local
+                            && entry.binding().owner == InstallOwner::Explicit
+                            && entry.binding().source.as_file().and_then(Path::file_name)
+                                == path.file_name())
+                })
+                .or_else(|| entries.get(&id));
+            let id = previous.map_or(id, |entry| entry.component_id().as_str().to_owned());
             if let Some(previous) = previous {
                 let expected_owner = InstallOwner::ManagedLocalSource(owner.clone());
                 let adoptable = self.adopt_explicit_local
@@ -680,7 +674,7 @@ impl LocalSourceService {
             },
         };
         let binding = SecretBinding::new(
-            &inspect_artifact(&captured.wasm)?.identity?,
+            &crate::ComponentId::from_name(id)?,
             &key,
             source_binding_key(&source)?,
         )?;
@@ -735,7 +729,8 @@ impl LocalSourceService {
                 observation: Some(captured.observation),
             },
             move |_, _, _| Ok(evidence),
-        )?;
+        )?
+        .retain_existing_binding(&expected)?;
         let updated = matches!(previous, Some(StoredEntry::Installed(_)));
         let outcome = store_operation(self.manager.component_store(), move |store| {
             if adopt_explicit_local {
@@ -793,14 +788,27 @@ fn prepare_and_commit_links(
         );
         let captured = capture::capture(&source, SETTLE_INTERVAL, CAPTURE_SIZE_CAP)
             .with_context(|| format!("capturing local component source {}", source.display()))?;
-        let inspection = inspect_artifact(&captured.wasm)?;
-        let component_id = inspection.identity?.as_str().to_owned();
-        anyhow::ensure!(
-            ids.insert(component_id.clone()),
-            "multiple local component links declare `{component_id}`"
-        );
+        inspect_artifact(&captured.wasm)?;
         let relative = PathBuf::from(&name);
         let expected_owner = ManagedLocalSource::new(root_key, &relative)?;
+        let derived_id = crate::ComponentId::from_local_path(&source)?;
+        let component_id = entries
+            .iter()
+            .find(|entry| {
+                entry.binding().owner == InstallOwner::ManagedLocalSource(expected_owner.clone())
+                    || (adopt_explicit_local
+                        && entry.binding().owner == InstallOwner::Explicit
+                        && entry.binding().source.as_file().and_then(Path::file_name)
+                            == Some(name.as_os_str()))
+            })
+            .map_or_else(
+                || derived_id.as_str().to_owned(),
+                |entry| entry.component_id().as_str().to_owned(),
+            );
+        anyhow::ensure!(
+            ids.insert(component_id.clone()),
+            "multiple local component links have identity `{component_id}`"
+        );
         let destination = root.join(&relative);
 
         if let Some(entry) = entries
@@ -969,6 +977,17 @@ mod tests {
         .unwrap()
     }
 
+    fn unnamed_fixture() -> Vec<u8> {
+        wat::parse_str(
+            r#"(component
+                (core module $m (func (export "run")))
+                (core instance $i (instantiate $m))
+                (func (export "run") (canon lift (core func $i "run")))
+            )"#,
+        )
+        .unwrap()
+    }
+
     async fn service() -> Result<(tempfile::TempDir, LocalSourceService)> {
         let temp = tempfile::Builder::new()
             .prefix(".local-source-")
@@ -1011,7 +1030,7 @@ mod tests {
                 .reconcile_once(false)
                 .await?
                 .ids(SourceStatus::Installed),
-            ["linked-tool"]
+            ["local:tool"]
         );
 
         service.link_sources(std::slice::from_ref(&second)).await?;
@@ -1021,7 +1040,7 @@ mod tests {
                 .reconcile_once(false)
                 .await?
                 .ids(SourceStatus::Updated),
-            ["linked-tool"]
+            ["local:tool"]
         );
         Ok(())
     }
@@ -1045,7 +1064,7 @@ mod tests {
             .await?;
         service
             .manager
-            .set_component_secrets("linked-tool", &[("token".into(), "value".into())])
+            .set_component_secrets("local:tool", &[("token".into(), "value".into())])
             .await?;
 
         assert!(service
@@ -1059,10 +1078,10 @@ mod tests {
                 .reconcile_sources_once(std::slice::from_ref(&current), false)
                 .await?
                 .ids(SourceStatus::Updated),
-            ["linked-tool"]
+            ["local:tool"]
         );
 
-        let snapshot = service.manager.store_snapshot("linked-tool").await?;
+        let snapshot = service.manager.store_snapshot("local:tool").await?;
         assert!(matches!(
             snapshot.receipt.owner,
             InstallOwner::ManagedLocalSource(_)
@@ -1074,7 +1093,7 @@ mod tests {
         assert_eq!(
             service
                 .manager
-                .list_component_secrets("linked-tool", true)
+                .list_component_secrets("local:tool", true)
                 .await?
                 .get("token"),
             Some(&Some("value".into()))
@@ -1090,12 +1109,12 @@ mod tests {
                 .reconcile_sources_once(std::slice::from_ref(&next), false)
                 .await?
                 .ids(SourceStatus::Updated),
-            ["linked-tool"]
+            ["local:tool"]
         );
         assert_eq!(
             service
                 .manager
-                .store_snapshot("linked-tool")
+                .store_snapshot("local:tool")
                 .await?
                 .receipt
                 .source,
@@ -1173,13 +1192,13 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn embedded_name_not_filename_and_unload_suppresses_until_force() -> Result<()> {
+    async fn filename_identity_and_unload_suppresses_until_force() -> Result<()> {
         let (_temp, service) = service().await?;
         let path = service.config.root.join("CON.wasm");
         fs::write(&path, fixture("semantic:Weather"))?;
         let mut events = service.subscribe();
         let first = service.reconcile_once(false).await?;
-        assert_eq!(first.ids(SourceStatus::Installed), ["semantic:Weather"]);
+        assert_eq!(first.ids(SourceStatus::Installed), ["local:CON"]);
         assert_eq!(events.try_recv()?.change, LocalSourceChange::Added);
         assert_eq!(service.members().await?.len(), 1);
         assert_eq!(
@@ -1187,16 +1206,16 @@ mod tests {
                 .reconcile_once(false)
                 .await?
                 .ids(SourceStatus::Unchanged),
-            ["semantic:Weather"]
+            ["local:CON"]
         );
         assert!(events.try_recv().is_err());
-        service.manager.unload_component("semantic:Weather").await?;
+        service.manager.unload_component("local:CON").await?;
         assert_eq!(
             service
                 .reconcile_once(false)
                 .await?
                 .ids(SourceStatus::Suppressed),
-            ["semantic:Weather"]
+            ["local:CON"]
         );
         assert!(service.members().await?.is_empty());
         assert_eq!(
@@ -1204,7 +1223,7 @@ mod tests {
                 .reconcile_once(true)
                 .await?
                 .ids(SourceStatus::Installed),
-            ["semantic:Weather"]
+            ["local:CON"]
         );
         Ok(())
     }
@@ -1234,7 +1253,7 @@ mod tests {
         assert_eq!(service.members().await?.len(), 1);
         fs::remove_file(&path)?;
         let report = service.reconcile_once(false).await?;
-        assert_eq!(report.ids(SourceStatus::Removed), ["semantic:tool"]);
+        assert_eq!(report.ids(SourceStatus::Removed), ["local:tool"]);
         assert!(service.members().await?.is_empty());
         Ok(())
     }
@@ -1290,7 +1309,7 @@ mod tests {
                 .reconcile_once(false)
                 .await?
                 .ids(SourceStatus::Installed),
-            ["named-acp"]
+            ["local:acp"]
         );
         let receipt = service.members().await?.remove(0);
         assert_eq!(receipt.kind, StoredArtifactKind::AcpProvider);
@@ -1347,7 +1366,7 @@ mod tests {
         tokio::time::timeout(std::time::Duration::from_secs(3), events.recv()).await??;
         assert_eq!(
             service.members().await?[0].component_id.as_str(),
-            "discovered"
+            "local:new"
         );
         cancel.cancel();
         watcher.await??;
@@ -1355,14 +1374,37 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn duplicate_names_conflict_before_either_commit() -> Result<()> {
+    async fn source_filename_is_identity_when_root_name_is_missing_or_mismatched() -> Result<()> {
+        let (_temp, service) = service().await?;
+        fs::write(
+            service.config.root.join("mismatched.wasm"),
+            fixture("different-root-name"),
+        )?;
+        fs::write(
+            service.config.root.join("anonymous.wasm"),
+            unnamed_fixture(),
+        )?;
+
+        let report = service.reconcile_once(false).await?;
+
+        assert_eq!(
+            report.ids(SourceStatus::Installed),
+            ["local:anonymous", "local:mismatched"]
+        );
+        assert!(!report.has_unresolved());
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn duplicate_embedded_names_from_distinct_sources_are_accepted() -> Result<()> {
         let (_temp, service) = service().await?;
         for filename in ["a.wasm", "b.wasm"] {
             fs::write(service.config.root.join(filename), fixture("same-name"))?;
         }
         let report = service.reconcile_once(false).await?;
-        assert_eq!(report.with_status(SourceStatus::Conflict).len(), 2);
-        assert!(service.members().await?.is_empty());
+        assert_eq!(report.ids(SourceStatus::Installed), ["local:a", "local:b"]);
+        assert_eq!(report.with_status(SourceStatus::Conflict).len(), 0);
+        assert_eq!(service.members().await?.len(), 2);
         Ok(())
     }
 
@@ -1371,7 +1413,7 @@ mod tests {
         let (_temp, service) = service().await?;
         fs::write(service.config.root.join("one.wasm"), fixture("named-one"))?;
         let first = service.reconcile_once(false).await?;
-        assert_eq!(first.ids(SourceStatus::Installed), ["named-one"]);
+        assert_eq!(first.ids(SourceStatus::Installed), ["local:one"]);
         let before = service.members().await?.remove(0);
         fs::write(service.config.root.join("one.policy.yaml"), b"invalid: [")?;
         assert_eq!(
@@ -1437,7 +1479,7 @@ mod tests {
                 .reconcile_once(false)
                 .await?
                 .ids(SourceStatus::Installed),
-            ["named-one"]
+            ["local:one"]
         );
         let first = service.members().await?.remove(0);
         fs::write(
@@ -1449,18 +1491,18 @@ mod tests {
                 .reconcile_once(false)
                 .await?
                 .ids(SourceStatus::Updated),
-            ["named-one"]
+            ["local:one"]
         );
         let second = service.members().await?.remove(0);
         assert_ne!(first.observation, second.observation);
-        service.manager.unload_component("named-one").await?;
+        service.manager.unload_component("local:one").await?;
         fs::remove_file(&policy)?;
         assert_eq!(
             service
                 .reconcile_once(false)
                 .await?
                 .ids(SourceStatus::Installed),
-            ["named-one"]
+            ["local:one"]
         );
         assert!(service.members().await?[0]
             .observation
@@ -1520,7 +1562,7 @@ mod tests {
         assert!(outcomes[0]["component_id"].is_null());
         assert!(outcomes[0]["detail"].is_string());
         assert_eq!(outcomes[1]["status"], "installed");
-        assert_eq!(outcomes[1]["component_id"], "named-good");
+        assert_eq!(outcomes[1]["component_id"], "local:good");
         assert_eq!(value["prune_skipped"], true);
         serde_yaml::to_string(&report)?;
         Ok(())

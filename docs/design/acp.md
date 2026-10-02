@@ -188,11 +188,12 @@ stable across rebuilds:
 
 ```text
 command: /home/me/.cargo/bin/wassette
-args: acp --provider acp-echo-provider --layer acp-uppercase-layer
+args: acp --provider local:acp_echo_provider --layer local:acp_uppercase_layer
 ```
 
 Use repeated `--provider` arguments for multiple providers and
-`--tool microsoft:filesystem-rs` for an ordinary component. The exact Cargo
+`--tool local:filesystem` for an ordinary component. These IDs reflect the
+visible local filenames, not the producer metadata. The exact Cargo
 install root may differ when `CARGO_INSTALL_ROOT`, Cargo `install.root`, or
 `CARGO_HOME` is configured. Installation does not select providers, expose
 ordinary tools to ACP without `--tool`, grant permissions, set secrets, or add
@@ -201,7 +202,7 @@ ordinary tools to ACP without `--tool`, grant permissions, set secrets, or add
 ### Selecting between providers
 
 ```sh
-wassette acp --provider acp-ollama-provider --provider acp-copilot-provider
+wassette acp --provider local:acp_ollama_provider --provider local:acp_copilot_provider
 ```
 
 Each new editor session creates a separate chain for every selected provider.
@@ -301,7 +302,9 @@ The Copilot provider does not yet call ordinary `--tool` components itself.
 
 In layered chains, generation approval requests go directly to the bound editor
 session and bypass upstream layers, and generation requires
-`--allow-shared-grants`.
+`--allow-shared-grants`. The generated component's logical ID is the exact
+`build.component_name` spelling from its request; root metadata and the
+private opaque storage key do not change the selector.
 
 ## Demo
 
@@ -355,11 +358,17 @@ the protocol version and expected stage, and linking checks runtime compatibilit
 `just build-acp-examples` embeds each producer's explicitly declared Cargo package
 name (`acp-echo-provider`, `acp-uppercase-layer`, `acp-ollama-provider`, or
 `acp-copilot-provider`) at the root. The shared `wassette:acp` interface package
-does not identify a particular producer.
-Selectors use the exact embedded root semantic name; receipts separately retain
-private artifact, policy, secret and persistent-data bindings. Unnamed producers
-must add a root component name before admission. Unreceipted artifacts are
-protected legacy inventory, not filename aliases.
+does not identify a particular producer. These root names are descriptive
+producer metadata, not ACP selectors.
+
+Selectors use the source-derived logical component ID: a local provider file
+named `acp_copilot_provider.wasm` is selected as
+`local:acp_copilot_provider`; OCI and wasm.directory selectors use the
+canonical registry/repository without a tag or digest. Receipts separately
+retain private artifact, policy, secret, and persistent-data bindings. Root
+names may be missing or differ without blocking admission. Unreceipted
+artifacts remain protected inventory, not filename aliases or auto-adopted
+components.
 
 * Provider terminal requests go directly to the host; layers cannot intercept
   or deny them. The example layer's terminal exports are unfinished.
@@ -422,8 +431,8 @@ GH_TOKEN="$(gh auth token)" cargo run -p wassette-mcp-server -- acp --allow-all 
 
 To keep the token out of the environment, load the component into the
 component directory and store it as a secret instead:
-`wassette secret set acp_copilot_provider "github_token=$(gh auth token)"`,
-then run `wassette acp --allow-all --provider acp_copilot_provider`.
+`wassette secret set local:acp_copilot_provider "github_token=$(gh auth token)"`,
+then run `wassette acp --allow-all --provider local:acp_copilot_provider`.
 
 `--allow-all` grants network and environment access; a policy granting the
 model's host is the least-privilege alternative. The end-to-end tests in

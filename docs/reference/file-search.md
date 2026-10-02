@@ -1,6 +1,6 @@
 # File Search Tool
 
-`wassette:file-search` is a first-party Wassette tool that searches file
+The first-party file-search tool searches file
 contents below a directory, like a sandboxed `rg`. It uses the ripgrep search
 crates (`grep-regex`, `grep-searcher`, and `ignore`) compiled to a WebAssembly
 component, and it can read only the directories its storage policy grants.
@@ -8,8 +8,10 @@ component, and it can read only the directories its storage policy grants.
 ## Install
 
 From a source checkout, `just install` builds and installs it alongside the ACP
-components. The component publication workflow publishes it as
-`ghcr.io/microsoft/file-search`:
+components. Its local logical ID is `local:file_search`, matching the visible
+`file_search.wasm` output filename. The component
+publication workflow publishes it as `ghcr.io/microsoft/file-search`; an OCI
+load uses that canonical repository as its logical ID:
 
 ```text
 Please load the component from oci://ghcr.io/microsoft/file-search:latest
@@ -22,7 +24,7 @@ you want to search:
 
 ```json
 {
-  "component_id": "wassette:file-search",
+  "component_id": "ghcr.io/microsoft/file-search",
   "details": { "uri": "fs:///path/to/project", "access": ["read"] }
 }
 ```

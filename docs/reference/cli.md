@@ -155,8 +155,10 @@ deferred, rejected, and conflicting sources, and refresh the tool catalog.
 Run `wassette component sync --force` to retry a previously unloaded,
 unchanged local build. `--local-component-dir` selects a different drop
 directory; `--component-dir` selects a different managed store. The two
-directories must not overlap. The command never treats a filename as the
-component ID: the artifact must have an explicit root component name.
+directories must not overlap. Discovery uses `local:<visible-filename-stem>`
+without `.wasm`; embedded root `component-name` metadata is cosmetic and does
+not select the ID. See [`component load`](#wassette-component-load) for the
+source identity rules shared by all acquisition paths.
 
 Pass `--link <WASM>` repeatedly to register finished builds as stable links in
 the resolved drop directory before reconciling:
@@ -169,10 +171,9 @@ wassette component sync \
 
 Link registration is Unix-only, refuses unrelated existing files or sources,
 and preserves the store's identity, owner, policy, secret, and revision checks.
-Source-checkout installers can add `--adopt-explicit-local` to migrate a
-matching explicit local-file installation with the same semantic ID and
-filename. This never adopts registry, HTTPS, generated, or differently named
-file sources.
+Source-checkout installers can add `--adopt-explicit-local` for the explicit
+local-file ownership migration described below. It never adopts registry,
+HTTPS, generated, or differently named file sources.
 Ordinary components retain the normal local-source tool exposure intent. ACP
 providers and layers are validated and installed, but are not activated; select
 them with `wassette acp --provider/--layer`.
@@ -192,8 +193,8 @@ components:
 
 ```bash
 wassette acp \
-  --provider acp-copilot-provider \
-  --tool filesystem-rs
+  --provider local:acp_copilot_provider \
+  --tool local:filesystem
 ```
 
 Tools are not exposed by default. The provider lists and calls them through
@@ -346,19 +347,32 @@ Load a WebAssembly component from various sources.
 
 This command loads ordinary tool candidates, not ACP providers/layers or
 non-runnable artifacts. Compatibility is checked by the ordinary runtime.
-Component IDs are the exact, explicitly embedded root component names.
-The receipt maps each semantic ID to a private storage key; use the returned ID
-for component, policy and secret commands, not the source filename.
-New storage keys must be portable ASCII filenames: Windows device names,
-trailing dots, path separators, and unsafe secret-filename projections are
-rejected rather than renamed.
+The logical ID comes from the acquisition source:
+
+| Source | Logical component ID |
+| --- | --- |
+| OCI or wasm.directory package | Canonical registry/repository, without a tag or digest |
+| Local file or local discovery | `local:<visible-filename-stem>` without `.wasm` |
+| HTTPS download | Downloaded filename stem, without a `local:` prefix |
+| Generated build | Exact spelling of the request's `build.component_name` |
+
+Root `component-name` metadata is cosmetic; it may be absent or different and
+does not block acquisition. The receipt maps the logical ID to a private opaque
+storage key; use the ID reported by Wassette for component, policy, secret,
+ACP, and tool selectors. Generated builds use the request's `build.component_name`
+as their logical ID, never the private storage key.
+The private storage key is validated separately from the logical ID. It must
+be a portable ASCII filename; Windows device names, trailing dots, path
+separators, and unsafe secret-filename projections are rejected rather than
+renamed.
 
 Replacement checks both source continuity and the current receipt revision.
-Explicit policies and permission edits survive bundled upgrades. Uninstall
-retains a source/name reservation and secret values, so another source cannot
-take over the slot. Legacy files without receipts remain protected and are not
-automatically loaded or migrated. Producers must embed an unambiguous root
-component name; unnamed binaries are rejected.
+Explicit policies and permission edits survive bundled upgrades. An existing
+receipt keeps its identity, secret bindings, and ownership namespace only for
+the same exact source and storage binding. Wassette does not automatically
+migrate secrets or store entries. Uninstall retains a source/name reservation
+and secret values, so another source cannot take over the slot. Files without
+receipts remain protected and are not automatically loaded or adopted.
 
 **Load from OCI registry:**
 ```bash
@@ -386,11 +400,11 @@ wassette component load file://./my-component.wasm
 Remove a loaded component by its ID.
 
 ```bash
-# Unload a component
-wassette component unload my-component-id
+# Unload a local component
+wassette component unload local:my-component
 
 # Unload with custom component directory
-wassette component unload my-component-id --component-dir /custom/components
+wassette component unload local:my-component --component-dir /custom/components
 ```
 
 **Options:**
@@ -425,7 +439,7 @@ wassette component list --output-format table
 {
   "components": [
     {
-      "id": "time-component",
+      "id": "ghcr.io/microsoft/time-server-js",
       "schema": {
         "tools": [
           {
@@ -447,9 +461,9 @@ wassette component list --output-format table
 
 *Table format:*
 ```
-ID             | Tools | Description
----------------|-------|----------------------------------
-time-component | 1     | Provides time-related functions
+ID                                | Tools | Description
+----------------------------------|-------|----------------------------------
+ghcr.io/microsoft/time-server-js  | 1     | Provides time-related functions
 ```
 
 **Options:**
@@ -469,14 +483,14 @@ Inspect a loaded WebAssembly component and display its JSON schema. This command
 # First, load a component
 wassette component load oci://ghcr.io/microsoft/time-server-js:latest
 
-# Then inspect it by component ID
-wassette inspect time-server-js
+# The OCI logical ID is the canonical registry/repository, without the tag
+wassette inspect ghcr.io/microsoft/time-server-js
 
 # Or load from a local file
 wassette component load file:///path/to/my-component.wasm
 
-# Then inspect it
-wassette inspect my-component
+# The local logical ID uses the visible filename stem
+wassette inspect local:my-component
 ```
 
 **Example output:**
@@ -644,11 +658,11 @@ wasm.directory component package, compared case-sensitively; zero matches is an
 error, and multiple matches list the candidate `registry/repository` identities
 to choose from instead of guessing.
 
-The component ID is always the artifact's embedded root component name, never
-registry metadata. A package published without one fails with an error naming
-the package, version and manifest digest; its publisher must embed a name, for
-example with `wasm-tools metadata add --name <component-id>`, and publish a new
-version.
+The component ID is the canonical `registry/repository`, independent of the
+selected tag or digest. Registry metadata and embedded root `component-name`
+metadata do not determine it. Publishers may still include root metadata as
+descriptive producer information, but Wassette accepts packages without it or
+with a different value.
 
 Search and package resolution require wasm.directory; direct local paths remain
 available offline. There is no fallback to the removed bundled catalog.
@@ -660,20 +674,20 @@ available offline. There is no fallback to the removed bundled catalog.
 Retrieve policy information for a specific component.
 
 ```bash
-# Get policy for a component
-wassette policy get my-component-id
+# Get policy for a component loaded from my-component.wasm
+wassette policy get local:my-component
 
 # Get policy with pretty formatting
-wassette policy get my-component-id --output-format json
+wassette policy get local:my-component --output-format json
 
 # Get in YAML format
-wassette policy get my-component-id --output-format yaml
+wassette policy get local:my-component --output-format yaml
 ```
 
 **Example output:**
 ```json
 {
-  "component_id": "my-component",
+  "component_id": "local:my-component",
   "permissions": {
     "storage": [
       {
@@ -703,32 +717,32 @@ Grant specific permissions to a component.
 **Storage permissions:**
 ```bash
 # Grant read access to a directory
-wassette permission grant storage my-component fs://workspace/ --access read
+wassette permission grant storage local:my-component fs://workspace/ --access read
 
 # Grant read and write access
-wassette permission grant storage my-component fs://workspace/ --access read,write
+wassette permission grant storage local:my-component fs://workspace/ --access read,write
 
 # Grant access to a specific file
-wassette permission grant storage my-component fs://config/app.yaml --access read
+wassette permission grant storage local:my-component fs://config/app.yaml --access read
 ```
 
 **Network permissions:**
 ```bash
 # Grant access to a specific host
-wassette permission grant network my-component api.openai.com
+wassette permission grant network local:my-component api.openai.com
 
 # Grant access to a localhost service
-wassette permission grant network my-component localhost:8080
+wassette permission grant network local:my-component localhost:8080
 ```
 
 **Environment variable permissions:**
 ```bash
 # Grant access to an environment variable
-wassette permission grant environment-variable my-component API_KEY
+wassette permission grant environment-variable local:my-component API_KEY
 
 # Grant access to multiple variables
-wassette permission grant environment-variable my-component HOME
-wassette permission grant environment-variable my-component PATH
+wassette permission grant environment-variable local:my-component HOME
+wassette permission grant environment-variable local:my-component PATH
 ```
 
 > **Note**: See the [Environment Variables reference](./environment-variables.md) for detailed instructions on how to set and pass environment variables to Wassette.
@@ -736,13 +750,13 @@ wassette permission grant environment-variable my-component PATH
 **Memory permissions:**
 ```bash
 # Grant memory limit to a component (using Kubernetes format)
-wassette permission grant memory my-component 512Mi
+wassette permission grant memory local:my-component 512Mi
 
 # Grant larger memory limit
-wassette permission grant memory my-component 1Gi
+wassette permission grant memory local:my-component 1Gi
 
 # Grant memory limit with different units
-wassette permission grant memory my-component 2048Ki
+wassette permission grant memory local:my-component 2048Ki
 ```
 
 **Options:**
@@ -756,22 +770,22 @@ Remove specific permissions from a component.
 **Storage permissions:**
 ```bash
 # Revoke storage access
-wassette permission revoke storage my-component fs://workspace/
+wassette permission revoke storage local:my-component fs://workspace/
 
 # Revoke with custom component directory
-wassette permission revoke storage my-component fs://config/ --component-dir /custom/components
+wassette permission revoke storage local:my-component fs://config/ --component-dir /custom/components
 ```
 
 **Network permissions:**
 ```bash
 # Revoke network access
-wassette permission revoke network my-component api.openai.com
+wassette permission revoke network local:my-component api.openai.com
 ```
 
 **Environment variable permissions:**
 ```bash
 # Revoke environment variable access
-wassette permission revoke environment-variable my-component API_KEY
+wassette permission revoke environment-variable local:my-component API_KEY
 ```
 
 **Options:**
@@ -783,10 +797,10 @@ Remove all permissions for a component, resetting it to default state.
 
 ```bash
 # Reset all permissions for a component
-wassette permission reset my-component
+wassette permission reset local:my-component
 
 # Reset with custom component directory
-wassette permission reset my-component --component-dir /custom/components
+wassette permission reset local:my-component --component-dir /custom/components
 ```
 
 **Options:**
@@ -807,12 +821,12 @@ wassette component load file://./target/wasm32-wasi/debug/my-tool.wasm
 wassette component list --output-format table
 
 # 4. Grant necessary permissions
-wassette permission grant storage my-tool fs://$(pwd)/workspace --access read,write
-wassette permission grant network my-tool api.example.com
-wassette permission grant memory my-tool 512Mi
+wassette permission grant storage local:my-tool fs://$(pwd)/workspace --access read,write
+wassette permission grant network local:my-tool api.example.com
+wassette permission grant memory local:my-tool 512Mi
 
 # 5. Verify permissions
-wassette policy get my-tool --output-format yaml
+wassette policy get local:my-tool --output-format yaml
 
 # 6. Test via the local stdio MCP server
 wassette run
@@ -834,12 +848,12 @@ wassette registry search weather --output-format yaml
 wassette registry get ghcr.io/microsoft/get-weather-js --version 1.2.3
 
 # 5. Configure permissions for the component
-wassette permission grant network weather-server api.openweathermap.org
-wassette permission grant memory weather-server 256Mi
+wassette permission grant network ghcr.io/microsoft/get-weather-js api.openweathermap.org
+wassette permission grant memory ghcr.io/microsoft/get-weather-js 256Mi
 
 # 6. Verify the installed component and configure its permissions
 wassette component list --output-format table
-wassette policy get weather-server --output-format yaml
+wassette policy get ghcr.io/microsoft/get-weather-js --output-format yaml
 
 # 7. Start the local stdio MCP server; use MCP load-component with package/version
 #    when the tool should be explicitly exposed
@@ -853,9 +867,9 @@ wassette run
 wassette component load oci://ghcr.io/myorg/my-tool:1.0.0
 
 # 2. Configure permissions based on component needs
-wassette permission grant storage my-tool fs://workspace/** --access read,write
-wassette permission grant network my-tool api.myservice.com
-wassette permission grant memory my-tool 1Gi
+wassette permission grant storage ghcr.io/myorg/my-tool fs://workspace/** --access read,write
+wassette permission grant network ghcr.io/myorg/my-tool api.myservice.com
+wassette permission grant memory ghcr.io/myorg/my-tool 1Gi
 
 # 3. Start the Streamable HTTP server for remote clients
 wassette serve --streamable-http
@@ -877,11 +891,11 @@ done
 ### Cleanup Operations
 
 ```bash
-# Reset permissions for a component
-wassette permission reset problematic-component
+# Reset permissions for a local component
+wassette permission reset local:problematic-component
 
 # Remove a component entirely
-wassette component unload problematic-component
+wassette component unload local:problematic-component
 
 # List remaining components
 wassette component list --output-format table
@@ -975,7 +989,7 @@ $ wassette component load invalid://path
 Error: Unsupported URI scheme 'invalid'. Use 'file://' or 'oci://'
 
 # Permission denied
-$ wassette permission grant storage my-component /restricted --access write
+$ wassette permission grant storage local:my-component /restricted --access write
 Error: Permission denied: cannot grant write access to /restricted
 ```
 
@@ -991,7 +1005,7 @@ Use the `--output-format` or `-o` flag to specify the desired format:
 
 ```bash
 wassette component list -o table
-wassette policy get my-component -o yaml
+wassette policy get local:my-component -o yaml
 ```
 
 ## See Also

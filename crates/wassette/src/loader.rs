@@ -50,7 +50,7 @@ impl DownloadedResource {
         Ok((DownloadedResource::Temp((tempdir, file_path)), temp_file))
     }
 
-    /// Returns the portable physical key. Embedded identity is inspected separately.
+    /// Returns the portable physical key, independent of cosmetic producer names.
     pub(crate) fn storage_key(&self) -> Result<StorageKey> {
         let stem = self
             .as_ref()

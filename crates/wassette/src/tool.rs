@@ -21,7 +21,7 @@ use crate::{
 /// a component can change what this key describes or executes.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ToolKey {
-    /// The embedded root component name, never a filename or private storage key.
+    /// The source-derived logical name, never a private storage key.
     pub component_id: ComponentId,
     /// Exact package, interface and function names, before normalization.
     pub export: FunctionIdentifier,

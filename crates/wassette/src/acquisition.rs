@@ -18,10 +18,17 @@ pub struct AcquiredComponent {
     pub wasm: Vec<u8>,
     /// Captured incoming policy; an explicit stored policy may take precedence.
     pub policy: Option<Vec<u8>>,
-    /// Stable source-continuity binding, separate from the artifact's own name.
+    /// Stable source-continuity binding, independent of cosmetic producer names.
     pub source: SourceIdentity,
     /// Acquisition evidence without credentials or unverified version claims.
     pub origin: OriginEvidence,
+}
+
+impl AcquiredComponent {
+    /// Source-derived logical identity, independent of captured Wasm metadata.
+    pub fn component_id(&self) -> Result<crate::ComponentId> {
+        self.source.component_id(&self.storage_key, &self.origin)
+    }
 }
 
 /// Acquire immutable inputs with the caller's configured HTTP and OCI clients.
@@ -48,7 +55,7 @@ pub async fn acquire_component(
     let source = match remote_source {
         Some(source) => source,
         None => {
-            origin.location = format!("file://{}", path.display());
+            origin.location = format!("file://{}", resource.as_ref().display());
             SourceIdentity::File(path.clone())
         }
     };
@@ -137,6 +144,31 @@ mod tests {
         );
         assert!(first_origin.manifest_digest.is_none());
         assert!(first_origin.selected_version.is_none());
+        let key = StorageKey::parse("example_tool")?;
+        assert_eq!(
+            first
+                .as_ref()
+                .unwrap()
+                .component_id(&key, &first_origin)?
+                .as_str(),
+            "ghcr.io/example/tool",
+        );
+        assert_eq!(
+            second
+                .as_ref()
+                .unwrap()
+                .component_id(&key, &second_origin)?,
+            first.as_ref().unwrap().component_id(&key, &first_origin)?,
+        );
+        let (pinned, pinned_origin) = source_evidence(&format!(
+            "oci://ghcr.io/example/tool@sha256:{}",
+            "a".repeat(64)
+        ))?;
+        assert_eq!(pinned, first);
+        assert_eq!(
+            pinned.unwrap().component_id(&key, &pinned_origin)?.as_str(),
+            "ghcr.io/example/tool",
+        );
         Ok(())
     }
 
@@ -149,6 +181,70 @@ mod tests {
         assert!(!serde_json::to_string(&first)?.contains("first-secret"));
         assert!(!serde_json::to_string(&origin)?.contains("first-secret"));
         assert!(source_evidence("https://user:password@example.test/tool.wasm").is_err());
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn direct_oci_loads_unnamed_and_mismatched_names_with_stable_registry_identity(
+    ) -> Result<()> {
+        use crate::wasm_directory::fixtures::{FixturePackage, WasmDirectoryFixture};
+        let unnamed =
+            wat::parse_str(r#"(component (instance $empty) (export "empty" (instance $empty)))"#)?;
+        let mismatched = wat::parse_str(
+            r#"(component $"unrelated:producer" (instance $empty) (export "empty" (instance $empty)))"#,
+        )?;
+        let fixture = WasmDirectoryFixture::start(vec![FixturePackage::new(
+            "owner/tool",
+            None,
+            [("1.0.0", unnamed), ("2.0.0", mismatched)],
+        )])
+        .await?;
+        let root = tempfile::tempdir()?;
+        let manager = crate::LifecycleManager::builder(root.path().join("store"))
+            .with_secrets_dir(root.path().join("secrets"))
+            .with_oci_client(fixture.oci_client())
+            .build()
+            .await?;
+        let id = fixture.package_id("owner/tool");
+        let mut previous = None;
+        for tag in ["1.0.0", "2.0.0"] {
+            let outcome = manager.load_component(&format!("oci://{id}:{tag}")).await?;
+            assert_eq!(outcome.component_id, id);
+            let snapshot = manager.component_store().read(&id)?;
+            assert_eq!(
+                snapshot.receipt.origin.requested_version.as_deref(),
+                Some(tag)
+            );
+            if let Some((key, binding)) = previous {
+                assert_eq!(snapshot.receipt.storage_key, key);
+                assert_eq!(snapshot.receipt.secret_binding()?, binding);
+            }
+            previous = Some((
+                snapshot.receipt.storage_key.clone(),
+                snapshot.receipt.secret_binding()?,
+            ));
+        }
+        Ok(())
+    }
+
+    #[tokio::test]
+    #[cfg(unix)]
+    async fn local_symlink_uses_visible_filename_not_canonical_target_name() -> Result<()> {
+        let root = tempfile::tempdir()?;
+        let target = root.path().join("producer-output.wasm");
+        tokio::fs::write(&target, b"captured bytes").await?;
+        let visible = root.path().join("visible-name.wasm");
+        std::os::unix::fs::symlink(&target, &visible)?;
+        let config = crate::LifecycleManager::builder(root.path().join("store"))
+            .with_secrets_dir(root.path().join("secrets"))
+            .build_config()?;
+        let captured =
+            acquire_component(&format!("file://{}", visible.display()), &config, false).await?;
+        assert_eq!(captured.component_id()?.as_str(), "local:visible-name");
+        assert_eq!(
+            captured.source,
+            SourceIdentity::File(target.canonicalize()?)
+        );
         Ok(())
     }
 
@@ -172,6 +268,7 @@ mod tests {
         assert_eq!(ordinary.wasm, b"captured artifact");
         assert!(ordinary.policy.is_none());
         assert_eq!(acp.policy.as_deref(), Some(b"source policy".as_slice()));
+        assert_eq!(ordinary.component_id()?.as_str(), "local:private-key");
         assert_eq!(
             ordinary.source,
             SourceIdentity::File(source.canonicalize()?)

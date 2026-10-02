@@ -10,7 +10,7 @@ use wassette::store::{
     PreparedInstall, PreparedPolicy, SourceIdentity, ValidationEvidence,
 };
 
-/// Root metadata belongs to this test copy, not to the producer build output.
+/// Copy a fixture without changing its component metadata or bytes.
 pub struct NamedFixture {
     path: PathBuf,
     _directory: tempfile::TempDir,
@@ -18,20 +18,8 @@ pub struct NamedFixture {
 
 impl NamedFixture {
     pub fn copy(path: &Path) -> Self {
-        use wasm_encoder::{ComponentSection, Encode};
-
         let directory = tempfile::tempdir().unwrap();
-        let mut wasm = std::fs::read(path).unwrap();
-        match wassette::inspect_artifact(&wasm).unwrap().identity {
-            Ok(_) => {}
-            Err(wassette::IdentityError::Missing) => {
-                let mut names = wasm_encoder::ComponentNameSection::new();
-                names.component(path.file_stem().unwrap().to_str().unwrap());
-                wasm.push(names.id());
-                names.encode(&mut wasm);
-            }
-            Err(error) => panic!("fixture has invalid root identity: {error}"),
-        }
+        let wasm = std::fs::read(path).unwrap();
         let destination = directory.path().join(path.file_name().unwrap());
         std::fs::write(&destination, wasm).unwrap();
         let policy = path.with_extension("policy.yaml");
@@ -67,8 +55,8 @@ pub fn seed_secrets(wasm_path: &Path, secrets_dir: &Path, pairs: &[(&str, &str)]
     let source = SourceIdentity::File(wasm_path.canonicalize().unwrap());
     let storage_key =
         wassette::StorageKey::parse(wasm_path.file_stem().unwrap().to_str().unwrap()).unwrap();
-    let name = wassette::inspect_artifact(&wasm).unwrap().identity.unwrap();
-    let expected = store.observe(name.as_str(), &storage_key, &source).unwrap();
+    let name = format!("local:{}", storage_key.as_str());
+    let expected = store.observe_source(&name, &storage_key, &source).unwrap();
     let prepared = PreparedInstall::prepare(
         wasm,
         InstallOptions {

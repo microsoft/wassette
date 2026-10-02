@@ -5,6 +5,8 @@ use anyhow::Result;
 
 use super::*;
 
+const FILE_ID: &str = "local:private-key";
+
 fn named_tool(name: &str, value: u32) -> Result<Vec<u8>> {
     Ok(wat::parse_str(format!(
         r#"(component ${name}
@@ -33,23 +35,15 @@ async fn semantic_lookup_preserves_private_artifact_and_secret_keys() -> Result<
     let outcome = manager
         .load_component(&format!("file://{}", source.display()))
         .await?;
-    assert_eq!(outcome.component_id, "example:actual/name");
+    assert_eq!(outcome.component_id, FILE_ID);
     assert!(root.path().join("components/private-key.wasm").is_file());
-    assert_eq!(
-        manager.get_component_id_for_tool("value").await?,
-        "example:actual/name"
-    );
+    assert_eq!(manager.get_component_id_for_tool("value").await?, FILE_ID);
     manager
-        .set_component_secrets(
-            "example:actual/name",
-            &[("TOKEN".into(), "test-value".into())],
-        )
+        .set_component_secrets(FILE_ID, &[("TOKEN".into(), "test-value".into())])
         .await?;
     assert!(root.path().join("secrets/private-key.yaml").is_file());
     assert_eq!(
-        manager
-            .load_component_secrets("example:actual/name")
-            .await?["TOKEN"],
+        manager.load_component_secrets(FILE_ID).await?["TOKEN"],
         "test-value"
     );
     assert!(manager.load_component_secrets("private-key").await.is_err());
@@ -66,19 +60,19 @@ async fn failed_replacement_preserves_receipt_policy_and_callable_instance() -> 
     manager
         .load_component_with_policy(&uri, "version: '1.0'\npermissions: {}\n", "manifest:inline")
         .await?;
-    let before = manager.component_store().read("semantic")?;
+    let before = manager.component_store().read(FILE_ID)?;
     let value = manager
-        .execute_component_call("semantic", "value", "{}")
+        .execute_component_call(FILE_ID, "value", "{}")
         .await?;
     tokio::fs::write(&source, b"not a component").await?;
     assert!(manager.load_component(&uri).await.is_err());
-    let after = manager.component_store().read("semantic")?;
+    let after = manager.component_store().read(FILE_ID)?;
     assert_eq!(before.receipt, after.receipt);
     assert_eq!(before.wasm, after.wasm);
     assert_eq!(before.policy, after.policy);
     assert_eq!(
         manager
-            .execute_component_call("semantic", "value", "{}")
+            .execute_component_call(FILE_ID, "value", "{}")
             .await?,
         value
     );
@@ -95,23 +89,23 @@ async fn another_manager_observes_policy_revision_without_replacing_wasm() -> Re
         .load_component(&format!("file://{}", source.display()))
         .await?;
     let second = manager(root.path()).await?;
-    second.ensure_component_loaded("semantic").await?;
+    second.ensure_component_loaded(FILE_ID).await?;
     assert!(second
-        .get_component("semantic")
+        .get_component(FILE_ID)
         .await
         .unwrap()
         .policy_template
         .allowed_hosts
         .is_empty());
-    let before = second.component_store().read("semantic")?;
+    let before = second.component_store().read(FILE_ID)?;
     first
         .grant_permission(
-            "semantic",
+            FILE_ID,
             "network",
             &serde_json::json!({"host": "example.test"}),
         )
         .await?;
-    let after = second.component_store().read("semantic")?;
+    let after = second.component_store().read(FILE_ID)?;
     assert_ne!(before.receipt.revision, after.receipt.revision);
     assert_eq!(
         before.receipt.artifact_sha256,
@@ -119,20 +113,20 @@ async fn another_manager_observes_policy_revision_without_replacing_wasm() -> Re
     );
     assert_eq!(before.wasm, after.wasm);
     assert!(String::from_utf8(after.policy.unwrap())?.contains("example.test"));
-    second.ensure_component_loaded("semantic").await?;
-    let refreshed = second.get_component("semantic").await.unwrap();
+    second.ensure_component_loaded(FILE_ID).await?;
+    let refreshed = second.get_component(FILE_ID).await.unwrap();
     assert_eq!(refreshed.revision.as_ref(), Some(&after.receipt.revision));
     assert!(refreshed
         .policy_template
         .allowed_hosts
         .contains("example.test"));
-    first.reset_permission("semantic").await?;
-    let cleared = second.component_store().read("semantic")?;
+    first.reset_permission(FILE_ID).await?;
+    let cleared = second.component_store().read(FILE_ID)?;
     assert!(cleared.policy.is_none());
     assert_ne!(cleared.receipt.revision, after.receipt.revision);
-    second.ensure_component_loaded("semantic").await?;
+    second.ensure_component_loaded(FILE_ID).await?;
     assert!(second
-        .get_component("semantic")
+        .get_component(FILE_ID)
         .await
         .unwrap()
         .policy_template
@@ -175,9 +169,9 @@ async fn uninstall_does_not_allow_an_unrelated_source_to_inherit_secrets() -> Re
     let uri = format!("file://{}", source.display());
     manager.load_component(&uri).await?;
     manager
-        .set_component_secrets("semantic", &[("TOKEN".into(), "test-value".into())])
+        .set_component_secrets(FILE_ID, &[("TOKEN".into(), "test-value".into())])
         .await?;
-    manager.unload_component("semantic").await?;
+    manager.unload_component(FILE_ID).await?;
     assert!(root.path().join("secrets/private-key.yaml").is_file());
     let unrelated = root.path().join("unrelated");
     tokio::fs::create_dir(&unrelated).await?;
@@ -190,7 +184,7 @@ async fn uninstall_does_not_allow_an_unrelated_source_to_inherit_secrets() -> Re
     tokio::fs::write(&source, named_tool("semantic", 3)?).await?;
     manager.load_component(&uri).await?;
     assert_eq!(
-        manager.load_component_secrets("semantic").await?["TOKEN"],
+        manager.load_component_secrets(FILE_ID).await?["TOKEN"],
         "test-value"
     );
     Ok(())
@@ -234,13 +228,13 @@ async fn install_only_receipts_stay_unexposed_even_with_valid_tool_caches() -> R
     let installer = manager(root.path()).await?;
     installer.load_component(&uri).await?;
     let descriptor = installer.list_tool_descriptors().await?.remove(0);
-    let snapshot = installer.component_store().read("semantic")?;
+    let snapshot = installer.component_store().read(FILE_ID)?;
     let receipt = snapshot.receipt;
     let engine = installer.cache_engine();
     let cache = installer
         .component_store()
         .read_cache(
-            "semantic",
+            FILE_ID,
             &receipt.revision,
             &engine,
             store_runtime::CACHE_SCHEMA,
@@ -249,7 +243,7 @@ async fn install_only_receipts_stay_unexposed_even_with_valid_tool_caches() -> R
     let expected =
         installer
             .component_store()
-            .observe("semantic", &receipt.storage_key, &receipt.source)?;
+            .observe(FILE_ID, &receipt.storage_key, &receipt.source)?;
     let prepared = PreparedInstall::prepare(
         snapshot.wasm,
         InstallOptions {
@@ -274,7 +268,7 @@ async fn install_only_receipts_stay_unexposed_even_with_valid_tool_caches() -> R
         .component_store()
         .commit_install(prepared, expected)?;
     installer.component_store().publish_cache(
-        "semantic",
+        FILE_ID,
         committed.entry.revision(),
         PreparedCache {
             artifact_sha256: receipt.artifact_sha256,
@@ -299,25 +293,25 @@ async fn install_only_receipts_stay_unexposed_even_with_valid_tool_caches() -> R
         .await
         .is_err());
     let error = installer
-        .ensure_component_loaded("semantic")
+        .ensure_component_loaded(FILE_ID)
         .await
         .unwrap_err();
     assert!(error.to_string().contains("tool exposure"), "{error:#}");
     assert!(installer.list_tools().await.is_empty());
     installer
         .grant_permission(
-            "semantic",
+            FILE_ID,
             "network",
             &serde_json::json!({"host": "example.test"}),
         )
         .await?;
     assert!(installer.list_tools().await.is_empty());
-    let persisted = installer.component_store().read("semantic")?.receipt;
+    let persisted = installer.component_store().read(FILE_ID)?.receipt;
     assert_eq!(persisted.intent, InstallIntent::InstallOnly);
     assert!(installer
         .component_store()
         .read_cache(
-            "semantic",
+            FILE_ID,
             &persisted.revision,
             &installer.cache_engine(),
             store_runtime::CACHE_SCHEMA,
@@ -344,13 +338,13 @@ async fn install_only_receipts_stay_unexposed_even_with_valid_tool_caches() -> R
             .invoke_scoped_tool(&descriptor.key, &serde_json::json!({}))
             .await
             .is_err());
-        assert!(fresh.get_component_schema("semantic").await.is_none());
-        assert!(fresh.load_component_metadata("semantic").await?.is_none());
+        assert!(fresh.get_component_schema(FILE_ID).await.is_none());
+        assert!(fresh.load_component_metadata(FILE_ID).await?.is_none());
         assert!(fresh
-            .execute_component_call("semantic", "value", "{}")
+            .execute_component_call(FILE_ID, "value", "{}")
             .await
             .is_err());
-        assert_eq!(fresh.component_store().read("semantic")?.receipt, persisted);
+        assert_eq!(fresh.component_store().read(FILE_ID)?.receipt, persisted);
     }
 
     let activated = installer.load_component(&uri).await?;
@@ -358,12 +352,9 @@ async fn install_only_receipts_stay_unexposed_even_with_valid_tool_caches() -> R
         activated.commit.entry.binding().intent,
         InstallIntent::ExposeTools
     );
-    assert_eq!(
-        installer.get_component_id_for_tool("value").await?,
-        "semantic"
-    );
+    assert_eq!(installer.get_component_id_for_tool("value").await?, FILE_ID);
     installer
-        .execute_component_call("semantic", "value", "{}")
+        .execute_component_call(FILE_ID, "value", "{}")
         .await?;
     Ok(())
 }

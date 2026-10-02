@@ -157,9 +157,25 @@ the protocol. Abandoned staging is diagnosed, not deleted based on age.
 `wassette::inspect_artifact` reads binary metadata without compiling. It returns
 the explicit root component name, if present, separately from the artifact's
 shape: an ordinary tool candidate, ACP provider, ACP layer, or unsupported
-artifact. Only root `component-name` metadata supplies semantic `ComponentId`;
-filenames, nested module names, and names synthesized by WIT decoders do not.
-Names preserve their exact spelling and are declarations, not proof of origin.
+artifact. Root `component-name` metadata is cosmetic: it may be missing or
+differ from the logical `ComponentId`, and it does not establish source identity
+or provenance.
+
+New logical IDs come from the acquisition source:
+
+| Source | Logical `ComponentId` |
+| --- | --- |
+| OCI or wasm.directory | Canonical registry/repository, excluding tag and digest |
+| Local file or discovery | `local:` plus the visible filename stem, without `.wasm` |
+| HTTPS download | Downloaded filename stem, without a `local:` prefix |
+| Generated build | Exact `build.component_name` spelling from the request |
+
+The private `StorageKey` is an opaque physical key, not a logical name or
+sanitized form of one. An existing receipt retains its identity, policy and
+secret bindings, and ownership namespace only for the same exact source and
+storage binding. Wassette does not automatically migrate store entries or
+secrets to a new identity. Unrecorded artifacts remain protected inventory and
+are not automatically adopted.
 
 `StorageKey` validates portable filesystem stems and reports collision keys for
 case-insensitive artifact paths and the existing secrets filename projection.
@@ -169,28 +185,23 @@ unsafe projected secret filenames instead of silently renaming them.
 
 First-party build recipes embed the explicit names declared in
 `scripts/component-names.json` before hashing or publishing their outputs.
-Nested metadata is preserved; opaque third-party downloads are not renamed.
-See [producer naming](../development/getting-started.md#declaring-first-party-component-names).
+These names remain useful descriptive producer metadata, but do not determine
+runtime selectors. Nested metadata is preserved; opaque third-party downloads
+are not renamed. See
+[producer naming](../development/getting-started.md#declaring-first-party-component-names).
 
-Load results and component, policy, secret and ACP selectors use the exact
-embedded semantic name. Receipts map it to the private storage key; semantic
-names are never sanitized into filenames. Existing physical policy and secret
-keys are retained, with no automatic secret rekeying. The shared secrets
-directory independently reserves semantic/source/key associations; unknown
-secret files cannot be adopted by a new component.
-
-This is a compatibility boundary. Producer artifacts must declare an
-unambiguous root component name. Unreceipted files remain protected legacy
-inventory, not runnable filename aliases or automatically prunable managed
-entries. There is no automatic legacy or secret migration. First-party build
-recipes provide producer names; tests can give isolated copies their own fixture
-names without rewriting producer outputs.
+Load results and component, policy, secret, and ACP selectors use the
+source-derived logical ID. Receipts map that ID to the private storage key;
+logical IDs are not sanitized into filenames. Existing physical policy and
+secret bindings remain associated with their receipt, and unknown secret files
+cannot be adopted by a new component.
 
 Local sources bind to the canonical source path; HTTPS sources bind to the
 normalized request (query redacted in receipts, but significant through its
 hash); OCI sources bind to the canonical repository. These are conservative
 continuity rules, not source authentication. Moving a file or changing a signed
-URL can therefore conflict even when its embedded name is unchanged.
+URL can therefore conflict even when its source-derived logical ID is
+unchanged.
 
 The ordinary runtime inspects current Wasm bytes before eager or lazy compilation,
 native-cache loading, and cached tool/schema publication. ACP providers/layers

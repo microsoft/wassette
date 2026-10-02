@@ -173,6 +173,25 @@ impl ComponentStore {
         })
     }
 
+    /// Observe a source-derived name while retaining an exact persisted binding.
+    ///
+    /// Neither equal bytes nor aliases authorize continuity: both source and
+    /// storage key must match, and ordinary admission still checks all reservations.
+    pub fn observe_source(
+        &self,
+        id: &str,
+        storage_key: &StorageKey,
+        source: &SourceIdentity,
+    ) -> Result<ExpectedEntry> {
+        let capture = self.capture(None, None)?;
+        let name = capture
+            .entries
+            .iter()
+            .find(|entry| entry.binding().source == *source && entry.storage_key() == storage_key)
+            .map_or(id, |entry| entry.component_id().as_str());
+        self.observe(name, storage_key, source)
+    }
+
     /// Commit an exact validated capture, or return a receipt-bearing exact no-op.
     ///
     /// A bundled policy cannot silently replace an explicit/edited/legacy
@@ -1024,14 +1043,22 @@ fn legacy_entry(key: String, files: Vec<(String, File)>) -> Result<ProtectedLega
         if name.ends_with(".wasm") {
             entry.artifact_sha256 = Some(digest(&bytes));
             match inspect_artifact(&bytes) {
-                Ok(inspection) => match inspection.identity {
-                    Ok(id) => {
-                        entry.component_id = Some(id);
-                        entry.diagnostic =
-                            Some("protected legacy artifact: source and validation unknown".into());
+                Ok(_) => {
+                    match ComponentId::from_local_path(Path::new(&format!(
+                        "{}.wasm",
+                        entry.physical_key
+                    ))) {
+                        Ok(id) => {
+                            entry.component_id = Some(id);
+                            entry.diagnostic = Some(
+                                "protected legacy artifact: source and validation unknown".into(),
+                            );
+                        }
+                        Err(error) => {
+                            entry.diagnostic = Some(format!("invalid legacy filename: {error}"));
+                        }
                     }
-                    Err(error) => entry.diagnostic = Some(error.to_string()),
-                },
+                }
                 Err(error) => {
                     entry.diagnostic = Some(format!("malformed legacy artifact: {error}"))
                 }

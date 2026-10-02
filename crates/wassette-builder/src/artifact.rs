@@ -50,13 +50,8 @@ pub(crate) fn name_component(
                 )) {
                     check()?;
                     match entry.context("malformed root component-name")? {
-                        ComponentName::Component { name, .. } => {
+                        ComponentName::Component { .. } => {
                             name_count += 1;
-                            ensure!(name_count == 1, "duplicate root component-name declaration");
-                            ensure!(
-                                name == request.component_name,
-                                "conflicting root component-name declaration"
-                            );
                         }
                         ComponentName::CoreFuncs(names)
                         | ComponentName::CoreGlobals(names)
@@ -175,14 +170,17 @@ mod tests {
     }
 
     #[test]
-    fn rejects_conflicts_duplicates_core_modules_and_oversize() {
+    fn preserves_cosmetic_names_and_rejects_core_modules_and_oversize() {
         for bytes in [
             component(&["other"]),
             component(&["example:add", "example:add"]),
-            wasm_encoder::Module::new().finish(),
         ] {
-            assert!(name_component(bytes, &request(), 4096).is_err());
+            assert_eq!(
+                name_component(bytes.clone(), &request(), 4096).unwrap(),
+                bytes
+            );
         }
+        assert!(name_component(wasm_encoder::Module::new().finish(), &request(), 4096).is_err());
         let bytes = component(&[]);
         let cap = bytes.len();
         assert!(name_component(bytes, &request(), cap).is_err());
