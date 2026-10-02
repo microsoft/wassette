@@ -1,9 +1,12 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT license.
 
-//! In-process host transforms and one-job/one-VM execution.
+//! One-job/one-VM execution in a re-executed Wassette child.
 
 use std::collections::BTreeSet;
+use std::fs::File;
+use std::io::Write;
+use std::os::fd::{FromRawFd, RawFd};
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -31,6 +34,7 @@ use crate::ComponentKind;
 
 const DRIVER: &str = include_str!("driver.py");
 const OUTPUT_CHUNK: usize = 32 * 1024;
+const INTERNAL_ARG: &str = crate::ipc::ARGUMENT;
 
 macro_rules! runtime_files {
     ($($path:literal),* $(,)?) => {
@@ -53,6 +57,64 @@ runtime_files! {
     "rt/async_support/waitable_set.rs", "rt/async_support/wasip3_context.rs",
 }
 
+pub(crate) fn try_run_internal_helper() -> Result<bool> {
+    let args: Vec<_> = std::env::args_os().skip(1).collect();
+    if !is_internal_invocation(&args) {
+        return Ok(false);
+    }
+    let mut protocol = protocol_stdout()?;
+    let result = (|| {
+        let job = crate::ipc::read_job(std::io::stdin().lock())?;
+        let stage = job.staging.canonicalize()?;
+        let staging_root = job.config.staging_root.canonicalize()?;
+        ensure!(
+            stage != staging_root && stage.starts_with(&staging_root),
+            "internal builder staging path escaped its configured root"
+        );
+        ensure!(
+            std::env::current_dir()?.canonicalize()? == stage,
+            "internal builder working directory does not match its staging path"
+        );
+        let deadline = Instant::now() + Duration::from_millis(job.limits.wall_time_ms);
+        let cancel = CancellationToken::new();
+        let result = build(
+            &job.config,
+            &job.limits,
+            job.request,
+            &job.staging,
+            &cancel,
+            deadline,
+        );
+        crate::ipc::write_result(&mut protocol, result)
+    })();
+    if let Err(error) = result {
+        let _ = writeln!(std::io::stderr(), "internal builder failed: {error}");
+    }
+    Ok(true)
+}
+
+fn is_internal_invocation(args: &[std::ffi::OsString]) -> bool {
+    args.len() == 1 && args[0] == INTERNAL_ARG
+}
+
+fn protocol_stdout() -> Result<File> {
+    unsafe {
+        let fd: RawFd = libc::dup(libc::STDOUT_FILENO);
+        ensure!(
+            fd >= 0,
+            "duplicate internal protocol stdout: {}",
+            std::io::Error::last_os_error()
+        );
+        let output = File::from_raw_fd(fd);
+        ensure!(
+            libc::dup2(libc::STDERR_FILENO, libc::STDOUT_FILENO) >= 0,
+            "redirect internal builder stdout: {}",
+            std::io::Error::last_os_error()
+        );
+        Ok(output)
+    }
+}
+
 struct Job<'a> {
     config: &'a BuilderConfig,
     limits: &'a BuildLimits,
@@ -66,6 +128,7 @@ struct GuestOutput {
     diagnostics: String,
     rust_diagnostics: Vec<u8>,
     link_diagnostics: Vec<u8>,
+    console_bytes: usize,
     failure: Option<GuestFailure>,
     failed: bool,
 }
@@ -157,10 +220,26 @@ fn execute(
     let output = Arc::new(Mutex::new(GuestOutput::default()));
     let sink = output.clone();
     let limits = job.limits.clone();
+    let console_sink = output.clone();
+    let console_limit = job.limits.diagnostics_bytes;
     let mut sandbox = SandboxBuilder::from_initrd(image.path())
         .scratch_mb(job.limits.guest_scratch_mib)
         .mount(Mount::ro(&input, "/input"))
         .profile(false)
+        .host_function("HostPrint", move |input| {
+            let [message]: [String; 1] =
+                serde_json::from_str(input).map_err(|error| error.to_string())?;
+            let mut output = console_sink
+                .lock()
+                .map_err(|_| "output sink poisoned".to_owned())?;
+            let used = output.console_bytes.checked_add(message.len());
+            if used.is_none_or(|size| size > console_limit) {
+                output.failed = true;
+                return Err("guest console output exceeded its budget".into());
+            }
+            output.console_bytes = used.unwrap_or_default();
+            Ok(i32::try_from(message.len()).unwrap_or(i32::MAX).to_string())
+        })
         // This is a bounded write-only extraction channel, not an application
         // tool import. There are no writable mounts, network, or other tools.
         .host_function("builder-output", move |input| {
@@ -353,7 +432,9 @@ fn extract_chunk(output: &mut GuestOutput, input: &str, limits: &BuildLimits) ->
             ensure!(
                 bytes.len()
                     <= limits.diagnostics_bytes.saturating_sub(
-                        output.rust_diagnostics.len() + output.link_diagnostics.len()
+                        output.rust_diagnostics.len()
+                            + output.link_diagnostics.len()
+                            + output.console_bytes
                     ),
                 "guest diagnostics exceed budget"
             );
@@ -495,6 +576,59 @@ fn prepare_sources(staging: &Path, source: &str, bindings: &str) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn internal_dispatch_requires_the_exact_single_argument() {
+        assert!(is_internal_invocation(&[INTERNAL_ARG.into()]));
+        assert!(!is_internal_invocation(&[]));
+        assert!(!is_internal_invocation(&[
+            INTERNAL_ARG.into(),
+            "unexpected".into()
+        ]));
+        assert!(!is_internal_invocation(&[
+            "--wassette-internal-builder-v0".into()
+        ]));
+    }
+
+    #[test]
+    fn invalid_wit_returns_bounded_redacted_diagnostics_before_vm_boot() {
+        let root = tempfile::tempdir().unwrap();
+        let image = root.path().join("image");
+        std::fs::write(&image, b"not a bootable image").unwrap();
+        let config = BuilderConfig::new(image, root.path().into()).unwrap();
+        let limits = BuildLimits {
+            diagnostics_bytes: 1024,
+            ..BuildLimits::default()
+        };
+        let request = BuildRequest {
+            component_name: "test:diagnostic".into(),
+            source: "PRIVATE_RUST_SOURCE_BODY".into(),
+            wit: "package test:broken@1.0.0;\nworld tool { export run: func() } // PRIVATE_WIT_SOURCE_BODY".into(),
+            world: "tool".into(),
+            kind: ComponentKind::Tool,
+        };
+        let staging = tempfile::tempdir_in(root.path()).unwrap();
+        let error = build(
+            &config,
+            &limits,
+            request,
+            staging.path(),
+            &CancellationToken::new(),
+            Instant::now() + Duration::from_secs(5),
+        )
+        .unwrap_err();
+        let failure = BuildError::from_error(&error).unwrap();
+        assert_eq!(failure.kind(), BuildErrorKind::InvalidWit);
+        let message = failure.diagnostic().unwrap();
+        assert!(
+            message.contains("expected") && message.contains("WIT:2:"),
+            "{message}"
+        );
+        assert!(message.len() <= limits.diagnostics_bytes);
+        assert!(!message.contains("PRIVATE_"));
+        assert!(!message.contains(root.path().to_str().unwrap()));
+        assert_eq!(std::fs::read_dir(staging.path()).unwrap().count(), 0);
+    }
 
     #[test]
     fn export_roots_include_every_function_and_post_return() {

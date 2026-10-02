@@ -378,24 +378,25 @@ pub async fn run(
     let resolver = Arc::new(Resolver::with_config(lifecycle_config.clone()));
     let tool_manager = Arc::new(::wassette::LifecycleManager::from_config(lifecycle_config).await?);
     #[cfg(feature = "component-generation")]
-    let generation_enabled =
-        if let Some(mut config) = ::wassette::generation::GenerationConfig::discover()? {
-            config.builder.wit_dependencies = generation_wit_dependencies();
-            let service = config
-                .into_service()?
-                .with_validator(Arc::new(AcpLocalValidator::new(
-                    engine.clone(),
-                    component_dir.clone(),
-                )));
-            tool_manager.enable_generation(service)?;
-            true
-        } else {
-            tracing::info!(
-                image = %::wassette::generation::GenerationConfig::image_path()?.display(),
-                "Component generation unavailable; place the builder image at this path"
-            );
-            false
-        };
+    let generation_enabled = if let Some(mut config) =
+        ::wassette::generation::GenerationConfig::discover()?
+    {
+        config.builder.wit_dependencies = generation_wit_dependencies();
+        let service = config
+            .into_service()?
+            .with_validator(Arc::new(AcpLocalValidator::new(
+                engine.clone(),
+                component_dir.clone(),
+            )));
+        tool_manager.enable_generation(service)?;
+        true
+    } else {
+        tracing::info!(
+            image = %::wassette::generation::GenerationConfig::image_path()?.display(),
+            "Component generation disabled: install the builder image at ~/.local/share/wassette/builder/rust-initrd.cpio (or under $XDG_DATA_HOME/wassette/builder/)"
+        );
+        false
+    };
     #[cfg(not(feature = "component-generation"))]
     let generation_enabled = false;
     let local_source = if local_source_config.mode == ::wassette::local_source::LocalMode::Off {
@@ -669,6 +670,11 @@ mod tool_args_tests {
     fn generated_layers_receive_the_canonical_acp_wit() {
         let dependencies = generation_wit_dependencies();
         assert_eq!(dependencies.len(), 4);
+        assert!(dependencies.len() <= 32);
+        assert!(
+            dependencies.iter().map(String::len).sum::<usize>()
+                <= ::wassette::generation::BuildLimits::default().wit_bytes
+        );
         assert!(dependencies[3].contains("world layer"));
         assert!(dependencies[3].contains("interface agent"));
         assert_eq!(

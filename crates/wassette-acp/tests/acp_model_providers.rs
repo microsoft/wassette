@@ -785,7 +785,19 @@ mod generation {
         if image {
             let builder = xdg.path().join("data/wassette/builder");
             std::fs::create_dir_all(&builder).unwrap();
-            std::fs::write(builder.join("rust-initrd.cpio"), b"not an image").unwrap();
+            let target = builder.join("rust-initrd.cpio");
+            if let Some(source) = std::env::var_os("WASSETTE_ACP_GENERATION_IMAGE") {
+                let source = PathBuf::from(source);
+                match std::fs::hard_link(&source, &target) {
+                    Ok(()) => {}
+                    Err(error) if error.kind() == std::io::ErrorKind::CrossesDevices => {
+                        std::fs::copy(&source, &target).expect("copy builder image across devices");
+                    }
+                    Err(error) => panic!("hard-link builder image: {error}"),
+                }
+            } else {
+                std::fs::write(target, b"not an image").unwrap();
+            }
         }
         Harness::spawn(bin, wasm, &["--allow-all"], env, xdg, Vec::new())
     }
@@ -836,7 +848,8 @@ mod generation {
 
     /// The Copilot provider advertises `build_component` only when the builder
     /// image exists, and a model call reaches editor approval rather than being
-    /// rejected as disabled. The placeholder image makes the build itself fail.
+    /// rejected as disabled. With WASSETTE_ACP_GENERATION_IMAGE the build
+    /// completes; without it, the placeholder image makes the build fail.
     #[test]
     fn copilot_provider_build_component_reaches_host_generation() {
         let Some((bin, wasm)) = artifacts("acp-copilot-provider", "acp_copilot_provider") else {
@@ -877,7 +890,23 @@ mod generation {
 
         // Without the image, the model-facing build tool is absent.
         let mut h = start_generation(&bin, &wasm, false, &env);
-        let (_, result) = h.prompt_once("hi");
+        let id = h.request(
+            "initialize",
+            json!({"protocolVersion": 1, "clientCapabilities": {}}),
+        );
+        h.await_response(id);
+        let cwd = tempfile::tempdir().unwrap();
+        let id = h.request("session/new", json!({"cwd": cwd.path(), "mcpServers": []}));
+        let (_, session) = h.await_response(id);
+        let listing = h.slash(session["sessionId"].as_str().unwrap(), "/tools list");
+        assert!(
+            listing.contains(
+                "install the builder image at `~/.local/share/wassette/builder/rust-initrd.cpio`"
+            ),
+            "{listing}"
+        );
+        assert!(!listing.contains("| `build_component` | `host` | enabled |"));
+        let (_, result) = h.prompt(session["sessionId"].as_str().unwrap(), "hi");
         drop(h);
         // The first (tool-call) mock answered; the provider reports the unknown
         // tool, then the fallback mock ends the turn.
@@ -909,13 +938,23 @@ mod generation {
         let id = h.request("session/new", json!({"cwd": cwd.path(), "mcpServers": []}));
         let (_, session) = h.await_response(id);
         let session_id = session["sessionId"].as_str().unwrap().to_owned();
+        let listing = h.slash(&session_id, "/tools list");
+        assert!(
+            listing.contains("| `build_component` | `host` | enabled |"),
+            "{listing}"
+        );
         let prompt = h.request(
             "session/prompt",
             json!({"sessionId": session_id, "prompt": [{"type": "text", "text": "build it"}]}),
         );
         let mut permissions = Vec::new();
         let result = loop {
-            let line = h.lines.recv_timeout(LINE_TIMEOUT).unwrap_or_else(|e| {
+            let timeout = if std::env::var_os("WASSETTE_ACP_GENERATION_IMAGE").is_some() {
+                Duration::from_secs(240)
+            } else {
+                LINE_TIMEOUT
+            };
+            let line = h.lines.recv_timeout(timeout).unwrap_or_else(|e| {
                 panic!(
                     "waiting for the prompt ({e}); stderr:\n{}",
                     h.stderr.lock().unwrap()
@@ -963,10 +1002,42 @@ mod generation {
             !tool_result.contains("disabled") && !tool_result.contains("unknown tool"),
             "{tool_result}"
         );
-        assert!(
-            tool_result.contains("unavailable") || tool_result.contains("Build failed"),
-            "{tool_result}"
-        );
+        if std::env::var_os("WASSETTE_ACP_GENERATION_IMAGE").is_some() {
+            for title in [
+                "Build component in isolated VM",
+                "Install exact generated component",
+                "Expose generated tools in shared store and this session",
+            ] {
+                assert!(
+                    permissions
+                        .iter()
+                        .any(|p| p["params"]["toolCall"]["title"] == title),
+                    "missing {title} editor approval: {permissions:#?}"
+                );
+            }
+            assert!(
+                tool_result.contains("Installed component `local:answer`"),
+                "{tool_result}"
+            );
+            let store = wassette::store::ComponentStore::open(
+                h._xdg.path().join("data/wassette/components"),
+            )
+            .unwrap();
+            assert_eq!(
+                store
+                    .read("local:answer")
+                    .unwrap()
+                    .receipt
+                    .component_id
+                    .as_str(),
+                "local:answer"
+            );
+        } else {
+            assert!(
+                tool_result.contains("unavailable") || tool_result.contains("Build failed"),
+                "{tool_result}"
+            );
+        }
     }
 }
 
