@@ -662,7 +662,7 @@ async fn stateless_subscription_receives_tool_list_changed_after_unload() -> Res
         Some("unload-component"),
         json!({
             "name": "unload-component",
-            "arguments": { "id": "fetch_rs" },
+            "arguments": { "id": "local:fetch_rs" },
             "_meta": stateless_meta(),
         }),
     )

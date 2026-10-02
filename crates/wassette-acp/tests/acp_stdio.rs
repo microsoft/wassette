@@ -158,20 +158,33 @@ struct Harness {
     /// component store.
     _xdg: tempfile::TempDir,
     local_drop: Option<PathBuf>,
+    initial_enable_components: Vec<String>,
     next_id: i64,
     line_timeout: Duration,
 }
 
 impl Harness {
-    /// Start `wassette acp --provider <wasm> [extra…]` with fresh XDG
-    /// directories.
+    /// Start ACP with one provider installed in a fresh component store.
     fn start(bin: &Path, wasm: &Path, extra: &[&str]) -> Harness {
         Self::start_with_env(bin, wasm, extra, &[])
     }
 
     fn start_with_env(bin: &Path, wasm: &Path, extra: &[&str], env: &[(&str, &str)]) -> Harness {
+        Self::start_with_providers_and_env(bin, &[wasm], extra, env)
+    }
+
+    fn start_with_providers(bin: &Path, providers: &[&Path], extra: &[&str]) -> Harness {
+        Self::start_with_providers_and_env(bin, providers, extra, &[])
+    }
+
+    fn start_with_providers_and_env(
+        bin: &Path,
+        providers: &[&Path],
+        extra: &[&str],
+        env: &[(&str, &str)],
+    ) -> Harness {
         let xdg = tempfile::tempdir().expect("tempdir");
-        Self::spawn(bin, wasm, extra, xdg, None, env)
+        Self::spawn(bin, providers, extra, xdg, None, &[], env)
     }
 
     fn start_with_local_tool(
@@ -181,12 +194,12 @@ impl Harness {
         mode: &str,
         expose: bool,
     ) -> Harness {
-        let exposed = if expose {
-            vec!["microsoft:filesystem-rs"]
+        let initial_enable = if expose {
+            vec!["local:unrelated-name".to_owned()]
         } else {
             Vec::new()
         };
-        Self::start_with_local_source(bin, provider, Some(tool), mode, &exposed, &[])
+        Self::start_with_local_source(bin, provider, Some(tool), mode, &initial_enable, &[])
     }
 
     fn start_with_local_source(
@@ -194,7 +207,25 @@ impl Harness {
         provider: &Path,
         tool: Option<&Path>,
         mode: &str,
-        exposed: &[&str],
+        initial_enable: &[String],
+        extra_args: &[&str],
+    ) -> Harness {
+        Self::start_with_local_source_and_providers(
+            bin,
+            &[provider],
+            tool,
+            mode,
+            initial_enable,
+            extra_args,
+        )
+    }
+
+    fn start_with_local_source_and_providers(
+        bin: &Path,
+        providers: &[&Path],
+        tool: Option<&Path>,
+        mode: &str,
+        initial_enable: &[String],
         extra_args: &[&str],
     ) -> Harness {
         let xdg = tempfile::tempdir().expect("tempdir");
@@ -211,19 +242,25 @@ impl Harness {
             "--local-components".to_string(),
             mode.to_string(),
         ];
-        for component in exposed {
-            extra.extend(["--tool".to_string(), component.to_string()]);
-        }
         extra.extend(extra_args.iter().map(|arg| arg.to_string()));
-        Self::spawn(bin, provider, &extra, xdg, Some(drops.clone()), &[])
+        Self::spawn(
+            bin,
+            providers,
+            &extra,
+            xdg,
+            Some(drops.clone()),
+            initial_enable,
+            &[],
+        )
     }
 
     fn spawn<I, S>(
         bin: &Path,
-        wasm: &Path,
+        providers: &[&Path],
         extra: I,
         xdg: tempfile::TempDir,
         local_drop: Option<PathBuf>,
+        initial_enable_components: &[String],
         env: &[(&str, &str)],
     ) -> Harness
     where
@@ -236,11 +273,12 @@ impl Harness {
         for dir in [&data, &config, &state] {
             std::fs::create_dir_all(dir).expect("create xdg dir");
         }
+        for provider in providers {
+            common::install_fixture(&data.join("wassette/components"), provider);
+        }
 
         let mut cmd = Command::new(bin);
         cmd.arg("acp")
-            .arg("--provider")
-            .arg(wasm)
             .args(extra)
             .env("XDG_DATA_HOME", &data)
             .env("XDG_CONFIG_HOME", &config)
@@ -289,6 +327,7 @@ impl Harness {
             stderr: stderr_output,
             _xdg: xdg,
             local_drop,
+            initial_enable_components: initial_enable_components.to_vec(),
             next_id: 0,
             line_timeout: LINE_TIMEOUT,
         }
@@ -462,6 +501,19 @@ impl Harness {
         let session_id = self.open_session_without_grace();
         std::thread::sleep(GATE_FLUSH_GRACE);
         self.drain_pending();
+        for component in self.initial_enable_components.clone() {
+            let inventory = self.prompt(&session_id, "/tools list");
+            let (updates, _) = self.await_response(inventory);
+            let message = response_text(&updates);
+            for name in message.lines().filter_map(|line| {
+                let columns = line.split('|').map(str::trim).collect::<Vec<_>>();
+                (columns.len() > 4 && columns[2].trim_matches('`') == component)
+                    .then(|| columns[1].trim_matches('`').to_owned())
+            }) {
+                let enable = self.prompt(&session_id, &format!("/tools enable {name}"));
+                self.await_response(enable);
+            }
+        }
         session_id
     }
 
@@ -529,7 +581,7 @@ fn wait_for_revision(store: &ComponentStore, before: &EntryRevision) {
     let deadline = std::time::Instant::now() + Duration::from_secs(20);
     loop {
         let current = store
-            .read("microsoft:filesystem-rs")
+            .read("local:unrelated-name")
             .expect("read managed tool");
         if &current.receipt.revision != before {
             return;
@@ -602,33 +654,29 @@ fn cancelled_prompts_flush_all_chunks_before_the_response() {
     let Some((bin, wasm)) = artifacts() else {
         return;
     };
-    let layer =
-        uppercase_layer().expect("build ACP uppercase layer with `just build-acp-examples`");
-    for extra in [&[][..], &["--layer", layer.to_str().unwrap()][..]] {
-        let mut h = Harness::start(&bin, &wasm, extra);
-        let sid = h.open_session();
-        let prompt = "hello ".repeat(5000);
-        for turn in 0..20 {
-            let id = h.request(
-                "session/prompt",
-                json!({"sessionId": sid, "prompt": [{"type": "text", "text": prompt}]}),
-            );
-            loop {
-                let msg: Value = serde_json::from_str(&h.next_line()).expect("JSON-RPC output");
-                if agent_message_chunk_text(&msg).is_some() {
-                    break;
-                }
-                assert_ne!(msg["id"], id, "turn {turn} ended before its first chunk");
+    let mut h = Harness::start(&bin, &wasm, &[]);
+    let sid = h.open_session();
+    let prompt = "hello ".repeat(5000);
+    for turn in 0..20 {
+        let id = h.request(
+            "session/prompt",
+            json!({"sessionId": sid, "prompt": [{"type": "text", "text": prompt}]}),
+        );
+        loop {
+            let msg: Value = serde_json::from_str(&h.next_line()).expect("JSON-RPC output");
+            if agent_message_chunk_text(&msg).is_some() {
+                break;
             }
-            h.notify("session/cancel", json!({"sessionId": sid}));
-            let (_, result) = h.await_response(id);
-            assert_eq!(result["stopReason"], "cancelled", "turn {turn}: {result}");
-            let late = h.drain_pending();
-            assert!(
-                late.iter().all(|m| agent_message_chunk_text(m).is_none()),
-                "turn {turn} delivered chunks after cancellation: {late:?}"
-            );
+            assert_ne!(msg["id"], id, "turn {turn} ended before its first chunk");
         }
+        h.notify("session/cancel", json!({"sessionId": sid}));
+        let (_, result) = h.await_response(id);
+        assert_eq!(result["stopReason"], "cancelled", "turn {turn}: {result}");
+        let late = h.drain_pending();
+        assert!(
+            late.iter().all(|m| agent_message_chunk_text(m).is_none()),
+            "turn {turn} delivered chunks after cancellation: {late:?}"
+        );
     }
 }
 
@@ -821,49 +869,6 @@ fn a_prompt_streams_chunks_and_ends_the_turn() {
 }
 
 #[test]
-fn two_layered_sessions_keep_independent_shout_state() {
-    let Some((bin, wasm)) = artifacts() else {
-        return;
-    };
-    let layer =
-        uppercase_layer().expect("build ACP uppercase layer with `just build-acp-examples`");
-    let mut h = Harness::start(&bin, &wasm, &["--layer", layer.to_str().unwrap()]);
-    let a = h.open_session();
-    let id = h.request(
-        "session/prompt",
-        json!({"sessionId": a, "prompt": [{"type": "text", "text": "/shout"}]}),
-    );
-    h.await_response(id);
-    let id = h.request(
-        "session/new",
-        json!({"cwd": std::env::temp_dir(), "mcpServers": []}),
-    );
-    let (_, session) = h.await_response(id);
-    let b = session["sessionId"].as_str().expect("second session id");
-    assert_ne!(a, b, "guest sessions must have unique IDs");
-    let b = b.to_string();
-
-    for (sid, expected) in [(&a, "HELLO FROM A"), (&b, "hello from b")] {
-        let text = if sid == &a {
-            "hello from a"
-        } else {
-            "hello from b"
-        };
-        let id = h.request(
-            "session/prompt",
-            json!({"sessionId": sid, "prompt": [{"type": "text", "text": text}]}),
-        );
-        let (updates, result) = h.await_response(id);
-        assert_eq!(result["stopReason"], "end_turn");
-        let echoed: String = updates
-            .iter()
-            .filter_map(agent_message_chunk_text)
-            .collect();
-        assert_eq!(echoed, expected, "session {sid} lost its independent state");
-    }
-}
-
-#[test]
 fn unadvertised_load_does_not_replace_the_active_session() {
     let Some((bin, wasm)) = artifacts() else {
         return;
@@ -919,7 +924,8 @@ fn install_local_path_reports_receipt_backed_installation() {
     let text = finish["params"]["update"]["content"][0]["content"]["text"]
         .as_str()
         .expect("install result text");
-    assert!(text.contains("Ready to use"), "{text}");
+    assert!(text.contains("Installed ACP component"), "{text}");
+    assert!(text.contains("not hot-swapped"), "{text}");
     assert!(text.contains("acp_echo_provider.wasm"), "{text}");
     assert!(
         h._xdg
@@ -1012,24 +1018,24 @@ fn tools_command_lists_and_toggles_session_exposure() {
         listed.contains("| Name | Component | Status | Description |"),
         "{listed}"
     );
-    assert!(listed.contains("microsoft:filesystem-rs/"), "{listed}");
-    assert!(listed.contains("| disabled |"), "{listed}");
+    assert!(listed.contains("local:unrelated-name/"), "{listed}");
+    assert!(listed.contains("| enabled |"), "{listed}");
+    assert!(!listed.contains("| disabled |"), "{listed}");
     assert_eq!(listed, prompt_text(&mut h, "/tools list"));
     let full_name = listed
         .lines()
-        .find(|line| line.contains("microsoft:filesystem-rs/") && line.contains("write-file"))
+        .find(|line| line.contains("local:unrelated-name/") && line.contains("write-file"))
         .unwrap()
         .split('`')
         .nth(1)
         .unwrap();
     let command = h.write_command("enabled dynamically");
+    let disabled = prompt_text(&mut h, &format!("/tools disable {full_name}"));
+    assert!(disabled.contains("disabled for this session"), "{disabled}");
     assert!(prompt_text(&mut h, &command).contains("NotFound(\"write-file\")"));
-    let ambiguous = prompt_text(&mut h, "/tools enable microsoft:filesystem-rs");
+    let ambiguous = prompt_text(&mut h, "/tools enable local:unrelated-name");
     assert!(ambiguous.contains("ambiguous tool"), "{ambiguous}");
-    assert!(
-        ambiguous.contains("microsoft:filesystem-rs/"),
-        "{ambiguous}"
-    );
+    assert!(ambiguous.contains("local:unrelated-name/"), "{ambiguous}");
     assert!(prompt_text(&mut h, "/tools enable not-a-tool").contains("unknown tool"));
     assert!(prompt_text(&mut h, "/tools nonsense").contains("Usage:"));
     let enabled = prompt_text(&mut h, &format!("/tools enable {full_name}"));
@@ -1049,6 +1055,90 @@ fn tools_command_lists_and_toggles_session_exposure() {
             || std::fs::read_to_string(h._xdg.path().join("tool-output/written.txt")).unwrap()
                 == "enabled dynamically"
     );
+}
+
+#[test]
+fn installed_tools_appear_and_run_in_an_existing_session() {
+    let Some((bin, provider)) = artifacts() else {
+        return;
+    };
+    let Some(tool) = filesystem_tool() else {
+        return;
+    };
+    let mut h = Harness::start(&bin, &provider, &[]);
+    let output_dir = h._xdg.path().join("tool-output");
+    std::fs::create_dir_all(&output_dir).unwrap();
+    let policy = json!({
+        "version": "1.0",
+        "permissions": {"storage": {"allow": [{
+            "uri": format!("fs://{}", output_dir.canonicalize().unwrap().display()),
+            "access": ["read", "write"],
+        }]}},
+    });
+    std::fs::write(
+        tool.with_extension("policy.yaml"),
+        serde_json::to_vec(&policy).unwrap(),
+    )
+    .unwrap();
+    let sid = h.open_session();
+    let list = |h: &mut Harness| {
+        let id = h.prompt(&sid, "/tools list");
+        let (updates, _) = h.await_response(id);
+        response_text(&updates)
+    };
+    assert!(!list(&mut h).contains("local:filesystem/"));
+
+    let install = h.prompt(&sid, &format!("/install {}", tool.display()));
+    let (installed, _) = h.await_response(install);
+    assert!(
+        installed
+            .iter()
+            .filter_map(|message| {
+                message
+                    .pointer("/params/update/content/0/content/text")
+                    .and_then(Value::as_str)
+            })
+            .any(|text| text.contains("enabled its tools")),
+        "{installed:?}"
+    );
+    let deadline = std::time::Instant::now() + Duration::from_secs(6);
+    let inventory = loop {
+        let inventory = list(&mut h);
+        if inventory.contains("local:filesystem/") {
+            break inventory;
+        }
+        assert!(
+            std::time::Instant::now() < deadline,
+            "store refresh did not publish the installed tool: {inventory}"
+        );
+        std::thread::sleep(Duration::from_millis(200));
+    };
+    let full_name = inventory
+        .lines()
+        .find(|line| line.contains("local:filesystem/") && line.contains("write-file"))
+        .unwrap()
+        .split('`')
+        .nth(1)
+        .unwrap();
+    assert!(
+        inventory
+            .lines()
+            .any(|line| line.contains(full_name) && line.contains("| enabled |")),
+        "{inventory}"
+    );
+
+    let command = h.write_command("installed during this session");
+    let call = h.prompt(&sid, &command);
+    let (updates, _) = h.await_response_with_permission(call, "allow-once");
+    assert!(
+        response_text(&updates).contains("Successfully wrote"),
+        "{updates:?}"
+    );
+    assert_eq!(
+        std::fs::read_to_string(output_dir.join("written.txt")).unwrap(),
+        "installed during this session"
+    );
+    h.close_stdin_and_wait();
 }
 
 #[test]
@@ -1178,7 +1268,7 @@ fn local_tool_invocation_routes_permission_and_status_over_stdio() {
 }
 
 #[test]
-fn startup_discovery_installs_but_does_not_expose_local_tools() {
+fn startup_discovery_installs_and_exposes_local_tools() {
     let Some((bin, provider)) = artifacts() else {
         return;
     };
@@ -1187,23 +1277,11 @@ fn startup_discovery_installs_but_does_not_expose_local_tools() {
     };
     let mut h = Harness::start_with_local_tool(&bin, &provider, &tool, "startup", false);
     let sid = h.open_session();
-    let id = h.request(
-        "session/prompt",
-        json!({
-            "sessionId": sid,
-            "prompt": [{"type": "text", "text": "/remember-tool file-exists"}],
-        }),
-    );
+    let id = h.prompt(&sid, "/remember-tool file-exists");
     let (messages, response) = h.await_response(id);
     assert_eq!(response["stopReason"], "end_turn");
-    assert!(
-        messages
-            .iter()
-            .filter_map(agent_message_chunk_text)
-            .any(|text| text == "tool not found: file-exists"),
-        "local tool was unexpectedly exposed: {messages:?}"
-    );
-    let receipt = h.store().read("microsoft:filesystem-rs").unwrap().receipt;
+    assert_eq!(response_text(&messages), "remembered file-exists");
+    let receipt = h.store().read("local:unrelated-name").unwrap().receipt;
     assert_eq!(receipt.kind, StoredArtifactKind::Tool);
     assert!(matches!(receipt.owner, InstallOwner::ManagedLocalSource(_)));
     assert_ne!(receipt.storage_key.as_str(), receipt.component_id.as_str());
@@ -1222,28 +1300,40 @@ fn watch_add_replace_remove_preserves_revision_bound_permissions() {
         &provider,
         None,
         "watch",
-        &["microsoft:filesystem-rs"],
+        &["local:unrelated-name".to_owned()],
         &[],
     );
     let sid = h.open_session();
     let id = h.prompt(&sid, "/remember-tool write-file");
     let (messages, _) = h.await_response(id);
     assert_eq!(response_text(&messages), "tool not found: write-file");
-    let id = h.prompt(&sid, "/wait-tools");
     let drop = h.local_drop.as_ref().expect("watch drop directory").clone();
     let output_dir = h._xdg.path().join("tool-output");
     write_local_tool(&drop, &tool, &output_dir);
+    let deadline = std::time::Instant::now() + Duration::from_secs(20);
+    loop {
+        let id = h.prompt(&sid, "/tools list");
+        let (messages, _) = h.await_response(id);
+        if response_text(&messages).contains("local:unrelated-name/") {
+            break;
+        }
+        assert!(
+            std::time::Instant::now() < deadline,
+            "watched tool did not appear in the session catalog"
+        );
+        std::thread::sleep(Duration::from_millis(100));
+    }
+    let id = h.prompt(&sid, "/tools enable write-file");
     let (messages, _) = h.await_response(id);
-    assert_eq!(response_text(&messages), "catalog changed");
+    assert!(
+        response_text(&messages).contains("enabled for this session"),
+        "{messages:?}"
+    );
     let id = h.prompt(&sid, "/remember-tool write-file");
     let (messages, _) = h.await_response(id);
     assert_eq!(response_text(&messages), "remembered write-file");
     let store = h.store();
-    let before = store
-        .read("microsoft:filesystem-rs")
-        .unwrap()
-        .receipt
-        .revision;
+    let before = store.read("local:unrelated-name").unwrap().receipt.revision;
 
     for (content, expected_requests) in [("first call", 1), ("remembered call", 0)] {
         let command = h.write_command(content);
@@ -1285,6 +1375,9 @@ fn watch_add_replace_remove_preserves_revision_bound_permissions() {
     );
     let (_, session) = h.await_response(new_id);
     let second = session["sessionId"].as_str().unwrap();
+    let enable = h.prompt(second, "/tools enable write-file");
+    let (enabled, _) = h.await_response(enable);
+    assert!(response_text(&enabled).contains("enabled for this session"));
     let id = h.prompt(second, &command);
     let (messages, _) = h.await_response_with_permission(id, "reject-once");
     assert_eq!(
@@ -1297,11 +1390,21 @@ fn watch_add_replace_remove_preserves_revision_bound_permissions() {
     let id = h.prompt(&sid, "/remember-tool write-file");
     let (messages, _) = h.await_response(id);
     assert_eq!(response_text(&messages), "remembered write-file");
-    let id = h.prompt(&sid, "/wait-tools");
     std::fs::remove_file(&wasm).expect("remove watched local tool");
     std::fs::remove_file(wasm.with_extension("policy.yaml")).unwrap();
-    let (messages, _) = h.await_response(id);
-    assert_eq!(response_text(&messages), "catalog changed");
+    let deadline = std::time::Instant::now() + Duration::from_secs(20);
+    loop {
+        let id = h.prompt(&sid, "/tools list");
+        let (messages, _) = h.await_response(id);
+        if !response_text(&messages).contains("local:unrelated-name/") {
+            break;
+        }
+        assert!(
+            std::time::Instant::now() < deadline,
+            "removed watched tool remained in the session catalog"
+        );
+        std::thread::sleep(Duration::from_millis(100));
+    }
     let id = h.prompt(&sid, r#"/call-saved {"path":".","content":"removed"}"#);
     let (messages, _) = h.await_response_with_permission(id, "allow-once");
     assert_eq!(permission_count(&messages), 0);
@@ -1319,11 +1422,7 @@ fn replacement_while_permission_is_pending_never_executes() {
     let mut h = Harness::start_with_local_tool(&bin, &provider, &tool, "watch", true);
     let sid = h.open_session();
     let store = h.store();
-    let before = store
-        .read("microsoft:filesystem-rs")
-        .unwrap()
-        .receipt
-        .revision;
+    let before = store.read("local:unrelated-name").unwrap().receipt.revision;
     let command = h.write_command("must not run");
     let id = h.prompt(&sid, &command);
     let permission = h.await_permission(id);
@@ -1378,60 +1477,6 @@ fn cancellation_while_permission_is_pending_reports_no_execution() {
 }
 
 #[test]
-fn layered_tool_permissions_require_opt_in_and_reach_the_editor() {
-    let Some((bin, provider)) = artifacts() else {
-        return;
-    };
-    let Some(tool) = filesystem_tool() else {
-        return;
-    };
-    let Some(layer) = uppercase_layer() else {
-        assert!(
-            std::env::var_os("CI").is_none(),
-            "CI requires the uppercase layer"
-        );
-        eprintln!("skipping: uppercase layer not built");
-        return;
-    };
-    let layer = layer.to_str().unwrap();
-    let mut denied = Harness::start_with_local_source(
-        &bin,
-        &provider,
-        Some(&tool),
-        "startup",
-        &["microsoft:filesystem-rs"],
-        &["--layer", layer],
-    );
-    drop(denied.stdin.take());
-    assert!(
-        !denied.child.wait().unwrap().success(),
-        "layered tools ran without opt-in"
-    );
-    let mut h = Harness::start_with_local_source(
-        &bin,
-        &provider,
-        Some(&tool),
-        "startup",
-        &["microsoft:filesystem-rs"],
-        &["--layer", layer, "--allow-shared-grants"],
-    );
-    let sid = h.open_session();
-    let command = h.write_command("layered");
-    let id = h.prompt(&sid, &command);
-    let (messages, _) = h.await_response_with_permission(id, "allow-once");
-    assert_eq!(permission_count(&messages), 1);
-    let permission = messages
-        .iter()
-        .find(|message| message["method"] == "session/request_permission")
-        .unwrap();
-    assert_eq!(permission["params"]["sessionId"], sid);
-    assert_eq!(
-        std::fs::read_to_string(h._xdg.path().join("tool-output/written.txt")).unwrap(),
-        "layered"
-    );
-}
-
-#[test]
 fn local_acp_drops_are_export_checked_and_never_activated() {
     let Some((bin, provider)) = artifacts() else {
         return;
@@ -1441,7 +1486,7 @@ fn local_acp_drops_are_export_checked_and_never_activated() {
         &provider,
         None,
         "watch",
-        &["discovered-agent"],
+        &["local:candidate".to_owned()],
         &[],
     );
     let sid = h.open_session();
@@ -1467,7 +1512,7 @@ fn local_acp_drops_are_export_checked_and_never_activated() {
     let store = h.store();
     let deadline = std::time::Instant::now() + Duration::from_secs(20);
     let receipt = loop {
-        match store.read("discovered-agent") {
+        match store.read("local:candidate") {
             Ok(snapshot) => break snapshot.receipt,
             Err(wassette::store::StoreError::NotFound(_)) => {
                 assert!(
@@ -1480,13 +1525,12 @@ fn local_acp_drops_are_export_checked_and_never_activated() {
         }
     };
     assert_eq!(receipt.kind, StoredArtifactKind::AcpProvider);
-    assert!(!receipt.requests_tool_exposure());
     assert!(matches!(
         receipt.validation,
         ValidationEvidence::AcpCompiledAndExportChecked { .. }
     ));
     assert!(matches!(
-        store.read("incompatible-agent"),
+        store.read("local:bad-version"),
         Err(wassette::store::StoreError::NotFound(_))
     ));
     let id = h.prompt(&sid, "original provider remains active");
@@ -1786,202 +1830,22 @@ fn invalid_session_selectors_do_not_advertise_install() {
 }
 
 #[test]
-fn duplicate_provider_selection_fails_with_a_clear_cli_error() {
-    let Some((bin, wasm)) = artifacts() else {
+fn removed_component_selection_flags_fail_with_a_clear_cli_error() {
+    let Some((bin, _)) = artifacts() else {
         return;
     };
-    let components = tempfile::tempdir().unwrap();
-    let output = Command::new(bin)
-        .arg("acp")
-        .arg("--component-dir")
-        .arg(components.path())
-        .arg("--provider")
-        .arg(&wasm)
-        .arg("--provider")
-        .arg(&wasm)
-        .output()
-        .expect("run CLI");
-    assert!(
-        !output.status.success(),
-        "duplicate providers were accepted"
-    );
-    assert!(
-        String::from_utf8_lossy(&output.stderr).contains("was selected more than once"),
-        "unexpected error: {}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-}
-
-#[test]
-fn policy_free_layer_chain_runs_without_shared_grants_flag() {
-    let Some((bin, wasm)) = artifacts() else {
-        return;
-    };
-    let layer = uppercase_layer().expect("build the uppercase layer with just build-acp-examples");
-    let mut h = Harness::start(&bin, &wasm, &["--layer", layer.to_str().unwrap()]);
-    let session_id = h.open_session_without_grace();
-    std::thread::sleep(GATE_FLUSH_GRACE);
-    let updates = h.drain_pending();
-    assert!(
-        updates.iter().any(|update| {
-            update["method"] == "session/update"
-                && update["params"]["sessionId"] == session_id
-                && update["params"]["update"]["sessionUpdate"] == "available_commands_update"
-                && update["params"]["update"]["availableCommands"][0]["name"] == "shout"
-        }),
-        "layer did not advertise /shout after session/new: {updates:#?}"
-    );
-    let id = h.request(
-        "session/prompt",
-        json!({"sessionId": session_id, "prompt": [{"type": "text", "text": "layered demo"}]}),
-    );
-    let (updates, result) = h.await_response(id);
-    assert_eq!(result["stopReason"], "end_turn");
-    let echoed: String = updates
-        .iter()
-        .filter_map(agent_message_chunk_text)
-        .collect();
-    assert!(echoed.contains("layered demo"), "{updates:#?}");
-}
-
-#[test]
-fn policy_free_layer_chain_runs_with_shared_grants_flag() {
-    let Some((bin, wasm)) = artifacts() else {
-        return;
-    };
-    let layer = uppercase_layer().expect("build the uppercase layer with just build-acp-examples");
-    let mut h = Harness::start(
-        &bin,
-        &wasm,
-        &["--layer", layer.to_str().unwrap(), "--allow-shared-grants"],
-    );
-    let session_id = h.open_session();
-    let id = h.request(
-        "session/prompt",
-        json!({"sessionId": session_id, "prompt": [{"type": "text", "text": "layered demo"}]}),
-    );
-    let (updates, result) = h.await_response(id);
-    assert_eq!(result["stopReason"], "end_turn");
-    let echoed: String = updates
-        .iter()
-        .filter_map(agent_message_chunk_text)
-        .collect();
-    assert!(echoed.contains("layered demo"), "{updates:#?}");
-
-    let id = h.request(
-        "session/prompt",
-        json!({"sessionId": session_id, "prompt": [{"type": "text", "text": "/shout"}]}),
-    );
-    let (_, result) = h.await_response(id);
-    assert_eq!(result["stopReason"], "end_turn");
-    let id = h.request(
-        "session/prompt",
-        json!({"sessionId": session_id, "prompt": [{"type": "text", "text": "layered demo"}]}),
-    );
-    let (updates, result) = h.await_response(id);
-    assert_eq!(result["stopReason"], "end_turn");
-    let shouted: String = updates
-        .iter()
-        .filter_map(agent_message_chunk_text)
-        .collect();
-    assert!(shouted.contains("LAYERED DEMO"), "{updates:#?}");
-}
-
-#[test]
-fn stored_secrets_in_a_policy_free_layer_chain_require_opt_in() {
-    let Some((bin, wasm)) = artifacts() else {
-        return;
-    };
-    let layer = uppercase_layer().expect("build the uppercase layer with just build-acp-examples");
-    let secrets = tempfile::tempdir().unwrap();
-    common::seed_secrets(&layer, secrets.path(), &[("TOKEN", "hidden")]);
-    let components = tempfile::tempdir().unwrap();
-    let output = Command::new(bin)
-        .arg("acp")
-        .arg("--provider")
-        .arg(&wasm)
-        .arg("--layer")
-        .arg(&layer)
-        .arg("--secrets-dir")
-        .arg(secrets.path())
-        .arg("--component-dir")
-        .arg(components.path())
-        .output()
-        .expect("run CLI");
-    assert!(
-        !output.status.success(),
-        "layer secrets were accepted without opt-in"
-    );
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(
-        stderr.contains("concurrent callbacks may be attributed to the wrong stage"),
-        "{stderr}"
-    );
-    assert!(stderr.contains("--allow-shared-grants"), "{stderr}");
-    assert!(
-        !stderr.contains("hidden"),
-        "secret value in error: {stderr}"
-    );
-}
-
-#[test]
-fn stored_secrets_in_a_layer_chain_run_with_opt_in() {
-    let Some((bin, wasm)) = artifacts() else {
-        return;
-    };
-    let layer = uppercase_layer().expect("build the uppercase layer with just build-acp-examples");
-    let secrets = tempfile::tempdir().unwrap();
-    common::seed_secrets(&wasm, secrets.path(), &[("TOKEN", "hidden")]);
-    let mut h = Harness::start(
-        &bin,
-        &wasm,
-        &[
-            "--layer",
-            layer.to_str().unwrap(),
-            "--secrets-dir",
-            secrets.path().to_str().unwrap(),
-            "--allow-shared-grants",
-        ],
-    );
-    let session_id = h.open_session();
-    let id = h.request(
-        "session/prompt",
-        json!({"sessionId": session_id, "prompt": [{"type": "text", "text": "opted in"}]}),
-    );
-    let (updates, result) = h.await_response(id);
-    assert_eq!(result["stopReason"], "end_turn");
-    let echoed: String = updates
-        .iter()
-        .filter_map(agent_message_chunk_text)
-        .collect();
-    assert!(echoed.contains("opted in"), "{updates:#?}");
-}
-
-#[test]
-fn privileged_layer_chain_requires_shared_grants_flag() {
-    let Some((bin, wasm)) = artifacts() else {
-        return;
-    };
-    let layer = uppercase_layer().expect("build the uppercase layer with just build-acp-examples");
-    let components = tempfile::tempdir().unwrap();
-    let output = Command::new(bin)
-        .arg("acp")
-        .arg("--provider")
-        .arg(&wasm)
-        .arg("--layer")
-        .arg(&layer)
-        .arg("--allow-all")
-        .arg("--component-dir")
-        .arg(components.path())
-        .output()
-        .expect("run CLI");
-    assert!(
-        !output.status.success(),
-        "privileged layer chain was accepted"
-    );
-    assert!(
-        String::from_utf8_lossy(&output.stderr).contains("--allow-shared-grants"),
-        "unexpected error: {}",
-        String::from_utf8_lossy(&output.stderr)
-    );
+    for flag in ["--provider", "--layer", "--tool", "--allow-shared-grants"] {
+        let output = Command::new(&bin)
+            .arg("acp")
+            .arg(flag)
+            .arg("removed")
+            .output()
+            .expect("run CLI");
+        assert!(!output.status.success(), "{flag} was accepted");
+        assert!(
+            String::from_utf8_lossy(&output.stderr).contains("unexpected argument"),
+            "unexpected error for {flag}: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
 }

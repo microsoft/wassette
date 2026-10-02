@@ -6,8 +6,10 @@ use serde_json::json;
 use super::*;
 use crate::tool::ToolSelector;
 
-const ALPHA: &str = "example:alpha/tool";
-const BETA: &str = "example:beta/tool";
+const ALPHA_NAME: &str = "example:alpha/tool";
+const BETA_NAME: &str = "example:beta/tool";
+const ALPHA: &str = "local:private";
+const BETA: &str = "local:private-beta";
 const ALIAS: &str = "math_run";
 const VERSIONED_MATH: &str = "example:math/ops@1.0.0-a.b+c";
 const OTHER_VERSIONED_MATH: &str = "example:math/ops@1.0.0-a+b.c";
@@ -45,9 +47,14 @@ async fn install(
     name: &str,
     interfaces: &[(&str, &str, u32)],
 ) -> Result<ComponentId> {
-    let bytes = component(name, interfaces)?;
-    let id = inspect_artifact(&bytes)?.identity?;
+    let producer_name = match name {
+        ALPHA => ALPHA_NAME,
+        BETA => BETA_NAME,
+        name => name,
+    };
+    let bytes = component(producer_name, interfaces)?;
     let path = root.join(format!("{file_stem}.wasm"));
+    let id = ComponentId::from_local_path(&path)?;
     tokio::fs::write(&path, bytes).await?;
     let outcome = manager
         .load_component(&format!("file://{}", path.display()))
@@ -67,8 +74,8 @@ async fn scoped_calls_disambiguate_components_and_exact_exports_in_both_load_ord
         let root = tempfile::tempdir()?;
         let manager = manager(root.path()).await?;
         let mut fixtures = [
-            ("private-alpha", ALPHA, "math", "u32", 7),
-            ("private-beta", BETA, "MATH", "bool", 1),
+            ("private-alpha", ALPHA_NAME, "math", "u32", 7),
+            ("private-beta", BETA_NAME, "MATH", "bool", 1),
         ];
         if reverse {
             fixtures.reverse();
@@ -83,11 +90,21 @@ async fn scoped_calls_disambiguate_components_and_exact_exports_in_both_load_ord
             )
             .await?;
         }
-        for (name, expected, expected_type) in [
-            (ALPHA, json!({"result": 7}), "number"),
-            (BETA, json!({"result": true}), "boolean"),
+        for (_, id, expected, expected_type) in [
+            (
+                "private-alpha",
+                "local:private-alpha",
+                json!({"result": 7}),
+                "number",
+            ),
+            (
+                "private-beta",
+                "local:private-beta",
+                json!({"result": true}),
+                "boolean",
+            ),
         ] {
-            let id = ComponentId::from_declared_name(name)?;
+            let id = ComponentId::from_name(id)?;
             let tools = manager.list_tools_for_component(&id).await?;
             assert_eq!(tools.len(), 1);
             assert_eq!(tools[0].key.component_id, id);
@@ -102,7 +119,9 @@ async fn scoped_calls_disambiguate_components_and_exact_exports_in_both_load_ord
                 .await?;
             assert_eq!(output.descriptor, tools[0]);
             assert_eq!(returned(&output)?, expected);
-            let legacy = manager.execute_component_call(name, ALIAS, "{}").await?;
+            let legacy = manager
+                .execute_component_call(id.as_str(), ALIAS, "{}")
+                .await?;
             assert_eq!(serde_json::from_str::<Value>(&legacy)?, expected);
         }
         let error = manager
@@ -125,10 +144,13 @@ async fn scoped_calls_disambiguate_components_and_exact_exports_in_both_load_ord
             Some(ToolLookupError::Ambiguous { .. })
         ));
         assert!(cold.list_components().await.is_empty());
-        assert!(manager
-            .execute_component_call("private-alpha", ALIAS, "{}")
-            .await
-            .is_err());
+        let result = manager
+            .execute_component_call("local:private-alpha", ALIAS, "{}")
+            .await?;
+        assert_eq!(
+            serde_json::from_str::<Value>(&result)?,
+            json!({"result": 7})
+        );
     }
     Ok(())
 }
@@ -247,14 +269,28 @@ async fn missing_metadata_uses_receipt_bound_lazy_restoration() -> Result<()> {
 async fn lazy_loading_rechecks_global_name_collisions() -> Result<()> {
     let root = tempfile::tempdir()?;
     let manager = manager(root.path()).await?;
-    install(&manager, root.path(), "alpha", ALPHA, &[("math", "u32", 7)]).await?;
+    install(
+        &manager,
+        root.path(),
+        "private",
+        ALPHA,
+        &[("math", "u32", 7)],
+    )
+    .await?;
     let guard = manager.load_guard(ALPHA).await;
     let held = guard.lock().await;
     let arguments = json!({});
     let mut invocation = Box::pin(manager.invoke_unique_tool(ALIAS, &arguments));
     assert!(futures::poll!(invocation.as_mut()).is_pending());
     let writer = self::manager(root.path()).await?;
-    install(&writer, root.path(), "beta", BETA, &[("MATH", "bool", 1)]).await?;
+    install(
+        &writer,
+        root.path(),
+        "private-beta",
+        BETA,
+        &[("MATH", "bool", 1)],
+    )
+    .await?;
     drop(held);
     let error = invocation.await.unwrap_err();
     assert!(matches!(
@@ -368,8 +404,8 @@ async fn each_scoped_call_gets_a_fresh_guest_instance() -> Result<()> {
             (func (export "next") (result u32)
                 (canon lift (core func $i "next"))))"#,
     )?;
-    let id = inspect_artifact(&bytes)?.identity?;
     let path = root.path().join("private.wasm");
+    let id = ComponentId::from_local_path(&path)?;
     tokio::fs::write(&path, bytes).await?;
     manager
         .load_component(&format!("file://{}", path.display()))

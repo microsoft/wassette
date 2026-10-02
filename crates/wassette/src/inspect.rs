@@ -1,7 +1,7 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT license.
 
-//! Engine-free observations of one artifact's declared identity and root exports.
+//! Engine-free observations of cosmetic producer metadata and root exports.
 //!
 //! Inspection parses the binary but does not validate its type graph, imports,
 //! or compatibility with a runtime. In particular, a tool candidate need not
@@ -13,7 +13,7 @@ use wasmparser::{
     Parser, Payload,
 };
 
-use crate::identity::{ComponentId, IdentityError};
+use crate::identity::{validate_name, IdentityError};
 
 /// Root-export routing evidence, not a guarantee of runtime compatibility.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -39,21 +39,21 @@ pub enum UnsupportedArtifact {
     AcpShape,
 }
 
-/// Identity and root-export observations obtained from the same artifact bytes.
+/// Cosmetic name and root-export observations from the same artifact bytes.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ArtifactInspection {
-    /// The exact declared root name, or why no unambiguous valid name is available.
-    pub identity: Result<ComponentId, IdentityError>,
+    /// Cosmetic declared root name; never admission or logical identity evidence.
+    pub identity: Result<String, IdentityError>,
     /// The candidate runtime route inferred from root exports.
     pub shape: ArtifactShape,
     /// Exact root ACP-family export names, including version suffixes.
     pub acp_exports: Vec<String>,
 }
 
-/// Inspect identity and routing shape from the same captured artifact bytes.
+/// Inspect cosmetic producer names and routing shape from captured artifact bytes.
 ///
-/// Missing or invalid identity does not hide the artifact's shape. Callers
-/// requiring semantic identity must separately require `identity` to succeed.
+/// Missing or invalid cosmetic names do not hide the artifact's shape and must
+/// never determine whether its source-derived logical identity is admitted.
 /// Runtime type checking, import linking, and ACP version checks remain with
 /// the selected runtime; successful inspection is not validation.
 ///
@@ -89,15 +89,12 @@ pub fn inspect_artifact(bytes: &[u8]) -> Result<ArtifactInspection> {
                     section.data_offset(),
                 ));
                 for name in names {
-                    let name = name.context(
-                        "malformed root component-name metadata; the producer must emit \
-                         one valid root component-name declaration",
-                    )?;
+                    let name = name.context("malformed cosmetic root component-name metadata")?;
                     match name {
                         ComponentName::Component { name, .. } => {
                             declarations += 1;
                             identity = if declarations == 1 {
-                                ComponentId::from_declared_name(name)
+                                validate_name(name).map(|()| name.to_owned())
                             } else {
                                 Err(IdentityError::Ambiguous)
                             };
@@ -336,7 +333,9 @@ mod tests {
             names.raw(0, data);
             component.section(&names);
             let error = inspect_artifact(&component.finish()).unwrap_err();
-            assert!(error.to_string().contains("malformed root component-name"));
+            assert!(error
+                .to_string()
+                .contains("malformed cosmetic root component-name"));
         }
         let mut component = Component::new();
         component.section(&CustomSection {

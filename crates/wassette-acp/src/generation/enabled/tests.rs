@@ -67,7 +67,6 @@ impl Operation for Builder {
     ) -> Result<Value, GenerationError> {
         assert!(permissions.can_build());
         assert!(!permissions.can_install());
-        assert!(!permissions.can_expose());
         self.builds.fetch_add(1, Ordering::Relaxed);
         Ok(json!({"wasm_sha256": "actual-finalized-hash", "expected_revision": "exact-revision"}))
     }
@@ -93,7 +92,7 @@ impl Operation for Builder {
     }
 }
 
-fn request(expose: bool) -> GenerationRequest {
+fn request() -> GenerationRequest {
     parse_request(
         &json!({
             "build": {
@@ -104,7 +103,6 @@ fn request(expose: bool) -> GenerationRequest {
                 "kind": ComponentKind::Tool,
             },
             "target": {"mode": "new"},
-            "intent": if expose { "ExposeTools" } else { "InstallOnly" },
         })
         .to_string(),
     )
@@ -112,18 +110,18 @@ fn request(expose: bool) -> GenerationRequest {
 }
 
 fn ceiling() -> GenerationPermissions {
-    GenerationPermissions::new(true, true, true, true)
+    GenerationPermissions::new(true, true, true)
 }
 
 #[tokio::test]
 async fn every_phase_denial_stops_before_the_next_side_effect() {
-    for (reject, builds) in [(Phase::Build, 0), (Phase::Install, 1), (Phase::Expose, 1)] {
+    for (reject, builds) in [(Phase::Build, 0), (Phase::Install, 1)] {
         let cancel = CancellationToken::new();
         let mut editor = Editor::new(cancel.clone());
         editor.reject = Some(reject);
         let builder = Builder::default();
         assert!(matches!(
-            phases(&editor, &builder, request(true), ceiling(), cancel).await,
+            phases(&editor, &builder, request(), ceiling(), cancel).await,
             Err(GenerationError::PermissionDenied)
         ));
         assert_eq!(builder.builds.load(Ordering::Relaxed), builds);
@@ -133,20 +131,20 @@ async fn every_phase_denial_stops_before_the_next_side_effect() {
 
 #[tokio::test]
 async fn late_allow_after_cancellation_never_builds_or_installs() {
-    for (phase, builds) in [(Phase::Build, 0), (Phase::Install, 1), (Phase::Expose, 1)] {
+    for (phase, builds) in [(Phase::Build, 0), (Phase::Install, 1)] {
         let cancel = CancellationToken::new();
         let mut editor = Editor::new(cancel.clone());
         editor.cancel_on_allow = Some(phase);
         let builder = Builder::default();
         assert!(matches!(
-            phases(&editor, &builder, request(true), ceiling(), cancel.clone()).await,
+            phases(&editor, &builder, request(), ceiling(), cancel.clone()).await,
             Err(GenerationError::Cancelled)
         ));
         assert_eq!(builder.builds.load(Ordering::Relaxed), builds);
         assert_eq!(builder.installs.load(Ordering::Relaxed), 0);
         let count = editor.approved.lock().unwrap().len();
         assert!(matches!(
-            phases(&editor, &builder, request(true), ceiling(), cancel).await,
+            phases(&editor, &builder, request(), ceiling(), cancel).await,
             Err(GenerationError::Cancelled)
         ));
         assert_eq!(editor.approved.lock().unwrap().len(), count);
@@ -154,14 +152,14 @@ async fn late_allow_after_cancellation_never_builds_or_installs() {
 }
 
 #[tokio::test]
-async fn install_only_never_asks_or_grants_exposure() {
+async fn generation_uses_only_build_and_install_approvals() {
     let cancel = CancellationToken::new();
     let editor = Editor::new(cancel.clone());
     let builder = Builder::default();
-    let permissions = phases(&editor, &builder, request(false), ceiling(), cancel)
+    let permissions = phases(&editor, &builder, request(), ceiling(), cancel)
         .await
         .unwrap();
-    assert!(!permissions.can_expose());
+    assert!(permissions.can_install());
     assert_eq!(builder.installs.load(Ordering::Relaxed), 1);
     let prompts = editor.approved.lock().unwrap();
     assert_eq!(prompts.len(), 2);
@@ -171,43 +169,13 @@ async fn install_only_never_asks_or_grants_exposure() {
 }
 
 #[tokio::test]
-async fn exposure_has_separate_approval_bound_to_actual_preview() {
-    let cancel = CancellationToken::new();
-    let editor = Editor::new(cancel.clone());
-    let builder = Builder::default();
-    let permissions = phases(&editor, &builder, request(true), ceiling(), cancel)
-        .await
-        .unwrap();
-    assert!(permissions.can_expose());
-    let prompts = editor.approved.lock().unwrap();
-    assert_eq!(prompts.len(), 3);
-    assert_eq!(prompts[2].0, Phase::Expose);
-    assert_eq!(
-        prompts[2].1["preview"]["wasm_sha256"],
-        "actual-finalized-hash"
-    );
-    assert!(
-        prompts[2].1["scope"]
-            .as_str()
-            .unwrap()
-            .contains("shared store")
-    );
-    assert!(
-        prompts[2].1["scope"]
-            .as_str()
-            .unwrap()
-            .contains("only this ACP session")
-    );
-}
-
-#[tokio::test]
 async fn unbound_call_and_disabled_ceiling_never_prompt_or_build() {
     let cancel = CancellationToken::new();
     let editor = Editor::new(cancel.clone());
     let builder = Builder::default();
     editor.bound.store(false, Ordering::Release);
     assert!(matches!(
-        phases(&editor, &builder, request(false), ceiling(), cancel.clone()).await,
+        phases(&editor, &builder, request(), ceiling(), cancel.clone()).await,
         Err(GenerationError::SessionNotBound)
     ));
     editor.bound.store(true, Ordering::Release);
@@ -215,7 +183,7 @@ async fn unbound_call_and_disabled_ceiling_never_prompt_or_build() {
         phases(
             &editor,
             &builder,
-            request(false),
+            request(),
             GenerationPermissions::default(),
             cancel
         )
@@ -231,7 +199,7 @@ async fn rebuild_requires_separate_operator_authority_and_ui_disclosure() {
     let cancel = CancellationToken::new();
     let editor = Editor::new(cancel.clone());
     let builder = Builder::default();
-    let mut input = request(false);
+    let mut input = request();
     input.target = GenerationTarget::Rebuild {
         expected_revision: "bound-revision".into(),
     };
@@ -240,7 +208,7 @@ async fn rebuild_requires_separate_operator_authority_and_ui_disclosure() {
             &editor,
             &builder,
             input.clone(),
-            GenerationPermissions::new(true, true, true, false),
+            GenerationPermissions::new(true, true, false),
             cancel.clone()
         )
         .await,
@@ -268,29 +236,23 @@ async fn stale_revision_during_permission_is_not_reported_as_success() {
         ..Builder::default()
     };
     assert!(matches!(
-        phases(&editor, &builder, request(true), ceiling(), cancel).await,
+        phases(&editor, &builder, request(), ceiling(), cancel).await,
         Err(GenerationError::Stale(_))
     ));
     assert_eq!(builder.installs.load(Ordering::Relaxed), 0);
 }
 
 #[tokio::test]
-async fn layer_is_install_only_and_never_authorizes_exposure() {
+async fn layer_generation_needs_only_build_and_install_approvals() {
     let cancel = CancellationToken::new();
     let editor = Editor::new(cancel.clone());
     let builder = Builder::default();
-    let mut layer = request(true);
+    let mut layer = request();
     layer.build.kind = ComponentKind::AcpLayer;
-    assert!(matches!(
-        phases(&editor, &builder, layer.clone(), ceiling(), cancel.clone()).await,
-        Err(GenerationError::InvalidRequest(_))
-    ));
-    assert_eq!(builder.builds.load(Ordering::Relaxed), 0);
-    layer.intent = InstallIntent::InstallOnly;
     let permissions = phases(&editor, &builder, layer, ceiling(), cancel)
         .await
         .unwrap();
-    assert!(!permissions.can_expose());
+    assert!(permissions.can_install());
 }
 
 #[test]
@@ -299,7 +261,7 @@ fn bounded_requests_cannot_supply_operator_config_or_permissions() {
         parse_request(&" ".repeat(MAX_REQUEST_BYTES + 1)),
         Err(GenerationError::InvalidRequest(_))
     ));
-    let input = serde_json::to_value(request(false)).unwrap();
+    let input = serde_json::to_value(request()).unwrap();
     for key in ["builder_config", "source_id", "permissions", "helper_path"] {
         let mut input = input.clone();
         input[key] = json!(true);
@@ -436,7 +398,7 @@ async fn oversized_metadata_never_enters_permission_ui() {
     let cancel = CancellationToken::new();
     let editor = Editor::new(cancel.clone());
     let builder = Builder::default();
-    let mut input = request(false);
+    let mut input = request();
     input.build.component_name = "x".repeat(MAX_METADATA_BYTES + 1);
     assert!(matches!(
         phases(&editor, &builder, input, ceiling(), cancel).await,

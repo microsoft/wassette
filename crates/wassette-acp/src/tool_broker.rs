@@ -207,14 +207,13 @@ struct BrokerState {
     generation: u64,
     core_generation: Option<CatalogGeneration>,
     handles: HashMap<String, ToolDescriptor>,
-    overrides: Vec<(ToolRef, bool)>,
+    overrides: Vec<(ToolKey, bool)>,
     #[cfg(feature = "component-generation")]
     generated: HashMap<String, wassette::store::InstallReceipt>,
 }
 
 pub struct ToolBroker {
     pub(crate) manager: Arc<LifecycleManager>,
-    exposed: HashSet<String>,
     excluded: HashSet<String>,
     state: Arc<Mutex<Arc<BrokerState>>>,
     next_handle: Arc<AtomicU64>,
@@ -246,14 +245,9 @@ pub struct PreparedToolCall {
 }
 
 impl ToolBroker {
-    pub fn new(
-        manager: Arc<LifecycleManager>,
-        exposed: impl IntoIterator<Item = String>,
-        excluded: impl IntoIterator<Item = String>,
-    ) -> Self {
+    pub fn new(manager: Arc<LifecycleManager>, excluded: impl IntoIterator<Item = String>) -> Self {
         Self {
             manager,
-            exposed: exposed.into_iter().collect(),
             excluded: excluded.into_iter().collect(),
             state: Arc::new(Mutex::new(Arc::new(BrokerState::default()))),
             next_handle: Arc::new(AtomicU64::new(1)),
@@ -271,7 +265,6 @@ impl ToolBroker {
     pub(crate) fn session_view(&self) -> Self {
         Self {
             manager: self.manager.clone(),
-            exposed: self.exposed.clone(),
             excluded: self.excluded.clone(),
             state: Arc::new(Mutex::new(Arc::new(BrokerState::default()))),
             next_handle: self.next_handle.clone(),
@@ -315,7 +308,7 @@ impl ToolBroker {
         receipt: &wassette::store::InstallReceipt,
         cancel: &CancellationToken,
     ) -> Result<Vec<String>, ToolError> {
-        if !receipt.requests_tool_exposure()
+        if receipt.kind != wassette::store::StoredArtifactKind::Tool
             || !matches!(
                 receipt.source,
                 wassette::store::SourceIdentity::Generated { .. }
@@ -422,12 +415,41 @@ impl ToolBroker {
     }
 
     pub async fn catalog(&self) -> Result<Catalog, ToolError> {
-        let mut state = self.state.lock().await;
         let snapshot = self
             .manager
             .catalog()
             .await
             .map_err(|error| ToolError::Unavailable(error.to_string()))?;
+        #[cfg(feature = "component-generation")]
+        let stale_generated = {
+            let generated = {
+                let state = self.state.lock().await;
+                state
+                    .generated
+                    .values()
+                    .filter(|receipt| {
+                        !snapshot.tools.iter().any(|tool| {
+                            tool.reference.key().component_id == receipt.component_id
+                                && tool.reference.revision() == &receipt.revision
+                        })
+                    })
+                    .cloned()
+                    .collect::<Vec<_>>()
+            };
+            generated
+                .into_iter()
+                .map(|receipt| receipt.component_id.as_str().to_owned())
+                .collect::<Vec<_>>()
+        };
+        let mut state = self.state.lock().await;
+        #[cfg(feature = "component-generation")]
+        if !stale_generated.is_empty() {
+            let mut next = (**state).clone();
+            next.generated
+                .retain(|component_id, _| !stale_generated.contains(component_id));
+            next.core_generation = None;
+            *state = Arc::new(next);
+        }
         if state.core_generation.as_ref() == Some(&snapshot.generation) {
             return Ok(catalog_from_state(&state));
         }
@@ -527,17 +549,15 @@ impl ToolBroker {
             .collect())
     }
 
+    /// Every installed ordinary tool is enabled by default in every session;
+    /// `/tools disable` records a session-scoped override.
     fn is_enabled(&self, state: &BrokerState, descriptor: &ToolDescriptor) -> bool {
         state
             .overrides
             .iter()
-            .find(|(reference, _)| reference.key() == &descriptor.tool.key)
-            .map(|(reference, enabled)| *enabled && reference == &descriptor.reference)
-            .unwrap_or_else(|| {
-                self.exposed
-                    .contains(descriptor.tool.key.component_id.as_str())
-                    || session_generated_visible(state, descriptor)
-            })
+            .find(|(key, _)| key == &descriptor.tool.key)
+            .map(|(_, enabled)| *enabled)
+            .unwrap_or(true)
     }
 
     /// Pin this export's current revision, or stop new admissions.
@@ -570,14 +590,34 @@ impl ToolBroker {
         }
         let mut state = self.state.lock().await;
         let mut next = (**state).clone();
-        next.overrides
-            .retain(|(known, _)| known.key() != reference.key());
-        next.overrides.push((reference, enabled));
+        next.overrides.retain(|(known, _)| known != reference.key());
+        next.overrides.push((reference.key().clone(), enabled));
         next.core_generation = None;
         self.update_catalog_state(&mut next, snapshot);
         *state = Arc::new(next);
         self.view_changed.notify_waiters();
         Ok(())
+    }
+
+    pub(crate) async fn enable_component_tools(
+        &self,
+        component_id: &str,
+    ) -> Result<Vec<String>, ToolError> {
+        let snapshot = self
+            .manager
+            .catalog()
+            .await
+            .map_err(|error| ToolError::Unavailable(error.to_string()))?;
+        let tools = snapshot
+            .tools
+            .iter()
+            .filter(|tool| tool.tool.key.component_id.as_str() == component_id)
+            .map(|tool| (tool.reference.clone(), tool_display_name(&tool.tool.key)))
+            .collect::<Vec<_>>();
+        for (reference, _) in &tools {
+            self.set_tool_enabled(reference.clone(), true).await?;
+        }
+        Ok(tools.into_iter().map(|(_, name)| name).collect())
     }
 
     pub async fn wait_for_change(&self, after: u64) -> Result<u64, ToolError> {
@@ -825,19 +865,6 @@ impl ToolBroker {
         cancellation.finish();
         result
     }
-}
-
-#[cfg(feature = "component-generation")]
-fn session_generated_visible(state: &BrokerState, tool: &ToolDescriptor) -> bool {
-    state
-        .generated
-        .get(tool.reference.key().component_id.as_str())
-        .is_some_and(|receipt| &receipt.revision == tool.reference.revision())
-}
-
-#[cfg(not(feature = "component-generation"))]
-fn session_generated_visible(_: &BrokerState, _: &ToolDescriptor) -> bool {
-    false
 }
 
 pub(crate) fn track_call<T: Send>(
@@ -1135,18 +1162,12 @@ mod tests {
                 .await
                 .unwrap(),
         );
-        let broker = ToolBroker::new(
-            manager.clone(),
-            ["semantic:one".into(), "semantic:two".into()],
-            ["semantic:two".into()],
-        );
+        let broker = ToolBroker::new(manager.clone(), ["local:second-file".into()]);
         let empty = broker.catalog().await.unwrap();
-        install_test_tool(&manager, root.path(), "hidden", "hidden-file").await;
-        assert_eq!(broker.catalog().await.unwrap().generation, empty.generation);
         install_test_tool(&manager, root.path(), "semantic:one", "first-file").await;
         let visible = broker.catalog().await.unwrap();
         assert_eq!(visible.tools.len(), 1);
-        assert_eq!(visible.tools[0].component_id, "semantic:one");
+        assert_eq!(visible.tools[0].component_id, "local:first-file");
         assert_ne!(visible.generation, empty.generation);
         let selected = broker.reference(&visible.tools[0].handle).await.unwrap();
         broker
@@ -1161,18 +1182,14 @@ mod tests {
             broker.catalog().await.unwrap().generation,
             visible.generation
         );
-        let ambiguous = ToolBroker::new(
-            manager.clone(),
-            ["semantic:one".into(), "semantic:two".into()],
-            [],
-        );
+        let ambiguous = ToolBroker::new(manager.clone(), []);
         assert!(
             matches!(ambiguous.reference_by_name("run").await, Err(ToolError::Ambiguous(ids)) if ids.len() == 2)
         );
         let handle = &visible.tools[0].handle;
         let reference = broker.reference(handle).await.unwrap();
         let prepared = broker.prepare_call(reference, "{}").await.unwrap();
-        manager.unload_component("semantic:one").await.unwrap();
+        manager.unload_component("local:first-file").await.unwrap();
         assert!(matches!(
             broker.reference(handle).await,
             Err(ToolError::Stale(_))
@@ -1193,30 +1210,26 @@ mod tests {
                 .await
                 .unwrap(),
         );
-        let broker = ToolBroker::new(manager.clone(), [], []);
+        let broker = ToolBroker::new(manager.clone(), []);
         let other = broker.session_view();
         install_test_tool(&manager, root.path(), "semantic:one", "first-file").await;
         let inventory = broker.tool_inventory().await.unwrap();
         assert_eq!(inventory.len(), 1);
-        assert!(!inventory[0].enabled);
-        assert!(broker.catalog().await.unwrap().tools.is_empty());
-        broker
-            .set_tool_enabled(inventory[0].reference.clone(), true)
-            .await
-            .unwrap();
-        assert!(broker.tool_inventory().await.unwrap()[0].enabled);
+        assert!(inventory[0].enabled);
         assert_eq!(broker.catalog().await.unwrap().tools.len(), 1);
-        assert!(other.catalog().await.unwrap().tools.is_empty());
+        assert_eq!(other.catalog().await.unwrap().tools.len(), 1);
         broker
             .set_tool_enabled(inventory[0].reference.clone(), false)
             .await
             .unwrap();
+        assert!(!broker.tool_inventory().await.unwrap()[0].enabled);
         assert!(broker.catalog().await.unwrap().tools.is_empty());
+        assert_eq!(other.catalog().await.unwrap().tools.len(), 1);
         broker
             .set_tool_enabled(inventory[0].reference.clone(), true)
             .await
             .unwrap();
-        manager.unload_component("semantic:one").await.unwrap();
+        manager.unload_component("local:first-file").await.unwrap();
         assert!(broker.catalog().await.unwrap().tools.is_empty());
     }
 
@@ -1230,7 +1243,7 @@ mod tests {
                 .await
                 .unwrap(),
         );
-        let broker = ToolBroker::new(manager, [], []);
+        let broker = ToolBroker::new(manager, []);
         assert!(
             tokio::time::timeout(
                 std::time::Duration::from_millis(100),
@@ -1394,15 +1407,14 @@ mod tests {
     #[cfg(feature = "component-generation")]
     mod generation_tests {
         use wassette::store::{
-            GenerationEvidence, InstallIntent, InstallOptions, InstallOwner, OriginEvidence,
-            PolicyProvenance, PreparedInstall, PreparedPolicy, SourceIdentity, ValidationEvidence,
+            GenerationEvidence, InstallOptions, InstallOwner, OriginEvidence, PolicyProvenance,
+            PreparedInstall, PreparedPolicy, SourceIdentity, ValidationEvidence,
         };
 
         use super::*;
 
         async fn generated_tool(
             manager: &LifecycleManager,
-            intent: InstallIntent,
             value: u32,
         ) -> wassette::store::InstallReceipt {
             let wasm = wat::parse_str(format!(
@@ -1412,12 +1424,11 @@ mod tests {
                 (func (export "run") (result u32) (canon lift (core func $i "run"))))"#
             ))
             .unwrap();
-            generated_artifact(manager, intent, wasm).await
+            generated_artifact(manager, wasm).await
         }
 
         async fn generated_artifact(
             manager: &LifecycleManager,
-            intent: InstallIntent,
             wasm: Vec<u8>,
         ) -> wassette::store::InstallReceipt {
             let source = SourceIdentity::Generated { id: "1".repeat(32) };
@@ -1436,6 +1447,7 @@ mod tests {
                         manifest_digest: None,
                         immutable_uri: None,
                         generation: Some(GenerationEvidence {
+                            component_name: Some("example:generated".into()),
                             source_sha256: "a".repeat(64),
                             wit_sha256: "b".repeat(64),
                             wit_dependencies_sha256: "b".repeat(64),
@@ -1454,7 +1466,6 @@ mod tests {
                         }),
                     },
                     owner: InstallOwner::Explicit,
-                    intent,
                     policy: PreparedPolicy::absent(PolicyProvenance::Default),
                     observation: None,
                 },
@@ -1486,8 +1497,8 @@ mod tests {
                     (export "example:empty/api@1.0.0" (instance $empty)))"#,
             )
             .unwrap();
-            let receipt = generated_artifact(&manager, InstallIntent::ExposeTools, wasm).await;
-            let broker = ToolBroker::new(manager.clone(), [], []);
+            let receipt = generated_artifact(&manager, wasm).await;
+            let broker = ToolBroker::new(manager.clone(), []);
             assert!(
                 broker
                     .expose_generated(&receipt, &CancellationToken::new())
@@ -1498,7 +1509,7 @@ mod tests {
             assert!(broker.catalog().await.unwrap().tools.is_empty());
             broker.workers.shutdown().await.unwrap();
 
-            let broker = Arc::new(ToolBroker::new(manager.clone(), [], []));
+            let broker = Arc::new(ToolBroker::new(manager.clone(), []));
             let (ready, paused) = oneshot::channel();
             let (resume, resumed) = oneshot::channel();
             *broker.after_generated_read.lock().unwrap() = Some((ready, resumed));
@@ -1520,7 +1531,7 @@ mod tests {
         }
 
         #[tokio::test]
-        async fn committed_tools_require_explicit_session_exposure_and_revision_invalidation() {
+        async fn generated_tools_reach_every_session_and_replacement_invalidates_handles() {
             let root = tempfile::tempdir().unwrap();
             let manager = Arc::new(
                 LifecycleManager::builder(root.path().join("store"))
@@ -1529,13 +1540,12 @@ mod tests {
                     .await
                     .unwrap(),
             );
-            let connection = ToolBroker::new(manager.clone(), [], []);
+            let connection = ToolBroker::new(manager.clone(), []);
             let first = connection.session_view();
             let second = connection.session_view();
             let empty = first.catalog().await.unwrap();
-            let receipt = generated_tool(&manager, InstallIntent::ExposeTools, 1).await;
-            assert!(first.catalog().await.unwrap().tools.is_empty());
-            assert!(second.catalog().await.unwrap().tools.is_empty());
+            let receipt = generated_tool(&manager, 1).await;
+            assert_eq!(second.catalog().await.unwrap().tools.len(), 1);
             let handles = first
                 .expose_generated(&receipt, &CancellationToken::new())
                 .await
@@ -1543,14 +1553,13 @@ mod tests {
             assert_eq!(handles.len(), 1);
             assert_eq!(first.catalog().await.unwrap().tools[0].handle, handles[0]);
             assert_ne!(first.catalog().await.unwrap().generation, empty.generation);
-            assert!(second.catalog().await.unwrap().tools.is_empty());
-            assert!(connection.catalog().await.unwrap().tools.is_empty());
-            let replacement = generated_tool(&manager, InstallIntent::ExposeTools, 2).await;
+            assert_eq!(connection.catalog().await.unwrap().tools.len(), 1);
+            let replacement = generated_tool(&manager, 2).await;
             assert!(matches!(
                 first.reference(&handles[0]).await,
                 Err(ToolError::Stale(_))
             ));
-            assert!(first.catalog().await.unwrap().tools.is_empty());
+            assert_eq!(first.catalog().await.unwrap().tools.len(), 1);
             assert!(matches!(
                 first
                     .expose_generated(&receipt, &CancellationToken::new())
@@ -1562,11 +1571,11 @@ mod tests {
                 .await
                 .unwrap();
             assert_ne!(fresh, handles);
-            assert!(second.catalog().await.unwrap().tools.is_empty());
+            assert_eq!(second.catalog().await.unwrap().tools.len(), 1);
         }
 
         #[tokio::test]
-        async fn cancelled_and_install_only_results_cannot_enter_session_view() {
+        async fn cancelled_and_foreign_generated_receipts_are_rejected() {
             let root = tempfile::tempdir().unwrap();
             let manager = Arc::new(
                 LifecycleManager::builder(root.path().join("store"))
@@ -1575,22 +1584,14 @@ mod tests {
                     .await
                     .unwrap(),
             );
-            let broker = ToolBroker::new(manager.clone(), [], []);
-            let receipt = generated_tool(&manager, InstallIntent::InstallOnly, 1).await;
-            assert!(matches!(
-                broker
-                    .expose_generated(&receipt, &CancellationToken::new())
-                    .await,
-                Err(ToolError::PolicyDenied(_))
-            ));
-            let receipt = generated_tool(&manager, InstallIntent::ExposeTools, 1).await;
+            let broker = ToolBroker::new(manager.clone(), []);
+            let receipt = generated_tool(&manager, 1).await;
             let cancelled = CancellationToken::new();
             cancelled.cancel();
             assert!(matches!(
                 broker.expose_generated(&receipt, &cancelled).await,
                 Err(ToolError::Cancelled)
             ));
-            assert!(broker.catalog().await.unwrap().tools.is_empty());
             let mut wrong_source = receipt.clone();
             wrong_source.source = SourceIdentity::Generated { id: "2".repeat(32) };
             assert!(matches!(
@@ -1607,7 +1608,6 @@ mod tests {
                     .await,
                 Err(ToolError::PolicyDenied(_))
             ));
-            assert!(broker.catalog().await.unwrap().tools.is_empty());
         }
 
         #[tokio::test]
@@ -1622,8 +1622,8 @@ mod tests {
                             .await
                             .unwrap(),
                     );
-                    let broker = Arc::new(ToolBroker::new(manager.clone(), [], []));
-                    let receipt = generated_tool(&manager, InstallIntent::ExposeTools, 1).await;
+                    let broker = Arc::new(ToolBroker::new(manager.clone(), []));
+                    let receipt = generated_tool(&manager, 1).await;
                     let (ready, paused) = oneshot::channel();
                     let (resume, resumed) = oneshot::channel();
                     let hook = if before_publish {
@@ -1640,7 +1640,7 @@ mod tests {
                     });
                     paused.await.unwrap();
                     if replace {
-                        generated_tool(&manager, InstallIntent::ExposeTools, 2).await;
+                        generated_tool(&manager, 2).await;
                     } else {
                         manager.unload_component("example:generated").await.unwrap();
                     }
@@ -1652,14 +1652,17 @@ mod tests {
                             .unwrap();
                     assert!(matches!(result, Err(ToolError::Stale(_))));
                     assert!(broker.state.lock().await.generated.is_empty());
-                    assert!(broker.catalog().await.unwrap().tools.is_empty());
+                    assert_eq!(
+                        broker.catalog().await.unwrap().tools.len(),
+                        usize::from(replace)
+                    );
                     broker.workers.shutdown().await.unwrap();
                 }
             }
         }
 
         #[tokio::test]
-        async fn cancellation_at_final_publication_keeps_the_session_view_private() {
+        async fn cancellation_at_final_publication_reports_cancelled() {
             let root = tempfile::tempdir().unwrap();
             let manager = Arc::new(
                 LifecycleManager::builder(root.path().join("store"))
@@ -1668,8 +1671,8 @@ mod tests {
                     .await
                     .unwrap(),
             );
-            let broker = Arc::new(ToolBroker::new(manager.clone(), [], []));
-            let receipt = generated_tool(&manager, InstallIntent::ExposeTools, 1).await;
+            let broker = Arc::new(ToolBroker::new(manager.clone(), []));
+            let receipt = generated_tool(&manager, 1).await;
             let (ready, paused) = oneshot::channel();
             let (resume, resumed) = oneshot::channel();
             *broker.before_generated_publish.lock().unwrap() = Some((ready, resumed));
@@ -1685,7 +1688,6 @@ mod tests {
                 Err(ToolError::Cancelled)
             ));
             assert!(broker.state.lock().await.generated.is_empty());
-            assert!(broker.catalog().await.unwrap().tools.is_empty());
             broker.workers.shutdown().await.unwrap();
         }
     }

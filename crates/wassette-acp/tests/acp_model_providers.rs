@@ -149,10 +149,13 @@ impl Harness {
         scratch: Vec<tempfile::TempDir>,
     ) -> Harness {
         let mut cmd = Command::new(bin);
-        cmd.arg("acp").arg("--provider").arg(wasm).args(extra);
+        cmd.arg("acp").args(extra);
         for sub in ["data", "config", "state"] {
             let dir = xdg.path().join(sub);
             std::fs::create_dir_all(&dir).expect("create xdg dir");
+            if sub == "data" {
+                common::install_fixture(&dir.join("wassette/components"), wasm);
+            }
             cmd.env(format!("XDG_{}_HOME", sub.to_uppercase()), dir);
         }
         // Keep ambient credentials and endpoints from leaking into the guest,
@@ -1136,10 +1139,10 @@ fn tool_names(tools: &[Value]) -> Vec<&str> {
 /// The provider's own tools, always present regardless of the broker.
 const BUILT_IN_TOOLS: [&str; 2] = ["read_text_file", "write_text_file"];
 
-/// `/tools enable` admits a Wassette component to the session, and the
-/// Copilot provider advertises it to the model on the *next* turn as an
-/// OpenAI-compatible function built from the component's JSON Schema.
-/// `/tools disable` withdraws it again. Nothing is advertised by default.
+/// Every installed ordinary tool component is enabled by default, and the
+/// Copilot provider advertises it to the model as an OpenAI-compatible
+/// function built from the component's JSON Schema. `/tools disable`
+/// withdraws it on the next turn and `/tools enable` restores it.
 #[test]
 fn copilot_provider_advertises_broker_tools_only_while_exposed() {
     let Some((bin, wasm)) = artifacts("acp-copilot-provider", "acp_copilot_provider") else {
@@ -1169,32 +1172,27 @@ fn copilot_provider_advertises_broker_tools_only_while_exposed() {
     );
     let sid = h.open_session();
 
-    // The component is installed but not exposed, so the host offers the
-    // provider nothing and the model sees only the built-in tools.
+    // The installed component is enabled by default and reaches the model.
     let listed = h.slash(&sid, "/tools list");
-    assert!(listed.contains("| disabled |"), "{listed}");
-    h.prompt(&sid, "hi");
-    assert_eq!(
-        tool_names(&last_chat_tools(&rt, &server)),
-        BUILT_IN_TOOLS.to_vec(),
-        "a tool that is not exposed must never reach the model"
-    );
-
-    // Admit one export. The host says it takes effect on the next turn.
+    assert!(listed.contains("| enabled |"), "{listed}");
     let name = exposed_export_name(&listed);
-    let enabled = h.slash(&sid, &format!("/tools enable {name}"));
-    assert!(enabled.contains("enabled for this session"), "{enabled}");
-
-    h.prompt(&sid, "hi again");
+    h.prompt(&sid, "hi");
     let tools = last_chat_tools(&rt, &server);
     let names = tool_names(&tools);
-    assert_eq!(
-        names.len(),
-        BUILT_IN_TOOLS.len() + 1,
-        "exactly one broker tool should be added: {names:?}"
-    );
     assert_eq!(&names[..BUILT_IN_TOOLS.len()], &BUILT_IN_TOOLS[..]);
-    let broker_tool = tools.last().expect("the broker tool");
+    let broker_count = names.len() - BUILT_IN_TOOLS.len();
+    assert!(
+        broker_count > 0,
+        "installed tools must be advertised: {names:?}"
+    );
+    let broker_tool = tools
+        .iter()
+        .find(|tool| {
+            tool["function"]["name"]
+                .as_str()
+                .is_some_and(|name| name.contains("write-file"))
+        })
+        .expect("the write-file broker tool");
     assert_eq!(broker_tool["type"], "function", "{broker_tool}");
 
     // It is advertised as a real OpenAI function: an API-safe name, a
@@ -1228,10 +1226,22 @@ fn copilot_provider_advertises_broker_tools_only_while_exposed() {
     let disabled = h.slash(&sid, &format!("/tools disable {name}"));
     assert!(disabled.contains("disabled for this session"), "{disabled}");
     h.prompt(&sid, "and again");
+    let tools = last_chat_tools(&rt, &server);
+    let names = tool_names(&tools);
     assert_eq!(
-        tool_names(&last_chat_tools(&rt, &server)),
-        BUILT_IN_TOOLS.to_vec(),
-        "a withdrawn tool must stop being advertised"
+        names.len(),
+        BUILT_IN_TOOLS.len() + broker_count - 1,
+        "a withdrawn tool must stop being advertised: {names:?}"
+    );
+    assert!(!names.iter().any(|name| name.contains("write-file")));
+
+    // Re-enabling restores it on the next turn.
+    let enabled = h.slash(&sid, &format!("/tools enable {name}"));
+    assert!(enabled.contains("enabled for this session"), "{enabled}");
+    h.prompt(&sid, "once more");
+    assert_eq!(
+        tool_names(&last_chat_tools(&rt, &server)).len(),
+        BUILT_IN_TOOLS.len() + broker_count
     );
 }
 

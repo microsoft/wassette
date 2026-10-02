@@ -44,10 +44,10 @@ Load and test the component:
 wassette component load file://$(pwd)/target/wasm32-wasip1/release/brave_search_rs.wasm
 
 # Grant network permission to access Brave Search API
-wassette permission grant network brave_search_rs "https://api.search.brave.com/"
+wassette permission grant network local:brave_search_rs "https://api.search.brave.com/"
 
 # Grant environment variable access for the API key
-wassette permission grant environment-variable brave_search_rs BRAVE_SEARCH_API_KEY
+wassette permission grant environment-variable local:brave_search_rs BRAVE_SEARCH_API_KEY
 
 # Check component is loaded
 wassette component list

@@ -117,7 +117,7 @@ impl TryFrom<SecretBindingData> for SecretBinding {
 
     fn try_from(data: SecretBindingData) -> Result<Self> {
         let binding = Self::new(
-            &ComponentId::from_declared_name(&data.component_name)?,
+            &ComponentId::from_name(&data.component_name)?,
             &StorageKey::parse(&data.storage_key)?,
             data.source_identity,
         )?;
@@ -641,7 +641,7 @@ mod tests {
 
     fn binding(name: &str, key: &str, source: &str) -> Result<SecretBinding> {
         SecretBinding::new(
-            &ComponentId::from_declared_name(name)?,
+            &ComponentId::from_name(name)?,
             &StorageKey::parse(key)?,
             source,
         )

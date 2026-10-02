@@ -566,18 +566,6 @@ impl LifecycleManager {
         if inspection.shape != ArtifactShape::ToolCandidate {
             bail!("Cannot load ACP or unsupported artifacts as ordinary tool components");
         }
-        if let Ok(embedded) = &inspection.identity {
-            anyhow::ensure!(
-                embedded.as_str() == binding.component_name()
-                    || binding.component_name().contains('/'),
-                "Captured component does not match the admitted semantic binding"
-            );
-        } else {
-            anyhow::ensure!(
-                binding.component_name().contains('/'),
-                "Captured component is missing its embedded local component name"
-            );
-        }
         let policy_template = self
             .policy_manager
             .prepare_bound_template(binding, effective_policy.as_deref())
@@ -603,7 +591,7 @@ impl LifecycleManager {
     /// Returns rich [`ComponentLoadOutcome`] information describing the loaded
     /// component and whether it replaced an existing instance.
     ///
-    /// Captured bytes, declared semantic identity, and effective policy are validated
+    /// Captured bytes, source identity, and effective policy are validated
     /// before a journaled store transaction. Ownership and revision are rechecked
     /// at commit; failed preparation preserves the installed state.
     #[instrument(skip(self))]
@@ -783,7 +771,7 @@ impl LifecycleManager {
     #[instrument(skip(self))]
     pub async fn get_component_schema(&self, component_id: &str) -> Option<Value> {
         match self.store_snapshot(component_id).await {
-            Ok(snapshot) if snapshot.receipt.requests_tool_exposure() => {}
+            Ok(snapshot) if snapshot.receipt.kind == store::StoredArtifactKind::Tool => {}
             Ok(_) => return None,
             Err(error) => {
                 warn!(%component_id, error = %format_error_chain(&error), "Cannot read component schema binding");
@@ -942,7 +930,7 @@ impl LifecycleManager {
                 return Err(error);
             }
         };
-        if !snapshot.receipt.requests_tool_exposure() {
+        if snapshot.receipt.kind != store::StoredArtifactKind::Tool {
             self.unregister_at_cursor(component_id, &snapshot.cursor)
                 .await?;
         }
@@ -1330,7 +1318,8 @@ mod tests {
 
     use super::*;
 
-    pub(crate) const TEST_COMPONENT_ID: &str = "fetch_rs";
+    pub(crate) const TEST_COMPONENT_ID: &str = "local:fetch_rs";
+    const TEST_COMPONENT_FILE_STEM: &str = "fetch_rs";
 
     /// Helper struct for keeping a reference to the temporary directory used for testing the
     /// lifecycle manager
@@ -1408,10 +1397,10 @@ mod tests {
 
         let directory = cwd.join("../../target/named-test-components");
         std::fs::create_dir_all(&directory)?;
-        let destination = directory.join(format!("{TEST_COMPONENT_ID}.wasm"));
+        let destination = directory.join(format!("{TEST_COMPONENT_FILE_STEM}.wasm"));
         let file = tempfile::NamedTempFile::new_in(directory)?;
         let status = Command::new("wasm-tools")
-            .args(["metadata", "add", "--name", TEST_COMPONENT_ID])
+            .args(["metadata", "add", "--name", TEST_COMPONENT_FILE_STEM])
             .arg(&component_path)
             .arg("--output")
             .arg(file.path())
@@ -1422,7 +1411,7 @@ mod tests {
             inspect_artifact(&std::fs::read(file.path())?)?
                 .identity?
                 .as_str()
-                == TEST_COMPONENT_ID,
+                == TEST_COMPONENT_FILE_STEM,
             "Unexpected fixture identity"
         );
         file.persist(&destination)?;
@@ -1545,9 +1534,9 @@ mod tests {
     #[test(tokio::test)]
     async fn test_cached_tool_schema_preserves_tool_fields() -> Result<()> {
         let manager = create_test_manager().await?;
-        let component_id = "cached-component";
+        let component_id = "local:cached-component";
         install_cached_component(manager.component_root(), component_id, "cached-tool").await?;
-        let component_path = manager.component_path(component_id);
+        let component_path = manager.component_path("cached-component");
 
         let tool_schema = serde_json::json!({
             "name": "cached-tool",
@@ -1804,7 +1793,7 @@ mod tests {
     #[tokio::test]
     async fn test_unloaded_components_are_not_retained_by_the_load_guards() -> Result<()> {
         let manager = create_test_manager().await?;
-        let other_component_id = "other_component";
+        let other_component_id = "local:other_component";
         install_cached_component(manager.component_root(), TEST_COMPONENT_ID, "first").await?;
         install_cached_component(manager.component_root(), other_component_id, "second").await?;
 
@@ -1837,19 +1826,22 @@ mod tests {
     async fn test_load_component_stages_the_artifact_under_the_load_guard() -> Result<()> {
         let manager = create_test_manager().await?;
         let source_dir = tempfile::tempdir()?;
-        let source = source_dir.path().join(format!("{TEST_COMPONENT_ID}.wasm"));
+        let source = source_dir
+            .path()
+            .join(format!("{TEST_COMPONENT_FILE_STEM}.wasm"));
         tokio::fs::copy(build_example_component().await?, &source).await?;
 
         // Any installed artifact or cache changing while the guard is held elsewhere
         // is proof that replacement ran outside the critical section.
-        let artifact_path = manager.component_path(TEST_COMPONENT_ID);
+        let artifact_path = manager.component_path(TEST_COMPONENT_FILE_STEM);
         let metadata_path = manager
             .storage
-            .metadata_path(&StorageKey::parse(TEST_COMPONENT_ID)?);
-        let precompiled_path = manager.component_precompiled_path(TEST_COMPONENT_ID);
-        manager
+            .metadata_path(&StorageKey::parse(TEST_COMPONENT_FILE_STEM)?);
+        let precompiled_path = manager.component_precompiled_path(TEST_COMPONENT_FILE_STEM);
+        let outcome = manager
             .load_component(&format!("file://{}", source.display()))
             .await?;
+        assert_eq!(outcome.component_id, TEST_COMPONENT_ID);
         let old_artifact = tokio::fs::read(&artifact_path).await?;
         let old_metadata = tokio::fs::read(&metadata_path).await?;
         let old_native = tokio::fs::read(&precompiled_path).await?;
@@ -1914,7 +1906,7 @@ mod tests {
         let manager = create_test_manager().await?;
         manager.load_test_component().await?;
 
-        let artifact_path = manager.component_path(TEST_COMPONENT_ID);
+        let artifact_path = manager.component_path(TEST_COMPONENT_FILE_STEM);
         assert!(artifact_path.exists());
 
         let guard = manager.load_guard(TEST_COMPONENT_ID).await;
@@ -1978,19 +1970,19 @@ mod tests {
             "a component must not stay registered after its unload reported success"
         );
         assert!(
-            !manager.component_path(TEST_COMPONENT_ID).exists(),
+            !manager.component_path(TEST_COMPONENT_FILE_STEM).exists(),
             "the component artifact must not survive its unload"
         );
         assert!(
             !manager
                 .storage
-                .metadata_path(&StorageKey::parse(TEST_COMPONENT_ID)?)
+                .metadata_path(&StorageKey::parse(TEST_COMPONENT_FILE_STEM)?)
                 .exists(),
             "the component metadata must not be rewritten after its unload reported success"
         );
         assert!(
             !manager
-                .component_precompiled_path(TEST_COMPONENT_ID)
+                .component_precompiled_path(TEST_COMPONENT_FILE_STEM)
                 .exists(),
             "the precompiled cache must not be rewritten after its unload reported success"
         );
@@ -2172,9 +2164,10 @@ mod tests {
     ) -> Result<()> {
         let source_dir = component_dir.join(".test-sources");
         tokio::fs::create_dir_all(&source_dir).await?;
-        let source = source_dir.join(format!("{component_id}.wasm"));
+        let file_stem = component_id.strip_prefix("local:").unwrap_or(component_id);
+        let source = source_dir.join(format!("{file_stem}.wasm"));
         let bytes = wat::parse_str(format!(
-            r#"(component ${component_id}
+            r#"(component ${file_stem}
             (core module $m (func (export "run")))
             (core instance $i (instantiate $m))
             (func (export "{tool_name}") (canon lift (core func $i "run"))))"#
@@ -2207,7 +2200,7 @@ mod tests {
     #[tokio::test]
     async fn test_hydration_never_exposes_one_side_of_a_tool_name_collision() -> Result<()> {
         const COLLIDING_TOOL: &str = "shared-tool";
-        const COMPONENT_IDS: [&str; 2] = ["collide-alpha", "collide-beta"];
+        const COMPONENT_IDS: [&str; 2] = ["local:collide-alpha", "local:collide-beta"];
 
         let tempdir = tempfile::tempdir()?;
         for component_id in COMPONENT_IDS {
@@ -2273,7 +2266,7 @@ mod tests {
     async fn test_ensure_component_loaded_waits_for_a_reload_that_is_staging() -> Result<()> {
         let manager = create_manager_over_installed_component().await?;
         let source = build_example_component().await?;
-        let artifact_path = manager.component_path(TEST_COMPONENT_ID);
+        let artifact_path = manager.component_path(TEST_COMPONENT_FILE_STEM);
 
         // Stand in for a guarded writer that has temporarily removed the artifact.
         let guard = manager.load_guard(TEST_COMPONENT_ID).await;
@@ -2486,7 +2479,7 @@ permissions:
             .await?;
 
         // Verify permission was granted
-        let policy_path = manager.get_component_policy_path(TEST_COMPONENT_ID);
+        let policy_path = manager.get_component_policy_path(TEST_COMPONENT_FILE_STEM);
         let policy_content = tokio::fs::read_to_string(&policy_path).await?;
         assert!(policy_content.contains("api.example.com"));
 
@@ -2514,7 +2507,7 @@ permissions:
             .await?;
 
         // Verify permission was granted
-        let policy_path = manager.get_component_policy_path(TEST_COMPONENT_ID);
+        let policy_path = manager.get_component_policy_path(TEST_COMPONENT_FILE_STEM);
         let policy_content = tokio::fs::read_to_string(&policy_path).await?;
         assert!(policy_content.contains("fs:///tmp/test"));
 
@@ -2542,7 +2535,7 @@ permissions:
             .await?;
 
         // Verify permission was granted
-        let policy_path = manager.get_component_policy_path(TEST_COMPONENT_ID);
+        let policy_path = manager.get_component_policy_path(TEST_COMPONENT_FILE_STEM);
         let policy_content = tokio::fs::read_to_string(&policy_path).await?;
         assert!(policy_content.contains("API_KEY"));
 
@@ -2580,7 +2573,7 @@ permissions:
             .await?;
 
         // Verify permissions were granted
-        let policy_path = manager.get_component_policy_path(TEST_COMPONENT_ID);
+        let policy_path = manager.get_component_policy_path(TEST_COMPONENT_FILE_STEM);
         assert!(policy_path.exists());
 
         // Reset all permissions
@@ -2589,7 +2582,7 @@ permissions:
         // Verify policy file was removed
         assert!(!policy_path.exists());
 
-        let metadata_path = manager.get_component_metadata_path(TEST_COMPONENT_ID);
+        let metadata_path = manager.get_component_metadata_path(TEST_COMPONENT_FILE_STEM);
         let metadata: Value = serde_json::from_slice(&tokio::fs::read(metadata_path).await?)?;
         assert_eq!(metadata, Value::Null);
         let snapshot = manager.store_snapshot(TEST_COMPONENT_ID).await?;
@@ -2649,7 +2642,7 @@ permissions:
             .grant_permission(TEST_COMPONENT_ID, "network", &details)
             .await?;
 
-        let policy_path = manager.get_component_policy_path(TEST_COMPONENT_ID);
+        let policy_path = manager.get_component_policy_path(TEST_COMPONENT_FILE_STEM);
         let policy_content = tokio::fs::read_to_string(&policy_path).await?;
         assert!(policy_content.contains("api.example.com"));
 

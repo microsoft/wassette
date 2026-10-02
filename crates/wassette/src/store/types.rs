@@ -87,6 +87,41 @@ pub enum SourceIdentity {
 }
 
 impl SourceIdentity {
+    /// Resolve a new logical name from the source adapter's captured evidence.
+    pub fn component_id(
+        &self,
+        storage_key: &StorageKey,
+        origin: &OriginEvidence,
+    ) -> anyhow::Result<ComponentId> {
+        match self {
+            Self::OciRepository(repository) => Ok(ComponentId::from_name(repository)?),
+            Self::File(path) => {
+                let location = Path::new(
+                    origin
+                        .location
+                        .strip_prefix("file://")
+                        .unwrap_or(&origin.location),
+                );
+                ComponentId::from_local_path(if location.is_absolute() {
+                    location
+                } else {
+                    path
+                })
+            }
+            Self::Https { .. } => Ok(ComponentId::from_name(storage_key.as_str())?),
+            Self::Generated { .. } => {
+                let name = origin
+                    .generation
+                    .as_ref()
+                    .and_then(|evidence| evidence.component_name.as_deref())
+                    .ok_or_else(|| {
+                        anyhow::anyhow!("generated source requires its requested component name")
+                    })?;
+                Ok(ComponentId::from_name(name)?)
+            }
+        }
+    }
+
     /// Borrow the canonical path for a local-file source.
     pub fn as_file(&self) -> Option<&Path> {
         match self {
@@ -183,6 +218,9 @@ impl OriginEvidence {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct GenerationEvidence {
+    /// Request-derived logical name; absent only in pre-source-identity receipts.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub component_name: Option<String>,
     /// SHA-256 of the exact source supplied to the builder.
     pub source_sha256: String,
     /// SHA-256 of the exact WIT supplied to the builder.
@@ -227,7 +265,11 @@ impl GenerationEvidence {
         let label = |value: &str| {
             !value.trim().is_empty() && value.len() <= 512 && !value.chars().any(char::is_control)
         };
-        if !hash(&self.source_sha256)
+        if self
+            .component_name
+            .as_ref()
+            .is_some_and(|name| !label(name))
+            || !hash(&self.source_sha256)
             || !hash(&self.wit_sha256)
             || !hash(&self.wit_dependencies_sha256)
             || !hash(&self.builder_initrd_sha256)
@@ -341,24 +383,13 @@ impl ManagedLocalSource {
     }
 }
 
-/// Installation ownership, independent of provenance and intent.
+/// Installation ownership, independent of provenance and runtime activation.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum InstallOwner {
     /// An explicit operator installation, never eligible for managed pruning.
     Explicit,
     /// A particular local discovery source; cleanup must match both exact fields.
     ManagedLocalSource(ManagedLocalSource),
-}
-
-/// Installation does not by itself register tools or activate an ACP provider.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub enum InstallIntent {
-    /// Persist only.
-    InstallOnly,
-    /// The caller intends to expose ordinary tools after admission.
-    ExposeTools,
-    /// The caller intends to select this artifact through its ACP adapter.
-    AcpSelection,
 }
 
 /// The checks actually completed by the trusted runtime validator.
@@ -512,7 +543,7 @@ impl PreparedPolicy {
     }
 }
 
-/// Inputs to preparation that do not substitute for embedded semantic identity.
+/// Source-authoritative inputs to preparation.
 #[derive(Debug, Clone)]
 pub struct InstallOptions {
     /// Validated, stable private filename stem.
@@ -523,8 +554,6 @@ pub struct InstallOptions {
     pub origin: OriginEvidence,
     /// Installation owner.
     pub owner: InstallOwner,
-    /// Post-install intent, not runtime authorization.
-    pub intent: InstallIntent,
     /// Effective policy, independently selected from any source sidecar.
     pub policy: PreparedPolicy,
     /// Optional captured source observation.
@@ -569,12 +598,9 @@ impl PreparedInstall {
             }
         }
         let inspection = inspect_artifact(&wasm)?;
-        let component_id =
-            if let Some(package_id) = options.origin.location.strip_prefix("wasm.directory:") {
-                ComponentId::from_declared_name(package_id).map_err(anyhow::Error::from)?
-            } else {
-                inspection.identity.clone().map_err(anyhow::Error::from)?
-            };
+        let component_id = options
+            .source
+            .component_id(&options.storage_key, &options.origin)?;
         let kind = match inspection.shape {
             ArtifactShape::ToolCandidate => StoredArtifactKind::Tool,
             ArtifactShape::AcpProvider => StoredArtifactKind::AcpProvider,
@@ -614,7 +640,24 @@ impl PreparedInstall {
         })
     }
 
-    /// The actual unambiguous root name extracted from the captured bytes.
+    /// Preserve a persisted binding after observing the same exact source and key.
+    ///
+    /// This supports pre-source-identity receipts without renaming secret owners.
+    pub fn retain_existing_binding(mut self, expected: &ExpectedEntry) -> Result<Self> {
+        if self.options.source != expected.source
+            || self.options.storage_key != expected.storage_key
+        {
+            return Err(StoreError::Conflict(
+                "prepared source or key differs from observation".into(),
+            ));
+        }
+        if let Some(entry) = expected.entry() {
+            self.component_id = entry.component_id().clone();
+        }
+        Ok(self)
+    }
+
+    /// The source-derived logical name (or a retained historical receipt binding).
     pub fn component_id(&self) -> &ComponentId {
         &self.component_id
     }
@@ -630,7 +673,7 @@ impl PreparedInstall {
 pub struct InstallReceipt {
     /// Persisted record schema.
     pub schema: u32,
-    /// Exact embedded root component name.
+    /// Source-derived logical name, retaining historical receipt bindings.
     #[serde(with = "component_id_serde")]
     pub component_id: ComponentId,
     /// Separate portable physical binding.
@@ -655,17 +698,8 @@ pub struct InstallReceipt {
     pub policy: EffectivePolicy,
     /// Revision of this complete authoritative state.
     pub revision: EntryRevision,
-    /// Installation intent, independent of exposure or activation.
-    pub intent: InstallIntent,
     /// Last successful optional source capture.
     pub observation: Option<SourceObservation>,
-}
-
-impl InstallReceipt {
-    /// Whether this ordinary artifact requests tool exposure, not runtime authorization.
-    pub fn requests_tool_exposure(&self) -> bool {
-        self.kind == StoredArtifactKind::Tool && self.intent == InstallIntent::ExposeTools
-    }
 }
 
 /// Why an installed entry became a durable reservation.
@@ -732,7 +766,7 @@ pub struct ProtectedLegacyEntry {
     pub physical_key: String,
     /// Valid key and its alias domains, when representable under L1.
     pub storage_key: Option<StorageKey>,
-    /// Actual embedded identity when unambiguous; never a filename fallback.
+    /// Filename-derived local identity, when the protected filename is valid.
     pub component_id: Option<ComponentId>,
     /// Missing/ambiguous/malformed identity, orphan-file, or I/O diagnostic.
     pub diagnostic: Option<String>,
@@ -780,6 +814,11 @@ pub struct ExpectedEntry {
 }
 
 impl ExpectedEntry {
+    /// Logical name selected by admission, including a retained historical binding.
+    pub fn component_id(&self) -> &ComponentId {
+        &self.component_id
+    }
+
     /// Current installed/retired state, or genuine absence.
     pub fn entry(&self) -> Option<&StoredEntry> {
         self.entry.as_ref()
@@ -824,7 +863,7 @@ pub struct StoreChange {
     pub artifact_changed: bool,
     /// Whether effective policy bytes/authority changed.
     pub policy_changed: bool,
-    /// Whether provenance, validation, intent, or observations changed.
+    /// Whether provenance, validation, or observations changed.
     pub provenance_changed: bool,
     /// Whether ownership changed.
     pub owner_changed: bool,
@@ -886,7 +925,7 @@ mod component_id_serde {
     pub fn deserialize<'de, D: serde::Deserializer<'de>>(
         deserializer: D,
     ) -> std::result::Result<ComponentId, D::Error> {
-        ComponentId::from_declared_name(&String::deserialize(deserializer)?)
+        ComponentId::from_name(&String::deserialize(deserializer)?)
             .map_err(serde::de::Error::custom)
     }
 }

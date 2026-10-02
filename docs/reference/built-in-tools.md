@@ -30,14 +30,13 @@ private builder image is available at
 
 **Parameters:**
 - `build` (object, required):
-  - `component_name` (string): Expected embedded component name, up to 512 UTF-8 bytes; exact spelling is preserved
+  - `component_name` (string): Logical ID for the generated component, up to 512 UTF-8 bytes; exact spelling is preserved
   - `source` (string): Inline Rust source, up to 256 KiB
   - `wit` (string): Inline WIT, up to 256 KiB
   - `world` (string): Selected WIT world, up to 256 UTF-8 bytes; exact spelling is preserved
   - `kind`: `Tool` or `AcpLayer` (case-sensitive builder enum); providers are not supported
 - `target` (object, optional): `{"mode":"new"}` by default, or
   `{"mode":"rebuild","expected_revision":"<opaque revision from prior report>"}`
-- `intent` (optional): `InstallOnly` by default, or `ExposeTools`
 - `reinstall_policy` (string, optional): Exact previous policy YAML, up to
   128 KiB, only when reinstalling a retired generated lineage; never new grants
 
@@ -52,16 +51,17 @@ source identity, or storage key can be selected in this request.
 
 Client approval to invoke the combined management tool is outside the server:
 there is **no second per-request approval dialog** between building and
-installing. Build, install, and exposure are authorized by default when the
-image is present; ACP separately asks the editor to approve each phase.
-Rebuild remains unavailable by default. Request
-intent is not a permission grant. Denied install, exposure, or rebuild
-permissions are checked before compilation.
+installing. Keep `allow_rebuild` false unless that operation is intended.
+Build and install require editor approval; generated tool components are
+enabled in every ACP session. Tool-kind eligibility follows the
+admitted artifact kind, and ACP layers require a new session. Rebuild remains
+unavailable by default. Denied permissions are checked before compilation.
 
-`InstallOnly` does not expose ordinary tools. An `AcpLayer` must use
-`InstallOnly`; its report sets `requires_selection: true` and explains that a
-later ACP session must explicitly select it. No active layers are changed, and
-agent/client interfaces are never exposed as MCP tools.
+Generated ordinary tools join the shared tool catalog after installation and
+are enabled by default in every ACP session, including the one that generated
+them. Sessions can opt out with `/tools disable`. Installing an ACP layer does
+not change a running provider chain; providers and layers are not hot-swapped.
+Agent/client interfaces are never exposed as MCP tools.
 
 **Returns:** Text and structured JSON carrying the canonical `commit` receipt
 (component ID, private storage key, provenance and revision), `refresh`,
@@ -105,8 +105,9 @@ distribute it. There is no host compiler/Cargo fallback. For setup details, see
 - `version` (string, optional): Exact indexed tag; valid only with `package`, and must agree with a WIT selector's `@version`
 
 The `package` form resolves the selected tag to an immutable manifest digest
-and explicitly loads an ordinary tool component. Use `wassette registry get`
-for install-only package storage; installation by itself does not expose tools.
+and explicitly loads an ordinary tool component into this runtime. Use
+`wassette registry get` to store a package without loading it into this runtime;
+its Tool kind still makes it eligible for the shared catalog.
 ACP providers/layers cannot be loaded as ordinary MCP tools.
 
 **Returns:**
@@ -124,10 +125,14 @@ Package loads also return `package`, `wit_identity`, `requested_version`, `selec
 
 ACP providers/layers and unsupported artifact shapes cannot be loaded as
 ordinary tools, including through cached schemas. An ordinary candidate still
-needs runtime validation. The returned `id` is the exact embedded root component
-name. Use it for policy and secret operations; the receipt separately preserves
-their private storage keys. Missing or ambiguous root names and nonportable
-storage keys are rejected without filename fallback or automatic renaming.
+needs runtime validation. The returned `id` is derived from the acquisition
+source: canonical registry/repository for OCI and wasm.directory, `local:` plus
+the visible filename stem for local files and discovery, the downloaded
+filename stem for HTTPS, or the exact `build.component_name` for generated
+builds. Embedded root names are cosmetic and may be missing or different. Use
+the returned ID for policy and secret operations; the receipt separately
+preserves its private opaque storage key. New storage keys must still be
+portable; Wassette does not derive them from logical IDs.
 Artifact, effective policy and receipt are committed together for cooperating
 readers. Failed validation preserves the installed revision; conflicting
 ownership or revisions require an explicit retry, not an overwrite.

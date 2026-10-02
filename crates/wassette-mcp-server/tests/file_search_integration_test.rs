@@ -14,7 +14,7 @@ use wassette::LifecycleManager;
 mod common;
 use common::build_file_search_component;
 
-const ID: &str = "wassette:file-search";
+const ID: &str = "local:file_search";
 
 fn crate_dir() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))

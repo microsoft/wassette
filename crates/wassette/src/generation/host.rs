@@ -50,9 +50,6 @@ impl builder::Host for WassetteWasiState<WasiState> {
             .map_err(map_error)?;
         require(permissions.can_build(), "build").map_err(map_error)?;
         require(permissions.can_install(), "install").map_err(map_error)?;
-        if request.intent == InstallIntent::ExposeTools {
-            require(permissions.can_expose(), "expose").map_err(map_error)?;
-        }
         let cancel = CancellationToken::new();
         let _cancel_on_drop = cancel.clone().drop_guard();
         let prepared = service
@@ -69,7 +66,7 @@ impl builder::Host for WassetteWasiState<WasiState> {
             .map_err(map_error)?;
         let disposition = if outcome.preview.kind == ComponentKind::AcpLayer {
             Disposition::LaterSelectionRequired
-        } else if outcome.commit.entry.binding().requests_tool_exposure() {
+        } else if outcome.commit.entry.binding().kind == StoredArtifactKind::Tool {
             Disposition::ToolsEligible
         } else {
             Disposition::Installed

@@ -18,7 +18,7 @@ use wassette::generation::{
     BuildError, BuildErrorKind, ComponentKind, GenerationError, GenerationPermissions,
     GenerationRequest, GenerationTarget,
 };
-use wassette::store::{CommitOutcome, InstallIntent, StoredArtifactKind, StoredEntry};
+use wassette::store::{CommitOutcome, StoredArtifactKind, StoredEntry};
 use wassette::LifecycleManager;
 
 /// Maximum encoded JSON request accepted by the CLI and MCP adapters.
@@ -167,9 +167,6 @@ fn check_permissions(
     if matches!(request.target, GenerationTarget::Rebuild { .. }) {
         require(permissions.can_rebuild(), "rebuild")?;
     }
-    if request.intent == InstallIntent::ExposeTools {
-        require(permissions.can_expose(), "expose")?;
-    }
     Ok(())
 }
 
@@ -243,28 +240,12 @@ fn validate_request(request: &GenerationRequest) -> Result<()> {
             .is_none_or(|policy| policy.len() <= MAX_POLICY_BYTES),
         "reinstall policy exceeds input limits"
     );
-    ensure!(
-        matches!(
-            request.intent,
-            InstallIntent::InstallOnly | InstallIntent::ExposeTools
-        ),
-        "generation cannot select or activate ACP components"
-    );
-    ensure!(
-        request.build.kind != ComponentKind::AcpLayer
-            || request.intent == InstallIntent::InstallOnly,
-        "ACP layers must use InstallOnly and require later explicit selection"
-    );
     Ok(())
 }
 
 fn describe_installation(report: &mut Value, commit: &CommitOutcome) {
     if let StoredEntry::Installed(receipt) = &commit.entry {
-        report["exposure"] = json!(if receipt.requests_tool_exposure() {
-            "ordinary-tools-requested"
-        } else {
-            "not-exposed"
-        });
+        report["tools_available"] = json!(receipt.kind == StoredArtifactKind::Tool);
         let layer = receipt.kind == StoredArtifactKind::AcpLayer;
         report["requires_selection"] = json!(layer);
         if layer {
@@ -386,7 +367,7 @@ pub fn tool() -> Tool {
     Tool::new_with_raw(
         Cow::Borrowed("build-component"),
         Some(Cow::Borrowed(
-            "Build inline Rust/WIT in the installed isolated builder image, validate and install. InstallOnly is the default; ordinary-tool exposure must be requested explicitly and rebuild is unavailable by default. ACP layers are installed only and require later selection. No host paths, compiler flags, or new policy grants are accepted.",
+            "Build inline Rust/WIT in the installed isolated builder image, validate and install. Generated tools are enabled in the requesting ACP session immediately; ACP layers require a new session. Rebuild is unavailable by default. No host paths, compiler flags, or new policy grants are accepted.",
         )),
         Arc::new(serde_json::from_value(json!({
             "type": "object",
@@ -422,7 +403,6 @@ pub fn tool() -> Tool {
                     ],
                     "default": {"mode": "new"}
                 },
-                "intent": {"type": "string", "enum": ["InstallOnly", "ExposeTools"], "default": "InstallOnly"},
                 "reinstall_policy": {"type": "string", "maxLength": MAX_POLICY_BYTES}
             }
         })).expect("static generation schema")),
@@ -446,9 +426,8 @@ mod tests {
     }
 
     #[test]
-    fn defaults_are_install_only_and_new() {
+    fn requests_default_to_new_and_have_no_install_intent() {
         let request = parse_request(request_value()).unwrap();
-        assert_eq!(request.intent, InstallIntent::InstallOnly);
         assert!(matches!(request.target, GenerationTarget::New));
     }
 
@@ -485,7 +464,7 @@ mod tests {
     fn combined_tool_requires_explicit_build_and_install_but_not_exposure() {
         for build in [false, true] {
             for install in [false, true] {
-                let permissions = GenerationPermissions::new(build, install, false, false);
+                let permissions = GenerationPermissions::new(build, install, false);
                 assert_eq!(combined_operation_allowed(permissions), build && install);
             }
         }
@@ -683,26 +662,15 @@ mod tests {
         let mut request = parse_request(request_value()).unwrap();
         for (permissions, operation) in [
             (GenerationPermissions::default(), "build"),
-            (
-                GenerationPermissions::new(true, false, true, true),
-                "install",
-            ),
+            (GenerationPermissions::new(true, false, true), "install"),
         ] {
             let error = check_permissions(&request, permissions).unwrap_err();
             assert!(
                 matches!(error.downcast_ref::<GenerationError>(), Some(GenerationError::PermissionDenied(actual)) if *actual == operation)
             );
         }
-        let install_only = GenerationPermissions::new(true, true, false, false);
+        let install_only = GenerationPermissions::new(true, true, false);
         assert!(check_permissions(&request, install_only).is_ok());
-        request.intent = InstallIntent::ExposeTools;
-        assert!(matches!(
-            check_permissions(&request, install_only)
-                .unwrap_err()
-                .downcast_ref::<GenerationError>(),
-            Some(GenerationError::PermissionDenied("expose"))
-        ));
-        request.intent = InstallIntent::InstallOnly;
         request.target = GenerationTarget::Rebuild {
             expected_revision: "opaque".into(),
         };
@@ -715,15 +683,10 @@ mod tests {
     }
 
     #[test]
-    fn layers_cannot_request_exposure_or_activation_and_providers_are_rejected() {
+    fn layers_are_installable_but_providers_are_rejected() {
         let mut value = request_value();
         value["build"]["kind"] = json!("AcpLayer");
         assert!(parse_request(value.clone()).is_ok());
-        for intent in ["ExposeTools", "AcpSelection"] {
-            value["intent"] = json!(intent);
-            assert!(parse_request(value.clone()).is_err());
-        }
-        value["intent"] = json!("InstallOnly");
         value["build"]["kind"] = json!("AcpProvider");
         assert!(parse_request(value).is_err());
     }
@@ -785,7 +748,7 @@ mod tests {
 
     #[test]
     fn successful_preview_diagnostics_are_bounded_without_changing_the_receipt() {
-        let commit = committed_fixture(StoredArtifactKind::Tool, InstallIntent::InstallOnly);
+        let commit = committed_fixture(StoredArtifactKind::Tool);
         let expected = serde_json::to_value(&commit).unwrap();
         let mut report = json!({
             "commit": commit,
@@ -801,7 +764,7 @@ mod tests {
         );
     }
 
-    fn committed_fixture(kind: StoredArtifactKind, intent: InstallIntent) -> CommitOutcome {
+    fn committed_fixture(kind: StoredArtifactKind) -> CommitOutcome {
         let entry = serde_json::from_value(json!({
             "Installed": {
                 "schema": 2,
@@ -820,7 +783,6 @@ mod tests {
                     "metadata_sha256": "b".repeat(64)
                 },
                 "revision": {"epoch": "test", "sequence": 4},
-                "intent": intent,
                 "observation": null
             }
         }))
@@ -834,7 +796,7 @@ mod tests {
 
     #[test]
     fn postcommit_error_preserves_the_exact_receipt_and_noop_status() {
-        let commit = committed_fixture(StoredArtifactKind::Tool, InstallIntent::InstallOnly);
+        let commit = committed_fixture(StoredArtifactKind::Tool);
         let expected = serde_json::to_value(&commit).unwrap();
         let error = anyhow::Error::from(GenerationError::CommittedButRefreshFailed {
             commit: Box::new(commit),
@@ -846,7 +808,7 @@ mod tests {
         assert_eq!(report["commit"], expected);
         assert_eq!(report["revision"], "test:4");
         assert!(report["refresh"].is_null());
-        assert_eq!(report["exposure"], "not-exposed");
+        assert_eq!(report["tools_available"], true);
         assert!(report["next_step"]
             .as_str()
             .unwrap()
@@ -854,12 +816,12 @@ mod tests {
     }
 
     #[test]
-    fn layer_status_requires_later_selection_and_never_claims_tool_exposure() {
-        let commit = committed_fixture(StoredArtifactKind::AcpLayer, InstallIntent::InstallOnly);
+    fn layer_status_requires_later_selection_and_is_not_a_tool() {
+        let commit = committed_fixture(StoredArtifactKind::AcpLayer);
         let mut report = json!({});
         describe_installation(&mut report, &commit);
         assert_eq!(report["requires_selection"], true);
-        assert_eq!(report["exposure"], "not-exposed");
+        assert_eq!(report["tools_available"], false);
         assert!(report["selection_note"]
             .as_str()
             .unwrap()
@@ -871,12 +833,8 @@ mod tests {
         for committed in [false, true] {
             let error = GenerationError::CommitRecoveryRequired {
                 operation: "existing-operation-42".into(),
-                observed_commit: committed.then(|| {
-                    Box::new(committed_fixture(
-                        StoredArtifactKind::Tool,
-                        InstallIntent::InstallOnly,
-                    ))
-                }),
+                observed_commit: committed
+                    .then(|| Box::new(committed_fixture(StoredArtifactKind::Tool))),
                 observation_error: (!committed).then(|| {
                     wassette::store::StoreError::Integrity("observation interrupted".into())
                 }),
@@ -1022,10 +980,7 @@ mod tests {
     #[test]
     fn committed_failure_takes_precedence_over_a_builder_error_in_its_source_chain() {
         let error = GenerationError::CommittedButRefreshFailed {
-            commit: Box::new(committed_fixture(
-                StoredArtifactKind::Tool,
-                InstallIntent::InstallOnly,
-            )),
+            commit: Box::new(committed_fixture(StoredArtifactKind::Tool)),
             source: unavailable_builder_error(),
         };
         let response = tool_result(Err(error.into())).unwrap();

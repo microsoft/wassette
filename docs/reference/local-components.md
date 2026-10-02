@@ -1,13 +1,15 @@
 # Local component discovery
 
-Build a WebAssembly component with an explicit **root component name**, then
-place the finished `.wasm` file in Wassette's local drop directory. `wassette
-run` scans this directory at startup and watches for subsequent changes. For
-headless deployments, `wassette serve` leaves discovery off unless enabled.
+Place the finished WebAssembly component in Wassette's local drop directory.
+Its logical ID is `local:<visible-filename-stem>` (without `.wasm`); embedded
+root `component-name` metadata is cosmetic and may be missing or different.
+`wassette run` scans this directory at startup and watches for subsequent
+changes. For headless deployments, `wassette serve` leaves discovery off
+unless enabled.
 
 ```bash
-# The component must contain an authored root component name; the filename
-# is not its identity. Finish the build before moving the file into the inbox.
+# The visible filename determines the local logical ID: local:weather
+# Finish the build before moving the file into the inbox.
 mkdir -p "${XDG_DATA_HOME:-$HOME/.local/share}/wassette/local-components"
 mv ./build/weather.wasm "${XDG_DATA_HOME:-$HOME/.local/share}/wassette/local-components/weather.wasm"
 wassette component sync
@@ -38,26 +40,25 @@ pruning. This is the mechanism used by the repository's `just install`: an
 unrelated inbox entry cannot become part of that install, and the managed store
 still contains receipt-backed copies, never raw links to a checkout. On Unix,
 an existing link can be retargeted to a new worktree only when its source owner
-and embedded semantic name match the current receipt. Wassette refuses to
+and source-derived logical ID match the current receipt. Wassette refuses to
 replace regular files, unrelated links, explicit/registry installations, or
 conflicting names. Native Windows link registration is not currently supported.
 
-`--adopt-explicit-local` is a narrow migration for source-checkout installers.
-With `--link`, it can transfer a matching explicit local-file installation to
-managed link ownership when the semantic ID and artifact filename match. The
-original admitted file source remains the component's continuity identity, so
-existing policy and secrets stay bound. Registry, HTTPS, generated, and
-differently named file sources are never adopted. `just install` uses this
-migration to upgrade components previously loaded directly from another
-Wassette worktree.
+`--adopt-explicit-local` is a narrow, explicit ownership migration for
+source-checkout installers. With `--link`, it can transfer a matching explicit
+local-file installation to managed link ownership when its source-derived
+logical ID and visible filename match. The original admitted file source
+remains the continuity identity, so the existing receipt, policy, and secrets
+stay bound. Registry, HTTPS, generated, and differently named file sources are
+never adopted. `just install` uses this migration to upgrade components
+previously loaded directly from another Wassette worktree.
 
 Only non-hidden `.wasm` files directly in this directory are candidates;
-subdirectories and temporary filenames are ignored. The filename is source
-location evidence, **not** the component ID. Wassette takes the ID from the
-explicit root component name in the artifact, preserving its spelling.
-Missing, duplicate, or ambiguous names are reported and do not displace an
-installed component. Build into another directory and rename into the drop
-directory when complete to avoid partially written inputs.
+subdirectories and temporary filenames are ignored. The visible filename
+determines the ID: `weather.wasm` becomes `local:weather`. Renaming the file
+changes the ID. Embedded root names do not affect discovery or component
+selection. Build into another directory and rename into the drop directory
+when complete to avoid partially written inputs.
 
 Wassette checks ownership and write permissions on Unix before reading local
 files and follows symlinks only after checking their target and relevant parent
@@ -73,10 +74,10 @@ Conflicting IDs are reported instead of replaced. Deleting a drop file cannot
 remove an installation with a different owner. An explicit unload suppresses
 automatic reinstallation of the same unchanged source; rebuilding it, changing
 its sidecar, or running `component sync --force` retries it.
-Renaming a drop file keeps its semantic component name but changes its managed
-source owner. Without an approved ownership migration, Wassette reports a
-conflict rather than inheriting the old source's grants or secrets. Resolve
-that conflict explicitly; it does not silently adopt the renamed source.
+Renaming a drop file changes its logical ID as well as its managed source
+owner. Wassette does not transfer the old receipt, grants, secrets, or
+ownership namespace to the renamed source. Resolve any conflict explicitly;
+unrecorded artifacts remain protected and are not auto-adopted.
 
 Deleting a worktree can leave its stable source links dangling. A failed
 capture does not replace or prune the last-good receipt. Run `just install`

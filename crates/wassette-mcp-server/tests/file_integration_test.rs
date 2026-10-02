@@ -205,7 +205,7 @@ async fn test_filesystem_component_integration() -> Result<()> {
 
     let components = components_data["components"].as_array().unwrap();
     assert_eq!(components.len(), 1);
-    assert_eq!(components[0]["id"], "filesystem");
+    assert_eq!(components[0]["id"], "local:filesystem");
 
     let project_dir = std::env::var("CARGO_MANIFEST_DIR").context("CARGO_MANIFEST_DIR not set")?;
 
@@ -250,7 +250,7 @@ async fn test_filesystem_component_integration() -> Result<()> {
         .contains("Failed to read directory"));
 
     let grant_permission_request = format!(
-        r#"{{"jsonrpc": "2.0", "method": "tools/call", "params": {{"name": "grant-storage-permission", "arguments": {{"component_id": "filesystem", "details": {{"uri": "fs://{project_dir}", "access": ["read"]}}}}}}, "id": 5}}
+        r#"{{"jsonrpc": "2.0", "method": "tools/call", "params": {{"name": "grant-storage-permission", "arguments": {{"component_id": "local:filesystem", "details": {{"uri": "fs://{project_dir}", "access": ["read"]}}}}}}, "id": 5}}
 "#
     );
 
@@ -284,7 +284,7 @@ async fn test_filesystem_component_integration() -> Result<()> {
     assert_eq!(grant_response["id"], 5);
     assert!(grant_response["result"].is_object());
 
-    let get_policy_request = r#"{"jsonrpc": "2.0", "method": "tools/call", "params": {"name": "get-policy", "arguments": {"component_id": "filesystem"}}, "id": 6}
+    let get_policy_request = r#"{"jsonrpc": "2.0", "method": "tools/call", "params": {"name": "get-policy", "arguments": {"component_id": "local:filesystem"}}, "id": 6}
 "#;
 
     stdin.write_all(get_policy_request.as_bytes()).await?;
@@ -315,7 +315,7 @@ async fn test_filesystem_component_integration() -> Result<()> {
         serde_json::from_str(policy_info_text).context("Failed to parse policy info as JSON")?;
 
     // Verify the policy was created and has the expected metadata
-    assert_eq!(policy_info["component_id"], "filesystem");
+    assert_eq!(policy_info["component_id"], "local:filesystem");
     assert_eq!(policy_info["status"], "policy found");
     assert!(policy_info["policy_info"]["local_path"].is_string());
     assert!(policy_info["policy_info"]["policy_id"].is_string());
@@ -396,7 +396,7 @@ async fn test_filesystem_component_lifecycle_manager() -> Result<()> {
 
     let components_after_load = manager.list_components().await;
     assert_eq!(components_after_load.len(), 1);
-    assert_eq!(components_after_load[0], "filesystem");
+    assert_eq!(components_after_load[0], "local:filesystem");
 
     let schema = manager
         .get_component_schema(&id)

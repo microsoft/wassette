@@ -211,10 +211,7 @@ mod tests {
     use super::*;
 
     fn binding(name: &str, key: &str, source: &str) -> SecretBinding {
-        let identity = wassette::inspect_artifact(&crate::install::named_fixture(name, false))
-            .unwrap()
-            .identity
-            .unwrap();
+        let identity = wassette::ComponentId::from_name(name).unwrap();
         SecretBinding::new(&identity, &StorageKey::parse(key).unwrap(), source).unwrap()
     }
 

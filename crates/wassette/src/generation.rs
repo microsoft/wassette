@@ -20,8 +20,8 @@ pub use wassette_builder::{
 use crate::loader::CapturedComponent;
 use crate::local_source::LocalValidator;
 use crate::store::{
-    CommitOutcome, ExpectedEntry, GenerationEvidence, InstallIntent, InstallOptions, InstallOwner,
-    OriginEvidence, PolicyProvenance, PreparedInstall, PreparedPolicy, SourceIdentity, StoreError,
+    CommitOutcome, ExpectedEntry, GenerationEvidence, InstallOptions, InstallOwner, OriginEvidence,
+    PolicyProvenance, PreparedInstall, PreparedPolicy, SourceIdentity, StoreError,
     StoredArtifactKind, StoredEntry, ValidationEvidence,
 };
 use crate::store_support::{source_binding_key, store_operation};
@@ -45,9 +45,7 @@ pub struct GenerationConfig {
     pub allow_build: bool,
     /// Whether generated components may be installed.
     pub allow_install: bool,
-    /// Whether generated tools may be exposed.
-    pub allow_expose: bool,
-    /// Whether existing generated lineages may be replaced.
+    /// Explicit opt-in to replacing an existing generated lineage.
     pub allow_rebuild: bool,
     /// Whether generated source is retained for later inspection.
     pub retain_source: bool,
@@ -117,7 +115,6 @@ impl GenerationConfig {
             limits: BuildLimits::default(),
             allow_build: true,
             allow_install: true,
-            allow_expose: true,
             allow_rebuild: false,
             retain_source: true,
             callers: Vec::new(),
@@ -126,12 +123,8 @@ impl GenerationConfig {
 
     /// Create the configured service without starting a VM.
     pub fn into_service(self) -> Result<GenerationService> {
-        let permissions = GenerationPermissions::new(
-            self.allow_build,
-            self.allow_install,
-            self.allow_expose,
-            self.allow_rebuild,
-        );
+        let permissions =
+            GenerationPermissions::new(self.allow_build, self.allow_install, self.allow_rebuild);
         GenerationService::new(Builder::new(self.builder, self.limits)?, permissions)
             .with_source_retention(self.retain_source)
             .with_callers(self.callers)
@@ -143,17 +136,15 @@ impl GenerationConfig {
 pub struct GenerationPermissions {
     build: bool,
     install: bool,
-    expose: bool,
     rebuild: bool,
 }
 
 impl GenerationPermissions {
     /// Set independently authorized operations in trusted host configuration or UI.
-    pub fn new(build: bool, install: bool, expose: bool, rebuild: bool) -> Self {
+    pub fn new(build: bool, install: bool, rebuild: bool) -> Self {
         Self {
             build,
             install,
-            expose,
             rebuild,
         }
     }
@@ -166,11 +157,6 @@ impl GenerationPermissions {
     /// Whether committing a generated artifact is authorized.
     pub fn can_install(self) -> bool {
         self.install
-    }
-
-    /// Whether ordinary-tool exposure is authorized.
-    pub fn can_expose(self) -> bool {
-        self.expose
     }
 
     /// Whether an existing generated lineage may be rebuilt.
@@ -210,7 +196,7 @@ impl<'de> Deserialize<'de> for GenerationTarget {
     }
 }
 
-/// Untrusted build inputs and requested intent, not permission or source ownership.
+/// Untrusted build inputs, not permission or source ownership.
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct GenerationRequest {
@@ -219,22 +205,15 @@ pub struct GenerationRequest {
     /// Whether to create or explicitly rebuild a lineage.
     #[serde(default)]
     pub target: GenerationTarget,
-    /// Install-only by default; ACP layers cannot request ordinary-tool exposure.
-    #[serde(default = "install_only")]
-    pub intent: InstallIntent,
     /// Optional exact former policy bytes for a retired lineage; never new grants.
     #[serde(default)]
     pub reinstall_policy: Option<String>,
 }
 
-fn install_only() -> InstallIntent {
-    InstallIntent::InstallOnly
-}
-
 /// Captured output information suitable for an install permission prompt.
 #[derive(Debug, Clone, Serialize)]
 pub struct GenerationPreview {
-    /// Actual root identity inspected from captured output.
+    /// Logical identity supplied by the build request.
     pub component_id: String,
     /// Requested and verified output role.
     pub kind: ComponentKind,
@@ -366,7 +345,6 @@ pub struct PreparedGeneration {
     selected: SelectedTarget,
     artifact: BuildArtifact,
     preview: GenerationPreview,
-    intent: InstallIntent,
     permissions: GenerationPermissions,
     validator: Option<Arc<dyn LocalValidator>>,
     is_rebuild: bool,
@@ -416,7 +394,7 @@ impl GenerationService {
         self
     }
 
-    /// The operator ceiling, not authorization inferred from request intent.
+    /// The operator ceiling, not authorization inferred from a request.
     pub fn permissions(&self) -> GenerationPermissions {
         self.permissions
     }
@@ -434,18 +412,6 @@ impl GenerationService {
         if is_rebuild {
             require(self.permissions.rebuild && authorization.rebuild, "rebuild")?;
         }
-        ensure!(
-            matches!(
-                request.intent,
-                InstallIntent::InstallOnly | InstallIntent::ExposeTools
-            ),
-            "generation does not select or activate ACP components"
-        );
-        ensure!(
-            request.build.kind != ComponentKind::AcpLayer
-                || request.intent == InstallIntent::InstallOnly,
-            "generated ACP layers must be installed without ordinary-tool exposure"
-        );
         if request.build.kind == ComponentKind::AcpLayer {
             ensure!(
                 self.validator.is_some(),
@@ -459,7 +425,7 @@ impl GenerationService {
                 .is_none_or(|policy| policy.len() <= MAX_REINSTALL_POLICY_BYTES),
             "reinstall policy exceeds the generation input limit"
         );
-        crate::ComponentId::from_declared_name(&request.build.component_name)?;
+        crate::ComponentId::from_name(&request.build.component_name)?;
         check_cancelled(&cancel)?;
         let selected = select_target(manager, &request).await?;
         let requested_name = request.build.component_name.clone();
@@ -478,11 +444,7 @@ impl GenerationService {
             "builder evidence does not match the captured source and WIT"
         );
         let inspection = inspect_artifact(&artifact.wasm)?;
-        let component_id = inspection.identity?;
-        ensure!(
-            component_id.as_str() == requested_name,
-            "builder output has a different actual component name"
-        );
+        let component_id = crate::ComponentId::from_name(&requested_name)?;
         ensure!(
             shape_matches(&inspection.shape, &requested_kind),
             "builder output has a different component role"
@@ -504,7 +466,6 @@ impl GenerationService {
             selected,
             artifact,
             preview,
-            intent: request.intent,
             permissions: self.permissions,
             validator: self.validator.clone(),
             is_rebuild,
@@ -532,9 +493,6 @@ impl PreparedGeneration {
         if self.is_rebuild {
             require(self.permissions.rebuild && authorization.rebuild, "rebuild")?;
         }
-        if self.intent == InstallIntent::ExposeTools {
-            require(self.permissions.expose && authorization.expose, "expose")?;
-        }
         check_cancelled(&cancel)?;
         let manager = self.manager;
         let id = self.preview.component_id.clone();
@@ -551,7 +509,7 @@ impl PreparedGeneration {
         check_cancelled(&cancel)?;
         let inspection = inspect_artifact(&self.artifact.wasm)?;
         let binding = SecretBinding::new(
-            &inspection.identity.clone()?,
+            &crate::ComponentId::from_name(&id)?,
             &selected.key,
             source_binding_key(&selected.source)?,
         )?;
@@ -594,7 +552,6 @@ impl PreparedGeneration {
                 "generated artifact lost its admitted source binding"
             ));
         };
-        let expose_tools = self.intent == InstallIntent::ExposeTools;
         let install = PreparedInstall::prepare(
             self.artifact.wasm,
             InstallOptions {
@@ -609,7 +566,6 @@ impl PreparedGeneration {
                 },
                 source: selected.source,
                 owner: InstallOwner::Explicit,
-                intent: self.intent,
                 policy: selected.policy,
                 observation: None,
             },
@@ -622,7 +578,7 @@ impl PreparedGeneration {
                 commit_generated(&store, install, selected.expected, self.source)
             })
             .await?;
-            if let Some(prepared) = prepared_runtime.filter(|_| expose_tools) {
+            if let Some(prepared) = prepared_runtime {
                 manager
                     .publish_prepared(prepared, outcome.clone())
                     .await
@@ -853,6 +809,7 @@ async fn select_target(
 fn generation_evidence(artifact: &BuildArtifact) -> GenerationEvidence {
     let evidence = &artifact.evidence;
     GenerationEvidence {
+        component_name: Some(evidence.component_name.clone()),
         source_sha256: evidence.source_sha256.clone(),
         wit_sha256: evidence.wit_sha256.clone(),
         wit_dependencies_sha256: evidence.wit_dependencies_sha256.clone(),

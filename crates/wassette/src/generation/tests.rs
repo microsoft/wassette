@@ -17,10 +17,10 @@ pub(super) async fn manager() -> (tempfile::TempDir, LifecycleManager) {
 }
 
 pub(super) fn permissions() -> GenerationPermissions {
-    GenerationPermissions::new(true, true, true, true)
+    GenerationPermissions::new(true, true, true)
 }
 
-pub(super) fn request(name: &str, intent: InstallIntent) -> GenerationRequest {
+pub(super) fn request(name: &str) -> GenerationRequest {
     GenerationRequest {
         build: BuildRequest {
             component_name: name.into(),
@@ -30,7 +30,6 @@ pub(super) fn request(name: &str, intent: InstallIntent) -> GenerationRequest {
             kind: ComponentKind::Tool,
         },
         target: GenerationTarget::New,
-        intent,
         reinstall_policy: None,
     }
 }
@@ -76,6 +75,7 @@ pub(super) async fn candidate(
     let mut evidence = build_evidence();
     evidence.source_sha256 = hex::encode(Sha256::digest(request.build.source.as_bytes()));
     evidence.wit_sha256 = hex::encode(Sha256::digest(request.build.wit.as_bytes()));
+    evidence.component_name = request.build.component_name.clone();
     let artifact = BuildArtifact {
         wasm,
         diagnostics: String::new(),
@@ -97,7 +97,6 @@ pub(super) async fn candidate(
         selected,
         artifact,
         preview,
-        intent: request.intent,
         permissions: permissions(),
         validator: None,
         is_rebuild: matches!(request.target, GenerationTarget::Rebuild { .. }),
@@ -110,7 +109,7 @@ fn rebuild(name: &str, revision: &crate::store::EntryRevision) -> GenerationRequ
         target: GenerationTarget::Rebuild {
             expected_revision: revision.to_string(),
         },
-        ..request(name, InstallIntent::ExposeTools)
+        ..request(name)
     }
 }
 
@@ -139,16 +138,57 @@ async fn default_manager_has_no_generation_authority() {
     let denied = GenerationPermissions::default();
     assert!(!denied.can_build());
     assert!(!denied.can_install());
-    assert!(!denied.can_expose());
     assert!(!denied.can_rebuild());
 }
 
 #[tokio::test]
-async fn captured_install_is_named_transactional_and_install_only_stays_hidden() {
+async fn request_name_controls_generated_identity_without_matching_producer_metadata() {
+    for bytes in [
+        wasm("cosmetic:other", 42),
+        wat::parse_str(
+            r#"(component
+                (core module $m (func (export "run") (result i32) i32.const 42))
+                (core instance $i (instantiate $m))
+                (func (export "run") (result s32) (canon lift (core func $i "run"))))"#,
+        )
+        .unwrap(),
+    ] {
+        let (_root, manager) = manager().await;
+        let pending = candidate(&manager, request("requested:tool"), bytes).await;
+        let outcome = pending
+            .install(permissions(), CancellationToken::new())
+            .await
+            .unwrap();
+        let receipt = outcome.commit.entry.binding();
+        assert_eq!(receipt.component_id.as_str(), "requested:tool");
+        assert_ne!(receipt.storage_key.as_str(), "requested:tool");
+        assert_eq!(
+            receipt
+                .origin
+                .generation
+                .as_ref()
+                .unwrap()
+                .component_name
+                .as_deref(),
+            Some("requested:tool"),
+        );
+        let output = manager
+            .execute_component_call("requested:tool", "run", "{}")
+            .await
+            .unwrap();
+        assert_eq!(
+            serde_json::from_str::<serde_json::Value>(&output).unwrap(),
+            serde_json::json!({"result": 42})
+        );
+    }
+}
+
+#[tokio::test]
+async fn captured_install_is_named_transactional_and_tool_eligible() {
     let (_root, manager) = manager().await;
     let pending = candidate(
         &manager,
-        request("example:generated/tool", InstallIntent::InstallOnly),
+        request("example:generated/tool"),
         wasm("example:generated/tool", 42),
     )
     .await;
@@ -164,7 +204,7 @@ async fn captured_install_is_named_transactional_and_install_only_stays_hidden()
     assert!(matches!(receipt.source, SourceIdentity::Generated { .. }));
     assert_eq!(receipt.schema, 2);
     assert_eq!(receipt.artifact_sha256, outcome.preview.wasm_sha256);
-    assert!(!receipt.requests_tool_exposure());
+    assert_eq!(receipt.kind, crate::store::StoredArtifactKind::Tool);
     assert_eq!(
         manager
             .component_store()
@@ -185,14 +225,14 @@ async fn captured_install_is_named_transactional_and_install_only_stays_hidden()
             0o600
         );
     }
-    assert!(manager.catalog().await.unwrap().tools.is_empty());
+    assert_eq!(manager.catalog().await.unwrap().tools.len(), 1);
     let cold = LifecycleManager::builder(manager.config.component_dir())
         .with_secrets_dir(manager.config.secrets_dir())
         .with_eager_loading(false)
         .build()
         .await
         .unwrap();
-    assert!(cold.catalog().await.unwrap().tools.is_empty());
+    assert_eq!(cold.catalog().await.unwrap().tools.len(), 1);
 }
 
 #[tokio::test]
@@ -200,7 +240,7 @@ async fn same_lineage_rebuild_invalidates_refs_but_preserves_policy_and_secret_b
     let (_root, manager) = manager().await;
     let first = candidate(
         &manager,
-        request("example:generated", InstallIntent::ExposeTools),
+        request("example:generated"),
         wasm("example:generated", 1),
     )
     .await
@@ -304,7 +344,7 @@ async fn invalid_replacement_preserves_last_good_artifact_policy_and_caches() {
     let (_root, manager) = manager().await;
     let first = candidate(
         &manager,
-        request("example:generated", InstallIntent::ExposeTools),
+        request("example:generated"),
         wasm("example:generated", 1),
     )
     .await
@@ -339,35 +379,40 @@ async fn invalid_replacement_preserves_last_good_artifact_policy_and_caches() {
 }
 
 #[tokio::test]
-async fn install_expose_and_rebuild_permissions_are_independent() {
+async fn installation_needs_no_separate_tool_exposure_permission() {
     let (_root, manager) = manager().await;
     let pending = candidate(
         &manager,
-        request("example:generated", InstallIntent::ExposeTools),
+        request("example:generated"),
         wasm("example:generated", 1),
     )
     .await;
-    let error = pending
+    pending
         .install(
-            GenerationPermissions::new(true, true, false, false),
+            GenerationPermissions::new(true, true, false),
             CancellationToken::new(),
         )
         .await
-        .unwrap_err();
-    assert!(matches!(
-        error.downcast_ref(),
-        Some(GenerationError::PermissionDenied("expose"))
-    ));
-    assert!(manager.component_store().read("example:generated").is_err());
+        .unwrap();
+    assert_eq!(
+        manager
+            .component_store()
+            .read("example:generated")
+            .unwrap()
+            .receipt
+            .kind,
+        crate::store::StoredArtifactKind::Tool
+    );
+
     let pending = candidate(
         &manager,
-        request("example:generated", InstallIntent::InstallOnly),
-        wasm("example:generated", 1),
+        request("example:denied"),
+        wasm("example:denied", 1),
     )
     .await;
     let error = pending
         .install(
-            GenerationPermissions::new(true, false, true, true),
+            GenerationPermissions::new(true, false, true),
             CancellationToken::new(),
         )
         .await
@@ -376,7 +421,7 @@ async fn install_expose_and_rebuild_permissions_are_independent() {
         error.downcast_ref(),
         Some(GenerationError::PermissionDenied("install"))
     ));
-    assert!(manager.component_store().read("example:generated").is_err());
+    assert!(manager.component_store().read("example:denied").is_err());
 }
 
 #[tokio::test]
@@ -384,7 +429,7 @@ async fn cancellation_and_pending_permission_revision_race_do_not_commit() {
     let (_root, manager) = manager().await;
     let pending = candidate(
         &manager,
-        request("example:generated", InstallIntent::InstallOnly),
+        request("example:generated"),
         wasm("example:generated", 1),
     )
     .await;
@@ -399,7 +444,7 @@ async fn cancellation_and_pending_permission_revision_race_do_not_commit() {
 
     let first = candidate(
         &manager,
-        request("example:generated", InstallIntent::ExposeTools),
+        request("example:generated"),
         wasm("example:generated", 1),
     )
     .await
@@ -440,14 +485,14 @@ async fn another_lineage_cannot_take_over_even_after_retirement() {
     let (_root, manager) = manager().await;
     let first = candidate(
         &manager,
-        request("example:generated", InstallIntent::InstallOnly),
+        request("example:generated"),
         wasm("example:generated", 1),
     )
     .await
     .install(permissions(), CancellationToken::new())
     .await
     .unwrap();
-    let new_source = request("example:generated", InstallIntent::InstallOnly);
+    let new_source = request("example:generated");
     assert!(select_target(&manager, &new_source).await.is_err());
     let retired = manager
         .component_store()
@@ -496,7 +541,7 @@ async fn unchanged_rebuild_still_hydrates_a_cold_manager() {
     let (_root, manager) = manager().await;
     let first = candidate(
         &manager,
-        request("example:generated", InstallIntent::ExposeTools),
+        request("example:generated"),
         wasm("example:generated", 42),
     )
     .await
@@ -534,15 +579,11 @@ async fn unchanged_rebuild_still_hydrates_a_cold_manager() {
 #[tokio::test]
 async fn refresh_failure_reports_the_actual_committed_receipt() {
     let (_root, manager) = manager().await;
-    let old = candidate(
-        &manager,
-        request("example:other", InstallIntent::ExposeTools),
-        wasm("example:other", 1),
-    )
-    .await
-    .install(permissions(), CancellationToken::new())
-    .await
-    .unwrap();
+    let old = candidate(&manager, request("example:other"), wasm("example:other", 1))
+        .await
+        .install(permissions(), CancellationToken::new())
+        .await
+        .unwrap();
     let cold = LifecycleManager::builder(manager.config.component_dir())
         .with_secrets_dir(manager.config.secrets_dir())
         .with_eager_loading(false)
@@ -551,7 +592,7 @@ async fn refresh_failure_reports_the_actual_committed_receipt() {
         .unwrap();
     let pending = candidate(
         &cold,
-        request("example:generated", InstallIntent::InstallOnly),
+        request("example:generated"),
         wasm("example:generated", 42),
     )
     .await;
@@ -571,13 +612,11 @@ async fn refresh_failure_reports_the_actual_committed_receipt() {
     let stored = manager.component_store().read("example:generated").unwrap();
     assert_eq!(&stored.receipt, commit.entry.binding());
     assert_eq!(stored.wasm, wasm("example:generated", 42));
-    assert!(!stored.receipt.requests_tool_exposure());
 }
 
 #[test]
 fn request_cannot_supply_authority_or_lineage() {
-    let base =
-        serde_json::to_value(request("example:generated", InstallIntent::InstallOnly)).unwrap();
+    let base = serde_json::to_value(request("example:generated")).unwrap();
     for field in [
         "permissions",
         "builder",
@@ -601,7 +640,7 @@ async fn postdecision_failure_preserves_operation_and_observed_receipt() {
     let (_root, manager) = manager().await;
     let pending = candidate(
         &manager,
-        request("example:generated", InstallIntent::InstallOnly),
+        request("example:generated"),
         wasm("example:generated", 42),
     )
     .await;
@@ -650,7 +689,7 @@ async fn mismatched_source_never_reaches_the_store() {
     let (_root, manager) = manager().await;
     let mut pending = candidate(
         &manager,
-        request("example:generated", InstallIntent::InstallOnly),
+        request("example:generated"),
         wasm("example:generated", 1),
     )
     .await;
@@ -674,7 +713,7 @@ async fn source_is_replaced_with_the_revision_and_opt_out_removes_it() {
     let (_root, manager) = manager().await;
     let first = candidate(
         &manager,
-        request("example:generated", InstallIntent::InstallOnly),
+        request("example:generated"),
         wasm("example:generated", 1),
     )
     .await
@@ -723,7 +762,7 @@ async fn predecision_failure_restores_previous_source_and_wasm() {
     let (_root, manager) = manager().await;
     let first = candidate(
         &manager,
-        request("example:generated", InstallIntent::InstallOnly),
+        request("example:generated"),
         wasm("example:generated", 1),
     )
     .await
@@ -758,7 +797,7 @@ async fn tampered_source_is_rejected_and_does_not_become_a_rebuild_input() {
     let (_root, manager) = manager().await;
     let installed = candidate(
         &manager,
-        request("example:generated", InstallIntent::InstallOnly),
+        request("example:generated"),
         wasm("example:generated", 1),
     )
     .await
@@ -782,7 +821,7 @@ async fn retained_request_rebuilds_with_the_same_source_digest() {
     let (_root, manager) = manager().await;
     let first = candidate(
         &manager,
-        request("example:generated", InstallIntent::InstallOnly),
+        request("example:generated"),
         wasm("example:generated", 1),
     )
     .await
@@ -796,7 +835,6 @@ async fn retained_request_rebuilds_with_the_same_source_digest() {
     let json = serde_json::to_vec(&GenerationRequest {
         build: source,
         target: GenerationTarget::New,
-        intent: InstallIntent::InstallOnly,
         reinstall_policy: None,
     })
     .unwrap();
@@ -818,7 +856,7 @@ async fn recovery_never_infers_commit_from_matching_artifact_bytes() {
     let (_root, manager) = manager().await;
     let installed = candidate(
         &manager,
-        request("example:generated", InstallIntent::InstallOnly),
+        request("example:generated"),
         wasm("example:generated", 42),
     )
     .await
@@ -859,7 +897,7 @@ fn generation_is_available_only_with_a_local_builder_image() {
         std::fs::create_dir_all(image.parent().unwrap()).unwrap();
         std::fs::write(&image, b"private builder image").unwrap();
         let config = GenerationConfig::discover().unwrap().unwrap();
-        assert!(config.allow_build && config.allow_install && config.allow_expose);
+        assert!(config.allow_build && config.allow_install);
         assert!(!config.allow_rebuild);
         assert!(config.retain_source && config.callers.is_empty());
         assert_eq!(config.builder.initrd_path, image);

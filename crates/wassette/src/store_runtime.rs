@@ -7,9 +7,9 @@ use super::*;
 use crate::acquisition::AcquiredComponent;
 use crate::policy_internal::PolicyCommit;
 use crate::store::{
-    ArtifactSnapshot, CommitOutcome, ExpectedEntry, InstallIntent, InstallOptions, InstallOwner,
-    PolicyProvenance, PreparedCache, PreparedInstall, PreparedPolicy, StoredArtifactKind,
-    StoredEntry, ValidationEvidence,
+    ArtifactSnapshot, CommitOutcome, ExpectedEntry, InstallOptions, InstallOwner, PolicyProvenance,
+    PreparedCache, PreparedInstall, PreparedPolicy, StoredArtifactKind, StoredEntry,
+    ValidationEvidence,
 };
 use crate::store_support::{source_binding_key, store_operation};
 use crate::wasm_directory::{self, PackageSelector, ResolvedPackage, WasmDirectoryClient};
@@ -182,7 +182,7 @@ impl LifecycleManager {
             prepared,
             install,
         } = self
-            .prepare_acquired_install(acquired, explicit_policy, InstallIntent::ExposeTools)
+            .prepare_acquired_install(acquired, explicit_policy)
             .await?;
         let manager = self.clone();
         tokio::spawn(async move {
@@ -205,12 +205,21 @@ impl LifecycleManager {
         .context("Component installation worker failed")?
     }
 
-    /// Resolve and install a wasm.directory package without exposing its tools.
+    /// Install an already-captured ordinary component through the normal
+    /// runtime validator and transactional store path.
+    pub async fn load_acquired_component(
+        &self,
+        acquired: AcquiredComponent,
+    ) -> Result<ComponentLoadOutcome> {
+        self.install_acquired(acquired, None).await
+    }
+
+    /// Resolve and install a wasm.directory package without loading its tools.
     ///
     /// Package search metadata is not trusted for identity or artifact
     /// classification. The selected version is pulled by its manifest digest
-    /// through this lifecycle's configured OCI client, then inspected,
-    /// runtime-validated, and committed with `InstallOnly` intent.
+    /// through this lifecycle's configured OCI client, then inspected and
+    /// runtime-validated before it is committed to the shared store.
     pub async fn install_package(
         &self,
         directory: &WasmDirectoryClient,
@@ -225,9 +234,7 @@ impl LifecycleManager {
             guard,
             install,
             ..
-        } = self
-            .prepare_acquired_install(acquired, None, InstallIntent::InstallOnly)
-            .await?;
+        } = self.prepare_acquired_install(acquired, None).await?;
         let manager = self.clone();
         let outcome = tokio::spawn(async move {
             let _guard = guard;
@@ -249,8 +256,8 @@ impl LifecycleManager {
 
     /// Resolve and load a wasm.directory package after an explicit load request.
     ///
-    /// Unlike [`Self::install_package`], this operation deliberately requests
-    /// tool exposure. Installation alone never registers package tools.
+    /// Unlike [`Self::install_package`], this operation also loads the component
+    /// into this runtime.
     pub async fn load_package(
         &self,
         directory: &WasmDirectoryClient,
@@ -268,15 +275,17 @@ impl LifecycleManager {
         &self,
         acquired: AcquiredComponent,
         explicit_policy: Option<PreparedPolicy>,
-        intent: InstallIntent,
     ) -> Result<PreparedAcquiredInstall> {
         let inspection = inspect_artifact(&acquired.wasm)?;
-        let id = if let Some(package_id) = acquired.origin.location.strip_prefix("wasm.directory:")
-        {
-            package_id.to_owned()
-        } else {
-            inspection.identity?.as_str().to_owned()
-        };
+        let id = acquired.component_id()?.as_str().to_owned();
+        let key = acquired.storage_key.clone();
+        let source = acquired.source.clone();
+        let observed_id = id.clone();
+        let expected = store_operation(&self.store, move |store| {
+            Ok(store.observe_source(&observed_id, &key, &source)?)
+        })
+        .await?;
+        let id = expected.component_id().as_str().to_owned();
         anyhow::ensure!(
             inspection.shape == ArtifactShape::ToolCandidate,
             "Cannot load ACP or unsupported artifacts as ordinary tool components"
@@ -333,7 +342,7 @@ impl LifecycleManager {
         } else {
             incoming_policy(acquired.policy.clone())?
         };
-        let binding_id = ComponentId::from_declared_name(&id).map_err(anyhow::Error::from)?;
+        let binding_id = ComponentId::from_name(&id).map_err(anyhow::Error::from)?;
         let binding = SecretBinding::new(
             &binding_id,
             &acquired.storage_key,
@@ -359,7 +368,7 @@ impl LifecycleManager {
                 source: acquired.source,
                 origin: acquired.origin,
                 owner: InstallOwner::Explicit,
-                intent,
+
                 policy: selected,
                 observation: None,
             },
@@ -371,7 +380,8 @@ impl LifecycleManager {
                 );
                 Ok(ValidationEvidence::OrdinaryPrepared { runtime })
             },
-        )?;
+        )?
+        .retain_existing_binding(&expected)?;
         Ok(PreparedAcquiredInstall {
             expected,
             guard,
@@ -409,7 +419,7 @@ impl LifecycleManager {
     #[cfg(test)]
     pub(crate) async fn read_cached_metadata(&self, id: &str) -> Result<Option<ComponentMetadata>> {
         let snapshot = self.store_snapshot(id).await?;
-        if !snapshot.receipt.requests_tool_exposure() {
+        if snapshot.receipt.kind != StoredArtifactKind::Tool {
             return Ok(None);
         }
         let id = id.to_owned();
@@ -526,10 +536,6 @@ impl LifecycleManager {
             snapshot.receipt.kind == StoredArtifactKind::Tool,
             "Cannot load ACP or unsupported artifacts as ordinary tool components"
         );
-        anyhow::ensure!(
-            snapshot.receipt.requests_tool_exposure(),
-            "Component '{id}' is not installed for ordinary tool exposure"
-        );
         let binding = snapshot.receipt.secret_binding()?;
         let policy_template = self
             .policy_manager
@@ -619,7 +625,7 @@ impl LifecycleManager {
                 let Ok(mut state) = registry.state.try_write() else {
                     return Ok(false);
                 };
-                if !receipt.requests_tool_exposure() {
+                if receipt.kind != StoredArtifactKind::Tool {
                     state.unregister_component(&selected_id);
                 } else if let Some(instance) = state.components.get_mut(&selected_id) {
                     if instance.artifact_sha256 == receipt.artifact_sha256 {
@@ -656,7 +662,7 @@ impl LifecycleManager {
             .entries
             .into_iter()
             .filter_map(|entry| match entry {
-                StoredEntry::Installed(receipt) if receipt.requests_tool_exposure() => {
+                StoredEntry::Installed(receipt) if receipt.kind == StoredArtifactKind::Tool => {
                     Some(receipt.component_id.as_str().to_owned())
                 }
                 _ => None,

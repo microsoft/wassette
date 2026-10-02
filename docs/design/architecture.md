@@ -84,10 +84,11 @@ requires a `PreparedInstall` validated against the exact Wasm and effective
 policy. Ordinary loads compile, link and prepare schemas; ACP compiles and checks
 the exported stage and protocol version with its own engine. ACP evidence does
 not promise complete host linking: remaining link failures are selection errors.
-Installation alone neither exposes tools nor starts an ACP agent.
-Ordinary startup, cache hydration and restoration require `ExposeTools` intent.
-An `InstallOnly` receipt stays unexposed even with a valid tool cache or after a
-policy edit; an explicit ordinary load can commit the exposure intent.
+Installation does not start an ACP agent. An installed receipt whose kind is
+`Tool` joins the ordinary tool catalog and is enabled by default in ACP
+sessions. Running sessions refresh the catalog as the store changes. ACP
+discovers installed providers at session startup; provider and layer components
+are not hot-swapped into a running session.
 
 The store retains the flat artifact layout:
 
@@ -102,9 +103,9 @@ The store retains the flat artifact layout:
 .active-transaction
 ```
 
-Receipts separate semantic identity, private storage key, stable source, owner,
-acquisition evidence and deployment intent. They bind the Wasm hash and effective
-policy, including policy provenance and attachment metadata. An OCI manifest
+Receipts separate logical identity, private storage key, stable source, owner,
+and acquisition evidence. They bind the Wasm hash and effective policy,
+including policy provenance and attachment metadata. An OCI manifest
 digest is not the Wasm byte hash; unresolved versions/digests remain unknown.
 Every authoritative change, including a policy-only edit, advances a persistent
 store cursor and entry revision.
@@ -157,9 +158,25 @@ the protocol. Abandoned staging is diagnosed, not deleted based on age.
 `wassette::inspect_artifact` reads binary metadata without compiling. It returns
 the explicit root component name, if present, separately from the artifact's
 shape: an ordinary tool candidate, ACP provider, ACP layer, or unsupported
-artifact. Only root `component-name` metadata supplies semantic `ComponentId`;
-filenames, nested module names, and names synthesized by WIT decoders do not.
-Names preserve their exact spelling and are declarations, not proof of origin.
+artifact. Root `component-name` metadata is cosmetic: it may be missing or
+differ from the logical `ComponentId`, and it does not establish source identity
+or provenance.
+
+New logical IDs come from the acquisition source:
+
+| Source | Logical `ComponentId` |
+| --- | --- |
+| OCI or wasm.directory | Canonical registry/repository, excluding tag and digest |
+| Local file or discovery | `local:` plus the visible filename stem, without `.wasm` |
+| HTTPS download | Downloaded filename stem, without a `local:` prefix |
+| Generated build | Exact `build.component_name` spelling from the request |
+
+The private `StorageKey` is an opaque physical key, not a logical name or
+sanitized form of one. An existing receipt retains its identity, policy and
+secret bindings, and ownership namespace only for the same exact source and
+storage binding. Wassette does not automatically migrate store entries or
+secrets to a new identity. Unrecorded artifacts remain protected inventory and
+are not automatically adopted.
 
 `StorageKey` validates portable filesystem stems and reports collision keys for
 case-insensitive artifact paths and the existing secrets filename projection.
@@ -169,28 +186,23 @@ unsafe projected secret filenames instead of silently renaming them.
 
 First-party build recipes embed the explicit names declared in
 `scripts/component-names.json` before hashing or publishing their outputs.
-Nested metadata is preserved; opaque third-party downloads are not renamed.
-See [producer naming](../development/getting-started.md#declaring-first-party-component-names).
+These names remain useful descriptive producer metadata, but do not determine
+runtime selectors. Nested metadata is preserved; opaque third-party downloads
+are not renamed. See
+[producer naming](../development/getting-started.md#declaring-first-party-component-names).
 
-Load results and component, policy, secret and ACP selectors use the exact
-embedded semantic name. Receipts map it to the private storage key; semantic
-names are never sanitized into filenames. Existing physical policy and secret
-keys are retained, with no automatic secret rekeying. The shared secrets
-directory independently reserves semantic/source/key associations; unknown
-secret files cannot be adopted by a new component.
-
-This is a compatibility boundary. Producer artifacts must declare an
-unambiguous root component name. Unreceipted files remain protected legacy
-inventory, not runnable filename aliases or automatically prunable managed
-entries. There is no automatic legacy or secret migration. First-party build
-recipes provide producer names; tests can give isolated copies their own fixture
-names without rewriting producer outputs.
+Load results and component, policy, secret, and ACP selectors use the
+source-derived logical ID. Receipts map that ID to the private storage key;
+logical IDs are not sanitized into filenames. Existing physical policy and
+secret bindings remain associated with their receipt, and unknown secret files
+cannot be adopted by a new component.
 
 Local sources bind to the canonical source path; HTTPS sources bind to the
 normalized request (query redacted in receipts, but significant through its
 hash); OCI sources bind to the canonical repository. These are conservative
 continuity rules, not source authentication. Moving a file or changing a signed
-URL can therefore conflict even when its embedded name is unchanged.
+URL can therefore conflict even when its source-derived logical ID is
+unchanged.
 
 The ordinary runtime inspects current Wasm bytes before eager or lazy compilation,
 native-cache loading, and cached tool/schema publication. ACP providers/layers
@@ -211,7 +223,7 @@ name, changed runtime kind, or damaged artifact.
 `list_tools_for_component` return these keys with the existing tool schemas;
 `describe_scoped_tool` selects an exact export, and `invoke_scoped_tool` calls it.
 Listing uses receipt-bound metadata when available and validated cold compilation otherwise.
-Install-only and ACP receipts cannot enter these APIs, including through caches.
+ACP provider and layer receipts cannot enter these APIs, including through caches.
 These compatibility APIs drop revision references from the atomic catalog;
 use `catalog()` when a consumer must retain permission-relevant identity.
 
@@ -295,8 +307,9 @@ prepared and admitted against their own current receipt.
 `CatalogGeneration` identifies a runtime instance and its in-memory publication
 sequence, not a store revision. Clones share it; independent managers do not.
 Only changes to references, descriptors, membership or availability advance it.
-Cache warming alone does not. Retired and InstallOnly receipts never contribute
-callable tools; `ExposeTools` eligibility still does not grant permission.
+Cache warming alone does not. Retired receipts and receipts whose kind is not
+`Tool` never contribute callable tools. Tool-kind eligibility does not grant
+session exposure or policy permission.
 
 `wait_changed(&generation)` observes **in-memory publications only**. A foreign
 token returns immediately so the caller can resnapshot; lagging consumers read

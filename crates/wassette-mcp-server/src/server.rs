@@ -681,7 +681,7 @@ mod tests {
                         fixture.digest("owner/catalog-fixture", "1.2.3")
                     );
                     assert_eq!(installed["component_id"], package);
-                    assert!(manager.catalog().await.unwrap().tools.is_empty());
+                    assert_eq!(manager.catalog().await.unwrap().tools.len(), 1);
 
                     let request = CallToolRequestParams::new("load-component").with_arguments(
                         serde_json::Map::from_iter([(
@@ -755,18 +755,21 @@ mod tests {
                     assert_eq!(installed["manifest_digest"], digest);
                     assert_eq!(installed["component_id"], package);
                     assert_eq!(installed["storage_key"], "local_catalog-fixture");
-                    assert_eq!(installed["receipt"]["intent"], "InstallOnly");
+                    assert!(installed["receipt"].get("intent").is_none());
                     assert_eq!(installed["receipt"]["origin"]["selected_version"], "1.2.3");
                     assert!(installed["revision"].is_string());
                     assert!(!installed["change"].is_null());
-                    assert!(server
-                        .lifecycle_manager
-                        .catalog()
-                        .await
-                        .unwrap()
-                        .tools
-                        .is_empty());
-                    expect_no_subscription_change(&mut receiver).await;
+                    assert_eq!(
+                        server
+                            .lifecycle_manager
+                            .catalog()
+                            .await
+                            .unwrap()
+                            .tools
+                            .len(),
+                        1
+                    );
+                    expect_subscription_change(&mut receiver).await;
 
                     let (_peer, mut client, service) = connect_peer(server.clone()).await;
                     let request = serde_json::json!({
@@ -781,8 +784,6 @@ mod tests {
                         .await
                         .unwrap();
                     client.get_mut().flush().await.unwrap();
-                    expect_tool_list_changed(&mut client).await;
-                    expect_subscription_change(&mut receiver).await;
                     let mut response = String::new();
                     tokio::time::timeout(Duration::from_secs(20), client.read_line(&mut response))
                         .await
@@ -799,7 +800,7 @@ mod tests {
                     assert_eq!(result["selected_version"], "1.2.3");
                     assert_eq!(result["manifest_digest"], digest);
                     assert_eq!(result["storage_key"], "local_catalog-fixture");
-                    assert_eq!(result["receipt"]["intent"], "ExposeTools");
+                    assert!(result["receipt"].get("intent").is_none());
                     assert_eq!(result["receipt"]["origin"]["selected_version"], "1.2.3");
                     let catalog = manager.catalog().await.unwrap();
                     assert_eq!(catalog.tools.len(), 1);

@@ -68,12 +68,14 @@ pub struct PolicyGrants {
     /// no policy and is therefore fully denied.
     pub policy_path: Option<PathBuf>,
     /// Include declared grants even when an environment variable is unset.
+    #[cfg_attr(not(test), allow(dead_code))]
     pub has_policy_grants: bool,
     pub template: WasiStateTemplate,
 }
 
 impl Sandbox {
     /// A shared WASI context would expose these grants to every chain stage.
+    #[cfg_attr(not(test), allow(dead_code))]
     pub fn has_shared_grants(&self) -> bool {
         match self {
             Sandbox::AllowAll => true,
