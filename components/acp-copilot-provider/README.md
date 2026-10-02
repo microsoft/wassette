@@ -15,8 +15,7 @@ From the repository root:
 just build-acp-examples
 
 # run it with a token from the GitHub CLI (see "Authentication")
-GH_TOKEN="$(gh auth token)" cargo run -p wassette-mcp-server -- acp --allow-all \
-    --provider components/acp-copilot-provider/target/wasm32-wasip2/release/acp_copilot_provider.wasm
+GH_TOKEN="$(gh auth token)" cargo run -p wassette-mcp-server -- acp --allow-all
 ```
 
 `--allow-all` grants the network and environment access the provider needs;
@@ -49,7 +48,7 @@ directory and store the token there to keep it out of the environment:
 ```shell
 wassette component load file://$PWD/components/acp-copilot-provider/target/wasm32-wasip2/release/acp_copilot_provider.wasm
 wassette secret set acp_copilot_provider "github_token=$(gh auth token)"
-wassette acp --allow-all --provider acp_copilot_provider
+wassette acp --allow-all
 ```
 
 If no secret is stored, the guest falls back to the `COPILOT_GITHUB_TOKEN`,
@@ -80,10 +79,11 @@ the `component-generation` feature and the private builder image is available
 (see
 [Generating components from ACP](../../docs/design/acp.md#generating-components-from-acp)).
 It sends the model's Rust source and WIT to the host's
-`wassette:component-generation/builder` import; the host asks the editor to
-approve each phase itself, so this tool skips the provider's own prompt. The
-result tells the model that a new component is usable only in a **new** ACP
-session — running sessions are never hot-swapped.
+`wassette:component-generation/builder` import; The host asks the editor to approve the build and install itself, so this tool
+skips the provider's own prompt. After installing a tool component, the host enables it in every session
+and the provider advertises it to the model on the next turn. The host refreshes
+ordinary tools from the shared store while the session is running; ACP providers
+and layers are not hot-swapped into running sessions and require a new session.
 
 Each call is surfaced to the editor as a tool-call card — an initial
 `tool_call` update (status *pending*), then a `tool_call_update` when it

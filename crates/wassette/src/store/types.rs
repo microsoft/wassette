@@ -350,17 +350,6 @@ pub enum InstallOwner {
     ManagedLocalSource(ManagedLocalSource),
 }
 
-/// Installation does not by itself register tools or activate an ACP provider.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub enum InstallIntent {
-    /// Persist only.
-    InstallOnly,
-    /// The caller intends to expose ordinary tools after admission.
-    ExposeTools,
-    /// The caller intends to select this artifact through its ACP adapter.
-    AcpSelection,
-}
-
 /// The checks actually completed by the trusted runtime validator.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ValidationEvidence {
@@ -523,8 +512,6 @@ pub struct InstallOptions {
     pub origin: OriginEvidence,
     /// Installation owner.
     pub owner: InstallOwner,
-    /// Post-install intent, not runtime authorization.
-    pub intent: InstallIntent,
     /// Effective policy, independently selected from any source sidecar.
     pub policy: PreparedPolicy,
     /// Optional captured source observation.
@@ -655,17 +642,8 @@ pub struct InstallReceipt {
     pub policy: EffectivePolicy,
     /// Revision of this complete authoritative state.
     pub revision: EntryRevision,
-    /// Installation intent, independent of exposure or activation.
-    pub intent: InstallIntent,
     /// Last successful optional source capture.
     pub observation: Option<SourceObservation>,
-}
-
-impl InstallReceipt {
-    /// Whether this ordinary artifact requests tool exposure, not runtime authorization.
-    pub fn requests_tool_exposure(&self) -> bool {
-        self.kind == StoredArtifactKind::Tool && self.intent == InstallIntent::ExposeTools
-    }
 }
 
 /// Why an installed entry became a durable reservation.

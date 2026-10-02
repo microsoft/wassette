@@ -28,9 +28,9 @@ use tokio_util::sync::CancellationToken;
 
 use crate::loader::CapturedComponent;
 use crate::store::{
-    self, InstallIntent, InstallOptions, InstallOwner, ManagedLocalSource, OriginEvidence,
-    PolicyProvenance, PreparedInstall, PreparedPolicy, RemovalAuthority, RemovalReason,
-    SourceIdentity, StoredArtifactKind, StoredEntry, ValidationEvidence,
+    self, InstallOptions, InstallOwner, ManagedLocalSource, OriginEvidence, PolicyProvenance,
+    PreparedInstall, PreparedPolicy, RemovalAuthority, RemovalReason, SourceIdentity,
+    StoredArtifactKind, StoredEntry, ValidationEvidence,
 };
 use crate::store_support::{source_binding_key, store_operation};
 use crate::{inspect_artifact, ArtifactShape, LifecycleManager, SecretBinding, StorageKey};
@@ -711,11 +711,6 @@ impl LocalSourceService {
                 .validate(&captured.wasm, &inspection, policy.bytes())?,
             ArtifactShape::Unsupported(_) => return Err(anyhow!("unsupported artifact shape")),
         };
-        let intent = if kind == ArtifactShape::ToolCandidate {
-            InstallIntent::ExposeTools
-        } else {
-            InstallIntent::AcpSelection
-        };
         let prepared = PreparedInstall::prepare(
             captured.wasm,
             InstallOptions {
@@ -730,7 +725,6 @@ impl LocalSourceService {
                     generation: None,
                 },
                 owner: InstallOwner::ManagedLocalSource(owner),
-                intent,
                 policy,
                 observation: Some(captured.observation),
             },

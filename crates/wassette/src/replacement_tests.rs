@@ -1118,7 +1118,6 @@ async fn wasm_directory_package_install_is_digest_pinned_until_explicit_load() -
     };
     assert_eq!(receipt.component_id.as_str(), package.to_string().as_str());
     assert_eq!(receipt.storage_key.as_str(), "local_safe-replacement");
-    assert_eq!(receipt.intent, store::InstallIntent::InstallOnly);
     assert!(outcome.change.is_some());
     assert!(unchanged.change.is_none());
     assert_eq!(unchanged.entry.revision(), outcome.entry.revision());
@@ -1128,7 +1127,7 @@ async fn wasm_directory_package_install_is_digest_pinned_until_explicit_load() -
         Some(resolved.oci_reference.as_str())
     );
     assert!(manager.get_component(ID).await.is_none());
-    assert!(manager.catalog().await?.tools.is_empty());
+    assert_eq!(manager.catalog().await?.tools.len(), 1);
     assert_eq!(
         tokio::fs::read(manager.component_path("local_safe-replacement")).await?,
         component(7)?
@@ -1136,12 +1135,11 @@ async fn wasm_directory_package_install_is_digest_pinned_until_explicit_load() -
 
     let (loaded, load_outcome) =
         tokio::time::timeout(WAIT, manager.load_package(&directory, &package, None)).await??;
-    let loaded_receipt = match &load_outcome.commit.entry {
+    let _loaded_receipt = match &load_outcome.commit.entry {
         store::StoredEntry::Installed(receipt) => receipt,
         store::StoredEntry::Retired(_) => bail!("package load returned a retired entry"),
     };
     assert_eq!(loaded.manifest_digest, manifest_digest);
-    assert_eq!(loaded_receipt.intent, store::InstallIntent::ExposeTools);
     assert!(manager
         .get_component(package.to_string().as_str())
         .await
@@ -1372,6 +1370,6 @@ async fn nameless_registry_package_uses_canonical_registry_id() -> Result<()> {
         receipt.component_id.as_str(),
         fixture.package_id("owner/nameless")
     );
-    assert!(manager.catalog().await?.tools.is_empty());
+    assert_eq!(manager.catalog().await?.tools.len(), 1);
     Ok(())
 }

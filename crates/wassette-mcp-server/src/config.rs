@@ -433,7 +433,7 @@ mod tests {
                 ("WASSETTE_SECRETS_DIR", Some("env-secrets")),
             ],
             || {
-                let mut args = TestCli::parse_from(["test", "--provider", "provider"]).args;
+                let mut args = TestCli::parse_from(["test"]).args;
                 resolve_acp_stores(&mut args, Some(Path::new("global-components"))).unwrap();
                 assert_eq!(
                     args.component_dir.as_deref(),

@@ -24,9 +24,6 @@ pub struct GenerationCallerGrant {
     /// Permission to commit newly generated artifacts.
     #[serde(default)]
     pub allow_install: bool,
-    /// Permission to request ordinary-tool runtime eligibility.
-    #[serde(default)]
-    pub allow_expose: bool,
     /// Exact generated lineage IDs this caller may rebuild, not semantic aliases.
     #[serde(default)]
     pub rebuild_sources: Vec<String>,
@@ -111,7 +108,8 @@ async fn authorize_caller(
             .find(|entry| entry.component_id().as_str() == caller_id);
         ensure!(
             matches!(current, Some(StoredEntry::Installed(receipt))
-                    if receipt.revision == caller_revision && receipt.requests_tool_exposure()),
+                    if receipt.revision == caller_revision
+                        && receipt.kind == crate::store::StoredArtifactKind::Tool),
             "ordinary generation caller is stale or unavailable"
         );
         Ok(snapshot
@@ -127,7 +125,6 @@ async fn authorize_caller(
     Ok(GenerationPermissions::new(
         ceiling.build && grant.allow_build,
         ceiling.install && grant.allow_install,
-        ceiling.expose && grant.allow_expose,
         ceiling.rebuild && may_rebuild,
     ))
 }
@@ -140,15 +137,11 @@ mod tests {
     #[tokio::test]
     async fn caller_grants_are_default_denied_and_revision_bound() {
         let (_root, manager) = manager().await;
-        let first = candidate(
-            &manager,
-            request("caller", InstallIntent::ExposeTools),
-            wasm("caller", 1),
-        )
-        .await
-        .install(permissions(), CancellationToken::new())
-        .await
-        .unwrap();
+        let first = candidate(&manager, request("caller"), wasm("caller", 1))
+            .await
+            .install(permissions(), CancellationToken::new())
+            .await
+            .unwrap();
         let caller = GenerationCaller {
             manager: manager.clone(),
             component_id: "caller".into(),
@@ -165,14 +158,13 @@ mod tests {
             revision: caller.revision.to_string(),
             allow_build: true,
             allow_install: true,
-            allow_expose: false,
             rebuild_sources: Vec::new(),
         }];
         let allowed = authorize_caller(&grants, ceiling, &caller, "new", &GenerationTarget::New)
             .await
             .unwrap();
         assert!(allowed.can_build() && allowed.can_install());
-        assert!(!allowed.can_expose() && !allowed.can_rebuild());
+        assert!(!allowed.can_rebuild());
         let wrong = GenerationCaller {
             component_id: "another-caller".into(),
             ..caller.clone()
@@ -200,29 +192,21 @@ mod tests {
     #[tokio::test]
     async fn a_rebuild_grant_names_a_lineage_not_a_claimed_component_name() {
         let (_root, manager) = manager().await;
-        let first = candidate(
-            &manager,
-            request("caller", InstallIntent::ExposeTools),
-            wasm("caller", 1),
-        )
-        .await
-        .install(permissions(), CancellationToken::new())
-        .await
-        .unwrap();
+        let first = candidate(&manager, request("caller"), wasm("caller", 1))
+            .await
+            .install(permissions(), CancellationToken::new())
+            .await
+            .unwrap();
         let caller = GenerationCaller {
             manager: manager.clone(),
             component_id: "caller".into(),
             revision: first.commit.entry.revision().clone(),
         };
-        let target = candidate(
-            &manager,
-            request("target", InstallIntent::InstallOnly),
-            wasm("target", 1),
-        )
-        .await
-        .install(permissions(), CancellationToken::new())
-        .await
-        .unwrap();
+        let target = candidate(&manager, request("target"), wasm("target", 1))
+            .await
+            .install(permissions(), CancellationToken::new())
+            .await
+            .unwrap();
         let rebuild = GenerationTarget::Rebuild {
             expected_revision: target.commit.entry.revision().to_string(),
         };
@@ -231,7 +215,6 @@ mod tests {
             revision: caller.revision.to_string(),
             allow_build: true,
             allow_install: true,
-            allow_expose: false,
             rebuild_sources: vec!["ab".repeat(16)],
         };
         let denied = authorize_caller(&[grant.clone()], permissions(), &caller, "target", &rebuild)
