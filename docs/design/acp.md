@@ -226,7 +226,7 @@ Inactive providers' command advertisements are retained and replayed when select
 Each provider chain retains its own effective policy, secrets binding, persistent
 `/data` ownership, tool catalog view and remembered tool approvals. A permission
 granted to one provider does not authorize another provider or editor session.
-ACP does not currently activate layers. Generation approvals still go directly
+ACP does not currently activate layers. Rebuild approvals still go directly
 to that chain's bound editor session; loading several
 providers does not change this limitation or grant generation authority.
 
@@ -255,10 +255,13 @@ builder image at `~/.local/share/wassette/builder/rust-initrd.cpio` (or
 `$XDG_DATA_HOME/wassette/builder/rust-initrd.cpio` when `XDG_DATA_HOME` is set).
 The standard `just install` recipe builds the feature-enabled CLI; it does not
 download or install the image. No JSON profile or generation-specific
-command-line option is needed. Build and install are enabled by default and
-remain subject to editor approval. ACP enables exposure authorization by
-default, but exposing a generated ordinary tool still requires its own editor
-approval. Rebuild remains disabled by default.
+command-line option is needed. The host authorizes new builds and installations
+without editor permission prompts. This fixed behavior applies to any provider
+or layer calling the generation import, independently of provider approval
+settings; there is no opt-out. Providers decide whether to expose generation
+and may impose their own checks before calling the import. Rebuild remains
+disabled by default; if explicitly enabled by the host, it requires editor
+approval before both building and installing.
 
 1. Install the feature-enabled CLI:
 
@@ -280,12 +283,20 @@ approval. Rebuild remains disabled by default.
 
 The host advertises `build_component` when generation is available; other ACP
 providers can use the same host import independently. The host remains
-authoritative and asks the editor to approve the build and installation.
+authoritative over build and installation.
 Generated tools can be called immediately in the session that built them, and
 every other running session picks them up on its next turn. Generated ACP
 layers still
 require a new session; running providers and layers are never hot-swapped.
 Ordinary tool catalogs continue to refresh while sessions remain active.
+
+Installation and catalog exposure do not authorize tool execution. Calling
+a generated tool still requires its separate host revision approval and
+effective policy grants. Neither provider Auto-approve modes nor ACP
+`--allow-all` bypass that host approval. Generation does not grant filesystem,
+network, environment or secret access, and does not authorize `/install` or
+arbitrary registry loads. Private VM isolation, finite build budgets,
+validation and source/secret/revision checks apply before every installation.
 
 The generated component's logical ID is the exact `build.component_name`
 spelling from its request; root metadata and the private opaque storage key do

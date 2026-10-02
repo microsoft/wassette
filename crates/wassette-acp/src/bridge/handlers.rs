@@ -764,7 +764,7 @@ async fn run_tools_command(
         }
         let generation_available = handle.generation_available().await;
         if generation_available {
-            rows.push("| `build_component` | `host` | enabled | Build a WebAssembly component (with editor approval). |".into());
+            rows.push("| `build_component` | `host` | enabled | Build and install a new WebAssembly component without editor prompts; running its tools requires separate approval. |".into());
         }
         #[cfg(feature = "component-generation")]
         let generation_hint = if generation_available {

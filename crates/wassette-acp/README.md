@@ -110,13 +110,18 @@ Build with the `component-generation` Cargo feature and place the private
 builder image at `~/.local/share/wassette/builder/rust-initrd.cpio` (or the
 corresponding path under `$XDG_DATA_HOME` when set). No JSON profile or
 `--generation-config` option is needed, and Wassette does not
-download the image. Build and install remain subject to editor approval.
+download the image. The host authorizes new builds and installations without
+editor permission prompts for every provider or layer using the import.
+There is no configuration toggle or opt-out; providers may impose their own
+checks before invoking the host.
 Generated tools are enabled in every session and can be called immediately; their per-tool invocation permissions still apply. Rebuild
-remains disabled by default.
+remains disabled by default and requires both editor approvals if explicitly
+enabled by the host.
 
 Providers and layers may request `wassette:component-generation/builder@0.1.0`.
-The host asks for one-call build approval before starting the VM, then install
-approval bound to the actual output hash and expected revision. A generated
+New-lineage authorization still separates building in the isolated VM from
+installing the exact validated output, with source/secret/revision continuity
+and finite build limits. It does not grant runtime permissions. A generated
 tool becomes available in the requesting session immediately, and its existing
 per-tool invocation permissions still apply.
 An ordinary artifact with no callable exports can still be installed and made
@@ -140,7 +145,7 @@ The neutral synchronous-ABI WIT is canonical at
 the ACP dependency directory is a symbolic link, not a separately maintained copy.
 ACP uses an asynchronous host implementation of the synchronous import and
 drives its store event loop for session binding. Generation's host-managed
-permission prompts and status updates go **directly to the bound editor, not
+rebuild permission prompts and status updates go **directly to the bound editor, not
 through upstream layers**, using the existing client transport helpers:
 Wasmtime 47 cannot re-enter an active upstream layer during a synchronous guest
 import. Layers cannot mediate or rewrite these approvals;
@@ -164,6 +169,7 @@ WASSETTE_ACP_GENERATION_IMAGE=/path/to/rust-initrd.cpio \
   --test acp_stdio generation::real_ -- --ignored --test-threads=1
 ```
 
-These tests isolate stores, secrets and builder staging; they cover phase
-denials, install-only behavior, session-local exposure, layered callers,
-disconnect cleanup and later explicit layer selection.
+These tests isolate stores, secrets and builder staging; they cover prompt-free
+new builds/installations, retained invocation approvals, cross-session exposure,
+build failure, cancellation, disconnect cleanup and layer nonactivation.
+Unit tests separately cover explicitly enabled rebuild approvals and denials.

@@ -11,7 +11,7 @@ struct Editor {
     reject: Option<Phase>,
     cancel_on_allow: Option<Phase>,
     cancel: CancellationToken,
-    bound: AtomicBool,
+    bound: Arc<AtomicBool>,
 }
 
 impl Editor {
@@ -21,7 +21,7 @@ impl Editor {
             reject: None,
             cancel_on_allow: None,
             cancel,
-            bound: AtomicBool::new(true),
+            bound: Arc::new(AtomicBool::new(true)),
         }
     }
 }
@@ -53,6 +53,9 @@ struct Builder {
     builds: AtomicUsize,
     installs: AtomicUsize,
     stale_commit: bool,
+    fail_build: bool,
+    cancel_after_build: bool,
+    unbind_after_build: Option<Arc<AtomicBool>>,
 }
 
 impl Operation for Builder {
@@ -63,11 +66,20 @@ impl Operation for Builder {
         &self,
         _: GenerationRequest,
         permissions: GenerationPermissions,
-        _: CancellationToken,
+        cancel: CancellationToken,
     ) -> Result<Value, GenerationError> {
         assert!(permissions.can_build());
         assert!(!permissions.can_install());
         self.builds.fetch_add(1, Ordering::Relaxed);
+        if self.fail_build {
+            return Err(GenerationError::BuildFailed("Compilation failed".into()));
+        }
+        if self.cancel_after_build {
+            cancel.cancel();
+        }
+        if let Some(bound) = &self.unbind_after_build {
+            bound.store(false, Ordering::Release);
+        }
         Ok(json!({"wasm_sha256": "actual-finalized-hash", "expected_revision": "exact-revision"}))
     }
 
@@ -113,6 +125,15 @@ fn ceiling() -> GenerationPermissions {
     GenerationPermissions::new(true, true, true)
 }
 
+fn rebuild_request() -> GenerationRequest {
+    GenerationRequest {
+        target: GenerationTarget::Rebuild {
+            expected_revision: "bound-revision".into(),
+        },
+        ..request()
+    }
+}
+
 #[tokio::test]
 async fn every_phase_denial_stops_before_the_next_side_effect() {
     for (reject, builds) in [(Phase::Build, 0), (Phase::Install, 1)] {
@@ -121,7 +142,7 @@ async fn every_phase_denial_stops_before_the_next_side_effect() {
         editor.reject = Some(reject);
         let builder = Builder::default();
         assert!(matches!(
-            phases(&editor, &builder, request(), ceiling(), cancel).await,
+            phases(&editor, &builder, rebuild_request(), ceiling(), cancel).await,
             Err(GenerationError::PermissionDenied)
         ));
         assert_eq!(builder.builds.load(Ordering::Relaxed), builds);
@@ -137,14 +158,21 @@ async fn late_allow_after_cancellation_never_builds_or_installs() {
         editor.cancel_on_allow = Some(phase);
         let builder = Builder::default();
         assert!(matches!(
-            phases(&editor, &builder, request(), ceiling(), cancel.clone()).await,
+            phases(
+                &editor,
+                &builder,
+                rebuild_request(),
+                ceiling(),
+                cancel.clone()
+            )
+            .await,
             Err(GenerationError::Cancelled)
         ));
         assert_eq!(builder.builds.load(Ordering::Relaxed), builds);
         assert_eq!(builder.installs.load(Ordering::Relaxed), 0);
         let count = editor.approved.lock().unwrap().len();
         assert!(matches!(
-            phases(&editor, &builder, request(), ceiling(), cancel).await,
+            phases(&editor, &builder, rebuild_request(), ceiling(), cancel).await,
             Err(GenerationError::Cancelled)
         ));
         assert_eq!(editor.approved.lock().unwrap().len(), count);
@@ -152,7 +180,7 @@ async fn late_allow_after_cancellation_never_builds_or_installs() {
 }
 
 #[tokio::test]
-async fn generation_uses_only_build_and_install_approvals() {
+async fn new_generation_never_requests_editor_approval() {
     let cancel = CancellationToken::new();
     let editor = Editor::new(cancel.clone());
     let builder = Builder::default();
@@ -161,11 +189,8 @@ async fn generation_uses_only_build_and_install_approvals() {
         .unwrap();
     assert!(permissions.can_install());
     assert_eq!(builder.installs.load(Ordering::Relaxed), 1);
-    let prompts = editor.approved.lock().unwrap();
-    assert_eq!(prompts.len(), 2);
-    assert_eq!(prompts[0].0, Phase::Build);
-    assert!(!prompts[0].1.to_string().contains("secret source body"));
-    assert_eq!(prompts[1].1["wasm_sha256"], "actual-finalized-hash");
+    assert_eq!(builder.builds.load(Ordering::Relaxed), 1);
+    assert!(editor.approved.lock().unwrap().is_empty());
 }
 
 #[tokio::test]
@@ -179,17 +204,16 @@ async fn unbound_call_and_disabled_ceiling_never_prompt_or_build() {
         Err(GenerationError::SessionNotBound)
     ));
     editor.bound.store(true, Ordering::Release);
-    assert!(matches!(
-        phases(
-            &editor,
-            &builder,
-            request(),
-            GenerationPermissions::default(),
-            cancel
-        )
-        .await,
-        Err(GenerationError::PermissionDenied)
-    ));
+    for permissions in [
+        GenerationPermissions::default(),
+        GenerationPermissions::new(false, true, false),
+        GenerationPermissions::new(true, false, false),
+    ] {
+        assert!(matches!(
+            phases(&editor, &builder, request(), permissions, cancel.clone()).await,
+            Err(GenerationError::PermissionDenied)
+        ));
+    }
     assert!(editor.approved.lock().unwrap().is_empty());
     assert_eq!(builder.builds.load(Ordering::Relaxed), 0);
 }
@@ -199,10 +223,7 @@ async fn rebuild_requires_separate_operator_authority_and_ui_disclosure() {
     let cancel = CancellationToken::new();
     let editor = Editor::new(cancel.clone());
     let builder = Builder::default();
-    let mut input = request();
-    input.target = GenerationTarget::Rebuild {
-        expected_revision: "bound-revision".into(),
-    };
+    let input = rebuild_request();
     assert!(matches!(
         phases(
             &editor,
@@ -225,6 +246,11 @@ async fn rebuild_requires_separate_operator_authority_and_ui_disclosure() {
         "bound-revision"
     );
     assert_eq!(prompts[0].1["rebuild"], true);
+    assert_eq!(prompts.len(), 2);
+    assert_eq!(prompts[0].0, Phase::Build);
+    assert!(!prompts[0].1.to_string().contains("secret source body"));
+    assert_eq!(prompts[1].0, Phase::Install);
+    assert_eq!(prompts[1].1["wasm_sha256"], "actual-finalized-hash");
 }
 
 #[tokio::test]
@@ -243,7 +269,7 @@ async fn stale_revision_during_permission_is_not_reported_as_success() {
 }
 
 #[tokio::test]
-async fn layer_generation_needs_only_build_and_install_approvals() {
+async fn new_layer_generation_never_requests_editor_approval() {
     let cancel = CancellationToken::new();
     let editor = Editor::new(cancel.clone());
     let builder = Builder::default();
@@ -253,6 +279,81 @@ async fn layer_generation_needs_only_build_and_install_approvals() {
         .await
         .unwrap();
     assert!(permissions.can_install());
+    assert_eq!(builder.builds.load(Ordering::Relaxed), 1);
+    assert_eq!(builder.installs.load(Ordering::Relaxed), 1);
+    assert!(editor.approved.lock().unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn new_generation_failures_and_cancellation_never_install_or_prompt() {
+    for builder in [
+        Builder {
+            fail_build: true,
+            ..Builder::default()
+        },
+        Builder {
+            cancel_after_build: true,
+            ..Builder::default()
+        },
+    ] {
+        let cancel = CancellationToken::new();
+        let editor = Editor::new(cancel.clone());
+        assert!(matches!(
+            phases(&editor, &builder, request(), ceiling(), cancel).await,
+            Err(GenerationError::BuildFailed(_) | GenerationError::Cancelled)
+        ));
+        assert_eq!(builder.builds.load(Ordering::Relaxed), 1);
+        assert_eq!(builder.installs.load(Ordering::Relaxed), 0);
+        assert!(editor.approved.lock().unwrap().is_empty());
+    }
+}
+
+#[tokio::test]
+async fn new_generation_checks_cancellation_before_building() {
+    let cancel = CancellationToken::new();
+    cancel.cancel();
+    let editor = Editor::new(cancel.clone());
+    let builder = Builder::default();
+    assert!(matches!(
+        phases(&editor, &builder, request(), ceiling(), cancel).await,
+        Err(GenerationError::Cancelled)
+    ));
+    assert_eq!(builder.builds.load(Ordering::Relaxed), 0);
+    assert_eq!(builder.installs.load(Ordering::Relaxed), 0);
+    assert!(editor.approved.lock().unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn losing_session_binding_after_build_never_installs_or_prompts() {
+    let cancel = CancellationToken::new();
+    let editor = Editor::new(cancel.clone());
+    let builder = Builder {
+        unbind_after_build: Some(editor.bound.clone()),
+        ..Builder::default()
+    };
+    assert!(matches!(
+        phases(&editor, &builder, request(), ceiling(), cancel).await,
+        Err(GenerationError::SessionNotBound)
+    ));
+    assert_eq!(builder.builds.load(Ordering::Relaxed), 1);
+    assert_eq!(builder.installs.load(Ordering::Relaxed), 0);
+    assert!(editor.approved.lock().unwrap().is_empty());
+}
+
+#[test]
+fn rebuild_permission_route_errors_identify_the_phase_without_disclosing_details() {
+    for phase in [Phase::Build, Phase::Install] {
+        let result = permission_result(
+            phase,
+            Err(crate::translate::internal_error("PRIVATE_HOST_CONTEXT")),
+        );
+        let Err(GenerationError::Unavailable(message)) = result else {
+            panic!("permission route failure must be explicit");
+        };
+        assert!(message.contains(phase.title()));
+        assert!(message.contains("session/request_permission"));
+        assert!(!message.contains("PRIVATE_HOST_CONTEXT"));
+    }
 }
 
 #[test]

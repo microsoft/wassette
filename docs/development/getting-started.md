@@ -103,9 +103,11 @@ To use component generation, manually place the private builder image at
 `~/.local/share/wassette/builder/rust-initrd.cpio` (or
 `$XDG_DATA_HOME/wassette/builder/rust-initrd.cpio` when `XDG_DATA_HOME` is set).
 `just install` does not download or install the image. No JSON profile or
-`--generation-config` option is required. Build, install, and requested tool
-exposure are authorized by default; ACP still requires editor approval for
-each phase. Rebuild remains disabled by default. See
+`--generation-config` option is required. ACP authorizes new builds,
+installations and tool exposure without host editor prompts, independently
+of the provider. Tool execution still requires separate revision approval
+and policy grants. Rebuild remains disabled by default and needs both
+editor approvals if explicitly enabled by the host. See
 [Generating components from ACP](../design/acp.md#generating-components-from-acp).
 
 ### Declaring first-party component names

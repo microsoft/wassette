@@ -1474,7 +1474,7 @@ async fn execute_tool_call(
 
     ui.announce().await;
 
-    // The host prompts the editor for every generation phase itself.
+    // Generation authorization belongs to the host, not native tool approval.
     if name == generation::TOOL_BUILD_COMPONENT {
         return build_component(&ui, &args).await;
     }
@@ -1664,8 +1664,8 @@ async fn execute_tool_call(
 }
 
 /// Run `build_component` through the host's generation import. The host
-/// authorizes the request (operator profile plus per-phase editor approval)
-/// and errors when generation is disabled.
+/// authorizes new builds/installations directly and prompts for explicitly
+/// enabled rebuilds. It errors when generation is disabled.
 async fn build_component(ui: &ToolUi, args: &Value) -> ToolExec {
     let request = match generation::request_json(args) {
         Ok(request) => request,

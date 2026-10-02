@@ -99,7 +99,9 @@ it refuses a non-empty directory. The private builder image compiles the
 request in isolation, and the host validates captured output before installing
 through the shared component store. A direct CLI invocation is the user's
 build request. Exposure is authorized by default when requested, while
-rebuild is disabled by default; ACP asks the editor to approve each phase.
+rebuild is disabled by default. ACP also authorizes new builds and installations
+without host editor prompts; explicitly enabled rebuilds still require both
+editor approvals.
 
 ### `wassette component source` (opt-in)
 
@@ -122,11 +124,16 @@ permission model does not separately authorize disclosure of these contents.
 The request supplies inline source and WIT; it cannot select the builder image,
 compiler configuration, or permissions. No operator JSON profile, helper
 program, helper digest, or `--generation-config` option is used.
-The host asks for approval before building and installing; rebuilding an
-existing generated revision is disabled by default. Generated Tool components
+ACP authorizes new generated builds and installations without host editor
+prompts; this fixed behavior is independent of the provider, Auto-approve
+modes and `--allow-all`. Providers may impose their own checks. Rebuilding an
+existing generated revision is disabled by default and requires both editor
+approvals if explicitly enabled by the host. Generated Tool components
 are enabled immediately in the ACP session that built them and in every other
 running or future session; use `/tools disable` to opt a session out.
 ACP layers are stored but never hot-swapped into a running session.
+Tool execution still requires separate host revision approval and effective
+policy grants; installation and exposure grant neither.
 
 The JSON report contains the canonical commit/receipt, private storage key,
 provenance, opaque revision token, actual refresh result, and bounded preview

@@ -5,9 +5,9 @@
 //!
 //! The host advertises nothing here: it notifies this provider through an
 //! internal config option when generation is available, and remains the
-//! authority on every request. It
-//! prompts the editor for build and install, so this
-//! provider does not add a permission prompt of its own.
+//! authority on every request. It authorizes new builds and installations
+//! without editor prompts; explicitly enabled rebuilds still need approval.
+//! This provider does not add a permission prompt of its own.
 
 use serde_json::{Value, json};
 
@@ -25,7 +25,9 @@ pub fn tool_def() -> Value {
             "name": TOOL_BUILD_COMPONENT,
             "description": "Build a new WebAssembly component from Rust source and WIT \
                 in Wassette's isolated builder VM, then install it in the user's Wassette \
-                component store. The host asks the user to approve each phase. The Rust \
+                component store. New builds and installations need no editor approval; \
+                rebuilds require host opt-in and approval. Running an installed tool \
+                still requires its separate revision approval and policy grants. The Rust \
                 source is the crate's entire `src/lib.rs`: implement the generated \
                 `bindings` traits for the selected world and end with \
                 `bindings::export!(Component with_types_in bindings);`. For example, for \
@@ -81,7 +83,11 @@ pub fn request_json(args: &Value) -> Result<String, String> {
     let kind = match args.get("kind").and_then(Value::as_str).unwrap_or("tool") {
         "tool" => "Tool",
         "acp-layer" => "AcpLayer",
-        other => return Err(format!("unknown kind '{other}' (expected tool or acp-layer)")),
+        other => {
+            return Err(format!(
+                "unknown kind '{other}' (expected tool or acp-layer)"
+            ));
+        }
     };
     let target = match args.get("expected_revision").and_then(Value::as_str) {
         Some(revision) if !revision.is_empty() => {
@@ -122,9 +128,9 @@ fn describe_report(report: &GenerationReport) -> String {
         .map(|revision| format!(" (revision `{revision}`)"))
         .unwrap_or_default();
     let summary = match report.disposition {
-        Disposition::Installed => format!(
-            "Installed component `{id}`{revision} in the Wassette component store."
-        ),
+        Disposition::Installed => {
+            format!("Installed component `{id}`{revision} in the Wassette component store.")
+        }
         Disposition::ToolsEligible => format!(
             "Installed component `{id}`{revision}; it is eligible as an ordinary tool but \
              exports no callable functions."

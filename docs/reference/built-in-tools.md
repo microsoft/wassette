@@ -52,10 +52,14 @@ source identity, or storage key can be selected in this request.
 Client approval to invoke the combined management tool is outside the server:
 there is **no second per-request approval dialog** between building and
 installing. Keep `allow_rebuild` false unless that operation is intended.
-Build and install require editor approval; generated tool components are
+ACP also authorizes new builds and installations without host editor prompts,
+independently of the provider. Generated tool components are
 enabled in every ACP session. Tool-kind eligibility follows the
 admitted artifact kind, and ACP layers require a new session. Rebuild remains
-unavailable by default. Denied permissions are checked before compilation.
+unavailable by default; explicitly enabled ACP rebuilds still require editor
+approval before both phases. Tool execution needs its separate revision
+approval and policy grants. Denied host permissions are checked before
+compilation.
 
 Generated ordinary tools join the shared tool catalog after installation and
 are enabled by default in every ACP session, including the one that generated

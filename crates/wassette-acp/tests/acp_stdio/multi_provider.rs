@@ -119,6 +119,66 @@ fn prompt_text(h: &mut Harness, session: &str, text: &str) -> String {
     response_text(&updates)
 }
 
+#[cfg(feature = "component-generation")]
+#[test]
+#[ignore = "requires a real builder image via WASSETTE_ACP_GENERATION_IMAGE"]
+fn real_generation_is_provider_independent_and_preserves_revision_approvals() {
+    use super::generation::{
+        await_phases, generated_report, start_generation_with_providers, tool_request,
+    };
+
+    let bin = wassette_binary().expect("build the generation-enabled CLI");
+    let providers = Providers::new(&[], &[]).expect("build the routing provider fixture");
+    for allow_all in [false, true] {
+        let mut extra = vec!["--secrets-dir", providers.secrets.to_str().unwrap()];
+        if allow_all {
+            extra.push("--allow-all");
+        }
+        let mut h =
+            start_generation_with_providers(&bin, &[&providers.alpha, &providers.beta], &extra);
+        initialize(&mut h);
+        let session = new_session(&mut h);
+        let sid = session["sessionId"].as_str().unwrap();
+        let alpha = model_value(&session["configOptions"], "local:alpha", "Shared");
+        let beta = model_value(&session["configOptions"], "local:beta", "Shared");
+
+        for (model, name, export) in [
+            (&alpha, "test:alpha/answer", "alpha-answer"),
+            (&beta, "test:beta/answer", "beta-answer"),
+        ] {
+            select(&mut h, sid, model);
+            let mut request = tool_request(name, 42);
+            request["build"]["wit"] = json!(
+                request["build"]["wit"]
+                    .as_str()
+                    .unwrap()
+                    .replace("answer:", &format!("{export}:"))
+            );
+            request["build"]["source"] = json!(
+                request["build"]["source"]
+                    .as_str()
+                    .unwrap()
+                    .replace("fn answer()", &format!("fn {}()", export.replace('-', "_")),)
+            );
+            let id = h.prompt(sid, &format!("/generate {request}"));
+            let (messages, _) = await_phases(&mut h, id, &[]);
+            assert_eq!(generated_report(&messages)["component_id"], name);
+            let id = h.prompt(sid, &format!("/tool {export} {{}}"));
+            let (messages, _) = await_phases(&mut h, id, &["allow-always"]);
+            assert!(response_text(&messages).ends_with("tool:42"));
+        }
+
+        // A provider's revision decision must not authorize another provider.
+        let id = h.prompt(sid, "/tool alpha-answer {}");
+        await_phases(&mut h, id, &["allow-once"]);
+        select(&mut h, sid, &alpha);
+        let id = h.prompt(sid, "/tool alpha-answer {}");
+        let (messages, _) = await_phases(&mut h, id, &[]);
+        assert!(response_text(&messages).ends_with("tool:42"));
+        h.close_stdin_and_wait();
+    }
+}
+
 fn reply(h: &mut Harness, request: &Value, result: Value) {
     let message = json!({"jsonrpc": "2.0", "id": request["id"], "result": result});
     let stdin = h.stdin.as_mut().unwrap();
