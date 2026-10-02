@@ -270,7 +270,8 @@ impl Harness {
         let data = xdg.path().join("data");
         let config = xdg.path().join("config");
         let state = xdg.path().join("state");
-        for dir in [&data, &config, &state] {
+        let home = xdg.path().join("home");
+        for dir in [&data, &config, &state, &home] {
             std::fs::create_dir_all(dir).expect("create xdg dir");
         }
         for provider in providers {
@@ -280,6 +281,7 @@ impl Harness {
         let mut cmd = Command::new(bin);
         cmd.arg("acp")
             .args(extra)
+            .env("HOME", &home)
             .env("XDG_DATA_HOME", &data)
             .env("XDG_CONFIG_HOME", &config)
             .env("XDG_STATE_HOME", &state)

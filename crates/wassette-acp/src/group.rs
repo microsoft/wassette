@@ -25,7 +25,9 @@ use std::sync::{Arc, Mutex};
 
 use crate::tool_broker::ToolInventoryEntry;
 use crate::translate;
-use crate::wasm::{PromptOutcome, Session, SetConfigOptionOutcome, SetModeOutcome};
+use crate::wasm::{
+    LiveConfigOption, PromptOutcome, Session, SetConfigOptionOutcome, SetModeOutcome,
+};
 use crate::wassette::acp::content::ContentBlock;
 use crate::wassette::acp::sessions::{
     ComponentSource, SessionConfigId, SessionConfigOption, SessionConfigOptionCategory,
@@ -115,6 +117,15 @@ struct GroupInner {
     /// not send boolean options to clients that didn't opt in).
     boolean_config_supported: bool,
     operation: Arc<tokio::sync::Mutex<()>>,
+    configuration: Arc<tokio::sync::RwLock<()>>,
+    live_setter: tokio::sync::Mutex<()>,
+}
+
+pub struct ConfigOperation {
+    pub live: bool,
+    _shared: Option<tokio::sync::OwnedRwLockReadGuard<()>>,
+    _exclusive: Option<tokio::sync::OwnedRwLockWriteGuard<()>>,
+    _operation: Option<tokio::sync::OwnedMutexGuard<()>>,
 }
 
 impl SessionGroup {
@@ -174,6 +185,8 @@ impl SessionGroup {
                 terminal_enabled: Mutex::new(false),
                 boolean_config_supported,
                 operation: Arc::new(tokio::sync::Mutex::new(())),
+                configuration: Arc::new(tokio::sync::RwLock::new(())),
+                live_setter: tokio::sync::Mutex::new(()),
             }),
         })
     }
@@ -188,11 +201,72 @@ impl SessionGroup {
     pub fn begin_operation(
         &self,
     ) -> Result<tokio::sync::OwnedMutexGuard<()>, agent_client_protocol::Error> {
-        self.inner.operation.clone().try_lock_owned().map_err(|_| {
-            let mut error = agent_client_protocol::Error::invalid_request();
-            error.message = "session is busy; cancel or finish the current operation before changing providers or starting another operation".to_string();
-            error
-        })
+        self.inner
+            .operation
+            .clone()
+            .try_lock_owned()
+            .map_err(|_| busy_error())
+    }
+
+    pub fn begin_configuration(
+        &self,
+        config_id: &str,
+    ) -> Result<ConfigOperation, agent_client_protocol::Error> {
+        let shared = self
+            .inner
+            .configuration
+            .clone()
+            .try_read_owned()
+            .map_err(|_| busy_error())?;
+        let live = self.live_config_available(config_id);
+        if live {
+            Ok(ConfigOperation {
+                live,
+                _shared: Some(shared),
+                _exclusive: None,
+                _operation: None,
+            })
+        } else {
+            drop(shared);
+            let exclusive = self
+                .inner
+                .configuration
+                .clone()
+                .try_write_owned()
+                .map_err(|_| busy_error())?;
+            let operation = self.begin_operation()?;
+            Ok(ConfigOperation {
+                live,
+                _shared: None,
+                _exclusive: Some(exclusive),
+                _operation: Some(operation),
+            })
+        }
+    }
+
+    pub async fn lock_live_setter(&self) -> tokio::sync::MutexGuard<'_, ()> {
+        self.inner.live_setter.lock().await
+    }
+
+    fn live_config_available(&self, config_id: &str) -> bool {
+        if config_id == TERMINAL_CONFIG_ID {
+            return self.inner.providers.iter().all(|provider| {
+                !is_copilot_provider(&provider.component_id)
+                    || provider.session.live_config_supported()
+            });
+        }
+        let active = self.inner.active_idx();
+        let provider = &self.inner.providers[active];
+        config_id == "allow-all"
+            && is_copilot_provider(&provider.component_id)
+            && provider.session.live_config_supported()
+            && provider.options.lock().unwrap().iter().any(|option| {
+                option.id == config_id
+                    && matches!(&option.options, SessionConfigSelectOptions::Ungrouped(values)
+                        if values.len() == 2
+                            && values.iter().any(|value| value.value == "on")
+                            && values.iter().any(|value| value.value == "off"))
+            })
     }
 
     /// Finish binding and release only the selected chain's creation updates.
@@ -294,28 +368,45 @@ impl SessionGroup {
         let mut notified = Vec::new();
         for p in &self.inner.providers {
             if is_copilot_provider(&p.component_id) {
-                match p
-                    .session
-                    .set_config_option(
-                        TERMINAL_CONFIG_ID.to_string(),
-                        if enabled { "on" } else { "off" }.to_string(),
-                    )
-                    .await
-                {
-                    SetConfigOptionOutcome::Done(_) => notified.push(p),
+                notified.push(p);
+                match notify_copilot_terminal(&p.session, enabled).await {
+                    SetConfigOptionOutcome::Done(_) => {}
                     SetConfigOptionOutcome::Wit(e) => {
-                        self.restore_copilot_terminal(&notified, previous).await;
-                        anyhow::bail!("Copilot provider rejected terminal toggle: {e:?}");
+                        return Err(self
+                            .rollback_terminal(
+                                &notified,
+                                &[],
+                                previous,
+                                anyhow::anyhow!("Copilot provider rejected terminal toggle: {e:?}"),
+                            )
+                            .await);
                     }
                     SetConfigOptionOutcome::Trap(e) => {
-                        self.restore_copilot_terminal(&notified, previous).await;
-                        return Err(e.context("Copilot provider terminal toggle trapped").into());
+                        return Err(self
+                            .rollback_terminal(
+                                &notified,
+                                &[],
+                                previous,
+                                e.context("Copilot provider terminal toggle trapped").into(),
+                            )
+                            .await);
                     }
                 }
             }
         }
+        let mut updated = Vec::new();
         for p in &self.inner.providers {
-            p.session.set_terminal_enabled(enabled).await;
+            updated.push(p);
+            if let Err(error) = p.session.set_terminal_enabled(enabled).await {
+                return Err(self
+                    .rollback_terminal(
+                        &notified,
+                        &updated,
+                        previous,
+                        error.context("host terminal toggle failed").into(),
+                    )
+                    .await);
+            }
         }
         *self.inner.terminal_enabled.lock().unwrap() = enabled;
         Ok(())
@@ -351,26 +442,40 @@ impl SessionGroup {
         }
     }
 
-    async fn restore_copilot_terminal(&self, providers: &[&ProviderEntry], enabled: bool) {
-        for p in providers {
-            match p
-                .session
-                .set_config_option(
-                    TERMINAL_CONFIG_ID.to_string(),
-                    if enabled { "on" } else { "off" }.to_string(),
-                )
-                .await
-            {
-                SetConfigOptionOutcome::Done(_) => {}
-                SetConfigOptionOutcome::Wit(e) => tracing::error!(
-                    provider = %p.component_id, error = ?e,
-                    "failed to restore Copilot terminal tool list"
-                ),
-                SetConfigOptionOutcome::Trap(e) => tracing::error!(
-                    provider = %p.component_id, error = %e,
-                    "failed to restore Copilot terminal tool list"
-                ),
+    async fn rollback_terminal(
+        &self,
+        providers: &[&ProviderEntry],
+        hosts: &[&ProviderEntry],
+        enabled: bool,
+        error: anyhow::Error,
+    ) -> anyhow::Error {
+        let mut failures = Vec::new();
+        for host in hosts {
+            if let Err(error) = host.session.set_terminal_enabled(enabled).await {
+                tracing::error!(provider = %host.component_id, %error, "failed to restore host terminal gate");
+                failures.push(format!("{} host gate: {error}", host.component_id));
             }
+        }
+        for p in providers {
+            match notify_copilot_terminal(&p.session, enabled).await {
+                SetConfigOptionOutcome::Done(_) => {}
+                SetConfigOptionOutcome::Wit(e) => {
+                    tracing::error!(provider = %p.component_id, error = ?e, "failed to restore Copilot terminal tool list");
+                    failures.push(format!("{} provider: {e:?}", p.component_id));
+                }
+                SetConfigOptionOutcome::Trap(e) => {
+                    tracing::error!(provider = %p.component_id, error = %e, "failed to restore Copilot terminal tool list");
+                    failures.push(format!("{} provider: {e}", p.component_id));
+                }
+            }
+        }
+        if failures.is_empty() {
+            error
+        } else {
+            error.context(format!(
+                "terminal restoration failed: {}",
+                failures.join("; ")
+            ))
         }
     }
 
@@ -441,6 +546,16 @@ impl SessionGroup {
         inner.absorb(active, outcome)
     }
 
+    pub async fn set_auto_approve(&self, enabled: bool) -> SetConfigOptionOutcome {
+        let active = self.inner.active_idx();
+        let outcome = self.inner.providers[active]
+            .session
+            .set_live_config_option(LiveConfigOption::AutoApprove, enabled)
+            .await;
+        let outcome = self.inner.validate_outcome(active, outcome);
+        self.inner.absorb(active, outcome)
+    }
+
     /// Switch the active provider's session mode (legacy `set-mode`).
     pub async fn set_mode(&self, mode_id: SessionModeId) -> SetModeOutcome {
         let active = self.inner.active_idx();
@@ -471,6 +586,27 @@ impl SessionGroup {
         for p in &self.inner.providers {
             p.session.cancel();
         }
+    }
+}
+
+fn busy_error() -> agent_client_protocol::Error {
+    let mut error = agent_client_protocol::Error::invalid_request();
+    error.message = "session is busy; cancel or finish the current operation before changing providers or starting another operation".to_string();
+    error
+}
+
+async fn notify_copilot_terminal(session: &Session, enabled: bool) -> SetConfigOptionOutcome {
+    if session.live_config_supported() {
+        session
+            .set_live_config_option(LiveConfigOption::Terminal, enabled)
+            .await
+    } else {
+        session
+            .set_config_option(
+                TERMINAL_CONFIG_ID.to_string(),
+                if enabled { "on" } else { "off" }.to_string(),
+            )
+            .await
     }
 }
 

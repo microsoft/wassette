@@ -6,8 +6,9 @@
 //! Every ACP session owns one [`Session`]: a single
 //! [`Store<HostState>`] hosting *all* chain stages (the provider plus
 //! any layers). A [`tokio::sync::Mutex`] around the store serialises
-//! top-level entry points per session — matching the previous
-//! actor-based ordering — while concurrency *within* a single
+//! top-level entry points per session. Narrowly typed access controls are
+//! serviced inside the active call without reacquiring that mutex, while
+//! concurrency *within* a single
 //! `run_concurrent` call is provided by wasmtime's async component
 //! model.
 //!
@@ -39,7 +40,7 @@ use std::task::{Context as TaskContext, Poll};
 
 use anyhow::{Context, Result};
 use futures_concurrency::future::Race;
-use tokio::sync::{mpsc, watch};
+use tokio::sync::{mpsc, oneshot, watch};
 use wasmtime::component::{
     Component, Destination, HasSelf, Linker, Resource, ResourceAny, ResourceTable, StreamProducer,
     StreamReader, StreamResult, VecBuffer,
@@ -594,6 +595,33 @@ pub struct Session {
     inner: Arc<SessionInner>,
 }
 
+#[derive(Clone, Copy)]
+pub(crate) enum LiveConfigOption {
+    AutoApprove,
+    Terminal,
+}
+
+impl LiveConfigOption {
+    fn id(self) -> &'static str {
+        match self {
+            Self::AutoApprove => "allow-all",
+            Self::Terminal => crate::group::TERMINAL_CONFIG_ID,
+        }
+    }
+}
+
+enum LiveControl {
+    Config {
+        option: LiveConfigOption,
+        enabled: bool,
+        reply: oneshot::Sender<SetConfigOptionOutcome>,
+    },
+    Terminal {
+        enabled: bool,
+        reply: oneshot::Sender<()>,
+    },
+}
+
 struct SessionInner {
     /// `tokio::sync::Mutex` so top-level entry points serialise per
     /// session without blocking the runtime worker thread.
@@ -608,11 +636,16 @@ struct SessionInner {
     /// are cleaned up when this `SessionInner` drops: `Store::drop`
     /// walks the resource table firing every wasm-side destructor.
     head_session: Mutex<Option<ResourceAny>>,
+    live_config_supported: bool,
+    controls: mpsc::Sender<LiveControl>,
+    incoming_controls: tokio::sync::Mutex<mpsc::Receiver<LiveControl>>,
 }
 
 impl Session {
     fn new(store: Store<HostState>, head_idx: usize, cancel: watch::Sender<bool>) -> Self {
         let active_tool_calls = store.data().active_tool_calls.clone();
+        let live_config_supported = store.data().stages.len() == 1;
+        let (controls, incoming_controls) = mpsc::channel(8);
         Self {
             inner: Arc::new(SessionInner {
                 store: tokio::sync::Mutex::new(store),
@@ -620,6 +653,9 @@ impl Session {
                 cancel,
                 active_tool_calls,
                 head_session: Mutex::new(None),
+                live_config_supported,
+                controls,
+                incoming_controls: tokio::sync::Mutex::new(incoming_controls),
             }),
         }
     }
@@ -683,9 +719,67 @@ impl Session {
     /// (see [`crate::group`]); read by the `client.terminal` host impl
     /// which refuses to spawn processes while `false`. Defaults to
     /// `false` at instantiation.
-    pub async fn set_terminal_enabled(&self, enabled: bool) {
-        let mut store = self.inner.store.lock().await;
-        store.data_mut().terminal_enabled = enabled;
+    pub async fn set_terminal_enabled(&self, enabled: bool) -> wasmtime::Result<()> {
+        let (reply, response) = oneshot::channel();
+        self.inner
+            .controls
+            .send(LiveControl::Terminal { enabled, reply })
+            .await
+            .map_err(|_| wasmtime::Error::msg("session control channel closed"))?;
+        self.await_control(response).await
+    }
+
+    pub(crate) fn live_config_supported(&self) -> bool {
+        self.inner.live_config_supported
+    }
+
+    pub(crate) async fn set_live_config_option(
+        &self,
+        option: LiveConfigOption,
+        enabled: bool,
+    ) -> SetConfigOptionOutcome {
+        if !self.live_config_supported() {
+            return SetConfigOptionOutcome::Trap(wasmtime::Error::msg(
+                "live provider configuration requires a single-stage session",
+            ));
+        }
+        let (reply, response) = oneshot::channel();
+        if self
+            .inner
+            .controls
+            .send(LiveControl::Config {
+                option,
+                enabled,
+                reply,
+            })
+            .await
+            .is_err()
+        {
+            return SetConfigOptionOutcome::Trap(wasmtime::Error::msg(
+                "session control channel closed",
+            ));
+        }
+        match self.await_control(response).await {
+            Ok(outcome) => outcome,
+            Err(error) => SetConfigOptionOutcome::Trap(error),
+        }
+    }
+
+    async fn await_control<R: Send>(
+        &self,
+        mut response: oneshot::Receiver<R>,
+    ) -> wasmtime::Result<R> {
+        // An active call drives the mailbox. Otherwise, acquire the store and
+        // drive it here; racing acquisition closes the idle/active handoff.
+        tokio::select! {
+            result = &mut response => {
+                result.map_err(|_| wasmtime::Error::msg("session control interrupted during application"))
+            }
+            result = self.run_head(|_| Box::pin(async {})) => {
+                result?;
+                response.await.map_err(|_| wasmtime::Error::msg("session control interrupted during application"))
+            }
+        }
     }
 
     pub async fn tool_broker(&self) -> Option<Arc<ToolBroker>> {
@@ -705,10 +799,44 @@ impl Session {
     {
         let head_idx = self.inner.head_idx;
         let mut store = self.inner.store.lock().await;
+        let mut controls = self.inner.incoming_controls.lock().await;
         store
             .run_concurrent(async move |a| {
                 a.with(|mut x| x.get().push_stage(head_idx));
-                let r = body(a).await;
+                let body = body(a);
+                tokio::pin!(body);
+                let r = loop {
+                    tokio::select! {
+                        biased;
+                        Some(control) = controls.recv() => {
+                            match control {
+                                LiveControl::Terminal { enabled, reply } => {
+                                    a.with(|mut x| x.get().terminal_enabled = enabled);
+                                    let _ = reply.send(());
+                                }
+                                LiveControl::Config { option, enabled, reply } => {
+                                    let session = *self.inner.head_session.lock().unwrap();
+                                    let outcome = match session {
+                                        Some(session) => config_outcome(
+                                            call_config_option(
+                                                a,
+                                                head_idx,
+                                                session,
+                                                option.id().to_string(),
+                                                if enabled { "on" } else { "off" }.to_string(),
+                                            ).await,
+                                        ),
+                                        None => SetConfigOptionOutcome::Trap(wasmtime::Error::msg(
+                                            "set-config-option called before new-session",
+                                        )),
+                                    };
+                                    let _ = reply.send(outcome);
+                                }
+                            }
+                        }
+                        result = &mut body => break result,
+                    }
+                };
                 a.with(|mut x| x.get().pop_stage());
                 r
             })
@@ -866,31 +994,13 @@ impl Session {
         let res = self
             .run_head(|a| {
                 Box::pin(async move {
-                    let bindings = a
-                        .with(|mut x| x.get().stages[head_idx].bindings.clone())
-                        .expect("head bindings filled");
-                    match &*bindings {
-                        Bindings::Provider(b) => {
-                            b.wassette_acp_agent()
-                                .session()
-                                .call_set_config_option(a, head_session, config_id, value)
-                                .await
-                        }
-                        Bindings::Layer(b) => {
-                            b.wassette_acp_agent()
-                                .session()
-                                .call_set_config_option(a, head_session, config_id, value)
-                                .await
-                        }
-                    }
+                    call_config_option(a, head_idx, head_session, config_id, value).await
                 })
             })
             .await;
         match res {
-            Err(e) => SetConfigOptionOutcome::Trap(e),
-            Ok(Err(e)) => SetConfigOptionOutcome::Trap(e),
-            Ok(Ok(Err(e))) => SetConfigOptionOutcome::Wit(e),
-            Ok(Ok(Ok(options))) => SetConfigOptionOutcome::Done(options),
+            Ok(result) => config_outcome(result),
+            Err(error) => SetConfigOptionOutcome::Trap(error),
         }
     }
     /// Dropping the prompt future on cancel releases the store lock and
@@ -957,6 +1067,44 @@ impl Session {
             PromptOutcome::Cancelled
         };
         (cancel_arm, prompt_arm).race().await
+    }
+}
+
+async fn call_config_option(
+    accessor: &wasmtime::component::Accessor<HostState, HasSelf<HostState>>,
+    head_idx: usize,
+    session: ResourceAny,
+    config_id: crate::wassette::acp::sessions::SessionConfigId,
+    value: crate::wassette::acp::sessions::SessionConfigValueId,
+) -> wasmtime::Result<Result<Vec<crate::wassette::acp::sessions::SessionConfigOption>, Error>> {
+    let bindings = accessor
+        .with(|mut x| x.get().stages[head_idx].bindings.clone())
+        .expect("head bindings filled");
+    match &*bindings {
+        Bindings::Provider(b) => {
+            b.wassette_acp_agent()
+                .session()
+                .call_set_config_option(accessor, session, config_id, value)
+                .await
+        }
+        Bindings::Layer(b) => {
+            b.wassette_acp_agent()
+                .session()
+                .call_set_config_option(accessor, session, config_id, value)
+                .await
+        }
+    }
+}
+
+fn config_outcome(
+    result: wasmtime::Result<
+        Result<Vec<crate::wassette::acp::sessions::SessionConfigOption>, Error>,
+    >,
+) -> SetConfigOptionOutcome {
+    match result {
+        Err(error) => SetConfigOptionOutcome::Trap(error),
+        Ok(Err(error)) => SetConfigOptionOutcome::Wit(error),
+        Ok(Ok(options)) => SetConfigOptionOutcome::Done(options),
     }
 }
 
@@ -2000,6 +2148,110 @@ mod terminal_tests {
             !*session.inner.cancel.borrow(),
             "next turn must start uncancelled"
         );
+    }
+
+    #[tokio::test]
+    async fn live_terminal_control_completes_inside_an_active_call() {
+        let engine = crate::acp_engine().unwrap();
+        let (cancel, _) = watch::channel(false);
+        let session = Session::new(Store::new(&engine, test_host_state()), 0, cancel);
+        let running = session.clone();
+        let (entered, ready) = oneshot::channel();
+        let task = tokio::spawn(async move {
+            running
+                .run_head(|_| {
+                    Box::pin(async {
+                        entered.send(()).unwrap();
+                        std::future::pending::<()>().await;
+                    })
+                })
+                .await
+        });
+        ready.await.unwrap();
+        for enabled in [true, false, true] {
+            tokio::time::timeout(
+                std::time::Duration::from_secs(2),
+                session.set_terminal_enabled(enabled),
+            )
+            .await
+            .unwrap()
+            .unwrap();
+            assert!(!task.is_finished(), "control must not end the active call");
+        }
+        task.abort();
+        assert!(task.await.unwrap_err().is_cancelled());
+        assert!(session.inner.store.lock().await.data().terminal_enabled);
+    }
+
+    #[tokio::test]
+    async fn live_controls_survive_active_to_idle_handoff() {
+        let engine = crate::acp_engine().unwrap();
+        for cancelled in [false, true] {
+            for _ in 0..16 {
+                let (cancel, _) = watch::channel(false);
+                let session = Session::new(Store::new(&engine, test_host_state()), 0, cancel);
+                let running = session.clone();
+                let (entered, ready) = oneshot::channel();
+                let (finish, finished) = oneshot::channel();
+                let task = tokio::spawn(async move {
+                    running
+                        .run_head(|_| {
+                            Box::pin(async {
+                                entered.send(()).unwrap();
+                                finished.await.unwrap();
+                            })
+                        })
+                        .await
+                });
+                ready.await.unwrap();
+                let changing = session.clone();
+                let setter = tokio::spawn(async move { changing.set_terminal_enabled(true).await });
+                if cancelled {
+                    task.abort();
+                } else {
+                    finish.send(()).unwrap();
+                }
+                tokio::time::timeout(std::time::Duration::from_secs(2), setter)
+                    .await
+                    .unwrap()
+                    .unwrap()
+                    .unwrap();
+                if cancelled {
+                    assert!(task.await.unwrap_err().is_cancelled());
+                } else {
+                    task.await.unwrap().unwrap();
+                }
+                assert!(session.inner.store.lock().await.data().terminal_enabled);
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn live_configuration_reservations_exclude_backend_changes() {
+        let engine = crate::acp_engine().unwrap();
+        let (cancel, _) = watch::channel(false);
+        let session = Session::new(Store::new(&engine, test_host_state()), 0, cancel);
+        let group = crate::group::SessionGroup::new(
+            "editor".to_string(),
+            vec![crate::group::ProviderSession {
+                component_id: "test:provider".to_string(),
+                session,
+                options: None,
+            }],
+            true,
+        )
+        .unwrap();
+        let prompt = group.begin_operation().unwrap();
+        let first = group.begin_configuration("terminal").unwrap();
+        let second = group.begin_configuration("terminal").unwrap();
+        assert!(first.live && second.live);
+        assert!(group.begin_configuration("model").is_err());
+        assert!(group.begin_configuration("mode").is_err());
+        assert!(group.begin_configuration("allow-all").is_err());
+        drop(prompt);
+        assert!(group.begin_configuration("model").is_err());
+        drop((first, second));
+        assert!(!group.begin_configuration("model").unwrap().live);
     }
 
     /// Spawn `req`, drain its combined output to EOF, then wait for and

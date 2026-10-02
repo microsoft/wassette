@@ -199,8 +199,22 @@ other configuration options. Send the advertised value unchanged:
 Prompts, legacy mode changes and other configuration changes go only to the
 active provider. Switching back retains its independent in-memory conversation;
 history is neither copied between providers nor broadcast. A busy session rejects
-overlapping prompts and configuration changes: finish or cancel the current turn
-before switching. Other editor sessions remain independent.
+overlapping prompts and backend configuration changes: finish or cancel the
+current turn before switching. Copilot's Auto-approve and the host Terminal
+toggle can change during a turn. Other editor sessions remain independent.
+
+Auto-approve affects subsequent Copilot-native tool permission checks. An
+already-displayed permission request still needs an editor response; component
+tools still require their host revision approvals and grants. Disabling
+Auto-approve restores the existing mode and remembered-approval rules;
+Autopilot continues to imply approval.
+
+Terminal changes the host gate for new command creation when the setter
+succeeds, and Copilot refreshes its terminal tool exposure before the next model
+round. Disabling Terminal does not stop a command already running, but a command
+requested earlier that has not yet started faces the current gate. Successful
+toggle responses report applied configuration, not a change deferred to the
+next turn.
 
 Multi-provider session ids are host-owned, even if providers return identical
 local ids. Notifications, filesystem callbacks and permission requests use the
