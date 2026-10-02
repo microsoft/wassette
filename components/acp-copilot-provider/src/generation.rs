@@ -6,7 +6,7 @@
 //! The host advertises nothing here: it notifies this provider through an
 //! internal config option when generation is available, and remains the
 //! authority on every request. It
-//! prompts the editor for each phase (build, install, exposure), so this
+//! prompts the editor for build and install, so this
 //! provider does not add a permission prompt of its own.
 
 use serde_json::{Value, json};
@@ -33,8 +33,8 @@ pub fn tool_def() -> Value {
                 `struct Component; impl bindings::Guest for Component { fn answer() -> u32 { 42 } } \
                 bindings::export!(Component with_types_in bindings);`. Only `std` and crates \
                 pinned by the host are available; there is no network or Cargo.toml. \
-                Exposure of a generated tool requires editor approval; ACP layers require \
-                explicit selection in a new session.",
+                Newly built tools are available in this session immediately; ACP layers still \
+                require a new session.",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -58,11 +58,6 @@ pub fn tool_def() -> Value {
                         "type": "string",
                         "enum": ["tool", "acp-layer"],
                         "description": "`tool` (default) for an ordinary Wassette tool, `acp-layer` for an ACP layer."
-                    },
-                    "intent": {
-                        "type": "string",
-                        "enum": ["install-only", "expose-tools"],
-                        "description": "`expose-tools` (default for tools) installs the component and asks the editor to approve exposing its tools. `install-only` persists without exposure and is the default for ACP layers."
                     },
                     "expected_revision": {
                         "type": "string",
@@ -88,23 +83,6 @@ pub fn request_json(args: &Value) -> Result<String, String> {
         "acp-layer" => "AcpLayer",
         other => return Err(format!("unknown kind '{other}' (expected tool or acp-layer)")),
     };
-    let default_intent = if kind == "Tool" {
-        "expose-tools"
-    } else {
-        "install-only"
-    };
-    let intent = match args.get("intent").and_then(Value::as_str).unwrap_or(default_intent) {
-        "install-only" => "InstallOnly",
-        "expose-tools" => "ExposeTools",
-        other => {
-            return Err(format!(
-                "unknown intent '{other}' (expected install-only or expose-tools)"
-            ));
-        }
-    };
-    if kind == "AcpLayer" && intent == "ExposeTools" {
-        return Err("ACP layers cannot expose ordinary tools; use install-only".into());
-    }
     let target = match args.get("expected_revision").and_then(Value::as_str) {
         Some(revision) if !revision.is_empty() => {
             json!({"mode": "rebuild", "expected_revision": revision})
@@ -120,7 +98,6 @@ pub fn request_json(args: &Value) -> Result<String, String> {
             "kind": kind,
         },
         "target": target,
-        "intent": intent,
     })
     .to_string())
 }
@@ -144,32 +121,26 @@ fn describe_report(report: &GenerationReport) -> String {
         .and_then(Value::as_str)
         .map(|revision| format!(" (revision `{revision}`)"))
         .unwrap_or_default();
-    let new_session = format!(
-        "Running ACP sessions are never hot-swapped, so this conversation's tools do not \
-         change. To use its tools, the user must start a NEW ACP session that selects it with \
-         `--tool {id}` (or load it in the Wassette MCP server)."
-    );
     let summary = match report.disposition {
         Disposition::Installed => format!(
-            "Installed component `{id}`{revision} in the Wassette component store. It is not \
-             exposed as a tool. {new_session}"
+            "Installed component `{id}`{revision} in the Wassette component store."
         ),
         Disposition::ToolsEligible => format!(
             "Installed component `{id}`{revision}; it is eligible as an ordinary tool but \
-             exports no callable functions for this session. {new_session}"
+             exports no callable functions."
         ),
         Disposition::SessionTools => format!(
-            "Installed component `{id}`{revision} and registered its tools with this host \
-             session (handles: {}). {new_session}",
+            "Installed component `{id}`{revision} and registered its tools with this session \
+             (handles: {}). You can call them now.",
             report.tool_handles.join(", ")
         ),
         Disposition::LaterSelectionRequired => format!(
-            "Installed ACP layer `{id}`{revision}. It is not active; the user must start a NEW \
-             ACP session with `--layer {id}` to use it."
+            "Installed ACP layer `{id}`{revision}. Layers are not hot-swapped into a running \
+             session; select it when starting a new ACP session."
         ),
         Disposition::CommittedNotExposed => format!(
-            "Installed component `{id}`{revision}, but the requested exposure did not finish. \
-             Do not retry as a new build. {new_session}"
+            "Installed component `{id}`{revision}, but session publication did not finish. \
+             Do not retry as a new build."
         ),
     };
     format!("{summary}\n\nReport: {}", report.report_json)
@@ -185,7 +156,7 @@ fn describe_error(error: &GenerationError) -> String {
             "The host has no editor session bound to this request; nothing was built.".to_string()
         }
         GenerationError::PermissionDenied => "Permission denied: the user rejected an approval, \
-            or this operation is unavailable (exposure and rebuilds are disabled by default). \
+            or this operation is unavailable (rebuilds are disabled by default). \
             Nothing was installed. Do not retry unless the user \
             asks."
             .to_string(),
@@ -238,7 +209,7 @@ mod tests {
     }
 
     #[test]
-    fn request_defaults_to_a_new_exposed_tool() {
+    fn request_defaults_to_a_new_tool() {
         let request: Value = serde_json::from_str(&request_json(&args()).unwrap()).unwrap();
         assert_eq!(
             request,
@@ -251,19 +222,17 @@ mod tests {
                     "kind": "Tool",
                 },
                 "target": {"mode": "new"},
-                "intent": "ExposeTools",
             })
         );
     }
 
     #[test]
-    fn request_maps_kind_intent_and_rebuild() {
+    fn request_maps_kind_and_rebuild() {
         let mut args = args();
-        args["intent"] = json!("expose-tools");
+        args["kind"] = json!("acp-layer");
         args["expected_revision"] = json!("rev-1");
         let request: Value = serde_json::from_str(&request_json(&args).unwrap()).unwrap();
-        assert_eq!(request["build"]["kind"], "Tool");
-        assert_eq!(request["intent"], "ExposeTools");
+        assert_eq!(request["build"]["kind"], "AcpLayer");
         assert_eq!(
             request["target"],
             json!({"mode": "rebuild", "expected_revision": "rev-1"})
@@ -271,13 +240,12 @@ mod tests {
     }
 
     #[test]
-    fn layer_defaults_to_install_only_and_cannot_expose_tools() {
+    fn layer_generation_has_no_tool_exposure_intent() {
         let mut args = args();
         args["kind"] = json!("acp-layer");
         let request: Value = serde_json::from_str(&request_json(&args).unwrap()).unwrap();
-        assert_eq!(request["intent"], "InstallOnly");
-        args["intent"] = json!("expose-tools");
-        assert!(request_json(&args).is_err());
+        assert_eq!(request["build"]["kind"], "AcpLayer");
+        assert!(request.get("intent").is_none());
     }
 
     #[test]

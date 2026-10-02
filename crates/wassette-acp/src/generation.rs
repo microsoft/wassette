@@ -142,7 +142,7 @@ mod binding_tests {
                 .await
                 .unwrap(),
         );
-        let broker = Arc::new(ToolBroker::new(manager, [], []));
+        let broker = Arc::new(ToolBroker::new(manager, []));
         let (outbound, _events) = tokio::sync::mpsc::channel(8);
         let mut state = HostState {
             wasi: wasmtime_wasi::WasiCtxBuilder::new().build(),
@@ -220,7 +220,7 @@ mod enabled {
         GenerationPermissions, GenerationRequest, GenerationService, GenerationTarget,
         PreparedGeneration,
     };
-    use wassette::store::{InstallIntent, StoreError, StoredEntry};
+    use wassette::store::{StoreError, StoredEntry};
 
     use super::*;
     use crate::tool_broker::{CancelledCallNotice, track_call};
@@ -240,7 +240,6 @@ mod enabled {
     enum Phase {
         Build,
         Install,
-        Expose,
     }
 
     impl Phase {
@@ -248,7 +247,6 @@ mod enabled {
             match self {
                 Self::Build => "Build component in isolated VM",
                 Self::Install => "Install exact generated component",
-                Self::Expose => "Expose generated tools in shared store and this session",
             }
         }
     }
@@ -312,19 +310,8 @@ mod enabled {
                 "Component name, world, and revision must be bounded nonempty metadata".into(),
             ));
         }
-        let expose = request.intent == InstallIntent::ExposeTools;
-        if !matches!(
-            request.intent,
-            InstallIntent::InstallOnly | InstallIntent::ExposeTools
-        ) || (request.build.kind == ComponentKind::AcpLayer && expose)
-        {
-            return Err(GenerationError::InvalidRequest(
-                "ACP layers require InstallOnly and later explicit selection".into(),
-            ));
-        }
         if !permissions.can_build()
             || !permissions.can_install()
-            || (expose && !permissions.can_expose())
             || (matches!(request.target, GenerationTarget::Rebuild { .. })
                 && !permissions.can_rebuild())
         {
@@ -423,7 +410,7 @@ mod enabled {
             "source_bytes": request.build.source.len(),
             "wit_bytes": request.build.wit.len(),
             "target": request.target,
-            "scope": "Build only. No installation or exposure is authorized by this approval.",
+            "scope": "Build only. No installation is authorized by this approval.",
             "rebuild": matches!(request.target, GenerationTarget::Rebuild { .. }),
         })
     }
@@ -436,7 +423,6 @@ mod enabled {
         cancel: CancellationToken,
     ) -> Result<O::Output, GenerationError> {
         admit(&request, ceiling)?;
-        let expose = request.intent == InstallIntent::ExposeTools;
         let rebuild = matches!(request.target, GenerationTarget::Rebuild { .. });
         checkpoint(interaction, &cancel)?;
         interaction
@@ -446,7 +432,7 @@ mod enabled {
         let candidate = operation
             .prepare(
                 request,
-                GenerationPermissions::new(true, false, false, rebuild),
+                GenerationPermissions::new(true, false, rebuild),
                 cancel.clone(),
             )
             .await?;
@@ -454,19 +440,10 @@ mod enabled {
         let preview = operation.preview(&candidate);
         interaction.approve(Phase::Install, preview.clone()).await?;
         checkpoint(interaction, &cancel)?;
-        if expose {
-            interaction.approve(Phase::Expose, json!({
-                "preview": preview,
-                "scope": "ExposeTools changes ordinary-tool eligibility in the shared store. \
-                          Adding tool handles affects only this ACP session, not other sessions \
-                          or running ACP chains. Existing per-invocation tool permissions remain.",
-            })).await?;
-            checkpoint(interaction, &cancel)?;
-        }
         operation
             .install(
                 candidate,
-                GenerationPermissions::new(true, true, expose, rebuild),
+                GenerationPermissions::new(true, true, rebuild),
                 cancel,
             )
             .await
@@ -659,7 +636,6 @@ mod enabled {
         let service = broker.manager.generation_service().map_err(core_error)?;
         let request = parse_request(&request_json)?;
         admit(&request, service.permissions())?;
-        let expose = request.intent == InstallIntent::ExposeTools;
         let call_id = broker.next_call_id();
         let cancellation = track_call(
             accessor,
@@ -672,7 +648,7 @@ mod enabled {
                 None,
                 Some(
                     "Generation cancelled. An already accepted commit may still complete; \
-                      cancellation does not roll it back or authorize session exposure."
+                      cancellation does not roll it back."
                         .into(),
                 ),
             ),
@@ -719,14 +695,14 @@ mod enabled {
                 },
                 tool_handles: Vec::new(),
             };
-            if expose {
-                report.disposition = Disposition::CommittedNotExposed;
+            if outcome.preview.kind == ComponentKind::Tool {
                 if interaction.check().is_err() {
                     return Err(GenerationError::Committed(report));
                 }
                 let StoredEntry::Installed(receipt) = &outcome.commit.entry else {
                     return Err(GenerationError::Committed(report));
                 };
+                report.disposition = Disposition::CommittedNotExposed;
                 let publication = broker
                     .expose_generated(receipt, &interaction.cancellation.cancel)
                     .await;

@@ -9,7 +9,6 @@ use anyhow::{bail, ensure, Context, Result};
 use mcp_server::generation::{error_report, read_request, GenerationJobs};
 use tokio_util::sync::CancellationToken;
 use wassette::generation::{GenerationConfig, GenerationRequest, GenerationTarget};
-use wassette::store::InstallIntent;
 use wassette::LifecycleManager;
 
 use crate::commands::Run;
@@ -187,7 +186,6 @@ fn rebuildable_request(build: wassette::generation::BuildRequest) -> GenerationR
     GenerationRequest {
         build,
         target: GenerationTarget::New,
-        intent: InstallIntent::InstallOnly,
         reinstall_policy: None,
     }
 }
@@ -376,7 +374,6 @@ mod tests {
                     },
                     source,
                     owner: InstallOwner::Explicit,
-                    intent: InstallIntent::InstallOnly,
                     policy: PreparedPolicy::absent(PolicyProvenance::Default),
                     observation: None,
                 },

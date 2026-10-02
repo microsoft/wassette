@@ -235,7 +235,6 @@ async fn receipted_acp_artifacts_never_enter_ordinary_restore_paths() -> Result<
                     generation: None,
                 },
                 owner: store::InstallOwner::Explicit,
-                intent: store::InstallIntent::InstallOnly,
                 policy: store::PreparedPolicy::absent(store::PolicyProvenance::Default),
                 observation: None,
             },

@@ -12,8 +12,7 @@ use tokio::time::timeout;
 
 use super::*;
 use crate::store::{
-    CacheSnapshot, InstallIntent, InstallOptions, PreparedInstall, PreparedPolicy,
-    ValidationEvidence,
+    CacheSnapshot, InstallOptions, PreparedInstall, PreparedPolicy, ValidationEvidence,
 };
 
 const ALPHA: &str = "example:catalog-alpha/tool";
@@ -499,11 +498,7 @@ async fn missing_invalid_and_hashless_metadata_fall_back_for_catalog_and_name_ca
     Ok(())
 }
 
-fn replace_through_store(
-    manager: &LifecycleManager,
-    bytes: Vec<u8>,
-    intent: InstallIntent,
-) -> Result<InstallReceipt> {
+fn replace_through_store(manager: &LifecycleManager, bytes: Vec<u8>) -> Result<InstallReceipt> {
     let snapshot = manager.component_store().read(ALPHA)?;
     let receipt = snapshot.receipt;
     let expected =
@@ -522,7 +517,6 @@ fn replace_through_store(
             source: receipt.source,
             origin: receipt.origin,
             owner: receipt.owner,
-            intent,
             policy,
             observation: receipt.observation,
         },
@@ -552,12 +546,8 @@ fn replace_through_store(
 }
 
 #[tokio::test]
-async fn refresh_excludes_install_only_and_acp_despite_resident_tools_and_caches() -> Result<()> {
-    for (acp, intent) in [
-        (false, InstallIntent::InstallOnly),
-        (true, InstallIntent::AcpSelection),
-        (true, InstallIntent::ExposeTools),
-    ] {
+async fn refresh_excludes_acp_after_tool_replacement() -> Result<()> {
+    {
         let root = directory()?;
         let writer = manager(root.path()).await?;
         let reader = manager(root.path()).await?;
@@ -572,16 +562,12 @@ async fn refresh_excludes_install_only_and_acp_despite_resident_tools_and_caches
             .component_store()
             .read_cache(ALPHA, &previous.receipt.revision, &engine, CACHE_SCHEMA)?
             .context("Fixture cache missing")?;
-        let bytes = if acp {
-            wat::parse_str(format!(
-                r#"(component ${ALPHA}
-                    (instance $agent)
-                    (export "wassette:acp/agent@0.1.0" (instance $agent)))"#
-            ))?
-        } else {
-            previous.wasm
-        };
-        let receipt = replace_through_store(&writer, bytes, intent)?;
+        let bytes = wat::parse_str(format!(
+            r#"(component ${ALPHA}
+                (instance $agent)
+                (export "wassette:acp/agent@0.1.0" (instance $agent)))"#
+        ))?;
+        let receipt = replace_through_store(&writer, bytes)?;
         writer.component_store().publish_cache(
             ALPHA,
             &receipt.revision,

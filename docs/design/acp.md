@@ -77,9 +77,8 @@ same private key. Conflicting ownership or unowned nonempty legacy data fails
 closed; installation does not migrate or adopt it.
 
 * No policy means **no network and no filesystem** beyond the
-  per-session `/data` directory the host preopens for a provider running
-  alone or in a chain with `--allow-shared-grants` (host-owned, scoped by
-  project and component).
+  per-session `/data` directory the host preopens for a provider (host-owned,
+  scoped by project and component).
 * `permissions.network.allow` registers hosts in the outbound-HTTP allow-list;
   `wasi:http` requests to anything else are refused with `http-request-denied`.
   Raw `wasi:sockets` TCP, UDP and DNS remain disabled for host-scoped grants
@@ -91,17 +90,12 @@ closed; installation does not migrate or adopt it.
 * `--allow-all` skips all of it: inherited network, inherited
   environment, no HTTP filtering. It is for demos and debugging.
 
-Because a chain is one store and a store is one `WasiCtx`, the stages'
-grants are **unioned** across the chain. A layer can access a provider's
-storage, network and policy-injected secret environment variables, so
-layered chains with policy grants, stored secrets or `--allow-all` require
-`--allow-shared-grants`. Without the flag, a policy-free, secret-free
-layered chain does not mount the provider's persistent `/data` directory;
-the echo + uppercase demo therefore works without opt-in. With the flag,
-`/data` is shared with every layer. Concurrent callbacks may be attributed
-to the wrong stage, including `wasmcloud:secrets/store.get` lookups. The
-flag acknowledges both risks; it does not fix stage routing or isolate
-stages. Do not run untrusted layers.
+ACP currently does not activate layers in running sessions. If layered
+chains are reintroduced, they must account for the fact that stages share one
+store and one `WasiCtx`: their grants would be unioned, `/data` would be shared,
+and concurrent callbacks could be attributed to the wrong stage, including
+`wasmcloud:secrets/store.get` lookups. This stage-routing limitation is not
+fixed by the current host.
 
 Components read secrets through `wasmcloud:secrets@2.1.0`. `store.get(key)`
 looks up a key at runtime. A component that knows its secrets up front can
@@ -118,65 +112,46 @@ the executing stage's component id. This is **not an isolation guarantee** for l
 chains: policy-injected environment secrets are shared, and overlapping
 callbacks can select the wrong stage's identity (see Known limitations).
 
-## CLI
+## CLI and live tool catalog
 
 ```text
-wassette acp --provider <PATH|URI|COMPONENT_ID>...
-             [--layer    <PATH|URI|COMPONENT_ID>]...
-             [--component-dir <DIR>] [--secrets-dir <DIR>]
-             [--allow-all] [--allow-shared-grants]
+wassette acp [--component-dir <DIR>] [--secrets-dir <DIR>] [--allow-all]
+             [--local-components off|startup|watch]
+             [--local-component-dir <DIR>]
              [--log-file <PATH>] [--log-level <LEVEL>] [--log-filter <DIRECTIVE>]
 ```
 
-* At least one `--provider` is required. Repeat it to load distinct providers;
-  selecting the same semantic component id twice is an error.
-* `--layer` is repeatable and ordered editor-side → provider-side; the
-  first `--layer` is the outermost stage. The same layer stack wraps
-  every provider.
-* Both accept whatever `wassette component load` accepts — a filesystem
-  path, `oci://…`, `https://…` — or the id of a component already in the
-  component directory.
-* Logs go to **stderr**, never stdout: stdout is the protocol channel.
-  `--log-file` mirrors them into a timestamped file for editors that hide stderr.
-* `/install` privately captures local, OCI and HTTPS inputs, validates them with
-  the ACP engine, and commits them through the shared transactional store. It
-  also accepts wasm.directory packages, resolved exactly like
-  `wassette registry get`: a WIT identity such as `/install yosh:wordmark` or
-  `/install yosh:wordmark@2.0.6`, or a canonical `registry/repository` identity
-  when no such local path exists. An installed component ID or existing path
-  always takes precedence.
-  Installation does not automatically select or activate a provider.
-* `/version` is host-owned and reports the binary's version, full commit SHA
-  (with a dirty marker), and UTC build time. It shadows a provider's
-  `/version` and is not forwarded to the chain.
-* `/tools` (or `/tools list`) lists all eligible ordinary exports and available
-  host tools in a markdown table. `/tools enable <name>` and
-  `/tools disable <name>` change the session's exact-export exposure, initially
-  seeded by `--tool`. Full `component-id/export` names and unique export or
-  component names are accepted; ambiguous names list candidates. Changes are
-  effective on the next turn, and admitted calls finish after disabling.
-  Each provider chain retains its own revision-bound broker and permissions.
-  The active Copilot provider's host-owned `terminal` and `build_component`
-  tools are listed when available, but controlled by the ACP terminal option
-  and component-generation availability respectively. Exposure does not grant
-  policy permissions or bypass approval; layered chains require
-  `--allow-shared-grants` to enable exports.
-* `--tool <COMPONENT_ID>` explicitly exposes an installed ordinary component
-  to the ACP provider. The guest imports
-  `wassette:component-tools/tools@0.1.0` to list revision-bound descriptors,
-  wait for catalog changes and invoke exact exports. Calls use the same
-  captured artifact, policy, schema and secrets as MCP. They ask the editor for
-  permission and emit `tool_call` / `tool_call_update` notifications. Tools are
-  off by default; layers and the active provider/layer components are excluded.
-* `--local-components startup|watch` enables the shared local-source reconciler
-  for ACP, with `--local-component-dir` overriding its drop directory. ACP
-  injects its engine-backed validator, which compiles ACP-shaped artifacts and
-  checks their export world, version, role and effective policy before commit.
-  This evidence does not claim imported-type or host-link validation; explicit
-  provider/layer selection still performs linking and instantiation checks.
-  Discovery is install-only and never activates a provider or exposes a tool
-  without the corresponding selector.
-* `RUST_LOG=debug` or `RUST_LOG=trace` logs full JSON-RPC payloads, including prompt text and any secrets a guest emits; enable it only when appropriate.
+ACP discovers installed `AcpProvider` components from the shared component
+store. Startup does not activate any ACP layers. The former `--provider`,
+`--layer`, `--tool`, and `--allow-shared-grants` flags are removed; remove them
+from editor configuration. Provider and layer components are not hot-swapped
+into running sessions.
+
+Every installed receipt whose kind is `Tool` is eligible for the ordinary tool
+catalog. Running sessions refresh that catalog from the store cursor, so
+components installed or upgraded by another Wassette process appear without
+restarting. `/tools list` shows available tools and `/tools enable <name>` or
+`/tools disable <name>` changes exposure for the current session. Every
+installed Tool component is enabled by default in every session, including
+tools installed by `/install`, generated by `build_component`, or discovered
+from another process; `/tools disable` is a session-scoped opt-out. Full
+`component-id/export` names and unique export or component names are accepted;
+ambiguous names list candidates. Changes take effect on the next turn; calls
+already admitted finish against their pinned revision and policy.
+
+The Copilot provider queries the host tool catalog on each model round, so
+catalog changes are advertised to the model on its next turn. Enabling a tool
+does not grant file or network permissions and does not bypass editor approval.
+Removed or upgraded revisions are rejected for new calls; in-flight calls keep
+their admitted revision.
+
+`/version` is host-owned and reports the binary's version, full commit SHA
+(with a dirty marker), and UTC build time. It shadows a provider's `/version`.
+`/install` currently validates and stores ACP artifacts only; it does not
+activate providers or layers in a running session. Local discovery can
+reconcile external changes in `startup` or `watch` mode.
+`RUST_LOG=debug` or `RUST_LOG=trace` logs full JSON-RPC payloads, including
+prompt text and any secrets a guest emits; enable it only when appropriate.
 
 Point an ACP-speaking editor at it the same way you would point one at
 `wassette run`.
@@ -188,23 +163,22 @@ stable across rebuilds:
 
 ```text
 command: /home/me/.cargo/bin/wassette
-args: acp --provider acp-echo-provider --layer acp-uppercase-layer
+args: acp
 ```
 
-Use repeated `--provider` arguments for multiple providers and
-`--tool microsoft:filesystem-rs` for an ordinary component. The exact Cargo
-install root may differ when `CARGO_INSTALL_ROOT`, Cargo `install.root`, or
-`CARGO_HOME` is configured. Installation does not select providers, expose
-ordinary tools to ACP without `--tool`, grant permissions, set secrets, or add
-`--allow-all` / `--allow-shared-grants`.
+Install ACP providers into the shared component store before launching ACP.
+The exact Cargo install root may differ when `CARGO_INSTALL_ROOT`, Cargo
+`install.root`, or `CARGO_HOME` is configured. Installation does not grant
+permissions, set secrets, or add `--allow-all`.
 
-### Selecting between providers
+### Multiple providers
 
 ```sh
-wassette acp --provider acp-ollama-provider --provider acp-copilot-provider
+wassette acp
 ```
 
-Each new editor session creates a separate chain for every selected provider.
+ACP discovers installed providers from the shared store. Each new editor
+session creates a separate chain for every discovered provider.
 Providers without model choices are omitted in multi-provider mode. The first
 remaining provider starts active, as shown by the Model selector's current value;
 if none remain, session creation fails with an explicit error. A single provider
@@ -233,9 +207,8 @@ Inactive providers' command advertisements are retained and replayed when select
 Each provider chain retains its own effective policy, secrets binding, persistent
 `/data` ownership, tool catalog view and remembered tool approvals. A permission
 granted to one provider does not authorize another provider or editor session.
-The same layer stack is instantiated independently for each provider; the existing
-`--allow-shared-grants` requirement still applies *within* each chain. Generation
-approvals still go directly to that chain's bound editor session; loading several
+ACP does not currently activate layers. Generation approvals still go directly
+to that chain's bound editor session; loading several
 providers does not change this limitation or grant generation authority.
 
 Initialization advertises Wassette as the multi-provider host and intersects
@@ -286,22 +259,15 @@ approval. Rebuild remains disabled by default.
        ~/.local/share/wassette/builder/rust-initrd.cpio
    ```
 
-The host tells Copilot sessions to advertise their `build_component` adapter
-when generation is available; other ACP providers can use the same host import
-independently. ACP supplies build, install and exposure authority to the
-existing approval flow; the host remains authoritative and asks the editor to
-approve the build before compilation, then the install against the actual
-output and expected revision. An exposure request has its own approval and
-does not grant component policy permissions. Rebuild remains disabled by
-default and requires an explicitly matched revision. A generated tool component
-is installed but is not added to the running conversation; start
-a **new** ACP session with `--tool <component-id>` (or load it in the MCP
-server). A generated layer requires a new session with `--layer <component-id>`.
-The Copilot provider does not yet call ordinary `--tool` components itself.
+The host advertises `build_component` when generation is available; other ACP
+providers can use the same host import independently. The host remains
+authoritative and asks the editor to approve the build and installation.
+Generated tools can be called immediately in the session that built them, and
+every other running session picks them up on its next turn. Generated ACP
+layers still
+require a new session; running providers and layers are never hot-swapped.
+Ordinary tool catalogs continue to refresh while sessions remain active.
 
-In layered chains, generation approval requests go directly to the bound editor
-session and bypass upstream layers, and generation requires
-`--allow-shared-grants`.
 
 ## Demo
 
@@ -310,8 +276,7 @@ Build the example components and run the echo provider:
 ```sh
 just build-acp-examples
 
-cargo run -p wassette-mcp-server -- acp \
-  --provider components/acp-echo-provider/target/wasm32-wasip2/release/acp_echo_provider.wasm
+cargo run -p wassette-mcp-server -- acp
 ```
 
 `components/acp-echo-provider` is a provider that answers a prompt by
@@ -320,24 +285,12 @@ turn. It uses `wit-bindgen` and nothing else — no network, no secrets —
 so the demo is reproducible offline and needs no policy (and therefore no
 `--allow-all`).
 
-With an ordinary component selected by `--tool`, prompt
+With an ordinary tool component installed, prompt
 `/tool <name> <arguments-json>` to invoke it through the host permission flow.
 For example, `/tool file-exists {"path":"/some/permitted/path"}` invokes the
 selected filesystem tool under that tool's own policy. The echo fixture also
 supports `/remember-tool <name>`, `/call-saved <arguments-json>` and
 `/wait-tools` for exercising revision-bound handles and catalog updates.
-
-Add the layer to see chaining:
-
-```sh
-cargo run -p wassette-mcp-server -- acp \
-  --provider components/acp-echo-provider/target/wasm32-wasip2/release/acp_echo_provider.wasm \
-  --layer    components/acp-uppercase-layer/target/wasm32-wasip2/release/acp_uppercase_layer.wasm
-```
-
-Prompt `/shout` and the layer answers it itself, toggling on uppercase
-rewriting; every later echo comes back `LIKE THIS`. The provider is
-unaware any of this happened.
 
 The tests drive exactly this flow over real stdio:
 
@@ -389,13 +342,10 @@ protected legacy inventory, not filename aliases.
 
 Concurrent callbacks in a layered chain still share one store-wide stage
 stack. Overlapping Wasmtime subtasks can misroute stage-specific imports,
-including secret lookups, and cancellation can leave stale entries. Layered
-chains with policy grants or stored secrets require `--allow-shared-grants`;
-the provider's persistent `/data` is only mounted in an opted-in chain.
-This is an explicit risk acknowledgement, not a routing fix. A
-drop-safe, subtask-scoped stage identity is required before layered chains
-can safely handle concurrent callbacks; avoid untrusted layers. Per-stage
-WASI isolation is also a follow-up. Multi-provider sessions require unique
+including secret lookups, and cancellation can leave stale entries. ACP does
+not currently activate layers; a drop-safe, subtask-scoped stage identity is
+required before layered chains can safely handle concurrent callbacks. Avoid
+untrusted layers. Per-stage WASI isolation is also a follow-up. Multi-provider sessions require unique
 editor IDs and consistent outbound request remapping before the
 single-provider restriction can be removed.
 
@@ -416,14 +366,13 @@ Two providers talk to real models:
 
 ```sh
 just build-acp-examples
-GH_TOKEN="$(gh auth token)" cargo run -p wassette-mcp-server -- acp --allow-all \
-  --provider components/acp-copilot-provider/target/wasm32-wasip2/release/acp_copilot_provider.wasm
+GH_TOKEN="$(gh auth token)" cargo run -p wassette-mcp-server -- acp --allow-all
 ```
 
 To keep the token out of the environment, load the component into the
 component directory and store it as a secret instead:
 `wassette secret set acp_copilot_provider "github_token=$(gh auth token)"`,
-then run `wassette acp --allow-all --provider acp_copilot_provider`.
+then run `wassette acp --allow-all`.
 
 `--allow-all` grants network and environment access; a policy granting the
 model's host is the least-privilege alternative. The end-to-end tests in

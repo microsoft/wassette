@@ -84,10 +84,9 @@ requires a `PreparedInstall` validated against the exact Wasm and effective
 policy. Ordinary loads compile, link and prepare schemas; ACP compiles and checks
 the exported stage and protocol version with its own engine. ACP evidence does
 not promise complete host linking: remaining link failures are selection errors.
-Installation alone neither exposes tools nor starts an ACP agent.
-Ordinary startup, cache hydration and restoration require `ExposeTools` intent.
-An `InstallOnly` receipt stays unexposed even with a valid tool cache or after a
-policy edit; an explicit ordinary load can commit the exposure intent.
+Installation does not start an ACP agent. An installed receipt whose kind is
+`Tool` is eligible for the ordinary tool catalog; ACP session exposure remains
+session-scoped and separate from installation.
 
 The store retains the flat artifact layout:
 
@@ -295,8 +294,9 @@ prepared and admitted against their own current receipt.
 `CatalogGeneration` identifies a runtime instance and its in-memory publication
 sequence, not a store revision. Clones share it; independent managers do not.
 Only changes to references, descriptors, membership or availability advance it.
-Cache warming alone does not. Retired and InstallOnly receipts never contribute
-callable tools; `ExposeTools` eligibility still does not grant permission.
+Cache warming alone does not. Retired receipts and receipts whose kind is not
+`Tool` never contribute callable tools. Tool-kind eligibility does not grant
+session exposure or policy permission.
 
 `wait_changed(&generation)` observes **in-memory publications only**. A foreign
 token returns immediately so the caller can resnapshot; lagging consumers read

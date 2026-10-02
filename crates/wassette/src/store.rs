@@ -291,7 +291,6 @@ impl ComponentStore {
             validation: prepared.validation,
             policy: prepared.options.policy.evidence,
             revision,
-            intent: prepared.options.intent,
             observation: prepared.options.observation,
         };
         if let Some(StoredEntry::Installed(previous)) = &before {
@@ -1157,7 +1156,6 @@ fn make_change(
                 || old.source != new.source
                 || old.source_bundle_sha256 != new.source_bundle_sha256
                 || old.validation != new.validation
-                || old.intent != new.intent
                 || old.observation != new.observation
         }),
         owner_changed: old.is_none_or(|old| old.owner != new.owner),

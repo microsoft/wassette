@@ -783,7 +783,7 @@ impl LifecycleManager {
     #[instrument(skip(self))]
     pub async fn get_component_schema(&self, component_id: &str) -> Option<Value> {
         match self.store_snapshot(component_id).await {
-            Ok(snapshot) if snapshot.receipt.requests_tool_exposure() => {}
+            Ok(snapshot) if snapshot.receipt.kind == store::StoredArtifactKind::Tool => {}
             Ok(_) => return None,
             Err(error) => {
                 warn!(%component_id, error = %format_error_chain(&error), "Cannot read component schema binding");
@@ -942,7 +942,7 @@ impl LifecycleManager {
                 return Err(error);
             }
         };
-        if !snapshot.receipt.requests_tool_exposure() {
+        if snapshot.receipt.kind != store::StoredArtifactKind::Tool {
             self.unregister_at_cursor(component_id, &snapshot.cursor)
                 .await?;
         }

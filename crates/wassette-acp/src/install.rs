@@ -19,9 +19,8 @@ use wasmtime::Engine;
 use wasmtime::component::Component;
 use wassette::local_source::LocalValidator;
 use wassette::store::{
-    ArtifactSnapshot, ComponentStore, ExpectedEntry, InstallIntent, InstallOptions, InstallOwner,
-    PolicyMetadata, PolicyProvenance, PreparedInstall, PreparedPolicy, StoreError, StoredEntry,
-    ValidationEvidence,
+    ArtifactSnapshot, ComponentStore, ExpectedEntry, InstallOptions, InstallOwner, PolicyMetadata,
+    PolicyProvenance, PreparedInstall, PreparedPolicy, StoreError, StoredEntry, ValidationEvidence,
 };
 use wassette::wasm_directory::{self, PackageId, PackageSelector, WasmDirectoryClient};
 
@@ -193,8 +192,7 @@ impl Resolver {
         progress: Option<Sender<String>>,
         engine: &Engine,
     ) -> Result<ResolvedComponent> {
-        self.resolve(arg, progress, engine, None, InstallIntent::InstallOnly)
-            .await
+        self.resolve(arg, progress, engine, None).await
     }
 
     pub async fn resolve_validated(
@@ -204,14 +202,7 @@ impl Resolver {
         engine: &Engine,
         expected_kind: Option<crate::state::StageKind>,
     ) -> Result<ResolvedComponent> {
-        self.resolve(
-            arg,
-            progress,
-            engine,
-            expected_kind,
-            InstallIntent::AcpSelection,
-        )
-        .await
+        self.resolve(arg, progress, engine, expected_kind).await
     }
 
     async fn resolve(
@@ -220,7 +211,6 @@ impl Resolver {
         progress: Option<Sender<String>>,
         engine: &Engine,
         expected_kind: Option<crate::state::StageKind>,
-        intent: InstallIntent,
     ) -> Result<ResolvedComponent> {
         let root = self.component_dir().to_path_buf();
         let store = tokio::task::spawn_blocking(move || ComponentStore::open(root)).await??;
@@ -229,13 +219,21 @@ impl Resolver {
             let name = arg.to_string();
             match tokio::task::spawn_blocking(move || reader.read(&name)).await? {
                 Ok(snapshot) => {
-                    let component = self.validate(
-                        engine,
-                        &snapshot.wasm,
-                        &wassette::inspect_artifact(&snapshot.wasm)?,
-                        snapshot.policy.as_deref(),
-                        expected_kind,
-                    )?;
+                    let component = if expected_kind.is_none()
+                        && snapshot.receipt.kind == wassette::store::StoredArtifactKind::Tool
+                    {
+                        Component::new(engine, &snapshot.wasm)
+                            .map_err(anyhow::Error::from)
+                            .context("compiling installed ordinary tool")?
+                    } else {
+                        self.validate(
+                            engine,
+                            &snapshot.wasm,
+                            &wassette::inspect_artifact(&snapshot.wasm)?,
+                            snapshot.policy.as_deref(),
+                            expected_kind,
+                        )?
+                    };
                     return Ok(self.resolved(snapshot, component));
                 }
                 Err(StoreError::NotFound(_)) => {}
@@ -275,6 +273,20 @@ impl Resolver {
                     .as_str()
                     .to_owned()
             };
+        if expected_kind.is_none() && inspection.shape == wassette::ArtifactShape::ToolCandidate {
+            if let Some(tx) = &progress {
+                let _ = tx.try_send("Validating ordinary tool component…".to_string());
+            }
+            let manager = wassette::LifecycleManager::from_config(self.config.clone()).await?;
+            manager.load_acquired_component(acquired).await?;
+            let reader = manager.component_store().clone();
+            let id = component_id.clone();
+            let snapshot = tokio::task::spawn_blocking(move || reader.read(&id)).await??;
+            let component = Component::new(engine, &snapshot.wasm)
+                .map_err(anyhow::Error::from)
+                .context("compiling installed ordinary tool")?;
+            return Ok(self.resolved(snapshot, component));
+        }
         let observer = store.clone();
         let name = component_id.as_str().to_owned();
         let key = acquired.storage_key.clone();
@@ -306,7 +318,6 @@ impl Resolver {
                 source: acquired.source,
                 origin: acquired.origin,
                 owner: InstallOwner::Explicit,
-                intent,
                 policy,
                 observation: None,
             },
@@ -658,10 +669,6 @@ mod tests {
         assert_eq!(
             installed.snapshot.receipt.storage_key.as_str(),
             "private-key"
-        );
-        assert_eq!(
-            installed.snapshot.receipt.intent,
-            InstallIntent::InstallOnly
         );
         let selected = resolver
             .resolve_validated(

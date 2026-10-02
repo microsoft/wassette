@@ -57,14 +57,9 @@ impl Providers {
     }
 
     fn start(&self, bin: &Path, extra: &[&str]) -> Harness {
-        let mut args = vec![
-            "--provider",
-            self.beta.to_str().unwrap(),
-            "--secrets-dir",
-            self.secrets.to_str().unwrap(),
-        ];
+        let mut args = vec!["--secrets-dir", self.secrets.to_str().unwrap()];
         args.extend_from_slice(extra);
-        Harness::start(bin, &self.alpha, &args)
+        Harness::start_with_providers(bin, &[&self.alpha, &self.beta], &args)
     }
 }
 
@@ -220,34 +215,29 @@ fn tools_toggle_applies_to_each_provider_in_the_editor_group() {
     let Some(providers) = Providers::new(&[], &[]) else {
         return;
     };
-    let mut h = Harness::start_with_local_source(
+    let mut h = Harness::start_with_local_source_and_providers(
         &bin,
-        &providers.alpha,
+        &[&providers.alpha, &providers.beta],
         Some(&tool),
         "startup",
         &[],
-        &[
-            "--provider",
-            providers.beta.to_str().unwrap(),
-            "--secrets-dir",
-            providers.secrets.to_str().unwrap(),
-        ],
+        &["--secrets-dir", providers.secrets.to_str().unwrap()],
     );
     initialize(&mut h);
     let session = new_session(&mut h);
     let sid = session["sessionId"].as_str().unwrap();
     let beta = model_value(&session["configOptions"], "test:beta", "Shared");
-    assert!(prompt_text(&mut h, sid, "/tools list").contains("| disabled |"));
-    assert!(
-        prompt_text(&mut h, sid, "/tools enable write-file").contains("enabled for this session")
-    );
-    assert!(prompt_text(&mut h, sid, "/tools list").contains("| enabled |"));
-    select(&mut h, sid, &beta);
-    assert!(prompt_text(&mut h, sid, "/tools list").contains("| enabled |"));
+    assert!(!prompt_text(&mut h, sid, "/tools list").contains("| disabled |"));
     assert!(
         prompt_text(&mut h, sid, "/tools disable write-file").contains("disabled for this session")
     );
     assert!(prompt_text(&mut h, sid, "/tools list").contains("| disabled |"));
+    select(&mut h, sid, &beta);
+    assert!(prompt_text(&mut h, sid, "/tools list").contains("| disabled |"));
+    assert!(
+        prompt_text(&mut h, sid, "/tools enable write-file").contains("enabled for this session")
+    );
+    assert!(!prompt_text(&mut h, sid, "/tools list").contains("| disabled |"));
 }
 
 #[test]
@@ -550,32 +540,35 @@ fn model_and_other_config_changes_are_provider_local() {
 }
 
 #[test]
-fn shared_layers_wrap_each_provider_but_keep_separate_mutable_state() {
+fn installed_layers_are_not_hot_swapped_into_running_providers() {
     let Some(bin) = wassette_binary() else { return };
     let Some(providers) = Providers::new(&[], &[]) else {
         return;
     };
     let layer = uppercase_layer().expect("run just build-acp-examples");
-    let mut h = providers.start(
-        &bin,
-        &["--layer", layer.to_str().unwrap(), "--allow-shared-grants"],
-    );
+    let mut h = providers.start(&bin, &[]);
     initialize(&mut h);
     let session = new_session(&mut h);
     let sid = session["sessionId"].as_str().unwrap();
-    let alpha = model_value(&session["configOptions"], "test:alpha", "Shared");
-    let beta = model_value(&session["configOptions"], "test:beta", "Shared");
-    prompt_text(&mut h, sid, "/shout");
-    assert!(prompt_text(&mut h, sid, "hello").contains("ALPHA:SHARED:PLAIN:HELLO"));
-    select(&mut h, sid, &beta);
-    assert!(prompt_text(&mut h, sid, "hello").contains("beta:shared:plain:hello"));
-    let id = h.prompt(sid, "/permission");
-    let request = h.await_permission(id);
-    assert_eq!(request["params"]["sessionId"], sid);
-    h.respond_permission(&request, "allow");
-    h.await_response(id);
-    select(&mut h, sid, &alpha);
-    assert!(prompt_text(&mut h, sid, "again").contains("ALPHA:SHARED:PLAIN:AGAIN"));
+    let id = h.prompt(sid, &format!("/install {}", layer.display()));
+    let (messages, _) = h.await_response(id);
+    assert!(
+        messages.iter().any(|message| {
+            message
+                .pointer("/params/update/content/0/content/text")
+                .and_then(Value::as_str)
+                .is_some_and(|text| text.contains("Installed ACP component"))
+        }),
+        "{messages:?}"
+    );
+    let id = h.prompt(sid, "/shout");
+    assert!(
+        response_error(&mut h, id)["message"]
+            .as_str()
+            .unwrap()
+            .contains("unknown command")
+    );
+    h.close_stdin_and_wait();
 }
 
 #[test]
@@ -587,24 +580,22 @@ fn ordinary_tool_approvals_are_not_shared_between_providers_or_sessions() {
     let Some(tool) = filesystem_tool() else {
         return;
     };
-    let mut h = Harness::start_with_local_source(
+    let mut h = Harness::start_with_local_source_and_providers(
         &bin,
-        &providers.alpha,
+        &[&providers.alpha, &providers.beta],
         Some(&tool),
         "startup",
-        &["microsoft:filesystem-rs"],
-        &[
-            "--provider",
-            providers.beta.to_str().unwrap(),
-            "--secrets-dir",
-            providers.secrets.to_str().unwrap(),
-        ],
+        &["microsoft:filesystem-rs".to_owned()],
+        &["--secrets-dir", providers.secrets.to_str().unwrap()],
     );
     initialize(&mut h);
     let session = new_session(&mut h);
     let sid = session["sessionId"].as_str().unwrap();
     let alpha = model_value(&session["configOptions"], "test:alpha", "Shared");
     let beta = model_value(&session["configOptions"], "test:beta", "Shared");
+    assert!(
+        prompt_text(&mut h, sid, "/tools enable write-file").contains("enabled for this session")
+    );
     let command = h.write_command("alpha-authorized");
     let id = h.prompt(sid, &command);
     let (messages, _) = h.await_response_with_permission(id, "allow-always");
@@ -629,6 +620,12 @@ fn ordinary_tool_approvals_are_not_shared_between_providers_or_sessions() {
     assert_eq!(permission_count(&messages), 0);
     let second = new_session(&mut h);
     let sid2 = second["sessionId"].as_str().unwrap();
+    std::thread::sleep(GATE_FLUSH_GRACE);
+    h.drain_pending();
+    assert!(prompt_text(&mut h, sid2, "/tools list").contains("microsoft:filesystem-rs/"));
+    assert!(
+        prompt_text(&mut h, sid2, "/tools enable write-file").contains("enabled for this session")
+    );
     let id = h.prompt(sid2, &h.write_command("other-session"));
     let request = h.await_permission(id);
     assert_eq!(request["params"]["sessionId"], sid2);

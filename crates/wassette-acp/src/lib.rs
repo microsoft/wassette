@@ -117,26 +117,6 @@ pub use crate::wassette::acp::agent as layer_agent;
 /// is a WebAssembly component.
 #[derive(clap::Args, Debug)]
 pub struct AcpArgs {
-    /// Path, URI, or component id of a terminal ACP **provider** wasm
-    /// component (the bottom of a chain). Repeat to make multiple providers
-    /// available in the session's model selector. At least one is required.
-    ///
-    /// Accepts anything `wassette component load` does — a filesystem
-    /// path (`./my-agent.wasm`), an `oci://` reference, or an `https://`
-    /// URL — plus the id of a component already in the component
-    /// directory. Explicit local paths and downloads are transactionally
-    /// installed; later selections use the embedded semantic component id.
-    #[arg(long = "provider", value_name = "PATH|URI|COMPONENT_ID")]
-    pub providers: Vec<String>,
-
-    /// Path, URI, or component id of a **layer** wasm component to wrap
-    /// the provider. May be passed multiple times; layers are applied
-    /// editor-side → provider-side in the order given (the first
-    /// `--layer` is the outermost stage closest to the host).
-    /// Same syntax as `--provider`.
-    #[arg(long = "layer", value_name = "PATH|URI|COMPONENT_ID")]
-    pub layers: Vec<String>,
-
     /// Directory where components are stored. Defaults to
     /// `$XDG_DATA_HOME/wassette/components` — the same store
     /// `wassette component load` writes to.
@@ -152,28 +132,17 @@ pub struct AcpArgs {
     /// Run every stage with the host's network and environment instead of
     /// its Wassette policy.
     ///
-    /// By default each provider and layer is sandboxed from the effective
+    /// By default each provider is sandboxed from the effective
     /// policy captured with its installation receipt, exactly as
     /// `wassette component load` + `wassette policy attach` set it up for
     /// MCP. **A component with no policy therefore gets no network and no
-    /// filesystem access beyond its own per-session `/data` directory
-    /// (not mounted for a layered chain without --allow-shared-grants).**
+    /// filesystem access beyond its own per-session `/data` directory.**
     /// Grant reach with a policy — `permissions.network.allow` for hosts,
     /// `permissions.storage.allow` for paths, `permissions.environment.allow`
     /// for environment variables — or pass this flag to skip policy
     /// enforcement entirely. Intended for demos and local debugging.
     #[arg(long)]
     pub allow_all: bool,
-
-    /// Permit layered chains with policy grants, stored secrets or --allow-all,
-    /// and mount the provider's persistent /data directory for the chain.
-    /// Stages share one WASI context, and concurrent callbacks may be
-    /// attributed to the wrong stage (including secret lookups). Does not
-    /// isolate stages; use only with mutually trusted components.
-    /// Nonempty legacy /data directories without a matching receipt-bound
-    /// ownership record remain protected, regardless of this flag.
-    #[arg(long)]
-    pub allow_shared_grants: bool,
 
     /// Optional path to a file to mirror logs into. The same events that
     /// go to stderr are written to a timestamped file (created or
@@ -194,11 +163,6 @@ pub struct AcpArgs {
     /// `--log-filter "wassette_acp=debug,agent_client_protocol=trace"`.
     #[arg(long)]
     pub log_filter: Option<String>,
-
-    /// Expose tools belonging to this installed semantic component id to the
-    /// ACP provider. Repeat to expose more than one component.
-    #[arg(long = "tool", value_name = "COMPONENT_ID")]
-    pub tools: Vec<String>,
 
     /// Directory scanned for locally built components.
     #[arg(long)]
@@ -342,9 +306,6 @@ pub async fn run(
     build_info: BuildInfo,
 ) -> Result<()> {
     eprintln!("Notice: wassette acp is experimental and may change or be removed.");
-    if args.providers.is_empty() {
-        anyhow::bail!("wassette acp requires at least one --provider");
-    }
     // rustls 0.23 links both crypto backends in this dependency graph
     // (wasmtime-wasi-http + oci-client pull `aws-lc-rs`; reqwest/hyper-rustls
     // pull `ring`), so it cannot auto-select a process-level CryptoProvider
@@ -378,9 +339,7 @@ pub async fn run(
     let resolver = Arc::new(Resolver::with_config(lifecycle_config.clone()));
     let tool_manager = Arc::new(::wassette::LifecycleManager::from_config(lifecycle_config).await?);
     #[cfg(feature = "component-generation")]
-    let generation_enabled = if let Some(mut config) =
-        ::wassette::generation::GenerationConfig::discover()?
-    {
+    if let Some(mut config) = ::wassette::generation::GenerationConfig::discover()? {
         config.builder.wit_dependencies = generation_wit_dependencies();
         let service = config
             .into_service()?
@@ -389,16 +348,12 @@ pub async fn run(
                 component_dir.clone(),
             )));
         tool_manager.enable_generation(service)?;
-        true
     } else {
         tracing::info!(
             image = %::wassette::generation::GenerationConfig::image_path()?.display(),
             "Component generation disabled: install the builder image at ~/.local/share/wassette/builder/rust-initrd.cpio (or under $XDG_DATA_HOME/wassette/builder/)"
         );
-        false
-    };
-    #[cfg(not(feature = "component-generation"))]
-    let generation_enabled = false;
+    }
     let local_source = if local_source_config.mode == ::wassette::local_source::LocalMode::Off {
         None
     } else {
@@ -427,14 +382,28 @@ pub async fn run(
     let local = LocalSet::new();
     local
         .run_until(async move {
-            let mut providers: Vec<Stage> = Vec::with_capacity(args.providers.len());
-            for arg in &args.providers {
+            let provider_ids = installed_provider_ids(&tool_manager)?;
+            if provider_ids.is_empty() {
+                anyhow::bail!(
+                    "No ACP providers are installed in `{}`. Install an ACP provider component \
+                     into the Wassette component store, then start `wassette acp` again.",
+                    tool_manager.component_root().display()
+                );
+            }
+            let mut providers: Vec<Stage> = Vec::with_capacity(provider_ids.len());
+            for provider_id in provider_ids {
                 let resolved = resolver
-                    .resolve_validated(arg, None, &engine, Some(StageKind::Provider))
+                    .resolve_validated(&provider_id, None, &engine, Some(StageKind::Provider))
                     .await
-                    .with_context(|| format!("resolving provider `{arg}`"))?;
-                if providers.iter().any(|provider| provider.component_id == resolved.component_id) {
-                    anyhow::bail!("provider `{}` was selected more than once", resolved.component_id);
+                    .with_context(|| format!("resolving provider `{provider_id}`"))?;
+                if providers
+                    .iter()
+                    .any(|provider| provider.component_id == resolved.component_id)
+                {
+                    anyhow::bail!(
+                        "provider `{}` was selected more than once",
+                        resolved.component_id
+                    );
                 }
                 secrets.register(resolved.snapshot.receipt.secret_binding()?)?;
                 let sandbox = Sandbox::load(
@@ -444,7 +413,7 @@ pub async fn run(
                     &secrets,
                 )
                 .await
-                .with_context(|| format!("sandboxing provider `{arg}`"))?;
+                .with_context(|| format!("sandboxing provider `{provider_id}`"))?;
                 let stage = load_stage(&resolved, sandbox)?;
                 info!(
                     path = %resolved.path.display(),
@@ -456,64 +425,24 @@ pub async fn run(
             }
             info!(
                 provider_count = providers.len(),
-                layer_count = args.layers.len(),
+                layer_count = 0,
                 "chain configuration",
             );
 
-            let mut layers: Vec<Stage> = Vec::with_capacity(args.layers.len());
-            for arg in &args.layers {
-                let resolved = resolver
-                    .resolve_validated(arg, None, &engine, Some(StageKind::Layer))
-                    .await
-                    .with_context(|| format!("resolving layer `{arg}`"))?;
-                secrets.register(resolved.snapshot.receipt.secret_binding()?)?;
-                let sandbox = Sandbox::load(
-                    args.allow_all,
-                    &resolved,
-                    resolver.component_dir(),
-                    &secrets,
-                )
-                .await
-                .with_context(|| format!("sandboxing layer `{arg}`"))?;
-                layers.push(load_stage(&resolved, sandbox)?);
-            }
-            for (idx, stage) in layers.iter().enumerate() {
-                info!(
-                    idx,
-                    layer = %stage.component_id,
-                    sandbox = %stage.sandbox.describe(),
-                    "loaded layer",
-                );
-            }
-            require_shared_grants_opt_in(
-                !layers.is_empty(),
-                args.allow_shared_grants,
-                providers
-                    .iter()
-                    .chain(&layers)
-                    .map(|stage| (stage.component_id.as_str(), &stage.sandbox)),
-                &secrets,
-            )
-            .await?;
-            if !layers.is_empty()
-                && (!args.tools.is_empty() || generation_enabled)
-                && !args.allow_shared_grants
-            {
-                anyhow::bail!(
-                    "Layered chains with ordinary tools or generation require --allow-shared-grants; \
-                     layers can intercept permissions and share the provider's store"
-                );
-            }
-            let tool_broker = Arc::new(tool_broker::ToolBroker::new(
-                tool_manager,
-                args.tools.iter().cloned(),
-                providers
-                    .iter()
-                    .chain(&layers)
-                    .map(|stage| stage.component_id.clone()),
-            ));
+            let layers = Vec::new();
+            let tool_broker = Arc::new(tool_broker::ToolBroker::new(tool_manager, []));
             let local_cancel = CancellationToken::new();
             let mut local_tasks = tokio::task::JoinSet::new();
+            let refresh_manager = tool_broker.manager.clone();
+            let refresh_cancel = local_cancel.clone();
+            local_tasks.spawn(async move {
+                if let Err(error) = refresh_manager
+                    .run_refresh_driver(std::time::Duration::from_secs(2), refresh_cancel)
+                    .await
+                {
+                    tracing::error!(error = %error, "ACP component-store refresh stopped");
+                }
+            });
             if let Some(service) = &local_source
                 && local_source_config.mode == ::wassette::local_source::LocalMode::Watch
             {
@@ -539,7 +468,7 @@ pub async fn run(
                     tool_broker,
                     build_info,
                 )
-                .with_shared_provider_data(args.allow_shared_grants),
+                .with_shared_provider_data(false),
             );
             let registry = Arc::new(SessionRegistry::new());
 
@@ -554,6 +483,28 @@ pub async fn run(
         .await
 }
 
+fn installed_provider_ids(manager: &::wassette::LifecycleManager) -> Result<Vec<String>> {
+    let snapshot = manager
+        .component_store()
+        .snapshot_if_changed(None)?
+        .context("Component store has no committed snapshot")?;
+    let mut providers = snapshot
+        .entries
+        .into_iter()
+        .filter_map(|entry| match entry {
+            ::wassette::store::StoredEntry::Installed(receipt)
+                if receipt.kind == ::wassette::store::StoredArtifactKind::AcpProvider =>
+            {
+                Some(receipt.component_id.as_str().to_owned())
+            }
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    providers.sort();
+    Ok(providers)
+}
+
+#[cfg(test)]
 async fn require_shared_grants_opt_in<'a>(
     has_layers: bool,
     allow_shared_grants: bool,
@@ -602,32 +553,9 @@ mod tool_args_tests {
     }
 
     #[test]
-    fn tool_exposure_is_explicit_and_repeatable() {
-        let parsed = TestCli::try_parse_from([
-            "test",
-            "--provider",
-            "provider",
-            "--tool",
-            "filesystem-rs",
-            "--tool",
-            "time-server",
-        ])
-        .unwrap();
-        assert_eq!(parsed.acp.tools, ["filesystem-rs", "time-server"]);
-    }
-
-    #[test]
-    fn tools_are_not_exposed_by_default() {
-        let parsed = TestCli::try_parse_from(["test", "--provider", "provider"]).unwrap();
-        assert!(parsed.acp.tools.is_empty());
-    }
-
-    #[test]
     fn local_discovery_arguments_are_parsed() {
         let parsed = TestCli::try_parse_from([
             "test",
-            "--provider",
-            "provider",
             "--local-component-dir",
             "target/local-components",
             "--local-components",
@@ -646,7 +574,7 @@ mod tool_args_tests {
 
     #[test]
     fn local_discovery_is_not_enabled_by_default() {
-        let parsed = TestCli::try_parse_from(["test", "--provider", "provider"]).unwrap();
+        let parsed = TestCli::try_parse_from(["test"]).unwrap();
         assert!(parsed.acp.local_component_dir.is_none());
         assert!(parsed.acp.local_components.is_none());
     }
@@ -654,14 +582,7 @@ mod tool_args_tests {
     #[test]
     fn generation_profile_argument_is_not_supported() {
         assert!(
-            TestCli::try_parse_from([
-                "test",
-                "--provider",
-                "provider",
-                "--generation-config",
-                "operator.json",
-            ])
-            .is_err()
+            TestCli::try_parse_from(["test", "--generation-config", "operator.json",]).is_err()
         );
     }
 
@@ -683,6 +604,16 @@ mod tool_args_tests {
                 .count(),
             1
         );
+    }
+
+    #[test]
+    fn component_selection_flags_are_removed() {
+        for flag in ["--provider", "--layer", "--tool", "--allow-shared-grants"] {
+            assert!(
+                TestCli::try_parse_from(["test", flag, "component"]).is_err(),
+                "{flag} was accepted"
+            );
+        }
     }
 }
 
@@ -779,11 +710,11 @@ pub(crate) fn validate_stage(
     match (kind, detected) {
         (StageKind::Provider, StageKind::Layer) => anyhow::bail!(
             "component implements the `wassette:acp/layer` world; \
-             pass it via `--layer` rather than `--provider`",
+             install it to the component store as an ACP layer; ACP currently starts providers only",
         ),
         (StageKind::Layer, StageKind::Provider) => anyhow::bail!(
             "component implements the `wassette:acp/provider` world; \
-             pass it via `--provider` rather than `--layer`",
+             install it to the component store as an ACP provider",
         ),
         _ => Ok(()),
     }

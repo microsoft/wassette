@@ -54,20 +54,20 @@ Generation is available when the feature is compiled in and the private image
 exists. The regular `just install` recipe builds the feature-enabled CLI but
 does not provision or download the image.
 
-Discovering the generation service enables build, install, and exposure
-authorization by default (`allow_expose=true`). Rebuild authorization remains
-disabled. The Copilot model-facing adapter defaults ordinary tools to `ExposeTools`,
-whereas MCP and CLI requests default to `InstallOnly` unless callers explicitly
-request exposure. ACP layers are install-only and must be selected in a later
-session.
+The host asks the editor to approve building and installation. Rebuilding an
+existing generated revision is disabled by default. The build request contains
+no install intent or exposure permission: ordinary catalog eligibility follows
+the installed artifact kind. Every running and future ACP session picks up a
+generated Tool component from the shared store and enables its exports by
+default, so the model can call them on the next turn. A session can still opt
+out with `/tools disable`. Invocation still follows
+the component's policy and per-call approval flow.
 
-Authorization and request intent are separate. In ACP, the editor separately
-approves build, installation against the resulting artifact and revision, and
-exposure. Approved exposure makes an ordinary tool eligible in the shared
-store and registers a revision-bound handle only in the requesting session.
-It does not grant component policy permissions or approve later invocations;
-those retain their own permission flow. Layered chains require
-`--allow-shared-grants` before generated ordinary tools can be used.
+ACP `/install` also accepts ordinary Tool components. It runs normal runtime
+validation and transactional installation, then enables that component's
+callable exports in the requesting session. ACP providers and layers remain
+pinned to session startup; installation and catalog refresh do not replace
+them. Generated ACP layers still require a new session.
 
 ## Input and validation boundaries
 
@@ -85,5 +85,5 @@ accepted, cancellation does not roll it back; inspect its reported operation
 and recovery status rather than retrying as a new build.
 
 Generated tools use the existing component permission and invocation paths.
-Generated ACP layers are installed without changing a running chain and
-require explicit selection when a later session starts.
+Generated ACP layers are installed without changing a running session and
+require a new session before they can be used.

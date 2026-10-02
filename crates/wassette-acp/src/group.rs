@@ -264,6 +264,20 @@ impl SessionGroup {
         Ok(())
     }
 
+    pub async fn enable_component_tools(&self, component_id: &str) -> anyhow::Result<Vec<String>> {
+        let mut names = None;
+        for provider in &self.inner.providers {
+            let broker = provider
+                .session
+                .tool_broker()
+                .await
+                .ok_or_else(|| anyhow::anyhow!("Tool broker unavailable"))?;
+            let enabled = broker.enable_component_tools(component_id).await?;
+            names.get_or_insert(enabled);
+        }
+        Ok(names.unwrap_or_default())
+    }
+
     /// Toggle the host-owned `terminal` config option. Records the new
     /// value and fans it out to every provider chain's [`Session`] so the
     /// `client.terminal` host impl honours it regardless of which provider

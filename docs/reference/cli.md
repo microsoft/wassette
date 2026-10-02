@@ -122,10 +122,11 @@ permission model does not separately authorize disclosure of these contents.
 The request supplies inline source and WIT; it cannot select the builder image,
 compiler configuration, or permissions. No operator JSON profile, helper
 program, helper digest, or `--generation-config` option is used.
-`ExposeTools` and rebuilding an existing generated revision require explicit
-authorization; choosing an intent does not grant permission. Installation
-defaults to `InstallOnly`. ACP layers are installed only and require explicit
-selection in a later ACP session; this command never activates or swaps layers.
+The host asks for approval before building and installing; rebuilding an
+existing generated revision is disabled by default. Generated Tool components
+are enabled immediately in the ACP session that built them and in every other
+running or future session; use `/tools disable` to opt a session out.
+ACP layers are stored but never hot-swapped into a running session.
 
 The JSON report contains the canonical commit/receipt, private storage key,
 provenance, opaque revision token, actual refresh result, and bounded preview
@@ -173,9 +174,9 @@ Source-checkout installers can add `--adopt-explicit-local` to migrate a
 matching explicit local-file installation with the same semantic ID and
 filename. This never adopts registry, HTTPS, generated, or differently named
 file sources.
-Ordinary components retain the normal local-source tool exposure intent. ACP
-providers and layers are validated and installed, but are not activated; select
-them with `wassette acp --provider/--layer`.
+Ordinary components with Tool kind are eligible for the shared tool catalog.
+ACP providers are discovered from the store and loaded at session startup;
+layers are not automatically activated.
 
 See [Local component discovery](local-components.md) for platform paths,
 security checks, and the `off|startup|watch` modes.
@@ -186,21 +187,10 @@ Host an ACP agent from a WebAssembly provider on stdio. This command may
 change or be removed; see the [ACP design](../design/acp.md) for usage and
 limitations.
 
-Use `--tool <COMPONENT_ID>` to explicitly expose an installed ordinary
-Wassette tool component to the provider. Repeat the flag to expose multiple
-components:
-
-```bash
-wassette acp \
-  --provider acp-copilot-provider \
-  --tool filesystem-rs
-```
-
-Tools are not exposed by default. The provider lists and calls them through
-the `wassette:component-tools/tools@0.1.0` guest import. Each call asks the
-editor for permission and streams ACP tool-call status updates. Layers cannot
-call ordinary tools. The provider/layers in the active chain are excluded even
-if named by `--tool`.
+ACP discovers installed providers from the shared component store and starts
+without layers. The former `--provider`, `--layer`, `--tool`, and
+`--allow-shared-grants` flags are removed; delete them from editor
+configuration. Layers and providers are not hot-swapped into running sessions.
 
 ACP resolves `component_dir` and `secrets_dir` through the same command-line,
 `WASSETTE_*`, `config.toml`, and platform-default precedence as the rest of the
@@ -209,20 +199,18 @@ CLI. The root `wassette --component-dir` option applies when ACP's own
 starts Wassette from a directory other than the repository.
 
 Use `--local-components startup` to reconcile the local component drop directory
-before selecting the provider and tools, or `--local-components watch` to keep
-reconciling it while ACP runs. ACP defaults to `off`. Override the drop directory
-with `--local-component-dir <PATH>`. Local discovery installs validated
-components but does not activate providers or expose tools by itself; select
-providers explicitly and use `--tool <COMPONENT_ID>` for ordinary tools.
+before starting providers, or `--local-components watch` to keep reconciling it
+while ACP runs. ACP defaults to `off`. Override the drop directory with
+`--local-component-dir <PATH>`. Local discovery installs validated components;
+new tools appear in the catalog and can be enabled per session.
 
-`/install` currently installs ACP artifacts only, without activation. It does
-not install ordinary tools or resolve registry package selectors. Tool path,
-tool package and automatic local exposure flags remain unimplemented proposals.
-The built-in `/version` command shows the Wassette version, full commit SHA
-(with `-dirty` for modified builds), and UTC build time. Wassette handles it
-locally even if the active provider advertises its own `/version`; it is never
-forwarded to the provider. While a session is busy, it follows the same
-busy-session restriction as `/install`.
+`/install` validates and stores ordinary Tool components and ACP artifacts.
+Installed tools are enabled for the requesting session; provider/layer artifacts
+do not replace the running session's provider chain. `/version` shows the Wassette
+version, full commit SHA (with `-dirty` for modified builds), and UTC build
+time. Wassette handles it locally even if the active provider advertises its
+own `/version`; it is never forwarded. While a session is busy, these commands
+follow the same busy-session restriction.
 
 `/tools` and `/tools list` show a markdown table of the current session's
 ordinary component exports and available host tools, including their exposure
@@ -231,13 +219,16 @@ ordinary export for this editor session; names can be the full
 `component-id/export`, a unique export, or a unique component ID. Ambiguous
 names list the exact candidates. A change takes effect on the next prompt
 turn, never mid-turn; an already-admitted call can finish after disabling.
-The initial state comes from `--tool`, remains off by default otherwise, and
-enabling does not grant file or network access or skip editor approval.
+Installed tools are on by default, and enabling does not grant file or network access
+or skip editor approval. The store cursor refreshes running sessions when
+components are installed, upgraded, or removed. New catalog revisions appear
+in `/tools list`; stale references are rejected for new calls while admitted
+calls keep their pinned revision. A tool generated by `build_component` or
+installed with `/install` is enabled immediately in every session.
 When the Copilot provider is active, its host-owned `terminal` and
 `build_component` tools are listed if available: configure the former through
 the ACP terminal option; generation requires the `component-generation`
-feature and the private image at its expected path, not `/tools enable`. A
-layered chain requires `--allow-shared-grants` to enable ordinary exports.
+feature and the private image at its expected path, not `/tools enable`.
 
 ### `wassette run`
 
