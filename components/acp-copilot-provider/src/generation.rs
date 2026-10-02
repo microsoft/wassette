@@ -259,15 +259,34 @@ mod tests {
     }
 
     #[test]
-    fn reports_point_to_a_new_session() {
+    fn reports_installed_components_in_the_store() {
         let text = describe(&Ok(GenerationReport {
             report_json: json!({"component_id": "local:answer", "revision": "r1"}).to_string(),
             disposition: Disposition::Installed,
             tool_handles: Vec::new(),
         }));
         assert!(text.contains("`local:answer` (revision `r1`)"), "{text}");
-        assert!(text.contains("NEW ACP session"), "{text}");
-        assert!(text.contains("--tool local:answer"), "{text}");
+        assert!(text.contains("in the Wassette component store."), "{text}");
+        let (_, report) = text.split_once("\n\nReport: ").expect("generation report");
+        assert_eq!(
+            serde_json::from_str::<Value>(report).unwrap(),
+            json!({"component_id": "local:answer", "revision": "r1"})
+        );
+    }
+
+    #[test]
+    fn reports_session_tools_as_immediately_callable() {
+        let text = describe(&Ok(GenerationReport {
+            report_json: json!({"component_id": "local:answer", "revision": "r1"}).to_string(),
+            disposition: Disposition::SessionTools,
+            tool_handles: vec!["answer".to_string()],
+        }));
+        assert!(text.contains("`local:answer` (revision `r1`)"), "{text}");
+        assert!(
+            text.contains("registered its tools with this session (handles: answer)"),
+            "{text}"
+        );
+        assert!(text.contains("You can call them now."), "{text}");
     }
 
     #[test]
