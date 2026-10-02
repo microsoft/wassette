@@ -677,6 +677,22 @@ mod tests {
     use super::*;
 
     #[test]
+    fn copilot_capabilities_use_source_or_retained_receipt_identity() {
+        for id in ["local:acp_copilot_provider", "acp-copilot-provider"] {
+            assert!(is_copilot_provider(id), "{id}");
+        }
+        for id in [
+            "acp_copilot_provider",
+            "local:unrelated-provider",
+            "local:acp-copilot-provider",
+            "cosmetic:acp-copilot-provider",
+            "ghcr.io/example/acp-copilot-provider",
+        ] {
+            assert!(!is_copilot_provider(id), "{id}");
+        }
+    }
+
+    #[test]
     fn failed_model_selection_keeps_the_previous_provider() {
         let active = Mutex::new(0);
         let failure = SetConfigOptionOutcome::Wit(translate::internal_error("model rejected"));

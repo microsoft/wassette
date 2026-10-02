@@ -47,7 +47,7 @@ directory and store the token there to keep it out of the environment:
 
 ```shell
 wassette component load file://$PWD/components/acp-copilot-provider/target/wasm32-wasip2/release/acp_copilot_provider.wasm
-wassette secret set acp_copilot_provider "github_token=$(gh auth token)"
+wassette secret set local:acp_copilot_provider "github_token=$(gh auth token)"
 wassette acp --allow-all
 ```
 
