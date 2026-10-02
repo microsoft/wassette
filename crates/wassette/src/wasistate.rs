@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
 use policy::{AccessType, PolicyDocument};
-use wasmtime_wasi::{WasiCtx, WasiCtxBuilder, WasiCtxView};
+use wasmtime_wasi::{FsPerms, WasiCtx, WasiCtxBuilder, WasiCtxView};
 use wasmtime_wasi_config::WasiConfigVariables;
 use wasmtime_wasi_http::WasiHttpCtx;
 
@@ -42,11 +42,16 @@ impl PermissionError {
                 )
             }
             PermissionError::StorageDenied { path, access_type } => {
+                let grant_access = if access_type == "write" {
+                    "read,write"
+                } else {
+                    access_type.as_str()
+                };
                 format!(
                     "Storage permission denied: Component '{}' attempted to {} '{}' but does not have permission.\n\n\
                     To grant storage access, use:\n  \
                     grant-storage-permission --component-id=\"{}\" --uri=\"{}\" --access=\"{}\"",
-                    component_id, access_type, path, component_id, path, access_type
+                    component_id, access_type, path, component_id, path, grant_access
                 )
             }
         }
@@ -134,8 +139,7 @@ impl WasiStateTemplate {
             ctx_builder.preopened_dir(
                 preopened_dir.host_path.as_path(),
                 preopened_dir.guest_path.as_str(),
-                preopened_dir.dir_perms,
-                preopened_dir.file_perms,
+                preopened_dir.perms,
             )?;
         }
 
@@ -159,13 +163,12 @@ impl WasiStateTemplate {
     }
 }
 
-/// A struct that presents the arguments passed to `wasmtime_wasi::WasiCtxBuilder::preopened_dir`
+/// A directory made available to the component with its configured filesystem permissions.
 #[derive(Clone)]
 pub struct PreopenedDir {
     pub host_path: PathBuf,
     pub guest_path: String,
-    pub dir_perms: wasmtime_wasi::DirPerms,
-    pub file_perms: wasmtime_wasi::FilePerms,
+    pub perms: FsPerms,
 }
 
 /// A struct that presents the network permissions passed to wasmtime_wasi::WasiContextBuilder
@@ -325,14 +328,15 @@ pub(crate) fn extract_storage_permissions(
                 if storage_permission.uri.starts_with("fs://") {
                     let uri = storage_permission.uri.strip_prefix("fs://").unwrap();
                     let path = Path::new(uri);
-                    let (file_perms, dir_perms) = calculate_permissions(&storage_permission.access);
+                    let Some(perms) = calculate_permissions(&storage_permission.access)? else {
+                        continue;
+                    };
                     let guest_path = path.to_string_lossy().to_string();
                     let host_path = component_dir.join(path);
                     preopened_dirs.push(PreopenedDir {
                         host_path,
                         guest_path,
-                        dir_perms,
-                        file_perms,
+                        perms,
                     });
                 }
             }
@@ -343,28 +347,17 @@ pub(crate) fn extract_storage_permissions(
 
 pub(crate) fn calculate_permissions(
     access_types: &[AccessType],
-) -> (wasmtime_wasi::FilePerms, wasmtime_wasi::DirPerms) {
-    let file_perms = access_types
-        .iter()
-        .fold(wasmtime_wasi::FilePerms::empty(), |acc, access| {
-            acc | match access {
-                AccessType::Read => wasmtime_wasi::FilePerms::READ,
-                AccessType::Write => wasmtime_wasi::FilePerms::WRITE,
-            }
-        });
-
-    let dir_perms = access_types
-        .iter()
-        .fold(wasmtime_wasi::DirPerms::empty(), |acc, access| {
-            acc | match access {
-                AccessType::Read => wasmtime_wasi::DirPerms::READ,
-                AccessType::Write => {
-                    wasmtime_wasi::DirPerms::READ | wasmtime_wasi::DirPerms::MUTATE
-                }
-            }
-        });
-
-    (file_perms, dir_perms)
+) -> anyhow::Result<Option<FsPerms>> {
+    let has_read = access_types.contains(&AccessType::Read);
+    let has_write = access_types.contains(&AccessType::Write);
+    match (has_read, has_write) {
+        (false, false) => Ok(None),
+        (true, false) => Ok(Some(FsPerms::ReadOnly)),
+        (true, true) => Ok(Some(FsPerms::ReadWrite)),
+        (false, true) => anyhow::bail!(
+            "write-only storage permissions are not supported by the configured WASI filesystem"
+        ),
+    }
 }
 
 /// Extract memory limit from the policy document
@@ -421,7 +414,7 @@ permissions:
       - uri: "fs://test/path"
         access: ["read"]
       - uri: "fs://write/path"
-        access: ["write"]
+        access: ["read", "write"]
       - uri: "fs://readwrite/path"
         access: ["read", "write"]
       - uri: "http://not-fs"
@@ -455,46 +448,42 @@ permissions:
     #[test]
     fn test_calculate_permissions_read_only() {
         let access_types = vec![AccessType::Read];
-        let (file_perms, dir_perms) = calculate_permissions(&access_types);
+        assert_eq!(
+            calculate_permissions(&access_types).unwrap(),
+            Some(FsPerms::ReadOnly)
+        );
+    }
 
-        assert_eq!(file_perms, wasmtime_wasi::FilePerms::READ);
-        assert_eq!(dir_perms, wasmtime_wasi::DirPerms::READ);
+    #[test]
+    fn test_storage_write_error_suggests_read_write_grant() {
+        let error = PermissionError::StorageDenied {
+            path: "fs://workspace".to_string(),
+            access_type: "write".to_string(),
+        };
+        assert!(error
+            .to_user_message("component")
+            .contains("--access=\"read,write\""));
     }
 
     #[test]
     fn test_calculate_permissions_write_only() {
         let access_types = vec![AccessType::Write];
-        let (file_perms, dir_perms) = calculate_permissions(&access_types);
-
-        assert_eq!(file_perms, wasmtime_wasi::FilePerms::WRITE);
-        assert_eq!(
-            dir_perms,
-            wasmtime_wasi::DirPerms::READ | wasmtime_wasi::DirPerms::MUTATE
-        );
+        assert!(calculate_permissions(&access_types).is_err());
     }
 
     #[test]
     fn test_calculate_permissions_read_write() {
         let access_types = vec![AccessType::Read, AccessType::Write];
-        let (file_perms, dir_perms) = calculate_permissions(&access_types);
-
         assert_eq!(
-            file_perms,
-            wasmtime_wasi::FilePerms::READ | wasmtime_wasi::FilePerms::WRITE
-        );
-        assert_eq!(
-            dir_perms,
-            wasmtime_wasi::DirPerms::READ | wasmtime_wasi::DirPerms::MUTATE
+            calculate_permissions(&access_types).unwrap(),
+            Some(FsPerms::ReadWrite)
         );
     }
 
     #[test]
     fn test_calculate_permissions_empty() {
         let access_types = vec![];
-        let (file_perms, dir_perms) = calculate_permissions(&access_types);
-
-        assert_eq!(file_perms, wasmtime_wasi::FilePerms::empty());
-        assert_eq!(dir_perms, wasmtime_wasi::DirPerms::empty());
+        assert_eq!(calculate_permissions(&access_types).unwrap(), None);
     }
 
     #[test]
@@ -505,15 +494,9 @@ permissions:
             AccessType::Read,
             AccessType::Write,
         ];
-        let (file_perms, dir_perms) = calculate_permissions(&access_types);
-
         assert_eq!(
-            file_perms,
-            wasmtime_wasi::FilePerms::READ | wasmtime_wasi::FilePerms::WRITE
-        );
-        assert_eq!(
-            dir_perms,
-            wasmtime_wasi::DirPerms::READ | wasmtime_wasi::DirPerms::MUTATE
+            calculate_permissions(&access_types).unwrap(),
+            Some(FsPerms::ReadWrite)
         );
     }
 
@@ -618,27 +601,34 @@ permissions:
         let read_only = &preopened_dirs[0];
         assert_eq!(read_only.guest_path, "test/path");
         assert_eq!(read_only.host_path, component_dir.join("test/path"));
-        assert_eq!(read_only.file_perms, wasmtime_wasi::FilePerms::READ);
-        assert_eq!(read_only.dir_perms, wasmtime_wasi::DirPerms::READ);
+        assert_eq!(read_only.perms, FsPerms::ReadOnly);
 
-        let write_only = &preopened_dirs[1];
-        assert_eq!(write_only.guest_path, "write/path");
-        assert_eq!(write_only.file_perms, wasmtime_wasi::FilePerms::WRITE);
-        assert_eq!(
-            write_only.dir_perms,
-            wasmtime_wasi::DirPerms::READ | wasmtime_wasi::DirPerms::MUTATE
-        );
+        let read_write = &preopened_dirs[1];
+        assert_eq!(read_write.guest_path, "write/path");
+        assert_eq!(read_write.perms, FsPerms::ReadWrite);
 
         let read_write = &preopened_dirs[2];
         assert_eq!(read_write.guest_path, "readwrite/path");
-        assert_eq!(
-            read_write.file_perms,
-            wasmtime_wasi::FilePerms::READ | wasmtime_wasi::FilePerms::WRITE
-        );
-        assert_eq!(
-            read_write.dir_perms,
-            wasmtime_wasi::DirPerms::READ | wasmtime_wasi::DirPerms::MUTATE
-        );
+        assert_eq!(read_write.perms, FsPerms::ReadWrite);
+    }
+
+    #[test]
+    fn test_extract_storage_permissions_rejects_write_only() {
+        let temp_dir = TempDir::new().unwrap();
+        let policy = PolicyParser::parse_str(
+            r#"
+version: "1.0"
+description: "Write-only storage permission"
+permissions:
+  storage:
+    allow:
+      - uri: "fs://write/path"
+        access: ["write"]
+"#,
+        )
+        .unwrap();
+
+        assert!(extract_storage_permissions(&policy, temp_dir.path()).is_err());
     }
 
     #[test]
@@ -698,14 +688,7 @@ permissions:
 
         assert_eq!(preopened_dirs.len(), 1);
         let dir = &preopened_dirs[0];
-        assert_eq!(
-            dir.file_perms,
-            wasmtime_wasi::FilePerms::READ | wasmtime_wasi::FilePerms::WRITE
-        );
-        assert_eq!(
-            dir.dir_perms,
-            wasmtime_wasi::DirPerms::READ | wasmtime_wasi::DirPerms::MUTATE
-        );
+        assert_eq!(dir.perms, FsPerms::ReadWrite);
     }
 
     #[test]
@@ -1107,32 +1090,23 @@ permissions:
                 0..10
             )
         ) {
-            let (file_perms, dir_perms) = calculate_permissions(&access_types);
-
             let has_read = access_types.contains(&AccessType::Read);
             let has_write = access_types.contains(&AccessType::Write);
 
             if has_read && has_write {
                 prop_assert_eq!(
-                    file_perms,
-                    wasmtime_wasi::FilePerms::READ | wasmtime_wasi::FilePerms::WRITE
-                );
-                prop_assert_eq!(
-                    dir_perms,
-                    wasmtime_wasi::DirPerms::READ | wasmtime_wasi::DirPerms::MUTATE
+                    calculate_permissions(&access_types).unwrap(),
+                    Some(FsPerms::ReadWrite)
                 );
             } else if has_read {
-                prop_assert_eq!(file_perms, wasmtime_wasi::FilePerms::READ);
-                prop_assert_eq!(dir_perms, wasmtime_wasi::DirPerms::READ);
-            } else if has_write {
-                prop_assert_eq!(file_perms, wasmtime_wasi::FilePerms::WRITE);
                 prop_assert_eq!(
-                    dir_perms,
-                    wasmtime_wasi::DirPerms::READ | wasmtime_wasi::DirPerms::MUTATE
+                    calculate_permissions(&access_types).unwrap(),
+                    Some(FsPerms::ReadOnly)
                 );
+            } else if has_write {
+                prop_assert!(calculate_permissions(&access_types).is_err());
             } else {
-                prop_assert_eq!(file_perms, wasmtime_wasi::FilePerms::empty());
-                prop_assert_eq!(dir_perms, wasmtime_wasi::DirPerms::empty());
+                prop_assert_eq!(calculate_permissions(&access_types).unwrap(), None);
             }
         }
 
@@ -1146,18 +1120,16 @@ permissions:
                 0..10
             )
         ) {
-            let (file_perms1, dir_perms1) = calculate_permissions(&access_types);
-            let (file_perms2, dir_perms2) = calculate_permissions(&access_types);
+            let permissions1 = calculate_permissions(&access_types).map_err(|e| e.to_string());
+            let permissions2 = calculate_permissions(&access_types).map_err(|e| e.to_string());
 
-            prop_assert_eq!(file_perms1, file_perms2);
-            prop_assert_eq!(dir_perms1, dir_perms2);
+            prop_assert_eq!(&permissions1, &permissions2);
 
             let mut doubled_access = access_types.clone();
             doubled_access.extend(access_types);
-            let (file_perms3, dir_perms3) = calculate_permissions(&doubled_access);
+            let permissions3 = calculate_permissions(&doubled_access).map_err(|e| e.to_string());
 
-            prop_assert_eq!(file_perms1, file_perms3);
-            prop_assert_eq!(dir_perms1, dir_perms3);
+            prop_assert_eq!(&permissions1, &permissions3);
         }
 
         #[test]
@@ -1170,13 +1142,12 @@ permissions:
                 0..10
             )
         ) {
-            let (file_perms1, dir_perms1) = calculate_permissions(&access_types);
+            let permissions1 = calculate_permissions(&access_types).map_err(|e| e.to_string());
 
             access_types.reverse();
-            let (file_perms2, dir_perms2) = calculate_permissions(&access_types);
+            let permissions2 = calculate_permissions(&access_types).map_err(|e| e.to_string());
 
-            prop_assert_eq!(file_perms1, file_perms2);
-            prop_assert_eq!(dir_perms1, dir_perms2);
+            prop_assert_eq!(permissions1, permissions2);
         }
     }
 }

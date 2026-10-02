@@ -121,7 +121,7 @@ When an existing component is replaced, the `status` value becomes
 - `component_id` (string, required): ID of the component to grant storage permission to
 - `details` (object, required):
   - `uri` (string, required): URI of the storage resource (e.g., `fs:///tmp/test`)
-  - `access` (array, required): Array of access types, must be `["read"]`, `["write"]`, or `["read", "write"]`
+  - `access` (array, required): `["read"]` or `["read", "write"]`; write-only grants are rejected because the WASI filesystem cannot represent them safely
 
 **Returns:**
 ```json

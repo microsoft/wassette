@@ -44,7 +44,7 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, Result};
 use policy::PolicyParser;
 use tracing::{info, warn};
-use wasmtime_wasi::{DirPerms, FilePerms, WasiCtx, WasiCtxBuilder};
+use wasmtime_wasi::{FsPerms, WasiCtx, WasiCtxBuilder};
 use wassette::{WasiStateTemplate, create_wasi_state_template_from_policy};
 
 use crate::secrets::SecretsRegistry;
@@ -221,8 +221,7 @@ pub struct ChainSandbox {
 struct Preopen {
     host_path: PathBuf,
     guest_path: String,
-    dir_perms: DirPerms,
-    file_perms: FilePerms,
+    perms: FsPerms,
 }
 
 impl ChainSandbox {
@@ -243,8 +242,7 @@ impl ChainSandbox {
                     self.preopens.push(Preopen {
                         host_path: dir.host_path.clone(),
                         guest_path: dir.guest_path.clone(),
-                        dir_perms: dir.dir_perms,
-                        file_perms: dir.file_perms,
+                        perms: dir.perms,
                     });
                 }
                 self.allowed_hosts.extend(t.allowed_hosts.iter().cloned());
@@ -287,25 +285,20 @@ impl ChainSandbox {
                 wasi.env(key, value);
             }
             for dir in &self.preopens {
-                wasi.preopened_dir(
-                    &dir.host_path,
-                    &dir.guest_path,
-                    dir.dir_perms,
-                    dir.file_perms,
-                )
-                .map_err(anyhow::Error::from)
-                .with_context(|| {
-                    format!(
-                        "preopening {} at {}",
-                        dir.host_path.display(),
-                        dir.guest_path
-                    )
-                })?;
+                wasi.preopened_dir(&dir.host_path, &dir.guest_path, dir.perms)
+                    .map_err(anyhow::Error::from)
+                    .with_context(|| {
+                        format!(
+                            "preopening {} at {}",
+                            dir.host_path.display(),
+                            dir.guest_path
+                        )
+                    })?;
             }
         }
 
         if let Some(dir) = data_dir {
-            wasi.preopened_dir(dir, "/data", DirPerms::all(), FilePerms::all())
+            wasi.preopened_dir(dir, "/data", FsPerms::ReadWrite)
                 .map_err(anyhow::Error::from)
                 .with_context(|| format!("preopening {} at /data", dir.display()))?;
         }
@@ -454,7 +447,7 @@ permissions:
         assert_eq!(chain.preopens.len(), 1);
         assert_eq!(chain.preopens[0].guest_path, "workspace");
         // Read-only: no write bit.
-        assert!(!chain.preopens[0].file_perms.contains(FilePerms::WRITE));
+        assert_eq!(chain.preopens[0].perms, FsPerms::ReadOnly);
         // The context builds against the real directory.
         chain.build_ctx(None).unwrap();
     }

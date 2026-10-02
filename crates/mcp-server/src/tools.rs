@@ -281,7 +281,7 @@ fn get_builtin_tools() -> Vec<Tool> {
         Tool::new_with_raw(
             Cow::Borrowed("grant-storage-permission"),
             Some(Cow::Borrowed(
-                "Grants storage access permission to a component, allowing it to read from and/or write to specific storage locations."
+                "Grants read-only or read/write storage access to a component. Write-only access is not supported."
             )),
             Arc::new(
                 serde_json::from_value(json!({
@@ -300,11 +300,12 @@ fn get_builtin_tools() -> Vec<Tool> {
                           },
                           "access": {
                             "type": "array",
+                            "contains": { "const": "read" },
                             "items": {
                               "type": "string",
                               "enum": ["read", "write"]
                             },
-                            "description": "Access type for the storage resource, this must be an array of strings with values 'read' or 'write'"
+                            "description": "Use ['read'] for read-only access or ['read', 'write'] for read/write access; write-only access is not supported."
                           }
                         },
                         "required": ["uri", "access"],
@@ -958,6 +959,17 @@ mod tests {
             .any(|t| t.name == "revoke-environment-variable-permission"));
         assert!(tools.iter().any(|t| t.name == "reset-permission"));
         assert!(tools.iter().any(|t| t.name == "search-components"));
+    }
+
+    #[test]
+    fn test_storage_grant_schema_requires_read_access() {
+        let tool = get_builtin_tools()
+            .into_iter()
+            .find(|tool| tool.name == "grant-storage-permission")
+            .unwrap();
+        let access = &tool.input_schema["properties"]["details"]["properties"]["access"];
+        assert_eq!(access["contains"], json!({ "const": "read" }));
+        assert_eq!(access["items"]["enum"], json!(["read", "write"]));
     }
 
     #[tokio::test]

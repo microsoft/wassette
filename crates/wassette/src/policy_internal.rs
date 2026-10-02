@@ -175,6 +175,7 @@ impl PolicyManager {
         .await?;
 
         let policy = PolicyParser::parse_file(downloaded_policy.as_ref())?;
+        let wasi_template = self.build_policy_template(component_id, &policy).await?;
 
         let policy_path = self.policy_path(component_id);
         tokio::fs::copy(downloaded_policy.as_ref(), &policy_path).await?;
@@ -188,15 +189,6 @@ impl PolicyManager {
         });
         let metadata_path = self.metadata_path(component_id);
         tokio::fs::write(&metadata_path, serde_json::to_string_pretty(&metadata)?).await?;
-
-        let secrets = self.secrets.load_component_secrets(component_id).await.ok();
-
-        let wasi_template = crate::create_wasi_state_template_from_policy(
-            &policy,
-            self.storage.root(),
-            self.environment_vars.as_ref(),
-            secrets.as_ref(),
-        )?;
 
         self.store_template(component_id, Arc::new(wasi_template))
             .await;
@@ -260,23 +252,19 @@ impl PolicyManager {
         })
     }
 
-    pub(crate) async fn update_policy_registry(
+    async fn build_policy_template(
         &self,
         component_id: &str,
         policy: &PolicyDocument,
-    ) -> Result<()> {
+    ) -> Result<WasiStateTemplate> {
         let secrets = self.secrets.load_component_secrets(component_id).await.ok();
 
-        let wasi_template = crate::create_wasi_state_template_from_policy(
+        crate::create_wasi_state_template_from_policy(
             policy,
             self.storage.root(),
             self.environment_vars.as_ref(),
             secrets.as_ref(),
-        )?;
-
-        self.store_template(component_id, Arc::new(wasi_template))
-            .await;
-        Ok(())
+        )
     }
 
     /// Rehydrate policy templates from a co-located policy file on disk, if
@@ -329,7 +317,6 @@ impl PolicyManager {
         let mut policy = self.load_or_create_component_policy(component_id).await?;
         self.remove_storage_permission_by_uri_from_policy(&mut policy, uri)?;
         self.save_component_policy(component_id, &policy).await?;
-        self.update_policy_registry(component_id, &policy).await?;
         Ok(())
     }
 
@@ -347,10 +334,16 @@ impl PolicyManager {
         );
         let permission_rule = self.parse_permission_rule(permission_type, details)?;
         self.validate_permission_rule(&permission_rule)?;
+        if let PermissionRule::Storage(storage) = &permission_rule {
+            if !storage.access.contains(&AccessType::Read) {
+                return Err(anyhow!(
+                    "Storage grants must include read access; write-only access is not supported"
+                ));
+            }
+        }
         let mut policy = self.load_or_create_component_policy(component_id).await?;
         self.add_permission_rule_to_policy(&mut policy, permission_rule)?;
         self.save_component_policy(component_id, &policy).await?;
-        self.update_policy_registry(component_id, &policy).await?;
 
         info!(
             component_id,
@@ -651,7 +644,7 @@ impl PolicyManager {
         Ok(())
     }
 
-    /// Save component policy to file
+    /// Validate and save the policy before replacing its cached template.
     pub(crate) async fn save_component_policy(
         &self,
         component_id: &str,
@@ -659,7 +652,10 @@ impl PolicyManager {
     ) -> Result<()> {
         let policy_path = self.policy_path(component_id);
         let policy_yaml = serde_yaml::to_string(policy)?;
+        let wasi_template = self.build_policy_template(component_id, policy).await?;
         tokio::fs::write(&policy_path, policy_yaml).await?;
+        self.store_template(component_id, Arc::new(wasi_template))
+            .await;
         Ok(())
     }
 
@@ -704,7 +700,6 @@ impl PolicyManager {
         let mut policy = self.load_or_create_component_policy(component_id).await?;
         self.remove_permission_rule_from_policy(&mut policy, permission_rule)?;
         self.save_component_policy(component_id, &policy).await?;
-        self.update_policy_registry(component_id, &policy).await?;
 
         info!(
             component_id,
@@ -925,6 +920,152 @@ permissions: {}
     }
 
     #[tokio::test]
+    async fn test_write_only_rejection_preserves_policy_state() -> Result<()> {
+        for existing_policy in [false, true] {
+            let manager = create_test_manager().await?;
+            let policies = &manager.policy_manager;
+            let source_path = manager.component_root().join("source-policy.yaml");
+            let source_uri = format!("file://{}", source_path.display());
+            let read_policy = r#"
+version: "1.0"
+permissions:
+  storage:
+    allow:
+      - uri: "fs://workspace"
+        access: ["read"]
+"#;
+            if existing_policy {
+                tokio::fs::write(&source_path, read_policy).await?;
+                policies
+                    .attach_policy(TEST_COMPONENT_ID, &source_uri)
+                    .await?;
+            }
+
+            let policy_path = policies.policy_path(TEST_COMPONENT_ID);
+            let metadata_path = policies.metadata_path(TEST_COMPONENT_ID);
+            let policy_before = if existing_policy {
+                Some(tokio::fs::read(&policy_path).await?)
+            } else {
+                None
+            };
+            let metadata_before = if existing_policy {
+                Some(tokio::fs::read(&metadata_path).await?)
+            } else {
+                None
+            };
+            let template_before = policies
+                .registry
+                .read()
+                .await
+                .component_policies
+                .get(TEST_COMPONENT_ID)
+                .cloned();
+
+            let write_policy = read_policy.replace("[\"read\"]", "[\"write\"]");
+            tokio::fs::write(&source_path, &write_policy).await?;
+            let candidate = PolicyParser::parse_str(&write_policy)?;
+            for operation in ["grant", "attach", "save"] {
+                let result = match operation {
+                    "grant" => {
+                        policies
+                            .grant_permission(
+                                TEST_COMPONENT_ID,
+                                "storage",
+                                &serde_json::json!({
+                                    "uri": "fs://workspace",
+                                    "access": ["write"]
+                                }),
+                            )
+                            .await
+                    }
+                    "attach" => policies.attach_policy(TEST_COMPONENT_ID, &source_uri).await,
+                    "save" => {
+                        policies
+                            .save_component_policy(TEST_COMPONENT_ID, &candidate)
+                            .await
+                    }
+                    _ => unreachable!(),
+                };
+                assert!(result.unwrap_err().to_string().contains("write-only"));
+                for (path, before) in [
+                    (&policy_path, &policy_before),
+                    (&metadata_path, &metadata_before),
+                ] {
+                    if let Some(before) = before {
+                        assert_eq!(&tokio::fs::read(path).await?, before, "{operation}");
+                    } else {
+                        assert!(!tokio::fs::try_exists(path).await?, "{operation}");
+                    }
+                }
+                let registry = policies.registry.read().await;
+                let template_after = registry.component_policies.get(TEST_COMPONENT_ID);
+                if let Some(before) = &template_before {
+                    assert!(Arc::ptr_eq(before, template_after.unwrap()), "{operation}");
+                } else {
+                    assert!(template_after.is_none(), "{operation}");
+                }
+            }
+
+            let restarted = crate::LifecycleManager::new(manager.component_root()).await?;
+            restarted
+                .policy_manager
+                .restore_from_disk(TEST_COMPONENT_ID)
+                .await?;
+            let template = restarted
+                .policy_manager
+                .template_for_component(TEST_COMPONENT_ID)
+                .await;
+            if existing_policy {
+                assert_eq!(template.preopened_dirs.len(), 1);
+                assert_eq!(
+                    template.preopened_dirs[0].perms,
+                    wasmtime_wasi::FsPerms::ReadOnly
+                );
+            } else {
+                assert!(template.preopened_dirs.is_empty());
+            }
+        }
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_storage_grants_require_read_but_revocation_does_not() -> Result<()> {
+        let manager = create_test_manager().await?;
+        let policies = &manager.policy_manager;
+        for details in [
+            serde_json::json!({"uri": "fs://workspace"}),
+            serde_json::json!({"uri": "fs://workspace", "access": []}),
+            serde_json::json!({"uri": "fs://workspace", "access": ["write"]}),
+        ] {
+            assert!(policies
+                .grant_permission(TEST_COMPONENT_ID, "storage", &details)
+                .await
+                .is_err());
+        }
+        assert!(!policies.policy_path(TEST_COMPONENT_ID).exists());
+        policies
+            .grant_permission(
+                TEST_COMPONENT_ID,
+                "storage",
+                &serde_json::json!({"uri": "fs://workspace", "access": ["read", "write"]}),
+            )
+            .await?;
+        policies
+            .revoke_permission(
+                TEST_COMPONENT_ID,
+                "storage",
+                &serde_json::json!({"uri": "fs://workspace", "access": ["write"]}),
+            )
+            .await?;
+        assert!(policies
+            .template_for_component(TEST_COMPONENT_ID)
+            .await
+            .preopened_dirs
+            .is_empty());
+        Ok(())
+    }
+
+    #[tokio::test]
     async fn test_grant_permission_network() -> Result<()> {
         let manager = create_test_manager().await?;
         manager.load_test_component().await?;
@@ -1000,7 +1141,7 @@ permissions: {}
             .await?;
 
         let storage_write_details =
-            serde_json::json!({"uri": "fs:///tmp/test", "access": ["write"]});
+            serde_json::json!({"uri": "fs:///tmp/test", "access": ["read", "write"]});
         manager
             .grant_permission(TEST_COMPONENT_ID, "storage", &storage_write_details)
             .await?;
@@ -1113,8 +1254,9 @@ permissions: {}
             .grant_permission(TEST_COMPONENT_ID, "storage", &read_details)
             .await?;
 
-        // Grant write access to the same URI
-        let write_details = serde_json::json!({"uri": "fs:///tmp/test", "access": ["write"]});
+        // Extend the same URI's grant to read/write access.
+        let write_details =
+            serde_json::json!({"uri": "fs:///tmp/test", "access": ["read", "write"]});
         manager
             .grant_permission(TEST_COMPONENT_ID, "storage", &write_details)
             .await?;

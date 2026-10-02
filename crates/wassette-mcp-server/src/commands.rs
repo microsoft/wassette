@@ -289,14 +289,14 @@ pub enum GrantPermissionCommands {
     # Grant read and write access to a directory
     wassette permission grant storage my-component fs:///tmp/output --access read,write
 
-    # Grant write-only access to a workspace
-    wassette permission grant storage my-component fs:///home/user/workspace --access write")]
+    # Write-only access is not supported; include read when granting write access
+    wassette permission grant storage my-component fs:///home/user/workspace --access read,write")]
     Storage {
         /// Component ID to grant permission to
         component_id: String,
         /// URI of the storage resource (e.g., fs:///path/to/directory)
         uri: String,
-        /// Access level (read, write, or read,write)
+        /// Access level (read or read,write)
         #[arg(long, value_delimiter = ',')]
         access: Vec<String>,
         /// Directory where components are stored. Defaults to $XDG_DATA_HOME/wassette/components

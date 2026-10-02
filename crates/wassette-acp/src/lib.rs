@@ -237,15 +237,7 @@ pub async fn run(args: AcpArgs) -> Result<()> {
 
     init_logging(&args)?;
 
-    let mut config = Config::new();
-    config.wasm_component_model(true);
-    config.wasm_component_model_async(true);
-    config.wasm_component_model_more_async_builtins(true);
-    config.wasm_component_model_async_stackful(true);
-    config.wasm_features(wasmtime::WasmFeatures::CM_ASYNC, true);
-    config.wasm_features(wasmtime::WasmFeatures::CM_MORE_ASYNC_BUILTINS, true);
-    config.wasm_features(wasmtime::WasmFeatures::CM_ASYNC_STACKFUL, true);
-    let engine = Engine::new(&config)?;
+    let engine = create_engine()?;
 
     let component_dir = match args.component_dir.clone() {
         Some(dir) => dir,
@@ -378,6 +370,19 @@ pub async fn run(args: AcpArgs) -> Result<()> {
             bridge::run(factory, registry, outbound_rx).await
         })
         .await
+}
+
+fn create_engine() -> Result<Engine> {
+    let mut config = Config::new();
+    config.wasm_component_model(true);
+    config.wasm_component_model_fixed_length_lists(true);
+    config.wasm_component_model_async(true);
+    config.wasm_component_model_more_async_builtins(true);
+    config.wasm_component_model_async_stackful(true);
+    config.wasm_features(wasmtime::WasmFeatures::CM_ASYNC, true);
+    config.wasm_features(wasmtime::WasmFeatures::CM_MORE_ASYNC_BUILTINS, true);
+    config.wasm_features(wasmtime::WasmFeatures::CM_ASYNC_STACKFUL, true);
+    Ok(Engine::new(&config)?)
 }
 
 async fn require_shared_grants_opt_in<'a>(
@@ -666,6 +671,41 @@ fn data_root_from_strategy(
         strategy.context("unable to determine ACP data root: no home directory found")?;
     let base = strategy.state_dir().unwrap_or_else(|| strategy.data_dir());
     Ok(base.join("wassette").join("acp"))
+}
+
+#[cfg(test)]
+mod engine_tests {
+    use wasmtime::Store;
+    use wasmtime::component::{Linker, Val};
+
+    use super::*;
+
+    #[tokio::test]
+    async fn production_engine_supports_fixed_length_lists() -> Result<()> {
+        let engine = create_engine()?;
+        let component = Component::new(
+            &engine,
+            r#"(component
+                (core module $m
+                    (func (export "echo") (param i32) (result i32)
+                        (local.get 0)))
+                (core instance $i (instantiate $m))
+                (type $values (list u32 1))
+                (func (export "echo") (param "values" $values) (result $values)
+                    (canon lift (core func $i "echo"))))"#,
+        )?;
+        let linker = Linker::<()>::new(&engine);
+        let mut store = Store::new(&engine, ());
+        let instance = linker.instantiate_async(&mut store, &component).await?;
+        let function = instance.get_func(&mut store, "echo").unwrap();
+        let values = Val::FixedLengthList(vec![Val::U32(42)]);
+        let mut results = [Val::Bool(false)];
+        function
+            .call_async(&mut store, std::slice::from_ref(&values), &mut results)
+            .await?;
+        assert_eq!(results, [values]);
+        Ok(())
+    }
 }
 
 #[cfg(test)]
