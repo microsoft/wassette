@@ -38,10 +38,10 @@ tracing = "0.1"
 tracing-subscriber = "0.3"
 tracing-test = "0.2"
 wassette-acp = { path = "crates/wassette-acp" }
-wasmtime = { version = "48.0.3", features = ["component-model-async"] }
-wasmtime-wasi = "48.0.3"
-wasmtime-wasi-http = { version = "48.0.3", features = ["p3"] }
-wasmtime-wasi-config = "48.0.3"
+wasmtime = { version = "49.0.2", features = ["component-model-async"] }
+wasmtime-wasi = "49.0.2"
+wasmtime-wasi-http = { version = "49.0.2", features = ["p3"] }
+wasmtime-wasi-config = "49.0.2"
 
 [profile.release]
 codegen-units = 1
