@@ -8,7 +8,7 @@ license = "MIT"
 license-file = "LICENSE"
 
 [workspace.dependencies]
-agent-client-protocol = "1.2.0"
+agent-client-protocol = "2.2.0"
 anyhow = "1.0"
 component2json = { path = "crates/component2json" }
 etcetera = "0.11"
