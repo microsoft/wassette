@@ -16,6 +16,7 @@ build-test-components:
 test:
     just build-test-components
     just build-acp-examples
+    (cd components/acp-copilot-provider && cargo test)
     cargo build -p wassette-mcp-server
     cargo test --workspace -- --nocapture
     cargo test --doc --workspace -- --nocapture
@@ -42,21 +43,23 @@ test-mcp-clients-negative:
     just build release
     ./scripts/test-mcp-clients.sh --negative
 
-# Build the standalone ACP components (provider + layer)
+# Build the standalone ACP components (providers + layer)
 build-acp-examples:
     (cd components/acp-echo-provider && cargo build --release --target wasm32-wasip2)
     (cd components/acp-uppercase-layer && cargo build --release --target wasm32-wasip2)
+    (cd components/acp-ollama-provider && cargo build --release --target wasm32-wasip2)
+    (cd components/acp-copilot-provider && cargo build --release --target wasm32-wasip2)
 
-# Build a real (model-backed) ACP provider from a playground-wasm-acp checkout.
-# Needs the wstd p3 branch plus a two-line patch for wasmtime 47; see
-# crates/wassette-acp/real-providers/ and docs/design/acp.md.
-build-acp-real-provider playground provider="ollama-provider":
-    ./scripts/build-acp-real-provider.sh {{ playground }} {{ provider }}
+# Regenerate the ACP components' checked-in `bindings.rs` from
+# crates/wassette-acp/wit/acp. Needs a matching `wit-bindgen` CLI.
+acp-bindgen:
+    ./scripts/acp-bindgen.sh
 
 # Run the `wassette acp` end-to-end tests against the example components.
 # They drive the built `wassette` binary over stdio, so build it first.
 test-acp:
     just build-acp-examples
+    (cd components/acp-copilot-provider && cargo test)
     cargo build -p wassette-mcp-server
     cargo test -p wassette-acp -- --nocapture
 

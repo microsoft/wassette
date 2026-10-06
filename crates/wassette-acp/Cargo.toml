@@ -32,3 +32,4 @@ wasmtime-wasi-http = { workspace = true }
 [dev-dependencies]
 reqwest = { workspace = true }
 tracing-test = { workspace = true, features = ["no-env-filter"] }
+wiremock = "0.6"
