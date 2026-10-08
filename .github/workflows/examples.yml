@@ -99,6 +99,8 @@ jobs:
             file: get-open-meteo-weather-js.wasm
           - name: fetch-dotnet
             file: fetch-dotnet.wasm
+          - name: filesystem-dotnet
+            file: filesystem-dotnet.wasm
           - name: time-server-dotnet
             file: time-server-dotnet.wasm
     steps:

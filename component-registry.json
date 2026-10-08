@@ -50,6 +50,11 @@
         "uri": "oci://ghcr.io/microsoft/filesystem-rs:latest"
     },
     {
+        "name": "Filesystem (.NET)",
+        "description": "A policy-controlled filesystem component using .NET 10 NativeAOT",
+        "uri": "oci://ghcr.io/microsoft/filesystem-dotnet:latest"
+    },
+    {
         "name": "Brave Search",
         "description": "A web search component using Brave Search API written in Rust",
         "uri": "oci://ghcr.io/microsoft/brave-search-rs:latest"

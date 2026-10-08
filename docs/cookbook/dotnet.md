@@ -113,13 +113,15 @@ wasm-tools component wit \
   examples/fetch-dotnet/bin/Release/net10.0/wasi-wasm/native/fetch-dotnet.wasm
 ```
 
-Filesystem access is the deliberate exception. In the filesystem example,
-`System.IO` is the .NET WASI filesystem surface and is backed by the
-`wasi:filesystem` imports generated into the component. It remains restricted
-to the host directories exposed as WASI preopens by Wassette policy; it does
-not grant arbitrary host filesystem access. Use `System.IO` only for this
-WASI-backed filesystem scenario, and do not assume that host-specific paths
-outside the configured preopens are available.
+Filesystem access is the deliberate exception. The
+[`filesystem-dotnet`](../../examples/filesystem-dotnet/README.md) example
+imports `wasi:filesystem/preopens` and `wasi:filesystem/types`; its
+`System.IO` calls are backed by those WASI interfaces and remain restricted to
+the host directories exposed as WASI preopens by Wassette policy. A policy
+grant such as `fs:///tmp` is required before the component can read or write
+that location; it does not grant arbitrary host filesystem access. Use
+`System.IO` only for this WASI-backed filesystem scenario, and do not assume
+that host-specific paths outside the configured preopens are available.
 
 Use source-generated `System.Text.Json` metadata for JSON payloads:
 

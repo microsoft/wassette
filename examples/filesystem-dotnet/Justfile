@@ -1,0 +1,6 @@
+build:
+    dotnet build -c Release
+
+validate:
+    wasm-tools validate bin/Release/net10.0/wasi-wasm/native/filesystem-dotnet.wasm
+    wasm-tools component wit bin/Release/net10.0/wasi-wasm/native/filesystem-dotnet.wasm

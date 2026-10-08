@@ -1,0 +1,19 @@
+package microsoft:filesystem-dotnet;
+
+/// Filesystem operations are subject to Wassette storage policy.
+world filesystem-dotnet {
+    import wasi:filesystem/preopens@0.2.1;
+    import wasi:filesystem/types@0.2.1;
+
+    export list-directory: func(path: string) -> result<list<string>, string>;
+    export read-file: func(path: string) -> result<string, string>;
+    export write-file: func(path: string, content: string) -> result<string, string>;
+    export create-directory: func(path: string) -> result<string, string>;
+    export move-path: func(source: string, destination: string) -> result<string, string>;
+    export delete-file: func(path: string) -> result<string, string>;
+    export delete-directory: func(path: string) -> result<string, string>;
+    export file-exists: func(path: string) -> result<bool, string>;
+    export get-directory-tree: func(path: string, max-depth: u32) -> result<string, string>;
+    export search-file: func(path: string, pattern: string) -> result<string, string>;
+    export get-file-info: func(path: string) -> result<string, string>;
+}
