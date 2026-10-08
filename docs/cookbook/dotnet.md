@@ -123,6 +123,20 @@ that location; it does not grant arbitrary host filesystem access. Use
 `System.IO` only for this WASI-backed filesystem scenario, and do not assume
 that host-specific paths outside the configured preopens are available.
 
+### Evaluation and memory examples
+
+The [`eval-dotnet`](../../examples/eval-dotnet/README.md) example keeps the
+`eval` and `exec` tool names from `eval-py` while using a small deterministic
+expression engine. It supports arithmetic, quoted strings, assignments, and
+`print(...)` statements without embedding a dynamic language runtime or
+requesting any host capabilities. Unsupported syntax returns a WIT error.
+
+The [`memory-dotnet`](../../examples/memory-dotnet/README.md) example keeps
+the nine knowledge-graph operations from `memory-js`. Its state is held in
+managed memory for the lifetime of the component instance, and its empty
+policy grants no filesystem or network access. Both examples use only their
+local WIT world, so no `wit/deps` directory is required.
+
 Use source-generated `System.Text.Json` metadata for JSON payloads:
 
 ```csharp

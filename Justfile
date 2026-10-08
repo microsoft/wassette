@@ -204,12 +204,30 @@ build-filesystem-dotnet: ensure-dotnet ensure-wit-docs-inject
     wasm-tools component wit examples/filesystem-dotnet/bin/Release/net10.0/wasi-wasm/native/filesystem-dotnet.wasm > /dev/null
     cp examples/filesystem-dotnet/bin/Release/net10.0/wasi-wasm/native/filesystem-dotnet.wasm bin/filesystem-dotnet.wasm
 
+build-eval-dotnet: ensure-dotnet ensure-wit-docs-inject
+    mkdir -p bin
+    (cd examples/eval-dotnet && just build)
+    just inject-docs examples/eval-dotnet/bin/Release/net10.0/wasi-wasm/native/eval-dotnet.wasm examples/eval-dotnet/wit
+    wasm-tools validate examples/eval-dotnet/bin/Release/net10.0/wasi-wasm/native/eval-dotnet.wasm
+    wasm-tools component wit examples/eval-dotnet/bin/Release/net10.0/wasi-wasm/native/eval-dotnet.wasm > /dev/null
+    cp examples/eval-dotnet/bin/Release/net10.0/wasi-wasm/native/eval-dotnet.wasm bin/eval-dotnet.wasm
+
+build-memory-dotnet: ensure-dotnet ensure-wit-docs-inject
+    mkdir -p bin
+    (cd examples/memory-dotnet && just build)
+    just inject-docs examples/memory-dotnet/bin/Release/net10.0/wasi-wasm/native/memory-dotnet.wasm examples/memory-dotnet/wit
+    wasm-tools validate examples/memory-dotnet/bin/Release/net10.0/wasi-wasm/native/memory-dotnet.wasm
+    wasm-tools component wit examples/memory-dotnet/bin/Release/net10.0/wasi-wasm/native/memory-dotnet.wasm > /dev/null
+    cp examples/memory-dotnet/bin/Release/net10.0/wasi-wasm/native/memory-dotnet.wasm bin/memory-dotnet.wasm
+
 build-examples mode="debug":
     mkdir -p bin
     just ensure-wit-docs-inject
     just build-time-server-dotnet
     just build-fetch-dotnet
     just build-filesystem-dotnet
+    just build-eval-dotnet
+    just build-memory-dotnet
     (cd examples/fetch-rs && just build {{ mode }})
     (cd examples/filesystem-rs && just build {{ mode }})
     (cd examples/get-weather-js && just build)

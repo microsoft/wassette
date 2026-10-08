@@ -97,10 +97,14 @@ jobs:
             file: brave-search-rs.wasm
           - name: get-open-meteo-weather-js
             file: get-open-meteo-weather-js.wasm
+          - name: eval-dotnet
+            file: eval-dotnet.wasm
           - name: fetch-dotnet
             file: fetch-dotnet.wasm
           - name: filesystem-dotnet
             file: filesystem-dotnet.wasm
+          - name: memory-dotnet
+            file: memory-dotnet.wasm
           - name: time-server-dotnet
             file: time-server-dotnet.wasm
     steps:

@@ -1,0 +1,10 @@
+package microsoft:eval-dotnet;
+
+/// A deterministic, NativeAOT-safe expression execution component.
+world eval-dotnet {
+    /// Evaluate a numeric or quoted-string expression.
+    export eval: func(expression: string) -> result<string, string>;
+
+    /// Execute simple assignment and print statements and return their output.
+    export exec: func(statements: string) -> result<string, string>;
+}

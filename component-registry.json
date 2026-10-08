@@ -15,6 +15,11 @@
         "uri": "oci://ghcr.io/microsoft/memory-js:latest"
     },
     {
+        "name": "Memory Server (.NET)",
+        "description": "An in-memory knowledge graph component using .NET 10 NativeAOT",
+        "uri": "oci://ghcr.io/microsoft/memory-dotnet:latest"
+    },
+    {
         "name": "Weather Server",
         "description": "A weather component written in JavaScript",
         "uri": "oci://ghcr.io/microsoft/get-weather-js:latest"
@@ -33,6 +38,11 @@
         "name": "Python Eval",
         "description": "A Python expression evaluation component",
         "uri": "oci://ghcr.io/microsoft/eval-py:latest"
+    },
+    {
+        "name": "Expression Evaluation (.NET)",
+        "description": "A NativeAOT-safe expression evaluation component using .NET 10",
+        "uri": "oci://ghcr.io/microsoft/eval-dotnet:latest"
     },
     {
         "name": "Fetch",

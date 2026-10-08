@@ -1,0 +1,5 @@
+build:
+    dotnet build -c Release
+
+validate:
+    wasm-tools validate bin/Release/net10.0/wasi-wasm/native/memory-dotnet.wasm
