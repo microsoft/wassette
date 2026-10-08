@@ -107,6 +107,10 @@ jobs:
             file: get-open-meteo-weather-dotnet.wasm
           - name: get-weather-dotnet
             file: get-weather-dotnet.wasm
+          - name: github-dotnet
+            file: github-dotnet.wasm
+          - name: gomodule-dotnet
+            file: gomodule-dotnet.wasm
           - name: memory-dotnet
             file: memory-dotnet.wasm
           - name: time-server-dotnet

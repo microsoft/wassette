@@ -236,6 +236,22 @@ build-memory-dotnet: ensure-dotnet ensure-wit-docs-inject
     wasm-tools component wit examples/memory-dotnet/bin/Release/net10.0/wasi-wasm/native/memory-dotnet.wasm > /dev/null
     cp examples/memory-dotnet/bin/Release/net10.0/wasi-wasm/native/memory-dotnet.wasm bin/memory-dotnet.wasm
 
+build-github-dotnet: ensure-dotnet ensure-wit-docs-inject
+    mkdir -p bin
+    (cd examples/github-dotnet && just build)
+    just inject-docs examples/github-dotnet/bin/Release/net10.0/wasi-wasm/native/github-dotnet.wasm examples/github-dotnet/wit
+    wasm-tools validate examples/github-dotnet/bin/Release/net10.0/wasi-wasm/native/github-dotnet.wasm
+    wasm-tools component wit examples/github-dotnet/bin/Release/net10.0/wasi-wasm/native/github-dotnet.wasm > /dev/null
+    cp examples/github-dotnet/bin/Release/net10.0/wasi-wasm/native/github-dotnet.wasm bin/github-dotnet.wasm
+
+build-gomodule-dotnet: ensure-dotnet ensure-wit-docs-inject
+    mkdir -p bin
+    (cd examples/gomodule-dotnet && just build)
+    just inject-docs examples/gomodule-dotnet/bin/Release/net10.0/wasi-wasm/native/gomodule-dotnet.wasm examples/gomodule-dotnet/wit
+    wasm-tools validate examples/gomodule-dotnet/bin/Release/net10.0/wasi-wasm/native/gomodule-dotnet.wasm
+    wasm-tools component wit examples/gomodule-dotnet/bin/Release/net10.0/wasi-wasm/native/gomodule-dotnet.wasm > /dev/null
+    cp examples/gomodule-dotnet/bin/Release/net10.0/wasi-wasm/native/gomodule-dotnet.wasm bin/gomodule-dotnet.wasm
+
 build-examples mode="debug":
     mkdir -p bin
     just ensure-wit-docs-inject
@@ -246,6 +262,8 @@ build-examples mode="debug":
     just build-get-open-meteo-weather-dotnet
     just build-eval-dotnet
     just build-memory-dotnet
+    just build-github-dotnet
+    just build-gomodule-dotnet
     (cd examples/fetch-rs && just build {{ mode }})
     (cd examples/filesystem-rs && just build {{ mode }})
     (cd examples/get-weather-js && just build)

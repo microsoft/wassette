@@ -85,6 +85,16 @@
         "uri": "oci://ghcr.io/microsoft/gomodule-go:latest"
     },
     {
+        "name": "GitHub API (.NET)",
+        "description": "A read-only GitHub REST subset using .NET 10 NativeAOT",
+        "uri": "oci://ghcr.io/microsoft/github-dotnet:latest"
+    },
+    {
+        "name": "Go Module Information (.NET)",
+        "description": "A Go module proxy component using .NET 10 NativeAOT",
+        "uri": "oci://ghcr.io/microsoft/gomodule-dotnet:latest"
+    },
+    {
         "name": "Time Server (.NET)",
         "description": "A WASI wall-clock component using .NET 10 NativeAOT",
         "uri": "oci://ghcr.io/microsoft/time-server-dotnet:latest"

@@ -1,0 +1,9 @@
+version: "1.0"
+description: "Permission policy for the read-only .NET GitHub example"
+permissions:
+  network:
+    allow:
+      - host: "api.github.com"
+  environment:
+    allow:
+      - key: "GITHUB_TOKEN"

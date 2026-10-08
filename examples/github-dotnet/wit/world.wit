@@ -1,0 +1,18 @@
+package microsoft:github-dotnet@0.1.0;
+
+/// Read-only GitHub REST operations for Wassette.
+world github-dotnet {
+    import wasi:http/outgoing-handler@0.2.1;
+    import wasi:cli/environment@0.2.1;
+
+    /// Get repository metadata.
+    export get-repository: func(owner: string, repo: string) -> result<string, string>;
+    /// Get file contents and metadata.
+    export get-file-contents: func(owner: string, repo: string, path: string, reference: option<string>) -> result<string, string>;
+    /// List repository branches.
+    export list-branches: func(owner: string, repo: string, page: option<u32>, per-page: option<u32>) -> result<string, string>;
+    /// List repository issues.
+    export list-issues: func(owner: string, repo: string, state: option<string>, page: option<u32>, per-page: option<u32>) -> result<string, string>;
+    /// Get the authenticated user.
+    export get-me: func() -> result<string, string>;
+}

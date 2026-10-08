@@ -1,0 +1,6 @@
+version: "1.0"
+description: "Permission policy for the .NET Go module example"
+permissions:
+  network:
+    allow:
+      - host: "https://proxy.golang.org/"

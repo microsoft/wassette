@@ -1,0 +1,11 @@
+package microsoft:gomodule-dotnet;
+
+/// Query the Go module proxy for latest versions and metadata.
+world gomodule-dotnet {
+    import wasi:http/outgoing-handler@0.2.1;
+
+    /// Get latest versions for comma-separated module names.
+    export get-latest-versions: func(module-names: string) -> result<string, string>;
+    /// Get module metadata for comma-separated module names.
+    export get-module-info: func(module-names: string) -> result<string, string>;
+}

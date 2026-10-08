@@ -113,6 +113,36 @@ wasm-tools component wit \
   examples/fetch-dotnet/bin/Release/net10.0/wasi-wasm/native/fetch-dotnet.wasm
 ```
 
+### GitHub and Go module examples
+
+The [`github-dotnet`](../../examples/github-dotnet/README.md) example is a
+read-only .NET port of the GitHub component. It exposes repository metadata,
+file contents, branches, issues, and the authenticated-user profile through
+explicit `wasi:http/outgoing-handler` and `wasi:cli/environment` imports. Its
+policy allows only `api.github.com` and the `GITHUB_TOKEN` environment key;
+provide the token at runtime and never commit it.
+
+The [`gomodule-dotnet`](../../examples/gomodule-dotnet/README.md) example
+preserves the Go module component's latest-version and metadata operations. It
+uses the same generated HTTP bindings to query only
+`https://proxy.golang.org/`, with no filesystem, secret, or arbitrary network
+access.
+
+Both examples keep their WIT dependency contracts under `wit/deps` and
+implement the generated export interfaces. Build, inject documentation,
+validate, and inspect either component before loading it:
+
+```bash
+dotnet build examples/github-dotnet/github-dotnet.csproj -c Release
+just inject-docs \
+  examples/github-dotnet/bin/Release/net10.0/wasi-wasm/native/github-dotnet.wasm \
+  examples/github-dotnet/wit
+wasm-tools validate \
+  examples/github-dotnet/bin/Release/net10.0/wasi-wasm/native/github-dotnet.wasm
+wasm-tools component wit \
+  examples/github-dotnet/bin/Release/net10.0/wasi-wasm/native/github-dotnet.wasm
+```
+
 ### Weather examples
 
 The [`get-weather-dotnet`](../../examples/get-weather-dotnet/README.md)

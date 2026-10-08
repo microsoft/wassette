@@ -61,7 +61,8 @@ Build NativeAOT-safe WASI components with C# and .NET 10 using
 - Traditional `.csproj` projects with explicit WIT world selection
 - Generated C# bindings for WIT exports and WASI imports
 - NativeAOT and policy-aware capability access
-- Examples: time, weather, HTTP, filesystem, evaluation, and in-memory tools
+- Examples: time, weather, HTTP, filesystem, GitHub, Go modules, evaluation,
+  and in-memory tools
 
 ## Distribution and Deployment
 
