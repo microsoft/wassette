@@ -25,9 +25,19 @@
         "uri": "oci://ghcr.io/microsoft/get-weather-js:latest"
     },
     {
+        "name": "Weather Server (.NET)",
+        "description": "An OpenWeather component using .NET 10 NativeAOT",
+        "uri": "oci://ghcr.io/microsoft/get-weather-dotnet:latest"
+    },
+    {
         "name": "Open-Meteo Weather",
         "description": "A weather component using Open-Meteo API written in JavaScript",
         "uri": "oci://ghcr.io/microsoft/get-open-meteo-weather-js:latest"
+    },
+    {
+        "name": "Open-Meteo Weather (.NET)",
+        "description": "An Open-Meteo weather component using .NET 10 NativeAOT",
+        "uri": "oci://ghcr.io/microsoft/get-open-meteo-weather-dotnet:latest"
     },
     {
         "name": "Time Server",

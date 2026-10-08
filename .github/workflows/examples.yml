@@ -103,6 +103,10 @@ jobs:
             file: fetch-dotnet.wasm
           - name: filesystem-dotnet
             file: filesystem-dotnet.wasm
+          - name: get-open-meteo-weather-dotnet
+            file: get-open-meteo-weather-dotnet.wasm
+          - name: get-weather-dotnet
+            file: get-weather-dotnet.wasm
           - name: memory-dotnet
             file: memory-dotnet.wasm
           - name: time-server-dotnet

@@ -204,6 +204,22 @@ build-filesystem-dotnet: ensure-dotnet ensure-wit-docs-inject
     wasm-tools component wit examples/filesystem-dotnet/bin/Release/net10.0/wasi-wasm/native/filesystem-dotnet.wasm > /dev/null
     cp examples/filesystem-dotnet/bin/Release/net10.0/wasi-wasm/native/filesystem-dotnet.wasm bin/filesystem-dotnet.wasm
 
+build-get-weather-dotnet: ensure-dotnet ensure-wit-docs-inject
+    mkdir -p bin
+    (cd examples/get-weather-dotnet && just build)
+    just inject-docs examples/get-weather-dotnet/bin/Release/net10.0/wasi-wasm/native/get-weather-dotnet.wasm examples/get-weather-dotnet/wit
+    wasm-tools validate examples/get-weather-dotnet/bin/Release/net10.0/wasi-wasm/native/get-weather-dotnet.wasm
+    wasm-tools component wit examples/get-weather-dotnet/bin/Release/net10.0/wasi-wasm/native/get-weather-dotnet.wasm > /dev/null
+    cp examples/get-weather-dotnet/bin/Release/net10.0/wasi-wasm/native/get-weather-dotnet.wasm bin/get-weather-dotnet.wasm
+
+build-get-open-meteo-weather-dotnet: ensure-dotnet ensure-wit-docs-inject
+    mkdir -p bin
+    (cd examples/get-open-meteo-weather-dotnet && just build)
+    just inject-docs examples/get-open-meteo-weather-dotnet/bin/Release/net10.0/wasi-wasm/native/get-open-meteo-weather-dotnet.wasm examples/get-open-meteo-weather-dotnet/wit
+    wasm-tools validate examples/get-open-meteo-weather-dotnet/bin/Release/net10.0/wasi-wasm/native/get-open-meteo-weather-dotnet.wasm
+    wasm-tools component wit examples/get-open-meteo-weather-dotnet/bin/Release/net10.0/wasi-wasm/native/get-open-meteo-weather-dotnet.wasm > /dev/null
+    cp examples/get-open-meteo-weather-dotnet/bin/Release/net10.0/wasi-wasm/native/get-open-meteo-weather-dotnet.wasm bin/get-open-meteo-weather-dotnet.wasm
+
 build-eval-dotnet: ensure-dotnet ensure-wit-docs-inject
     mkdir -p bin
     (cd examples/eval-dotnet && just build)
@@ -226,6 +242,8 @@ build-examples mode="debug":
     just build-time-server-dotnet
     just build-fetch-dotnet
     just build-filesystem-dotnet
+    just build-get-weather-dotnet
+    just build-get-open-meteo-weather-dotnet
     just build-eval-dotnet
     just build-memory-dotnet
     (cd examples/fetch-rs && just build {{ mode }})

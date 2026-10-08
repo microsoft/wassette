@@ -113,6 +113,35 @@ wasm-tools component wit \
   examples/fetch-dotnet/bin/Release/net10.0/wasi-wasm/native/fetch-dotnet.wasm
 ```
 
+### Weather examples
+
+The [`get-weather-dotnet`](../../examples/get-weather-dotnet/README.md)
+example reads `OPENWEATHER_API_KEY` through the generated
+`wasi:cli/environment` bindings, geocodes a city, and returns its current
+temperature from OpenWeather. Its policy grants only the OpenWeather host and
+that one environment key; never commit a real API key.
+
+The [`get-open-meteo-weather-dotnet`](../../examples/get-open-meteo-weather-dotnet/README.md)
+example uses the same `wasi:http/outgoing-handler` capability to geocode a city
+and query Open-Meteo without credentials. Its policy allows only the two
+Open-Meteo hosts needed for those requests.
+
+Both examples keep the HTTP WIT dependencies under `wit/deps`, implement the
+generated export interface, and use explicit HTTP imports rather than
+`HttpClient`. Build, inject the WIT documentation, validate, and inspect a
+component before loading it:
+
+```bash
+dotnet build examples/get-open-meteo-weather-dotnet/get-open-meteo-weather-dotnet.csproj -c Release
+just inject-docs \
+  examples/get-open-meteo-weather-dotnet/bin/Release/net10.0/wasi-wasm/native/get-open-meteo-weather-dotnet.wasm \
+  examples/get-open-meteo-weather-dotnet/wit
+wasm-tools validate \
+  examples/get-open-meteo-weather-dotnet/bin/Release/net10.0/wasi-wasm/native/get-open-meteo-weather-dotnet.wasm
+wasm-tools component wit \
+  examples/get-open-meteo-weather-dotnet/bin/Release/net10.0/wasi-wasm/native/get-open-meteo-weather-dotnet.wasm
+```
+
 Filesystem access is the deliberate exception. The
 [`filesystem-dotnet`](../../examples/filesystem-dotnet/README.md) example
 imports `wasi:filesystem/preopens` and `wasi:filesystem/types`; its

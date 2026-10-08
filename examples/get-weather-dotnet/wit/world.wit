@@ -1,0 +1,10 @@
+package microsoft:get-weather-dotnet;
+
+/// Weather information services using the OpenWeather API.
+world get-weather-dotnet {
+    import wasi:http/outgoing-handler@0.2.1;
+    import wasi:cli/environment@0.2.1;
+
+    /// Get current weather information for a specified city.
+    export get-weather: func(city: string) -> result<string, string>;
+}
