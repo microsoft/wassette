@@ -252,6 +252,30 @@ build-gomodule-dotnet: ensure-dotnet ensure-wit-docs-inject
     wasm-tools component wit examples/gomodule-dotnet/bin/Release/net10.0/wasi-wasm/native/gomodule-dotnet.wasm > /dev/null
     cp examples/gomodule-dotnet/bin/Release/net10.0/wasi-wasm/native/gomodule-dotnet.wasm bin/gomodule-dotnet.wasm
 
+build-brave-search-dotnet: ensure-dotnet ensure-wit-docs-inject
+    mkdir -p bin
+    (cd examples/brave-search-dotnet && just build)
+    just inject-docs examples/brave-search-dotnet/bin/Release/net10.0/wasi-wasm/native/brave-search-dotnet.wasm examples/brave-search-dotnet/wit
+    wasm-tools validate examples/brave-search-dotnet/bin/Release/net10.0/wasi-wasm/native/brave-search-dotnet.wasm
+    wasm-tools component wit examples/brave-search-dotnet/bin/Release/net10.0/wasi-wasm/native/brave-search-dotnet.wasm > /dev/null
+    cp examples/brave-search-dotnet/bin/Release/net10.0/wasi-wasm/native/brave-search-dotnet.wasm bin/brave-search-dotnet.wasm
+
+build-arxiv-dotnet: ensure-dotnet ensure-wit-docs-inject
+    mkdir -p bin
+    (cd examples/arxiv-dotnet && just build)
+    just inject-docs examples/arxiv-dotnet/bin/Release/net10.0/wasi-wasm/native/arxiv-dotnet.wasm examples/arxiv-dotnet/wit
+    wasm-tools validate examples/arxiv-dotnet/bin/Release/net10.0/wasi-wasm/native/arxiv-dotnet.wasm
+    wasm-tools component wit examples/arxiv-dotnet/bin/Release/net10.0/wasi-wasm/native/arxiv-dotnet.wasm > /dev/null
+    cp examples/arxiv-dotnet/bin/Release/net10.0/wasi-wasm/native/arxiv-dotnet.wasm bin/arxiv-dotnet.wasm
+
+build-context7-dotnet: ensure-dotnet ensure-wit-docs-inject
+    mkdir -p bin
+    (cd examples/context7-dotnet && just build)
+    just inject-docs examples/context7-dotnet/bin/Release/net10.0/wasi-wasm/native/context7-dotnet.wasm examples/context7-dotnet/wit
+    wasm-tools validate examples/context7-dotnet/bin/Release/net10.0/wasi-wasm/native/context7-dotnet.wasm
+    wasm-tools component wit examples/context7-dotnet/bin/Release/net10.0/wasi-wasm/native/context7-dotnet.wasm > /dev/null
+    cp examples/context7-dotnet/bin/Release/net10.0/wasi-wasm/native/context7-dotnet.wasm bin/context7-dotnet.wasm
+
 build-examples mode="debug":
     mkdir -p bin
     just ensure-wit-docs-inject
@@ -264,6 +288,9 @@ build-examples mode="debug":
     just build-memory-dotnet
     just build-github-dotnet
     just build-gomodule-dotnet
+    just build-brave-search-dotnet
+    just build-arxiv-dotnet
+    just build-context7-dotnet
     (cd examples/fetch-rs && just build {{ mode }})
     (cd examples/filesystem-rs && just build {{ mode }})
     (cd examples/get-weather-js && just build)

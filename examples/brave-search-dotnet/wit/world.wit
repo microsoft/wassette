@@ -1,0 +1,10 @@
+package microsoft:brave-search-dotnet;
+
+/// Search the web using the Brave Search API.
+world brave-search-dotnet {
+    import wasi:http/outgoing-handler@0.2.1;
+    import wasi:cli/environment@0.2.1;
+
+    /// Search using BRAVE_SEARCH_API_KEY and return formatted results.
+    export search: func(query: string) -> result<string, string>;
+}

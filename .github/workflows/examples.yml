@@ -97,6 +97,10 @@ jobs:
             file: brave-search-rs.wasm
           - name: get-open-meteo-weather-js
             file: get-open-meteo-weather-js.wasm
+          - name: arxiv-dotnet
+            file: arxiv-dotnet.wasm
+          - name: brave-search-dotnet
+            file: brave-search-dotnet.wasm
           - name: eval-dotnet
             file: eval-dotnet.wasm
           - name: fetch-dotnet

@@ -1,0 +1,7 @@
+version: "1.0"
+description: "Permission policy for the .NET arXiv example"
+permissions:
+  network:
+    allow:
+      - host: "http://export.arxiv.org/"
+      - host: "http://arxiv.org/"

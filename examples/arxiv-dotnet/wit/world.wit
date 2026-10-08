@@ -1,0 +1,13 @@
+package microsoft:arxiv-dotnet;
+
+/// Search, download, and inspect papers from arXiv.
+world arxiv-dotnet {
+    import wasi:http/outgoing-handler@0.2.1;
+
+    /// Search arXiv with an optional date and category filter.
+    export search-papers: func(query: string, max-results: u32, date-from: string, categories: string) -> result<string, string>;
+    /// Download a paper PDF by arXiv identifier.
+    export download-paper: func(id: string) -> result<list<u8>, string>;
+    /// Read paper metadata and abstract by arXiv identifier.
+    export read-paper: func(id: string) -> result<string, string>;
+}

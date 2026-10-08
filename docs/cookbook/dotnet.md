@@ -196,6 +196,40 @@ managed memory for the lifetime of the component instance, and its empty
 policy grants no filesystem or network access. Both examples use only their
 local WIT world, so no `wit/deps` directory is required.
 
+### Capability-focused API examples
+
+The [`brave-search-dotnet`](../../examples/brave-search-dotnet/README.md)
+example imports `wasi:http/outgoing-handler` and
+`wasi:cli/environment` to call Brave Search with a policy-controlled API key.
+Its policy allows only `api.search.brave.com` and
+`BRAVE_SEARCH_API_KEY`.
+
+The [`arxiv-dotnet`](../../examples/arxiv-dotnet/README.md) example uses the
+same explicit HTTP import to search, download, and inspect arXiv papers. Its
+policy limits requests to the two arXiv hosts required by those operations.
+
+The [`context7-dotnet`](../../examples/context7-dotnet/README.md) example
+combines explicit HTTP and environment imports to resolve libraries and fetch
+documentation. It allows only `context7.com` and `CONTEXT7_API_KEY`; the
+preview API is built and validated in CI but is not published until its
+response contract stabilizes.
+
+Each example keeps its WIT dependency contracts under `wit/deps`, implements
+the generated export interface, and avoids `HttpClient` so network access
+remains visible to component policy. Build, inject the WIT documentation,
+validate, and inspect a component before loading it:
+
+```bash
+dotnet build examples/brave-search-dotnet/brave-search-dotnet.csproj -c Release
+just inject-docs \
+  examples/brave-search-dotnet/bin/Release/net10.0/wasi-wasm/native/brave-search-dotnet.wasm \
+  examples/brave-search-dotnet/wit
+wasm-tools validate \
+  examples/brave-search-dotnet/bin/Release/net10.0/wasi-wasm/native/brave-search-dotnet.wasm
+wasm-tools component wit \
+  examples/brave-search-dotnet/bin/Release/net10.0/wasi-wasm/native/brave-search-dotnet.wasm
+```
+
 Use source-generated `System.Text.Json` metadata for JSON payloads:
 
 ```csharp
