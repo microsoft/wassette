@@ -81,6 +81,38 @@ Do not replace the network, clock, or configuration imports with `HttpClient`,
 the component's documented capability boundary and are not the intended
 policy-controlled surface.
 
+### HTTP fetch example
+
+The [`fetch-dotnet`](../../examples/fetch-dotnet/README.md) example exposes a
+credential-free `fetch` tool by importing
+`wasi:http/outgoing-handler@0.2.1`. Its generated bindings provide
+`OutgoingRequest`, `IOutgoingHandlerImports.Handle`, and the response stream
+used by `FetchExportsImpl.cs`; the component does not use `HttpClient` or
+secret-backed configuration.
+
+Keep the HTTP WIT dependencies under `wit/deps` with the component. The
+component's `policy.yaml` grants only the example host:
+
+```yaml
+permissions:
+  network:
+    allow:
+      - host: "https://example.com/"
+```
+
+Build and inspect it from the repository root:
+
+```bash
+dotnet build examples/fetch-dotnet/fetch-dotnet.csproj -c Release
+just inject-docs \
+  examples/fetch-dotnet/bin/Release/net10.0/wasi-wasm/native/fetch-dotnet.wasm \
+  examples/fetch-dotnet/wit
+wasm-tools validate \
+  examples/fetch-dotnet/bin/Release/net10.0/wasi-wasm/native/fetch-dotnet.wasm
+wasm-tools component wit \
+  examples/fetch-dotnet/bin/Release/net10.0/wasi-wasm/native/fetch-dotnet.wasm
+```
+
 Filesystem access is the deliberate exception. In the filesystem example,
 `System.IO` is the .NET WASI filesystem surface and is backed by the
 `wasi:filesystem` imports generated into the component. It remains restricted

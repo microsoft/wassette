@@ -40,6 +40,11 @@
         "uri": "oci://ghcr.io/microsoft/fetch-rs:latest"
     },
     {
+        "name": "Fetch (.NET)",
+        "description": "A WASI HTTP fetch component using .NET 10 NativeAOT",
+        "uri": "oci://ghcr.io/microsoft/fetch-dotnet:latest"
+    },
+    {
         "name": "Filesystem",
         "description": "A filesystem component written in Rust",
         "uri": "oci://ghcr.io/microsoft/filesystem-rs:latest"

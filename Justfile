@@ -187,10 +187,19 @@ build-time-server-dotnet: ensure-dotnet ensure-wit-docs-inject
     wasm-tools validate examples/time-server-dotnet/bin/Release/net10.0/wasi-wasm/native/time-server-dotnet.wasm
     cp examples/time-server-dotnet/bin/Release/net10.0/wasi-wasm/native/time-server-dotnet.wasm bin/time-server-dotnet.wasm
 
+build-fetch-dotnet: ensure-dotnet ensure-wit-docs-inject
+    mkdir -p bin
+    (cd examples/fetch-dotnet && just build)
+    just inject-docs examples/fetch-dotnet/bin/Release/net10.0/wasi-wasm/native/fetch-dotnet.wasm examples/fetch-dotnet/wit
+    wasm-tools validate examples/fetch-dotnet/bin/Release/net10.0/wasi-wasm/native/fetch-dotnet.wasm
+    wasm-tools component wit examples/fetch-dotnet/bin/Release/net10.0/wasi-wasm/native/fetch-dotnet.wasm > /dev/null
+    cp examples/fetch-dotnet/bin/Release/net10.0/wasi-wasm/native/fetch-dotnet.wasm bin/fetch-dotnet.wasm
+
 build-examples mode="debug":
     mkdir -p bin
     just ensure-wit-docs-inject
     just build-time-server-dotnet
+    just build-fetch-dotnet
     (cd examples/fetch-rs && just build {{ mode }})
     (cd examples/filesystem-rs && just build {{ mode }})
     (cd examples/get-weather-js && just build)

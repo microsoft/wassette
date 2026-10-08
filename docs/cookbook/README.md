@@ -61,7 +61,7 @@ Build NativeAOT-safe WASI components with C# and .NET 10 using
 - Traditional `.csproj` projects with explicit WIT world selection
 - Generated C# bindings for WIT exports and WASI imports
 - NativeAOT and policy-aware capability access
-- Example: time server
+- Examples: time server and credential-free HTTP fetch
 
 ## Distribution and Deployment
 

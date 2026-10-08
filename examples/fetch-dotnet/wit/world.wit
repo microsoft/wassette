@@ -1,0 +1,9 @@
+package microsoft:fetch-dotnet;
+
+/// An HTTP fetch component for Wassette.
+world fetch-dotnet {
+    import wasi:http/outgoing-handler@0.2.1;
+
+    /// Fetch a URL and return the response body as text.
+    export fetch: func(url: string) -> result<string, string>;
+}

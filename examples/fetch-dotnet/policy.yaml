@@ -1,0 +1,6 @@
+version: "1.0"
+description: "Permission policy for the .NET fetch example"
+permissions:
+  network:
+    allow:
+      - host: "https://example.com/"
