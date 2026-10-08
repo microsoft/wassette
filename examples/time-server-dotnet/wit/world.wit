@@ -1,0 +1,12 @@
+package microsoft:time-server-dotnet;
+
+interface time {
+    /// Get the current date and time as a formatted string.
+    /// Returns the current timestamp in ISO 8601 format.
+    get-current-time: func() -> string;
+}
+
+world time-server-dotnet {
+    import wasi:clocks/wall-clock@0.2.1;
+    export time;
+}
