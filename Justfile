@@ -181,9 +181,10 @@ inject-docs wasm_path wit_dir:
 build-time-server-dotnet: ensure-dotnet ensure-wit-docs-inject
     mkdir -p bin
     (cd examples/time-server-dotnet && just build)
-    just inject-docs examples/time-server-dotnet/bin/Release/net10.0/wasi-wasm/native/time-server-dotnet.wasm examples/time-server-dotnet/wit
     wasm-tools validate examples/time-server-dotnet/bin/Release/net10.0/wasi-wasm/native/time-server-dotnet.wasm
     wasm-tools component wit examples/time-server-dotnet/bin/Release/net10.0/wasi-wasm/native/time-server-dotnet.wasm > /dev/null
+    just inject-docs examples/time-server-dotnet/bin/Release/net10.0/wasi-wasm/native/time-server-dotnet.wasm examples/time-server-dotnet/wit
+    wasm-tools validate examples/time-server-dotnet/bin/Release/net10.0/wasi-wasm/native/time-server-dotnet.wasm
     cp examples/time-server-dotnet/bin/Release/net10.0/wasi-wasm/native/time-server-dotnet.wasm bin/time-server-dotnet.wasm
 
 build-examples mode="debug":
