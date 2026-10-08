@@ -5,12 +5,19 @@ on:
     branches: [ "main" ]
     paths:
       - 'component-registry.json'
+  workflow_run:
+    workflows: [ "Publish Examples" ]
+    types: [ completed ]
 
 env:
   CARGO_TERM_COLOR: always
 
 jobs:
   validate:
+    if: |
+      github.event_name == 'pull_request' ||
+      (github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.head_branch == 'main')
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -19,6 +26,7 @@ jobs:
     - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       with:
         fetch-depth: 0  # Fetch all history to compare with main branch
+        ref: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.event.pull_request.head.sha }}
 
     - name: Setup Node.js
       uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
@@ -41,6 +49,8 @@ jobs:
       run: just build release
 
     - name: Validate component registry
+      env:
+        VALIDATE_REMOTE_COMPONENTS: ${{ github.event_name == 'workflow_run' }}
       run: ./scripts/validate-component-registry.sh
 
     - name: Summary
