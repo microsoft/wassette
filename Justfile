@@ -190,9 +190,10 @@ build-time-server-dotnet: ensure-dotnet ensure-wit-docs-inject
 build-fetch-dotnet: ensure-dotnet ensure-wit-docs-inject
     mkdir -p bin
     (cd examples/fetch-dotnet && just build)
-    just inject-docs examples/fetch-dotnet/bin/Release/net10.0/wasi-wasm/native/fetch-dotnet.wasm examples/fetch-dotnet/wit
     wasm-tools validate examples/fetch-dotnet/bin/Release/net10.0/wasi-wasm/native/fetch-dotnet.wasm
     wasm-tools component wit examples/fetch-dotnet/bin/Release/net10.0/wasi-wasm/native/fetch-dotnet.wasm > /dev/null
+    just inject-docs examples/fetch-dotnet/bin/Release/net10.0/wasi-wasm/native/fetch-dotnet.wasm examples/fetch-dotnet/wit
+    wasm-tools validate examples/fetch-dotnet/bin/Release/net10.0/wasi-wasm/native/fetch-dotnet.wasm
     cp examples/fetch-dotnet/bin/Release/net10.0/wasi-wasm/native/fetch-dotnet.wasm bin/fetch-dotnet.wasm
 
 build-examples mode="debug":
