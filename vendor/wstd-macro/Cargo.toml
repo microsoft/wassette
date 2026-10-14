@@ -1,0 +1,17 @@
+# Vendored from bytecodealliance/wstd (`macro/`), branch `p3` (PR #129), commit
+# c3bac234b01774b95ff3510351ec6fc674fd81e2. See ../wstd/README.vendor.md.
+[package]
+name = "wstd-macro"
+version = "0.6.8"
+edition = "2024"
+license = "Apache-2.0 WITH LLVM-exception"
+rust-version = "1.91.1"
+description = "proc-macros for the wstd crate (vendored p3 branch)"
+publish = false
+
+[lib]
+proc-macro = true
+
+[dependencies]
+syn = { version = "2.0", features = ["full"] }
+quote = "1.0"
