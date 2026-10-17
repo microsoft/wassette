@@ -9,6 +9,10 @@ INSPECTOR_PACKAGE="${INSPECTOR_PACKAGE:-@modelcontextprotocol/inspector@2.2.0}"
 INSPECTOR_BIN="${INSPECTOR_BIN:-$REPO_ROOT/tests/mcp-inspector/node_modules/.bin/mcp-inspector}"
 INSPECTOR_CONFIG_SOURCE="${INSPECTOR_CONFIG:-$REPO_ROOT/.config/mcp-inspector.json}"
 WASSETTE_BIN="${WASSETTE_BIN:-$REPO_ROOT/bin/wassette}"
+# Inspector diagnostics must not be mixed into JSON captured by the error-path
+# checks. CI has no OS keychain, so choose the non-persistent store explicitly
+# while preserving a caller's deliberate override.
+export MCP_INSPECTOR_SECRET_STORE="${MCP_INSPECTOR_SECRET_STORE:-memory}"
 WASSETTE_PORT="${WASSETTE_PORT:-}"
 FIXTURE_PORT="${FIXTURE_PORT:-}"
 
