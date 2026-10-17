@@ -193,7 +193,7 @@ inspector_with_config() {
             --server "$server" \
             "$@" \
             --format json)"; then
-            printf '%s\n' "$output" >&2
+            printf '%s\n' "$output"
             return 1
         fi
     else
@@ -202,7 +202,7 @@ inspector_with_config() {
             --server "$server" \
             "$@" \
             --format json)"; then
-            printf '%s\n' "$output" >&2
+            printf '%s\n' "$output"
             return 1
         fi
     fi
@@ -435,7 +435,7 @@ echo "Checking error paths return errors rather than hanging or panicking"
 # reports isError, so tolerate the exit status and assert on the tool result it
 # also emits.
 missing_load="$(call_tool wassette-modern load-component \
-    '{"path": "file:///nonexistent/definitely-not-a-component.wasm"}' 2>&1 || true)"
+    '{"path": "file:///nonexistent/definitely-not-a-component.wasm"}' || true)"
 jq -e -s '
     map(select(.result != null))
     | length > 0
