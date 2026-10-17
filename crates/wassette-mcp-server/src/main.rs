@@ -35,7 +35,8 @@ mod tools;
 mod utils;
 
 use cli_handlers::{
-    create_lifecycle_manager, create_lifecycle_manager_for_tool_invoke, handle_tool_cli_command,
+    create_lifecycle_manager, create_lifecycle_manager_for_tool_invoke, handle_component_load_cli,
+    handle_tool_cli_command,
 };
 use commands::{
     Cli, Commands, ComponentCommands, GrantPermissionCommands, PermissionCommands, PolicyCommands,
@@ -361,15 +362,14 @@ async fn main() -> Result<()> {
                 ComponentCommands::Load {
                     path,
                     component_dir,
+                    trust_bundled_policy,
                 } => {
                     let component_dir = component_dir.clone().or_else(|| cli.component_dir.clone());
                     let lifecycle_manager = create_lifecycle_manager(component_dir).await?;
-                    let mut args = Map::new();
-                    args.insert("path".to_string(), json!(path));
-                    handle_tool_cli_command(
+                    handle_component_load_cli(
                         &lifecycle_manager,
-                        "load-component",
-                        args,
+                        path,
+                        *trust_bundled_policy,
                         OutputFormat::Json,
                     )
                     .await?;
@@ -1008,6 +1008,32 @@ mod cli_tests {
         let args = vec!["wassette", "serve"];
         let cli = Cli::try_parse_from(args).unwrap();
         matches!(cli.command, Some(Commands::Serve(_)));
+    }
+
+    #[test]
+    fn test_component_load_trust_bundled_policy_parsing() {
+        let cli = Cli::try_parse_from([
+            "wassette",
+            "component",
+            "load",
+            "oci://registry.example/component:latest",
+            "--trust-bundled-policy",
+        ])
+        .unwrap();
+
+        let Some(Commands::Component {
+            command:
+                ComponentCommands::Load {
+                    path,
+                    trust_bundled_policy,
+                    ..
+                },
+        }) = cli.command
+        else {
+            panic!("expected component load command");
+        };
+        assert_eq!(path, "oci://registry.example/component:latest");
+        assert!(trust_bundled_policy);
     }
 
     #[test]

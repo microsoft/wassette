@@ -363,25 +363,29 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn staged_replacement_updates_wasm_and_policy_together() {
+    async fn staged_replacement_rejects_bundled_policy_without_replacing_existing() {
         let dir = tempfile::tempdir().unwrap();
         let stage = tempfile::tempdir_in(dir.path()).unwrap();
         let staged_path = stage.path().join("agent.wasm");
         std::fs::write(&staged_path, b"new wasm").unwrap();
-        std::fs::write(stage.path().join("agent.policy.yaml"), b"new policy").unwrap();
+        std::fs::write(stage.path().join("agent.policy.yaml"), b"publisher policy").unwrap();
         std::fs::write(dir.path().join("agent.wasm"), b"old wasm").unwrap();
-        std::fs::write(dir.path().join("agent.policy.yaml"), b"old policy").unwrap();
-        let installed = Resolver::new(dir.path())
+        std::fs::write(dir.path().join("agent.policy.yaml"), b"attached policy").unwrap();
+        let error = Resolver::new(dir.path())
             .promote_staged(ResolvedComponent {
                 component_id: "agent".to_string(),
                 path: staged_path,
             })
             .await
-            .unwrap();
-        assert_eq!(std::fs::read(installed.path).unwrap(), b"new wasm");
+            .unwrap_err();
+        assert!(format!("{error:#}").contains("publisher-supplied policy"));
+        assert_eq!(
+            std::fs::read(dir.path().join("agent.wasm")).unwrap(),
+            b"old wasm"
+        );
         assert_eq!(
             std::fs::read(dir.path().join("agent.policy.yaml")).unwrap(),
-            b"new policy"
+            b"attached policy"
         );
     }
 

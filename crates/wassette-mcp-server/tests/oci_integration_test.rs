@@ -109,10 +109,23 @@ mod multi_layer_oci_tests {
         // Initialize the lifecycle manager
         let manager = LifecycleManager::new(temp_dir.path()).await?;
 
-        // Load the hello-world component which has multi-layer structure
-        let outcome = match manager.load_component(HELLO_WORLD_OCI_URI).await {
+        // Loading does not trust a publisher-supplied policy by default.
+        let rejected = manager
+            .load_component(HELLO_WORLD_OCI_URI)
+            .await
+            .unwrap_err();
+        assert!(
+            rejected.to_string().contains("publisher-supplied policy"),
+            "unexpected error: {rejected:#}"
+        );
+
+        // The direct CLI can select this explicit path after operator review.
+        let outcome = match manager
+            .load_component_trusting_bundled_policy(HELLO_WORLD_OCI_URI)
+            .await
+        {
             Ok(result) => {
-                println!("✅ Successfully loaded component from: {HELLO_WORLD_OCI_URI}");
+                println!("✅ Successfully loaded trusted component from: {HELLO_WORLD_OCI_URI}");
                 result
             }
             Err(e) => {
@@ -130,7 +143,7 @@ mod multi_layer_oci_tests {
         // Get the component's policy info
         let policy_info = manager.get_policy_info(&component_id).await;
 
-        // The policy should be automatically extracted and attached from OCI layers
+        // The explicitly trusted policy should be extracted and attached from OCI layers.
         assert!(
             policy_info.is_some(),
             "Policy should be extracted and attached from OCI layers"

@@ -50,7 +50,7 @@ use component_storage::ComponentStorage;
 pub use config::{LifecycleBuilder, LifecycleConfig};
 pub use error_display::format_error_chain;
 pub use http::WassetteWasiState;
-use loader::{ComponentResource, DownloadedResource};
+use loader::{BundledPolicyMode, ComponentResource, DownloadedResource};
 use policy_internal::PolicyManager;
 pub use policy_internal::{PermissionGrantRequest, PermissionRule, PolicyInfo};
 use runtime_context::RuntimeContext;
@@ -641,13 +641,14 @@ impl LifecycleManager {
         &self,
         component_id: &str,
         resource: DownloadedResource,
+        bundled_policy: BundledPolicyMode,
     ) -> Result<PathBuf> {
         let target_path = self.component_path(component_id);
         match resource {
             DownloadedResource::Local(path) if path == target_path => Ok(target_path),
             other => {
                 self.storage
-                    .install_component_artifact(component_id, other)
+                    .install_component_artifact(component_id, other, bundled_policy)
                     .await
             }
         }
@@ -743,7 +744,9 @@ impl LifecycleManager {
 
     /// Loads a new component from the given URI. This URI can be a file path, an OCI reference, or a URL.
     ///
-    /// If a component with the given id already exists, it will be updated with the new component.
+    /// Publisher-supplied policies bundled in OCI artifacts are rejected. Use
+    /// [`Self::load_component_trusting_bundled_policy`] only after an operator has reviewed the
+    /// policy. If a component with the given id already exists, it will be updated with the new component.
     /// Returns rich [`ComponentLoadOutcome`] information describing the loaded
     /// component and whether it replaced an existing instance.
     ///
@@ -755,7 +758,30 @@ impl LifecycleManager {
     /// deserialize a precompiled cache that no longer matches it.
     #[instrument(skip(self))]
     pub async fn load_component(&self, uri: &str) -> Result<ComponentLoadOutcome> {
-        debug!(uri, "Loading component");
+        self.load_component_with_bundled_policy_mode(uri, BundledPolicyMode::Reject)
+            .await
+    }
+
+    /// Load a component and explicitly trust a publisher-supplied policy bundled
+    /// in its OCI artifact.
+    ///
+    /// Callers must present the policy to an operator for review before choosing
+    /// this path. Agent-facing and automated loading should use [`Self::load_component`].
+    #[instrument(skip(self))]
+    pub async fn load_component_trusting_bundled_policy(
+        &self,
+        uri: &str,
+    ) -> Result<ComponentLoadOutcome> {
+        self.load_component_with_bundled_policy_mode(uri, BundledPolicyMode::Trust)
+            .await
+    }
+
+    async fn load_component_with_bundled_policy_mode(
+        &self,
+        uri: &str,
+        bundled_policy: BundledPolicyMode,
+    ) -> Result<ComponentLoadOutcome> {
+        debug!(uri, ?bundled_policy, "Loading component");
         // Resolving the resource is what yields the component id, so it necessarily happens
         // before the guard exists. It only writes to the downloads directory, never to the
         // component's own artifacts.
@@ -765,7 +791,7 @@ impl LifecycleManager {
         let _guard = guard.lock().await;
 
         let staged_path = self
-            .stage_component_artifact(&component_id, resource)
+            .stage_component_artifact(&component_id, resource, bundled_policy)
             .await?;
         // We hold the guard, so this must be the `_locked` form; the guard is not reentrant.
         // A reload always recompiles: there is deliberately no registry recheck here.

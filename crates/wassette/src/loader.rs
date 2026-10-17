@@ -19,6 +19,12 @@ pub(crate) enum DownloadedResource {
     Temp((tempfile::TempDir, PathBuf)),
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum BundledPolicyMode {
+    Reject,
+    Trust,
+}
+
 impl AsRef<Path> for DownloadedResource {
     fn as_ref(&self) -> &Path {
         match self {
@@ -74,10 +80,37 @@ impl DownloadedResource {
             .ok_or_else(|| anyhow::anyhow!("Failed to extract resource ID from path"))
     }
 
-    /// Copies the resource, and any co-located policy file, into the `dest`
-    /// directory. The lifecycle manager retains an attached policy when the
-    /// replacement has no bundled policy.
-    pub(crate) async fn copy_to(self, dest: impl AsRef<Path>) -> Result<()> {
+    pub(crate) async fn ensure_bundled_policy_allowed(
+        &self,
+        mode: BundledPolicyMode,
+    ) -> Result<()> {
+        let DownloadedResource::Temp((_, wasm_path)) = self else {
+            return Ok(());
+        };
+        let policy_path = wasm_path.with_file_name(format!(
+            "{}.policy.yaml",
+            wasm_path
+                .file_stem()
+                .and_then(|stem| stem.to_str())
+                .context("Path to copy is missing component id")?
+        ));
+        if mode == BundledPolicyMode::Reject && tokio::fs::try_exists(&policy_path).await? {
+            bail!(
+                "Component bundle contains a publisher-supplied policy. Loading it would grant host access without a separate approval; review the policy and use an explicitly trusted load path."
+            );
+        }
+        Ok(())
+    }
+
+    /// Copies the resource, and an explicitly trusted co-located policy file, into
+    /// the `dest` directory. The lifecycle manager retains an attached policy when
+    /// the replacement has no bundled policy.
+    pub(crate) async fn copy_to(
+        self,
+        dest: impl AsRef<Path>,
+        bundled_policy: BundledPolicyMode,
+    ) -> Result<()> {
+        self.ensure_bundled_policy_allowed(bundled_policy).await?;
         let meta = tokio::fs::metadata(&dest).await?;
         if !meta.is_dir() {
             bail!(
@@ -94,7 +127,8 @@ impl DownloadedResource {
                 tokio::fs::copy(path, dest).await?;
             }
             DownloadedResource::Temp((_tempdir, file)) => {
-                promote_component_artifact_with_policy(&file, dest.as_ref(), true).await?;
+                promote_component_artifact_with_policy(&file, dest.as_ref(), true, bundled_policy)
+                    .await?;
             }
         }
         Ok(())
@@ -103,19 +137,33 @@ impl DownloadedResource {
 
 /// Promote a previously validated staged component into `dest_dir`.
 ///
-/// The caller must validate the staged WASM (and any co-located policy) before
-/// calling this function. The files are first copied into the destination
-/// filesystem; a failed promotion restores the previous policy and leaves the
-/// old WASM in place. Publishing two separate paths cannot be atomic for
-/// unsynchronized readers, so callers must serialize concurrent loads.
+/// This safe default rejects a co-located policy rather than turning component
+/// acquisition into a permission grant. Use
+/// [`promote_component_artifact_trusting_bundled_policy`] only after an operator
+/// has reviewed that publisher-supplied policy. A failed promotion restores the
+/// previous policy and leaves the old WASM in place. Publishing two separate
+/// paths cannot be atomic for unsynchronized readers, so callers must serialize
+/// concurrent loads.
 pub async fn promote_component_artifact(staged_wasm: &Path, dest_dir: &Path) -> Result<PathBuf> {
-    promote_component_artifact_with_policy(staged_wasm, dest_dir, false).await
+    promote_component_artifact_with_policy(staged_wasm, dest_dir, false, BundledPolicyMode::Reject)
+        .await
+}
+
+/// Promote a staged component and its co-located policy after the caller has
+/// explicitly reviewed and trusted that publisher-supplied policy.
+pub async fn promote_component_artifact_trusting_bundled_policy(
+    staged_wasm: &Path,
+    dest_dir: &Path,
+) -> Result<PathBuf> {
+    promote_component_artifact_with_policy(staged_wasm, dest_dir, false, BundledPolicyMode::Trust)
+        .await
 }
 
 async fn promote_component_artifact_with_policy(
     staged_wasm: &Path,
     dest_dir: &Path,
     retain_unbundled_policy: bool,
+    bundled_policy: BundledPolicyMode,
 ) -> Result<PathBuf> {
     let name = staged_wasm
         .file_name()
@@ -128,6 +176,12 @@ async fn promote_component_artifact_with_policy(
     let source_policy = staged_wasm.with_file_name(&policy_name);
     let wasm_dest = dest_dir.join(name);
     let policy_dest = dest_dir.join(&policy_name);
+    let has_policy = tokio::fs::try_exists(&source_policy).await?;
+    if has_policy && bundled_policy == BundledPolicyMode::Reject {
+        bail!(
+            "Component bundle contains a publisher-supplied policy. Loading it would grant host access without a separate approval; review the policy and use an explicitly trusted load path."
+        );
+    }
 
     let dir = dest_dir.to_path_buf();
     let stage = tokio::task::spawn_blocking(move || tempfile::tempdir_in(dir)).await??;
@@ -136,7 +190,6 @@ async fn promote_component_artifact_with_policy(
         .await
         .with_context(|| format!("Failed to stage component {}", staged_wasm.display()))?;
     let staged_policy = stage.path().join(&policy_name);
-    let has_policy = tokio::fs::try_exists(&source_policy).await?;
     if has_policy {
         tokio::fs::copy(&source_policy, &staged_policy)
             .await
@@ -525,6 +578,32 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn remote_copy_rejects_unapproved_bundled_policy_without_replacing_component(
+    ) -> Result<()> {
+        let root = test_directory();
+        let source = tempfile::tempdir_in(root.path())?;
+        let dest = root.path().join("components");
+        tokio::fs::create_dir(&dest).await?;
+        let wasm = source.path().join("agent.wasm");
+        tokio::fs::write(&wasm, b"new wasm").await?;
+        tokio::fs::write(source.path().join("agent.policy.yaml"), b"publisher policy").await?;
+        tokio::fs::write(dest.join("agent.wasm"), b"old wasm").await?;
+        tokio::fs::write(dest.join("agent.policy.yaml"), b"attached policy").await?;
+
+        let error = DownloadedResource::Temp((source, wasm))
+            .copy_to(&dest, BundledPolicyMode::Reject)
+            .await
+            .unwrap_err();
+        assert!(error.to_string().contains("publisher-supplied policy"));
+        assert_eq!(tokio::fs::read(dest.join("agent.wasm")).await?, b"old wasm");
+        assert_eq!(
+            tokio::fs::read(dest.join("agent.policy.yaml")).await?,
+            b"attached policy"
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
     async fn remote_copy_replaces_wasm_and_policy_together() -> Result<()> {
         let root = test_directory();
         let source = tempfile::tempdir_in(root.path())?;
@@ -537,7 +616,7 @@ mod tests {
         tokio::fs::write(dest.join("agent.policy.yaml"), b"old policy").await?;
 
         DownloadedResource::Temp((source, wasm))
-            .copy_to(&dest)
+            .copy_to(&dest, BundledPolicyMode::Trust)
             .await?;
         assert_eq!(tokio::fs::read(dest.join("agent.wasm")).await?, b"new wasm");
         assert_eq!(
@@ -576,7 +655,7 @@ mod tests {
         tokio::fs::write(dest.join("agent.policy.yaml"), b"attached policy").await?;
 
         DownloadedResource::Temp((source, wasm))
-            .copy_to(&dest)
+            .copy_to(&dest, BundledPolicyMode::Trust)
             .await?;
         assert_eq!(tokio::fs::read(dest.join("agent.wasm")).await?, b"new wasm");
         assert_eq!(
