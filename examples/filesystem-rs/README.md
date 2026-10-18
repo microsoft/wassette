@@ -51,6 +51,33 @@ Please delete the file /tmp/test.txt
 Please delete the directory /tmp/my-new-folder
 ```
 
+## Local Wassette workflow
+
+From the repository root, grant only the host paths needed for the test:
+
+```bash
+just build-examples release
+STORE="$(mktemp -d)"
+
+wassette component load \
+  "file://$PWD/bin/filesystem.wasm" \
+  --component-dir "$STORE"
+
+wassette permission grant storage \
+  filesystem "fs://$PWD" --access read \
+  --component-dir "$STORE"
+
+wassette permission grant storage \
+  filesystem fs:///tmp --access read,write \
+  --component-dir "$STORE"
+
+wassette run --component-dir "$STORE" --disable-builtin-tools
+```
+
+The checked-in [`policy.yaml`](policy.yaml) is a CI-oriented example and is not
+automatically attached by a local file load or included in the currently
+published OCI example. See the [examples permission workflow](../README.md).
+
 ## Policy
 
 By default, WebAssembly (Wasm) components do not have any access to the host machine. The `policy.yaml` file is used to explicitly define what paths and permissions are made available to the component through the WebAssembly System Interface (WASI). This ensures that the component can only access the resources that are explicitly allowed.
@@ -91,7 +118,7 @@ permissions:
 
 ## Security Features
 
-- **Path validation**: All paths support tilde (`~`) expansion for home directory
+- **Explicit paths**: Tilde (`~`) paths are rejected; use a path covered by the component policy
 - **Permission enforcement**: Write operations require explicit write access in policy
 - **Safety checks**: 
   - Delete operations verify file/directory type

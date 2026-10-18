@@ -20,6 +20,30 @@ The documentation injection embeds the WIT interface documentation into the WASM
 
 For more information about documenting components, see the [Documenting WIT Interfaces](../../docs/cookbook/documenting-wit.md) guide.
 
+## Local Wassette workflow
+
+From the repository root:
+
+```bash
+just build-examples release
+STORE="$(mktemp -d)"
+
+wassette component load \
+  "file://$PWD/bin/gomodule.wasm" \
+  --component-dir "$STORE"
+
+wassette permission grant network \
+  gomodule proxy.golang.org \
+  --component-dir "$STORE"
+
+wassette run --component-dir "$STORE" --disable-builtin-tools
+```
+
+The checked-in [`policy.yaml`](policy.yaml) documents the required Go module
+proxy grant but is not automatically attached by a local file load or included
+in the currently published OCI example. See the
+[examples permission workflow](../README.md).
+
 ## Usage
 
 To use this component, load it from the OCI registry and provide a Go module path.

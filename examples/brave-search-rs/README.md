@@ -8,7 +8,7 @@ A WebAssembly component that performs web searches using the Brave Search API.
 cargo component build --release
 ```
 
-The compiled `.wasm` file will be in `target/wasm32-wasip1/release/brave_search_rs.wasm`.
+The compiled `.wasm` file will be in `target/wasm32-wasip2/release/brave_search_rs.wasm`.
 
 ## Usage
 
@@ -32,39 +32,51 @@ export BRAVE_SEARCH_API_KEY=your_api_key_here
 wasmtime run -S http=y -S inherit-network=y \
   --env BRAVE_SEARCH_API_KEY \
   --invoke 'search("rust programming")' \
-  target/wasm32-wasip1/release/brave_search_rs.wasm
+  target/wasm32-wasip2/release/brave_search_rs.wasm
 ```
 
 ### Testing with Wassette CLI
 
-Load and test the component:
+From the repository root, make the API key available, then explicitly grant
+this component access to the key and the Brave Search endpoint:
 
 ```bash
-# Load the component
-wassette component load file://$(pwd)/target/wasm32-wasip1/release/brave_search_rs.wasm
+just build-examples release
+STORE="$(mktemp -d)"
+export BRAVE_SEARCH_API_KEY="<developer-key>"
 
-# Grant network permission to access Brave Search API
-wassette permission grant network brave_search_rs "https://api.search.brave.com/"
+wassette component load \
+  "file://$PWD/bin/brave-search-rs.wasm" \
+  --component-dir "$STORE"
 
-# Grant environment variable access for the API key
-wassette permission grant environment-variable brave_search_rs BRAVE_SEARCH_API_KEY
+wassette permission grant network \
+  brave-search-rs api.search.brave.com \
+  --component-dir "$STORE"
 
-# Check component is loaded
-wassette component list
+wassette permission grant environment-variable \
+  brave-search-rs BRAVE_SEARCH_API_KEY \
+  --component-dir "$STORE"
+
+wassette run --component-dir "$STORE" --disable-builtin-tools
 ```
+
+Exporting `BRAVE_SEARCH_API_KEY` makes the value available to Wassette; the
+environment permission is what authorizes this component to read it. The
+checked-in [`policy.yaml`](policy.yaml) documents both required grants but is
+not automatically attached by a local file load or included in the currently
+published OCI example. See the [examples permission workflow](../README.md).
 
 ### Testing via MCP Server
 
-Start the MCP server and interact with it via the MCP Inspector:
+Use the same component store from the workflow above. Replace the final
+`wassette run` command with the HTTP server, then connect MCP Inspector:
 
 ```bash
-# Set the API key in your environment
-export BRAVE_SEARCH_API_KEY=your_api_key_here
+wassette serve --streamable-http \
+  --component-dir "$STORE" \
+  --disable-builtin-tools
 
-# Start wassette MCP server (from project root)
-cargo run --release -- serve mcp sse
-
-# In another terminal, use MCP inspector to call the tool
+# In another terminal, use MCP Inspector.
 npx @modelcontextprotocol/inspector --cli http://127.0.0.1:9001/mcp --transport http
 ```
 

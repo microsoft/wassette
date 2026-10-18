@@ -454,5 +454,12 @@ async fn test_filesystem_component_lifecycle_manager() -> Result<()> {
     assert!(response.contains("Cargo.toml"));
     assert!(response.contains("src"));
 
+    let tilde_response = manager
+        .execute_component_call(&id, "list-directory", r#"{"path": "~"}"#)
+        .await?;
+    assert!(tilde_response.contains(
+        "Tilde paths are not supported; use an explicit path authorized by the component policy"
+    ));
+
     Ok(())
 }

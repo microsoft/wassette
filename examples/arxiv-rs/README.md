@@ -87,21 +87,31 @@ To test this component, use one of the following methods:
 
 ### Testing with Wassette CLI
 
-The recommended way to test the component is through Wassette:
+From the repository root, build, load, grant the two required network hosts,
+and run Wassette against the same component store:
 
 ```bash
-# Build the component
-just build release
+just build-examples release
+STORE="$(mktemp -d)"
 
-# Load the component with Wassette
-wassette component load file://$(pwd)/target/wasm32-wasip2/release/arxiv_rs.wasm
+wassette component load \
+  "file://$PWD/bin/arxiv-rs.wasm" \
+  --component-dir "$STORE"
 
-# Grant network permissions
-wassette permission grant network arxiv_rs "http://export.arxiv.org/"
-wassette permission grant network arxiv_rs "http://arxiv.org/"
+wassette permission grant network \
+  arxiv-rs export.arxiv.org \
+  --component-dir "$STORE"
 
-# The component functions are now available as MCP tools
+wassette permission grant network \
+  arxiv-rs arxiv.org \
+  --component-dir "$STORE"
+
+wassette run --component-dir "$STORE" --disable-builtin-tools
 ```
+
+The checked-in [`policy.yaml`](policy.yaml) documents these permissions but is
+not automatically attached by a local file load or included in the currently
+published OCI example. See the [examples permission workflow](../README.md).
 
 ### Component Validation
 
@@ -117,13 +127,15 @@ wasm-tools component wit target/wasm32-wasip2/release/arxiv_rs.wasm
 
 ### Testing via MCP Server
 
-Start the MCP server and interact with it via the MCP Inspector:
+Use the same component store from the workflow above. Replace the final
+`wassette run` command with the HTTP server, then connect MCP Inspector:
 
 ```bash
-# Start wassette MCP server (from project root)
-cargo run --release -- serve mcp sse
+wassette serve --streamable-http \
+  --component-dir "$STORE" \
+  --disable-builtin-tools
 
-# In another terminal, use MCP inspector
+# In another terminal, use MCP Inspector.
 npx @modelcontextprotocol/inspector --cli http://127.0.0.1:9001/mcp --transport http
 ```
 
