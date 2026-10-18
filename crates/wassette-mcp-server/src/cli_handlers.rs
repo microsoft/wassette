@@ -7,7 +7,8 @@ use std::path::PathBuf;
 
 use anyhow::{Context, Result};
 use mcp_server::components::{
-    handle_list_components, handle_load_component_cli, handle_unload_component_cli,
+    handle_list_components, handle_load_component_cli,
+    handle_load_component_cli_trusting_bundled_policy, handle_unload_component_cli,
 };
 use mcp_server::tools::{
     handle_get_policy, handle_grant_environment_variable_permission,
@@ -23,6 +24,31 @@ use serde_json::{Map, Value};
 use crate::config;
 use crate::format::{print_result, OutputFormat};
 use crate::tools::ToolName;
+
+/// Load one component from the direct CLI. Publisher-supplied OCI policies are
+/// rejected unless the operator explicitly selects the trusted path.
+pub async fn handle_component_load_cli(
+    lifecycle_manager: &LifecycleManager,
+    path: &str,
+    trust_bundled_policy: bool,
+    output_format: OutputFormat,
+) -> Result<()> {
+    let req =
+        CallToolRequestParams::new(ToolName::LoadComponent.as_str().to_string()).with_arguments(
+            Map::from_iter([("path".to_string(), Value::String(path.to_string()))]),
+        );
+    let result = if trust_bundled_policy {
+        handle_load_component_cli_trusting_bundled_policy(&req, lifecycle_manager).await?
+    } else {
+        handle_load_component_cli(&req, lifecycle_manager).await?
+    };
+
+    print_result(&result, output_format)?;
+    if result.is_error.unwrap_or(false) {
+        std::process::exit(1);
+    }
+    Ok(())
+}
 
 /// Handle CLI tool commands by creating appropriate tool call requests
 pub async fn handle_tool_cli_command(

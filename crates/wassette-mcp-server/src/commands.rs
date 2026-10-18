@@ -222,6 +222,10 @@ pub enum ComponentCommands {
         /// Directory where components are stored. Defaults to $XDG_DATA_HOME/wassette/components
         #[arg(long)]
         component_dir: Option<PathBuf>,
+        /// Activate a publisher-supplied policy bundled in the OCI artifact.
+        /// Review the policy before using this flag.
+        #[arg(long)]
+        trust_bundled_policy: bool,
     },
     /// Unload a WebAssembly component.
     Unload {

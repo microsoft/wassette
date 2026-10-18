@@ -13,7 +13,7 @@ use sha2::{Digest, Sha256};
 use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 use tokio::task::spawn_blocking;
 
-use crate::loader::DownloadedResource;
+use crate::loader::{BundledPolicyMode, DownloadedResource};
 use crate::{ComponentMetadata, ValidationStamp};
 
 /// Handles filesystem layout and metadata persistence for components.
@@ -101,17 +101,24 @@ impl ComponentStorage {
         &self,
         component_id: &str,
         resource: DownloadedResource,
+        bundled_policy: BundledPolicyMode,
     ) -> Result<PathBuf> {
         let _permit = self.acquire_download_permit().await;
 
+        resource
+            .ensure_bundled_policy_allowed(bundled_policy)
+            .await?;
         self.remove_component_artifacts(component_id).await?;
 
-        resource.copy_to(self.root()).await.with_context(|| {
-            format!(
-                "Failed to copy component to destination: {}",
-                self.root.display()
-            )
-        })?;
+        resource
+            .copy_to(self.root(), bundled_policy)
+            .await
+            .with_context(|| {
+                format!(
+                    "Failed to copy component to destination: {}",
+                    self.root.display()
+                )
+            })?;
 
         Ok(self.component_path(component_id))
     }
@@ -308,4 +315,46 @@ async fn compute_file_hash(path: &Path) -> Result<String> {
     })
     .await?
     .with_context(|| format!("Failed to hash file {}", path.display()))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn unapproved_bundled_policy_does_not_remove_existing_artifacts() -> Result<()> {
+        let root = tempfile::tempdir()?;
+        let storage = ComponentStorage::new(root.path(), 1).await?;
+        tokio::fs::write(storage.component_path("agent"), b"old wasm").await?;
+        tokio::fs::write(storage.metadata_path("agent"), b"old metadata").await?;
+        tokio::fs::write(storage.precompiled_path("agent"), b"old cache").await?;
+
+        let source = tempfile::tempdir()?;
+        let wasm = source.path().join("agent.wasm");
+        tokio::fs::write(&wasm, b"new wasm").await?;
+        tokio::fs::write(source.path().join("agent.policy.yaml"), b"publisher policy").await?;
+
+        let error = storage
+            .install_component_artifact(
+                "agent",
+                DownloadedResource::Temp((source, wasm)),
+                BundledPolicyMode::Reject,
+            )
+            .await
+            .unwrap_err();
+        assert!(error.to_string().contains("publisher-supplied policy"));
+        assert_eq!(
+            tokio::fs::read(storage.component_path("agent")).await?,
+            b"old wasm"
+        );
+        assert_eq!(
+            tokio::fs::read(storage.metadata_path("agent")).await?,
+            b"old metadata"
+        );
+        assert_eq!(
+            tokio::fs::read(storage.precompiled_path("agent")).await?,
+            b"old cache"
+        );
+        Ok(())
+    }
 }

@@ -379,15 +379,39 @@ pub async fn handle_load_component_cli(
     req: &CallToolRequestParams,
     lifecycle_manager: &LifecycleManager,
 ) -> Result<CallToolResult> {
+    handle_load_component_cli_with_policy_mode(req, lifecycle_manager, false).await
+}
+
+/// CLI-only load path for a policy that the operator explicitly reviewed and trusted.
+#[instrument(skip(lifecycle_manager))]
+pub async fn handle_load_component_cli_trusting_bundled_policy(
+    req: &CallToolRequestParams,
+    lifecycle_manager: &LifecycleManager,
+) -> Result<CallToolResult> {
+    handle_load_component_cli_with_policy_mode(req, lifecycle_manager, true).await
+}
+
+async fn handle_load_component_cli_with_policy_mode(
+    req: &CallToolRequestParams,
+    lifecycle_manager: &LifecycleManager,
+    trust_bundled_policy: bool,
+) -> Result<CallToolResult> {
     let args = extract_args_from_request(req)?;
     let path = args
         .get("path")
         .and_then(|v| v.as_str())
         .ok_or_else(|| anyhow::anyhow!("Missing required argument: 'path'"))?;
 
-    info!(path, "Loading component (CLI mode)");
+    info!(path, trust_bundled_policy, "Loading component (CLI mode)");
 
-    match lifecycle_manager.load_component(path).await {
+    let result = if trust_bundled_policy {
+        lifecycle_manager
+            .load_component_trusting_bundled_policy(path)
+            .await
+    } else {
+        lifecycle_manager.load_component(path).await
+    };
+    match result {
         Ok(outcome) => {
             handle_tool_list_notification(None, &outcome.component_id, "load").await;
             create_load_component_success_result(&outcome)

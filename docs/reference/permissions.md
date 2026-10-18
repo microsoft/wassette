@@ -102,6 +102,14 @@ Set memory limits for components (future capability).
 - Prevent resource exhaustion
 - Enforce quotas in multi-tenant environments
 
+## OCI-Bundled Policies
+
+A multi-layer OCI artifact may contain a policy chosen by its publisher. Wassette rejects
+that bundled policy by default so loading an untrusted component does not also grant host
+access. An operator who has reviewed the policy can opt in from the direct CLI with
+`wassette component load --trust-bundled-policy <OCI-URI>`; agent-facing and automated
+load paths remain fail closed.
+
 ## Granting Permissions
 
 The recommended way to grant permissions is through your AI agent when running Wassette as an MCP server. You can also use CLI commands for direct management, or define permissions in policy files.

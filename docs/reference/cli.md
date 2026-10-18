@@ -179,6 +179,9 @@ wassette component load oci://ghcr.io/microsoft/time-server-js:latest
 
 # Load with custom component directory
 wassette component load oci://ghcr.io/microsoft/gomodule:latest --component-dir /custom/components
+
+# After reviewing a publisher-bundled policy, activate it explicitly
+wassette component load oci://registry.example/component:latest --trust-bundled-policy
 ```
 
 **Load from local file:**
@@ -192,6 +195,7 @@ wassette component load file://./my-component.wasm
 
 **Options:**
 - `--component-dir <PATH>`: Component storage directory
+- `--trust-bundled-policy`: Activate a policy supplied by the OCI publisher. Review the policy before using this flag. Without it, Wassette rejects OCI bundles containing a policy rather than treating component download as a permission grant.
 
 ### `wassette component unload`
 
