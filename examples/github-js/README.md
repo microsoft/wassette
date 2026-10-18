@@ -23,6 +23,35 @@ npm run build
 
 This generates `github.wasm` in the current directory.
 
+## Running with Wassette
+
+From the repository root, make the token available and explicitly authorize
+this component to read it and contact GitHub:
+
+```bash
+just build-examples release
+STORE="$(mktemp -d)"
+export GITHUB_TOKEN="<developer-token>"
+
+wassette component load \
+  "file://$PWD/bin/github-js.wasm" \
+  --component-dir "$STORE"
+
+wassette permission grant network \
+  github-js api.github.com \
+  --component-dir "$STORE"
+
+wassette permission grant environment-variable \
+  github-js GITHUB_TOKEN \
+  --component-dir "$STORE"
+
+wassette run --component-dir "$STORE" --disable-builtin-tools
+```
+
+The checked-in [`policy.yaml`](policy.yaml) documents both required grants but
+is not automatically attached by a local file load or included in the currently
+published OCI example. See the [examples permission workflow](../README.md).
+
 ## Running with Wasmtime
 
 ### Prerequisites

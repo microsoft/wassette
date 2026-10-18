@@ -8,6 +8,7 @@ use anyhow::{Context, Result};
 
 static FETCH_COMPONENT_BUILD: Once = Once::new();
 static FILESYSTEM_COMPONENT_BUILD: Once = Once::new();
+static BRAVE_SEARCH_COMPONENT_BUILD: Once = Once::new();
 
 /// Ensure fetch-rs component is built exactly once for all tests
 fn ensure_fetch_component_built() -> Result<()> {
@@ -112,5 +113,54 @@ pub async fn build_filesystem_component() -> Result<PathBuf> {
         );
     }
 
+    Ok(component_path)
+}
+
+/// Build the environment-reading Brave Search fixture exactly once.
+fn ensure_brave_search_component_built() -> Result<()> {
+    BRAVE_SEARCH_COMPONENT_BUILD.call_once(|| {
+        let result = std::panic::catch_unwind(|| {
+            let top_level = PathBuf::from(
+                std::env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR not set"),
+            )
+            .join("..")
+            .join("..");
+
+            let status = std::process::Command::new("cargo")
+                .current_dir(top_level.join("examples/brave-search-rs"))
+                .env("CARGO_TARGET_DIR", "target")
+                .args(["build", "--release", "--target", "wasm32-wasip2"])
+                .status()
+                .expect("Failed to execute Brave Search component build");
+
+            if !status.success() {
+                panic!("Failed to compile Brave Search component");
+            }
+        });
+
+        if result.is_err() {
+            panic!("Failed to build Brave Search component in Once block");
+        }
+    });
+
+    Ok(())
+}
+
+#[allow(dead_code)]
+pub async fn build_brave_search_component() -> Result<PathBuf> {
+    let top_level =
+        PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").context("CARGO_MANIFEST_DIR not set")?)
+            .join("..")
+            .join("..");
+    let component_path = top_level
+        .join("examples/brave-search-rs/target/wasm32-wasip2/release/brave_search_rs.wasm");
+
+    ensure_brave_search_component_built()?;
+    if !component_path.exists() {
+        anyhow::bail!(
+            "Component file not found after build: {}",
+            component_path.display()
+        );
+    }
     Ok(component_path)
 }

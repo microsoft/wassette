@@ -39,6 +39,30 @@ Please fetch the content of https://example.com
 HTML responses are converted to Markdown. When a page has no `<h1>` heading,
 the component uses its `<title>` as the Markdown heading.
 
+## Local Wassette workflow
+
+From the repository root:
+
+```bash
+just build-examples release
+STORE="$(mktemp -d)"
+
+wassette component load \
+  "file://$PWD/bin/fetch-rs.wasm" \
+  --component-dir "$STORE"
+
+wassette permission grant network \
+  fetch-rs rss.nytimes.com \
+  --component-dir "$STORE"
+
+wassette run --component-dir "$STORE" --disable-builtin-tools
+```
+
+The checked-in [`policy.yaml`](policy.yaml) documents the required network
+grant but is not automatically attached by a local file load or included in
+the currently published OCI example. See the
+[examples permission workflow](../README.md).
+
 ## Policy
 
 By default, WebAssembly (Wasm) components do not have any access to the host machine or network. The `policy.yaml` file is used to explicitly define what network resources are made available to the component. This ensures that the component can only access the resources that are explicitly allowed.

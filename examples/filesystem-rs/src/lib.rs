@@ -4,8 +4,8 @@
 #[allow(warnings)]
 mod bindings;
 
+use std::fs;
 use std::path::{Path, PathBuf};
-use std::{env, fs};
 
 use anyhow::{anyhow, Result};
 use bindings::Guest;
@@ -425,15 +425,9 @@ fn search_directory(dir: &Path, pattern: &str, matches: &mut Vec<String>) -> Res
 
 fn get_path(path_str: &str) -> Result<PathBuf> {
     if path_str == "~" || path_str.starts_with("~/") {
-        let home_dir =
-            env::var("HOME").map_err(|_| anyhow!("Cannot determine home directory from $HOME"))?;
-
-        if path_str == "~" {
-            return Ok(PathBuf::from(home_dir));
-        }
-        let suffix = &path_str[2..];
-        let combined = Path::new(&home_dir).join(suffix);
-        return Ok(combined);
+        return Err(anyhow!(
+            "Tilde paths are not supported; use an explicit path authorized by the component policy"
+        ));
     }
 
     Ok(PathBuf::from(path_str))

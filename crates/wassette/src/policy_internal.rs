@@ -143,25 +143,15 @@ impl PolicyManager {
             return existing;
         }
 
-        self.build_default_template(component_id).await
+        Self::build_default_template()
     }
 
-    /// Construct a default WASI template enriched with configured environment
-    /// variables and any stored secrets for the component.
-    async fn build_default_template(&self, component_id: &str) -> Arc<WasiStateTemplate> {
-        let mut config_vars = self.environment_vars.as_ref().clone();
-
-        if let Ok(secrets) = self.secrets.load_component_secrets(component_id).await {
-            for (key, value) in secrets {
-                config_vars.insert(key, value);
-            }
-        }
-
-        let template = WasiStateTemplate {
-            config_vars,
-            ..WasiStateTemplate::default()
-        };
-        Arc::new(template)
+    /// Construct a deny-by-default WASI template for a component without a policy.
+    ///
+    /// Configured environment values and stored secrets are inputs that an attached
+    /// policy may select; their presence is not itself a permission grant.
+    fn build_default_template() -> Arc<WasiStateTemplate> {
+        Arc::new(WasiStateTemplate::default())
     }
 
     pub(crate) async fn attach_policy(&self, component_id: &str, policy_uri: &str) -> Result<()> {
@@ -842,6 +832,69 @@ impl PolicyManager {
 mod tests {
     use super::*;
     use crate::tests::*;
+    use crate::LifecycleManager;
+
+    #[tokio::test]
+    async fn test_default_template_does_not_expose_environment_or_secrets() -> Result<()> {
+        let tempdir = tempfile::tempdir()?;
+        let mut environment = HashMap::new();
+        environment.insert("AMBIENT_SECRET".to_string(), "ambient-value".to_string());
+
+        let manager = LifecycleManager::builder(tempdir.path())
+            .with_environment_vars(environment)
+            .with_secrets_dir(tempdir.path().join("secrets"))
+            .with_eager_loading(false)
+            .build()
+            .await?;
+        let secret_path = manager
+            .secrets_manager
+            .get_component_secrets_path(TEST_COMPONENT_ID);
+        tokio::fs::write(&secret_path, "STORED_SECRET: stored-value\n").await?;
+
+        let template = manager
+            .policy_manager
+            .template_for_component(TEST_COMPONENT_ID)
+            .await;
+
+        assert!(
+            template.config_vars.is_empty(),
+            "a component without a policy must not receive configured values or stored secrets"
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_attached_policy_selects_only_allowed_environment_values() -> Result<()> {
+        let tempdir = tempfile::tempdir()?;
+        let mut environment = HashMap::new();
+        environment.insert("ALLOWED_VALUE".to_string(), "allowed".to_string());
+        environment.insert("DENIED_VALUE".to_string(), "denied".to_string());
+
+        let manager = LifecycleManager::builder(tempdir.path())
+            .with_environment_vars(environment)
+            .with_secrets_dir(tempdir.path().join("secrets"))
+            .with_eager_loading(false)
+            .build()
+            .await?;
+        let policy = PolicyParser::parse_str(
+            r#"version: "1.0"
+permissions:
+  environment:
+    allow:
+      - key: "ALLOWED_VALUE"
+"#,
+        )?;
+
+        let template = manager
+            .policy_manager
+            .build_policy_template(TEST_COMPONENT_ID, &policy)
+            .await?;
+        assert_eq!(
+            template.config_vars,
+            HashMap::from([("ALLOWED_VALUE".to_string(), "allowed".to_string())])
+        );
+        Ok(())
+    }
 
     #[tokio::test]
     async fn test_policy_attachment_and_detachment() -> Result<()> {

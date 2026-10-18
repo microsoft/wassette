@@ -34,6 +34,34 @@ resolve library id for "react"
 get library docs for "library-id" with topic "hooks" and 15000 tokens
 ```
 
+## Local Wassette workflow
+
+From the repository root:
+
+```bash
+just build-examples release
+STORE="$(mktemp -d)"
+export CONTEXT7_API_KEY="<developer-key>"
+
+wassette component load \
+  "file://$PWD/bin/context7-rs.wasm" \
+  --component-dir "$STORE"
+
+wassette permission grant network \
+  context7-rs context7.com \
+  --component-dir "$STORE"
+
+wassette permission grant environment-variable \
+  context7-rs CONTEXT7_API_KEY \
+  --component-dir "$STORE"
+
+wassette run --component-dir "$STORE" --disable-builtin-tools
+```
+
+The checked-in [`policy.yaml`](policy.yaml) documents both required grants but
+is not automatically attached by a local file load. See the
+[examples permission workflow](../README.md).
+
 ## Policy
 
 By default, WebAssembly (Wasm) components do not have any access to the host machine or network. The `policy.yaml` file is used to explicitly define what network resources and environment variables are made available to the component. This ensures that the component can only access the resources that are explicitly allowed.

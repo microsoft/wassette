@@ -4,3 +4,6 @@ permissions:
   network:
     allow:
       - host: "https://api.search.brave.com/"
+  environment:
+    allow:
+      - key: "BRAVE_SEARCH_API_KEY"

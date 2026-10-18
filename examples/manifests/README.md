@@ -1,6 +1,8 @@
 # Provisioning manifests
 
 A provisioning manifest defines the components that Wassette loads at startup.
+The deployment owner declares permissions here; the checked-in example
+`policy.yaml` files are not included in the currently published OCI artifacts.
 Pass the YAML file to `wassette serve` with `--manifest`, for example:
 
 ```bash

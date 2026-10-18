@@ -147,6 +147,8 @@ jobs:
           VERSION: ${{ steps.meta.outputs.tag }}
         run: |
           set -euo pipefail
+          # Publish only the component. Source policy.yaml files document the
+          # required grants; deployment owners apply them explicitly.
           output=$(wkg oci push "$OCI_REFERENCE:$VERSION" "$FILE" \
             --annotation "org.opencontainers.image.description=" \
             --annotation "org.opencontainers.image.source=" \
@@ -169,6 +171,8 @@ jobs:
           VERSION: ${{ steps.meta.outputs.release_tag || 'latest' }}
         run: |
           set -euo pipefail
+          # Publish only the component. Source policy.yaml files document the
+          # required grants; deployment owners apply them explicitly.
           output=$(wkg oci push "$OCI_REFERENCE:$VERSION" "$FILE" \
             --annotation "org.opencontainers.image.description=" \
             --annotation "org.opencontainers.image.source=" \

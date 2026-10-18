@@ -45,6 +45,35 @@ Please load the component from oci://ghcr.io/microsoft/get-weather-js:latest
 get the weather for latitude 43.65 and longitude -79.38
 ```
 
+## Local Wassette workflow
+
+From the repository root, make the API key available and authorize only this
+component to read it:
+
+```bash
+just build-examples release
+STORE="$(mktemp -d)"
+export OPENWEATHER_API_KEY="<developer-key>"
+
+wassette component load \
+  "file://$PWD/bin/get-weather-js.wasm" \
+  --component-dir "$STORE"
+
+wassette permission grant network \
+  get-weather-js api.openweathermap.org \
+  --component-dir "$STORE"
+
+wassette permission grant environment-variable \
+  get-weather-js OPENWEATHER_API_KEY \
+  --component-dir "$STORE"
+
+wassette run --component-dir "$STORE" --disable-builtin-tools
+```
+
+The checked-in [`policy.yaml`](policy.yaml) documents both required grants but
+is not automatically attached by a local file load or included in the currently
+published OCI example. See the [examples permission workflow](../README.md).
+
 ## Policy
 
 By default, WebAssembly (Wasm) components do not have any access to the host machine or network. The `policy.yaml` file is used to explicitly define what network resources and environment variables are made available to the component. This ensures that the component can only access the resources that are explicitly allowed.
