@@ -9,6 +9,10 @@ INSPECTOR_PACKAGE="${INSPECTOR_PACKAGE:-@modelcontextprotocol/inspector@2.2.0}"
 INSPECTOR_BIN="${INSPECTOR_BIN:-$REPO_ROOT/tests/mcp-inspector/node_modules/.bin/mcp-inspector}"
 INSPECTOR_CONFIG_SOURCE="${INSPECTOR_CONFIG:-$REPO_ROOT/.config/mcp-inspector.json}"
 WASSETTE_BIN="${WASSETTE_BIN:-$REPO_ROOT/bin/wassette}"
+# Inspector diagnostics must not be mixed into JSON captured by the error-path
+# checks. CI has no OS keychain, so choose the non-persistent store explicitly
+# while preserving a caller's deliberate override.
+export MCP_INSPECTOR_SECRET_STORE="${MCP_INSPECTOR_SECRET_STORE:-memory}"
 WASSETTE_PORT="${WASSETTE_PORT:-}"
 FIXTURE_PORT="${FIXTURE_PORT:-}"
 
@@ -189,7 +193,7 @@ inspector_with_config() {
             --server "$server" \
             "$@" \
             --format json)"; then
-            printf '%s\n' "$output" >&2
+            printf '%s\n' "$output"
             return 1
         fi
     else
@@ -198,7 +202,7 @@ inspector_with_config() {
             --server "$server" \
             "$@" \
             --format json)"; then
-            printf '%s\n' "$output" >&2
+            printf '%s\n' "$output"
             return 1
         fi
     fi
@@ -431,7 +435,7 @@ echo "Checking error paths return errors rather than hanging or panicking"
 # reports isError, so tolerate the exit status and assert on the tool result it
 # also emits.
 missing_load="$(call_tool wassette-modern load-component \
-    '{"path": "file:///nonexistent/definitely-not-a-component.wasm"}' 2>&1 || true)"
+    '{"path": "file:///nonexistent/definitely-not-a-component.wasm"}' || true)"
 jq -e -s '
     map(select(.result != null))
     | length > 0
