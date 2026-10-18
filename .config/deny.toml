@@ -3,6 +3,9 @@
 
 # Advisory database configuration
 [advisories]
+# Fail on unmaintained crates selected directly by the workspace while reporting
+# transitive unmaintained crates as warnings. Actual vulnerabilities still fail.
+unmaintained = "workspace"
 # Ignore list for known issues that are acceptable
 ignore = []
 
