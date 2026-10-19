@@ -5337,7 +5337,7 @@ dependencies = [
 
 [[package]]
 name = "wassette-acp"
-version = "0.8.0"
+version = "0.8.1"
 dependencies = [
  "agent-client-protocol",
  "anyhow",
@@ -5366,7 +5366,7 @@ dependencies = [
 
 [[package]]
 name = "wassette-mcp-server"
-version = "0.8.0"
+version = "0.8.1"
 dependencies = [
  "anyhow",
  "axum",
