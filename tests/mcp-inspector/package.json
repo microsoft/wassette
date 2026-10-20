@@ -6,6 +6,6 @@
     "node": ">=22.19.0"
   },
   "dependencies": {
-    "@modelcontextprotocol/inspector": "2.10.1"
+    "@modelcontextprotocol/inspector": "2.11.0"
   }
 }
