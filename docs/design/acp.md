@@ -164,6 +164,22 @@ The tests drive exactly this flow over real stdio:
 just test-acp
 ```
 
+## Published components
+
+Stable Wassette releases publish the ACP interface and demo components to
+GitHub Container Registry with the same version as the Wassette release:
+
+```text
+ghcr.io/microsoft/wassette/acp:<version>
+ghcr.io/microsoft/wassette/acp-echo-provider:<version>
+ghcr.io/microsoft/wassette/acp-uppercase-layer:<version>
+```
+
+The first artifact is the `wassette:acp@<version>` WIT package. Providers and
+layers must generate their bindings from the interface version shipped by the
+Wassette host they target. Prereleases do not publish these artifacts, and the
+publication workflow does not move a `latest` tag.
+
 ## Known limitations
 
 * Provider terminal requests go directly to the host; layers cannot intercept
@@ -207,11 +223,11 @@ single-provider restriction can be removed.
 The `ollama` and `copilot` providers build against the `p3` branch of
 `bytecodealliance/wstd` (PR #129) — the `wasip3` feature is not on crates.io.
 Those external providers in
-`yoshuawuyts/playground-wasm-acp` still export `yosh:acp@7.0.0`; they must
-rename their WIT package and regenerate their bindings as
-`wassette:acp@7.0.0` before they can load in this host. The build script does
-not perform that rename. Two further adjustments are needed to target this
-workspace's Wasmtime 47 rather than upstream's 44:
+`yoshuawuyts/playground-wasm-acp` still export `yosh:acp`; they must rename
+their WIT package and regenerate their bindings as
+`wassette:acp@<Wassette version>` before they can load in this host. The build
+script does not perform that rename. Two further adjustments are needed to
+target this workspace's Wasmtime 47 rather than upstream's 44:
 
 * Bump wstd's `wasip3` pin from `0.5` to `0.7.1`. Wasmtime 44 ships
   `wasi:http@0.3.0-rc-2026-03-15`; wasmtime 47 ships final `wasi:http@0.3.0`.
