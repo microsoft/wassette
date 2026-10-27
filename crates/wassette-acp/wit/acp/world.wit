@@ -1,4 +1,4 @@
-package wassette:acp@7.0.0;
+package wassette:acp@0.8.0;
 
 /// An ACP agent component: exports [`agent`] (driven by the host) and imports
 /// [`client`] (for fs, terminal, and permission callbacks).
