@@ -121,6 +121,13 @@ jobs:
           # Copy newly built docs to the version directory
           cp -r docs/book/* public/wassette/${{ steps.version.outputs.version }}/
 
+          # When deploying a tagged release via workflow_dispatch, also update latest/
+          # so that the root redirect to latest/ resolves to the newest release.
+          if [[ "${{ steps.version.outputs.version }}" != "latest" ]]; then
+            mkdir -p public/wassette/latest
+            cp -r docs/book/* public/wassette/latest/
+          fi
+
           # Create root redirect page (this should NOT be in docs source, only at GitHub Pages root)
           cat > public/wassette/index.html << 'EOF'
           <!DOCTYPE html>
