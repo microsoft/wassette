@@ -5,6 +5,7 @@ extend-exclude = [
     "**/mermaid.min.js",
     "**/mermaid-init.js",
     "**/bindings.rs",
+    "vendor/**",
 ]
 
 [default.extend-words]
