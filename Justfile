@@ -47,6 +47,17 @@ build-acp-examples:
     (cd components/acp-echo-provider && cargo build --release --target wasm32-wasip2)
     (cd components/acp-uppercase-layer && cargo build --release --target wasm32-wasip2)
 
+# Build the ACP WIT package as a WebAssembly component.
+build-acp-interface:
+    mkdir -p bin
+    wasm-tools component wit crates/wassette-acp/wit/acp --wasm -o bin/acp.wasm
+    wasm-tools validate --features all bin/acp.wasm
+
+# Build and collect every component artifact published with a stable release.
+build-publishable-components: build-acp-interface build-acp-examples
+    cp components/acp-echo-provider/target/wasm32-wasip2/release/acp_echo_provider.wasm bin/acp-echo-provider.wasm
+    cp components/acp-uppercase-layer/target/wasm32-wasip2/release/acp_uppercase_layer.wasm bin/acp-uppercase-layer.wasm
+
 # Build a real (model-backed) ACP provider from a playground-wasm-acp checkout.
 # Needs the wstd p3 branch plus a two-line patch for wasmtime 47; see
 # crates/wassette-acp/real-providers/ and docs/design/acp.md.
@@ -119,7 +130,7 @@ prepare-release version:
             --base main \
             --head "$branch" \
             --title "chore(release): bump version to $version" \
-            --body "This pull request prepares the $version release by updating the version in \`Cargo.toml\` and \`Cargo.lock\`. After merge, run the Release workflow (e.g. \`gh workflow run release.yml -f version=$version\`) to build, tag \`v$version\`, and publish the GitHub release. Versions with a suffix are prereleases and skip stable-release updates." \
+            --body "This pull request prepares the $version release by updating the workspace version, ACP interface version, generated ACP bindings, and lockfile together. After merge, run the Release workflow (e.g. \`gh workflow run release.yml -f version=$version\`) to build, tag \`v$version\`, and publish the GitHub release. Versions with a suffix are prereleases and skip stable-release updates." \
             --label release \
             --label automated
     }
@@ -133,21 +144,27 @@ prepare-release version:
     git fetch origin main
     temporary_directory=$(mktemp -d "${TMPDIR:-/tmp}/wassette-release.XXXXXX")
     worktree="$temporary_directory/worktree"
+    tools="$temporary_directory/tools"
     cleanup() {
         git worktree remove --force "$worktree" >/dev/null 2>&1 || true
+        rm -rf "$tools"
         rmdir "$temporary_directory" >/dev/null 2>&1 || true
     }
     trap cleanup EXIT
 
     git worktree add --detach "$worktree" origin/main
-    sed -i.bak "s/^version = \".*\"/version = \"$version\"/" "$worktree/Cargo.toml"
-    rm "$worktree/Cargo.toml.bak"
-    cargo update \
-        --manifest-path "$worktree/Cargo.toml" \
-        -p wassette-mcp-server \
-        --precise "$version"
+    cargo install \
+        wit-bindgen-cli \
+        --version 0.54.0 \
+        --locked \
+        --root "$tools"
+    (
+        cd "$worktree"
+        WIT_BINDGEN="$tools/bin/wit-bindgen" \
+            ./scripts/update-release-version.sh "$version"
+    )
     git -C "$worktree" diff --check
-    git -C "$worktree" add Cargo.toml Cargo.lock
+    git -C "$worktree" add --all
     git -C "$worktree" commit -m "chore(release): bump version to $version"
     git -C "$worktree" push origin "HEAD:refs/heads/$branch"
     create_pr

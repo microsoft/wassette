@@ -449,13 +449,13 @@ fn load_stage(
 /// Semver range of `wassette:acp` this host can speak. Components whose
 /// `wassette:acp/*` exports carry a version outside this range are rejected
 /// up front. The version itself comes from the in-tree WIT
-/// (`package wassette:acp@<v>;`); bump both together.
-pub(crate) const EXPECTED_ACP_REQ: &str = "^7.0.0";
+/// (`package wassette:acp@<v>;`); the release updater bumps both together.
+pub(crate) const EXPECTED_ACP_REQ: &str = "^0.8.0";
 
 /// Concrete version the host's bindgen was generated against. Used for
 /// user-facing error messages so a mismatched component sees the exact
 /// version the host ships, not just the range.
-pub(crate) const HOST_ACP_VERSION: &str = "7.0.0";
+pub(crate) const HOST_ACP_VERSION: &str = "0.8.0";
 
 /// Inspect a component's exports and decide which `wassette:acp` world it
 /// implements:

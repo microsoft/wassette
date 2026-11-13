@@ -1682,7 +1682,7 @@ pub mod wassette {
                 #[inline]
                 unsafe fn drop(_handle: u32) {
                     #[cfg(target_arch = "wasm32")]
-                    #[link(wasm_import_module = "wassette:acp/tools@7.0.0")]
+                    #[link(wasm_import_module = "wassette:acp/tools@0.8.0")]
                     unsafe extern "C" {
                         #[link_name = "[resource-drop]tool-call"]
                         fn drop(_: i32);
@@ -2621,7 +2621,7 @@ pub mod wassette {
                             None => (0i32, ::core::ptr::null_mut(), 0usize),
                         };
                         #[cfg(target_arch = "wasm32")]
-                        #[link(wasm_import_module = "wassette:acp/tools@7.0.0")]
+                        #[link(wasm_import_module = "wassette:acp/tools@0.8.0")]
                         unsafe extern "C" {
                             #[link_name = "[constructor]tool-call"]
                             fn wit_import40(
@@ -2714,7 +2714,7 @@ pub mod wassette {
                                 _results: *mut u8,
                             ) -> u32 {
                                 #[cfg(target_arch = "wasm32")]
-                                #[link(wasm_import_module = "wassette:acp/tools@7.0.0")]
+                                #[link(wasm_import_module = "wassette:acp/tools@0.8.0")]
                                 unsafe extern "C" {
                                     #[link_name = "[async-lower][method]tool-call.update"]
                                     fn call(_: *mut u8) -> i32;
@@ -4390,7 +4390,7 @@ pub mod wassette {
                 #[inline]
                 unsafe fn drop(_handle: u32) {
                     #[cfg(target_arch = "wasm32")]
-                    #[link(wasm_import_module = "wassette:acp/agent@7.0.0")]
+                    #[link(wasm_import_module = "wassette:acp/agent@0.8.0")]
                     unsafe extern "C" {
                         #[link_name = "[resource-drop]session"]
                         fn drop(_: i32);
@@ -4451,7 +4451,7 @@ pub mod wassette {
                                 _results: *mut u8,
                             ) -> u32 {
                                 #[cfg(target_arch = "wasm32")]
-                                #[link(wasm_import_module = "wassette:acp/agent@7.0.0")]
+                                #[link(wasm_import_module = "wassette:acp/agent@0.8.0")]
                                 unsafe extern "C" {
                                     #[link_name = "[async-lower][method]session.prompt"]
                                     fn call(_: i32, _: *mut u8, _: usize, _: *mut u8) -> i32;
@@ -5348,7 +5348,7 @@ pub mod wassette {
                                 _results: *mut u8,
                             ) -> u32 {
                                 #[cfg(target_arch = "wasm32")]
-                                #[link(wasm_import_module = "wassette:acp/agent@7.0.0")]
+                                #[link(wasm_import_module = "wassette:acp/agent@0.8.0")]
                                 unsafe extern "C" {
                                     #[link_name = "[async-lower][method]session.set-mode"]
                                     fn call(_: i32, _: *mut u8, _: usize, _: *mut u8) -> i32;
@@ -5507,7 +5507,7 @@ pub mod wassette {
                                 _results: *mut u8,
                             ) -> u32 {
                                 #[cfg(target_arch = "wasm32")]
-                                #[link(wasm_import_module = "wassette:acp/agent@7.0.0")]
+                                #[link(wasm_import_module = "wassette:acp/agent@0.8.0")]
                                 unsafe extern "C" {
                                     #[link_name = "[async-lower][method]session.select-model"]
                                     fn call(_: i32, _: *mut u8, _: usize, _: *mut u8) -> i32;
@@ -5675,7 +5675,7 @@ pub mod wassette {
                                 _results: *mut u8,
                             ) -> u32 {
                                 #[cfg(target_arch = "wasm32")]
-                                #[link(wasm_import_module = "wassette:acp/agent@7.0.0")]
+                                #[link(wasm_import_module = "wassette:acp/agent@0.8.0")]
                                 unsafe extern "C" {
                                     #[link_name = "[async-lower][method]session.set-config-option"]
                                     fn call(_: *mut u8, _: *mut u8) -> i32;
@@ -6250,7 +6250,7 @@ pub mod wassette {
                             _results: *mut u8,
                         ) -> u32 {
                             #[cfg(target_arch = "wasm32")]
-                            #[link(wasm_import_module = "wassette:acp/agent@7.0.0")]
+                            #[link(wasm_import_module = "wassette:acp/agent@0.8.0")]
                             unsafe extern "C" {
                                 #[link_name = "[async-lower]initialize"]
                                 fn call(_: *mut u8, _: *mut u8) -> i32;
@@ -6773,7 +6773,7 @@ pub mod wassette {
                             _results: *mut u8,
                         ) -> u32 {
                             #[cfg(target_arch = "wasm32")]
-                            #[link(wasm_import_module = "wassette:acp/agent@7.0.0")]
+                            #[link(wasm_import_module = "wassette:acp/agent@0.8.0")]
                             unsafe extern "C" {
                                 #[link_name = "[async-lower]authenticate"]
                                 fn call(_: *mut u8, _: usize, _: *mut u8) -> i32;
@@ -6927,7 +6927,7 @@ pub mod wassette {
                             _results: *mut u8,
                         ) -> u32 {
                             #[cfg(target_arch = "wasm32")]
-                            #[link(wasm_import_module = "wassette:acp/agent@7.0.0")]
+                            #[link(wasm_import_module = "wassette:acp/agent@0.8.0")]
                             unsafe extern "C" {
                                 #[link_name = "[async-lower]new-session"]
                                 fn call(
@@ -8378,7 +8378,7 @@ pub mod wassette {
                             _results: *mut u8,
                         ) -> u32 {
                             #[cfg(target_arch = "wasm32")]
-                            #[link(wasm_import_module = "wassette:acp/agent@7.0.0")]
+                            #[link(wasm_import_module = "wassette:acp/agent@0.8.0")]
                             unsafe extern "C" {
                                 #[link_name = "[async-lower]load-session"]
                                 fn call(_: *mut u8, _: *mut u8) -> i32;
@@ -9864,7 +9864,7 @@ pub mod wassette {
                             _results: *mut u8,
                         ) -> u32 {
                             #[cfg(target_arch = "wasm32")]
-                            #[link(wasm_import_module = "wassette:acp/agent@7.0.0")]
+                            #[link(wasm_import_module = "wassette:acp/agent@0.8.0")]
                             unsafe extern "C" {
                                 #[link_name = "[async-lower]list-sessions"]
                                 fn call(_: *mut u8, _: *mut u8) -> i32;
@@ -10251,7 +10251,7 @@ pub mod wassette {
                             _results: *mut u8,
                         ) -> u32 {
                             #[cfg(target_arch = "wasm32")]
-                            #[link(wasm_import_module = "wassette:acp/agent@7.0.0")]
+                            #[link(wasm_import_module = "wassette:acp/agent@0.8.0")]
                             unsafe extern "C" {
                                 #[link_name = "[async-lower]resume-session"]
                                 fn call(_: *mut u8, _: *mut u8) -> i32;
@@ -11835,7 +11835,7 @@ pub mod wassette {
                 #[inline]
                 unsafe fn drop(_handle: u32) {
                     #[cfg(target_arch = "wasm32")]
-                    #[link(wasm_import_module = "wassette:acp/client@7.0.0")]
+                    #[link(wasm_import_module = "wassette:acp/client@0.8.0")]
                     unsafe extern "C" {
                         #[link_name = "[resource-drop]terminal"]
                         fn drop(_: i32);
@@ -11891,7 +11891,7 @@ pub mod wassette {
                             _results: *mut u8,
                         ) -> u32 {
                             #[cfg(target_arch = "wasm32")]
-                            #[link(wasm_import_module = "wassette:acp/client@7.0.0")]
+                            #[link(wasm_import_module = "wassette:acp/client@0.8.0")]
                             unsafe extern "C" {
                                 #[link_name = "[async-lower]notify-session"]
                                 fn call(_: *mut u8) -> i32;
@@ -17417,7 +17417,7 @@ pub mod wassette {
                             _results: *mut u8,
                         ) -> u32 {
                             #[cfg(target_arch = "wasm32")]
-                            #[link(wasm_import_module = "wassette:acp/client@7.0.0")]
+                            #[link(wasm_import_module = "wassette:acp/client@0.8.0")]
                             unsafe extern "C" {
                                 #[link_name = "[async-lower]request-permission"]
                                 fn call(_: *mut u8, _: *mut u8) -> i32;
@@ -18942,7 +18942,7 @@ pub mod wassette {
                             _results: *mut u8,
                         ) -> u32 {
                             #[cfg(target_arch = "wasm32")]
-                            #[link(wasm_import_module = "wassette:acp/client@7.0.0")]
+                            #[link(wasm_import_module = "wassette:acp/client@0.8.0")]
                             unsafe extern "C" {
                                 #[link_name = "[async-lower]read-text-file"]
                                 fn call(_: *mut u8, _: *mut u8) -> i32;
@@ -19183,7 +19183,7 @@ pub mod wassette {
                             _results: *mut u8,
                         ) -> u32 {
                             #[cfg(target_arch = "wasm32")]
-                            #[link(wasm_import_module = "wassette:acp/client@7.0.0")]
+                            #[link(wasm_import_module = "wassette:acp/client@0.8.0")]
                             unsafe extern "C" {
                                 #[link_name = "[async-lower]write-text-file"]
                                 fn call(_: *mut u8, _: *mut u8) -> i32;
@@ -19463,7 +19463,7 @@ pub mod wassette {
                             None => (0i32, 0i64),
                         };
                         #[cfg(target_arch = "wasm32")]
-                        #[link(wasm_import_module = "wassette:acp/client@7.0.0")]
+                        #[link(wasm_import_module = "wassette:acp/client@0.8.0")]
                         unsafe extern "C" {
                             #[link_name = "[constructor]terminal"]
                             fn wit_import12(
@@ -19557,7 +19557,7 @@ pub mod wassette {
                                 _results: *mut u8,
                             ) -> u32 {
                                 #[cfg(target_arch = "wasm32")]
-                                #[link(wasm_import_module = "wassette:acp/client@7.0.0")]
+                                #[link(wasm_import_module = "wassette:acp/client@0.8.0")]
                                 unsafe extern "C" {
                                     #[link_name = "[async-lower][method]terminal.output"]
                                     fn call(_: i32, _: *mut u8) -> i32;
@@ -19645,7 +19645,7 @@ pub mod wassette {
                                 _results: *mut u8,
                             ) -> u32 {
                                 #[cfg(target_arch = "wasm32")]
-                                #[link(wasm_import_module = "wassette:acp/client@7.0.0")]
+                                #[link(wasm_import_module = "wassette:acp/client@0.8.0")]
                                 unsafe extern "C" {
                                     #[link_name = "[async-lower][method]terminal.wait-for-exit"]
                                     fn call(_: i32, _: *mut u8) -> i32;
@@ -19951,7 +19951,7 @@ pub mod exports {
                     #[inline]
                     unsafe fn drop(_handle: u32) {
                         #[cfg(target_arch = "wasm32")]
-                        #[link(wasm_import_module = "[export]wassette:acp/agent@7.0.0")]
+                        #[link(wasm_import_module = "[export]wassette:acp/agent@0.8.0")]
                         unsafe extern "C" {
                             #[link_name = "[resource-drop]session"]
                             fn drop(_: i32);
@@ -20417,7 +20417,7 @@ pub mod exports {
                             };
                             #[cfg(target_arch = "wasm32")]
                             #[link(
-                                wasm_import_module = "[export]wassette:acp/agent@7.0.0"
+                                wasm_import_module = "[export]wassette:acp/agent@0.8.0"
                             )]
                             unsafe extern "C" {
                                 #[link_name = "[task-return][method]session.prompt"]
@@ -20517,7 +20517,7 @@ pub mod exports {
                             };
                             #[cfg(target_arch = "wasm32")]
                             #[link(
-                                wasm_import_module = "[export]wassette:acp/agent@7.0.0"
+                                wasm_import_module = "[export]wassette:acp/agent@0.8.0"
                             )]
                             unsafe extern "C" {
                                 #[link_name = "[task-return][method]session.set-mode"]
@@ -20617,7 +20617,7 @@ pub mod exports {
                             };
                             #[cfg(target_arch = "wasm32")]
                             #[link(
-                                wasm_import_module = "[export]wassette:acp/agent@7.0.0"
+                                wasm_import_module = "[export]wassette:acp/agent@0.8.0"
                             )]
                             unsafe extern "C" {
                                 #[link_name = "[task-return][method]session.select-model"]
@@ -21052,7 +21052,7 @@ pub mod exports {
                             };
                             #[cfg(target_arch = "wasm32")]
                             #[link(
-                                wasm_import_module = "[export]wassette:acp/agent@7.0.0"
+                                wasm_import_module = "[export]wassette:acp/agent@0.8.0"
                             )]
                             unsafe extern "C" {
                                 #[link_name = "[task-return][method]session.set-config-option"]
@@ -21445,7 +21445,7 @@ pub mod exports {
                             };
                             #[cfg(target_arch = "wasm32")]
                             #[link(
-                                wasm_import_module = "[export]wassette:acp/agent@7.0.0"
+                                wasm_import_module = "[export]wassette:acp/agent@0.8.0"
                             )]
                             unsafe extern "C" {
                                 #[link_name = "[task-return]initialize"]
@@ -21525,7 +21525,7 @@ pub mod exports {
                             };
                             #[cfg(target_arch = "wasm32")]
                             #[link(
-                                wasm_import_module = "[export]wassette:acp/agent@7.0.0"
+                                wasm_import_module = "[export]wassette:acp/agent@0.8.0"
                             )]
                             unsafe extern "C" {
                                 #[link_name = "[task-return]authenticate"]
@@ -22520,7 +22520,7 @@ pub mod exports {
                             };
                             #[cfg(target_arch = "wasm32")]
                             #[link(
-                                wasm_import_module = "[export]wassette:acp/agent@7.0.0"
+                                wasm_import_module = "[export]wassette:acp/agent@0.8.0"
                             )]
                             unsafe extern "C" {
                                 #[link_name = "[task-return]new-session"]
@@ -23479,7 +23479,7 @@ pub mod exports {
                             };
                             #[cfg(target_arch = "wasm32")]
                             #[link(
-                                wasm_import_module = "[export]wassette:acp/agent@7.0.0"
+                                wasm_import_module = "[export]wassette:acp/agent@0.8.0"
                             )]
                             unsafe extern "C" {
                                 #[link_name = "[task-return]load-session"]
@@ -23748,7 +23748,7 @@ pub mod exports {
                             };
                             #[cfg(target_arch = "wasm32")]
                             #[link(
-                                wasm_import_module = "[export]wassette:acp/agent@7.0.0"
+                                wasm_import_module = "[export]wassette:acp/agent@0.8.0"
                             )]
                             unsafe extern "C" {
                                 #[link_name = "[task-return]list-sessions"]
@@ -24728,7 +24728,7 @@ pub mod exports {
                             };
                             #[cfg(target_arch = "wasm32")]
                             #[link(
-                                wasm_import_module = "[export]wassette:acp/agent@7.0.0"
+                                wasm_import_module = "[export]wassette:acp/agent@0.8.0"
                             )]
                             unsafe extern "C" {
                                 #[link_name = "[task-return]resume-session"]
@@ -24864,7 +24864,7 @@ pub mod exports {
                         Self: Sized,
                     {
                         #[cfg(target_arch = "wasm32")]
-                        #[link(wasm_import_module = "[export]wassette:acp/agent@7.0.0")]
+                        #[link(wasm_import_module = "[export]wassette:acp/agent@0.8.0")]
                         unsafe extern "C" {
                             #[link_name = "[resource-new]session"]
                             fn new(_: *mut u8) -> i32;
@@ -24881,7 +24881,7 @@ pub mod exports {
                         Self: Sized,
                     {
                         #[cfg(target_arch = "wasm32")]
-                        #[link(wasm_import_module = "[export]wassette:acp/agent@7.0.0")]
+                        #[link(wasm_import_module = "[export]wassette:acp/agent@0.8.0")]
                         unsafe extern "C" {
                             #[link_name = "[resource-rep]session"]
                             fn rep(_: i32) -> *mut u8;
@@ -24941,58 +24941,58 @@ pub mod exports {
                 }
                 #[doc(hidden)]
                 #[macro_export]
-                macro_rules! __export_wassette_acp_agent_7_0_0_cabi {
+                macro_rules! __export_wassette_acp_agent_0_8_0_cabi {
                     ($ty:ident with_types_in $($path_to_types:tt)*) => {
                         const _ : () = { #[unsafe (export_name =
-                        "[async-lift]wassette:acp/agent@7.0.0#[method]session.prompt")]
+                        "[async-lift]wassette:acp/agent@0.8.0#[method]session.prompt")]
                         unsafe extern "C" fn export_method_session_prompt(arg0 : * mut
                         u8, arg1 : * mut u8, arg2 : usize,) -> i32 { unsafe {
                         $($path_to_types)*:: _export_method_session_prompt_cabi::<<$ty as
                         $($path_to_types)*:: Guest >::Session > (arg0, arg1, arg2) } }
                         #[unsafe (export_name =
-                        "[callback][async-lift]wassette:acp/agent@7.0.0#[method]session.prompt")]
+                        "[callback][async-lift]wassette:acp/agent@0.8.0#[method]session.prompt")]
                         unsafe extern "C" fn _callback_method_session_prompt(event0 :
                         u32, event1 : u32, event2 : u32) -> u32 { unsafe {
                         $($path_to_types)*:: __callback_method_session_prompt(event0,
                         event1, event2) } } #[unsafe (export_name =
-                        "[async-lift]wassette:acp/agent@7.0.0#[method]session.set-mode")]
+                        "[async-lift]wassette:acp/agent@0.8.0#[method]session.set-mode")]
                         unsafe extern "C" fn export_method_session_set_mode(arg0 : * mut
                         u8, arg1 : * mut u8, arg2 : usize,) -> i32 { unsafe {
                         $($path_to_types)*:: _export_method_session_set_mode_cabi::<<$ty
                         as $($path_to_types)*:: Guest >::Session > (arg0, arg1, arg2) } }
                         #[unsafe (export_name =
-                        "[callback][async-lift]wassette:acp/agent@7.0.0#[method]session.set-mode")]
+                        "[callback][async-lift]wassette:acp/agent@0.8.0#[method]session.set-mode")]
                         unsafe extern "C" fn _callback_method_session_set_mode(event0 :
                         u32, event1 : u32, event2 : u32) -> u32 { unsafe {
                         $($path_to_types)*:: __callback_method_session_set_mode(event0,
                         event1, event2) } } #[unsafe (export_name =
-                        "[async-lift]wassette:acp/agent@7.0.0#[method]session.select-model")]
+                        "[async-lift]wassette:acp/agent@0.8.0#[method]session.select-model")]
                         unsafe extern "C" fn export_method_session_select_model(arg0 : *
                         mut u8, arg1 : * mut u8, arg2 : usize,) -> i32 { unsafe {
                         $($path_to_types)*::
                         _export_method_session_select_model_cabi::<<$ty as
                         $($path_to_types)*:: Guest >::Session > (arg0, arg1, arg2) } }
                         #[unsafe (export_name =
-                        "[callback][async-lift]wassette:acp/agent@7.0.0#[method]session.select-model")]
+                        "[callback][async-lift]wassette:acp/agent@0.8.0#[method]session.select-model")]
                         unsafe extern "C" fn _callback_method_session_select_model(event0
                         : u32, event1 : u32, event2 : u32) -> u32 { unsafe {
                         $($path_to_types)*::
                         __callback_method_session_select_model(event0, event1, event2) }
                         } #[unsafe (export_name =
-                        "[async-lift]wassette:acp/agent@7.0.0#[method]session.set-config-option")]
+                        "[async-lift]wassette:acp/agent@0.8.0#[method]session.set-config-option")]
                         unsafe extern "C" fn export_method_session_set_config_option(arg0
                         : * mut u8, arg1 : * mut u8, arg2 : usize, arg3 : * mut u8, arg4
                         : usize,) -> i32 { unsafe { $($path_to_types)*::
                         _export_method_session_set_config_option_cabi::<<$ty as
                         $($path_to_types)*:: Guest >::Session > (arg0, arg1, arg2, arg3,
                         arg4) } } #[unsafe (export_name =
-                        "[callback][async-lift]wassette:acp/agent@7.0.0#[method]session.set-config-option")]
+                        "[callback][async-lift]wassette:acp/agent@0.8.0#[method]session.set-config-option")]
                         unsafe extern "C" fn
                         _callback_method_session_set_config_option(event0 : u32, event1 :
                         u32, event2 : u32) -> u32 { unsafe { $($path_to_types)*::
                         __callback_method_session_set_config_option(event0, event1,
                         event2) } } #[unsafe (export_name =
-                        "[async-lift]wassette:acp/agent@7.0.0#initialize")] unsafe extern
+                        "[async-lift]wassette:acp/agent@0.8.0#initialize")] unsafe extern
                         "C" fn export_initialize(arg0 : i32, arg1 : i32, arg2 : i32, arg3
                         : i32, arg4 : i32, arg5 : * mut u8, arg6 : usize, arg7 : i32,
                         arg8 : * mut u8, arg9 : usize, arg10 : * mut u8, arg11 : usize,)
@@ -25000,72 +25000,72 @@ pub mod exports {
                         _export_initialize_cabi::<$ty > (arg0, arg1, arg2, arg3, arg4,
                         arg5, arg6, arg7, arg8, arg9, arg10, arg11) } } #[unsafe
                         (export_name =
-                        "[callback][async-lift]wassette:acp/agent@7.0.0#initialize")]
+                        "[callback][async-lift]wassette:acp/agent@0.8.0#initialize")]
                         unsafe extern "C" fn _callback_initialize(event0 : u32, event1 :
                         u32, event2 : u32) -> u32 { unsafe { $($path_to_types)*::
                         __callback_initialize(event0, event1, event2) } } #[unsafe
                         (export_name =
-                        "[async-lift]wassette:acp/agent@7.0.0#authenticate")] unsafe
+                        "[async-lift]wassette:acp/agent@0.8.0#authenticate")] unsafe
                         extern "C" fn export_authenticate(arg0 : * mut u8, arg1 : usize,)
                         -> i32 { unsafe { $($path_to_types)*::
                         _export_authenticate_cabi::<$ty > (arg0, arg1) } } #[unsafe
                         (export_name =
-                        "[callback][async-lift]wassette:acp/agent@7.0.0#authenticate")]
+                        "[callback][async-lift]wassette:acp/agent@0.8.0#authenticate")]
                         unsafe extern "C" fn _callback_authenticate(event0 : u32, event1
                         : u32, event2 : u32) -> u32 { unsafe { $($path_to_types)*::
                         __callback_authenticate(event0, event1, event2) } } #[unsafe
                         (export_name =
-                        "[async-lift]wassette:acp/agent@7.0.0#new-session")] unsafe
+                        "[async-lift]wassette:acp/agent@0.8.0#new-session")] unsafe
                         extern "C" fn export_new_session(arg0 : * mut u8, arg1 : usize,
                         arg2 : * mut u8, arg3 : usize,) -> i32 { unsafe {
                         $($path_to_types)*:: _export_new_session_cabi::<$ty > (arg0,
                         arg1, arg2, arg3) } } #[unsafe (export_name =
-                        "[callback][async-lift]wassette:acp/agent@7.0.0#new-session")]
+                        "[callback][async-lift]wassette:acp/agent@0.8.0#new-session")]
                         unsafe extern "C" fn _callback_new_session(event0 : u32, event1 :
                         u32, event2 : u32) -> u32 { unsafe { $($path_to_types)*::
                         __callback_new_session(event0, event1, event2) } } #[unsafe
                         (export_name =
-                        "[async-lift]wassette:acp/agent@7.0.0#load-session")] unsafe
+                        "[async-lift]wassette:acp/agent@0.8.0#load-session")] unsafe
                         extern "C" fn export_load_session(arg0 : * mut u8, arg1 : usize,
                         arg2 : * mut u8, arg3 : usize, arg4 : * mut u8, arg5 : usize,) ->
                         i32 { unsafe { $($path_to_types)*::
                         _export_load_session_cabi::<$ty > (arg0, arg1, arg2, arg3, arg4,
                         arg5) } } #[unsafe (export_name =
-                        "[callback][async-lift]wassette:acp/agent@7.0.0#load-session")]
+                        "[callback][async-lift]wassette:acp/agent@0.8.0#load-session")]
                         unsafe extern "C" fn _callback_load_session(event0 : u32, event1
                         : u32, event2 : u32) -> u32 { unsafe { $($path_to_types)*::
                         __callback_load_session(event0, event1, event2) } } #[unsafe
                         (export_name =
-                        "[async-lift]wassette:acp/agent@7.0.0#list-sessions")] unsafe
+                        "[async-lift]wassette:acp/agent@0.8.0#list-sessions")] unsafe
                         extern "C" fn export_list_sessions(arg0 : i32, arg1 : * mut u8,
                         arg2 : usize, arg3 : i32, arg4 : * mut u8, arg5 : usize,) -> i32
                         { unsafe { $($path_to_types)*:: _export_list_sessions_cabi::<$ty
                         > (arg0, arg1, arg2, arg3, arg4, arg5) } } #[unsafe (export_name
                         =
-                        "[callback][async-lift]wassette:acp/agent@7.0.0#list-sessions")]
+                        "[callback][async-lift]wassette:acp/agent@0.8.0#list-sessions")]
                         unsafe extern "C" fn _callback_list_sessions(event0 : u32, event1
                         : u32, event2 : u32) -> u32 { unsafe { $($path_to_types)*::
                         __callback_list_sessions(event0, event1, event2) } } #[unsafe
                         (export_name =
-                        "[async-lift]wassette:acp/agent@7.0.0#resume-session")] unsafe
+                        "[async-lift]wassette:acp/agent@0.8.0#resume-session")] unsafe
                         extern "C" fn export_resume_session(arg0 : * mut u8, arg1 :
                         usize, arg2 : * mut u8, arg3 : usize, arg4 : * mut u8, arg5 :
                         usize,) -> i32 { unsafe { $($path_to_types)*::
                         _export_resume_session_cabi::<$ty > (arg0, arg1, arg2, arg3,
                         arg4, arg5) } } #[unsafe (export_name =
-                        "[callback][async-lift]wassette:acp/agent@7.0.0#resume-session")]
+                        "[callback][async-lift]wassette:acp/agent@0.8.0#resume-session")]
                         unsafe extern "C" fn _callback_resume_session(event0 : u32,
                         event1 : u32, event2 : u32) -> u32 { unsafe {
                         $($path_to_types)*:: __callback_resume_session(event0, event1,
                         event2) } } const _ : () = { #[doc(hidden)] #[unsafe (export_name
-                        = "wassette:acp/agent@7.0.0#[dtor]session")]
+                        = "wassette:acp/agent@0.8.0#[dtor]session")]
                         #[allow(non_snake_case)] unsafe extern "C" fn dtor(rep : * mut
                         u8) { unsafe { $($path_to_types)*:: Session::dtor::< <$ty as
                         $($path_to_types)*:: Guest >::Session > (rep) } } }; };
                     };
                 }
                 #[doc(hidden)]
-                pub use __export_wassette_acp_agent_7_0_0_cabi;
+                pub use __export_wassette_acp_agent_0_8_0_cabi;
                 #[cfg_attr(target_pointer_width = "64", repr(align(8)))]
                 #[cfg_attr(target_pointer_width = "32", repr(align(4)))]
                 struct _RetArea(
@@ -25338,7 +25338,7 @@ pub mod wit_stream {
             unreachable!()
         }
         #[cfg(target_arch = "wasm32")]
-        #[link(wasm_import_module = "wassette:acp/client@7.0.0")]
+        #[link(wasm_import_module = "wassette:acp/client@0.8.0")]
         unsafe extern "C" {
             #[link_name = "[stream-new-0][method]terminal.output"]
             fn new() -> u64;
@@ -25407,10 +25407,10 @@ macro_rules! __export_provider_impl {
     };
     ($ty:ident with_types_in $($path_to_types_root:tt)*) => {
         $($path_to_types_root)*::
-        exports::wassette::acp::agent::__export_wassette_acp_agent_7_0_0_cabi!($ty
+        exports::wassette::acp::agent::__export_wassette_acp_agent_0_8_0_cabi!($ty
         with_types_in $($path_to_types_root)*:: exports::wassette::acp::agent); const _ :
         () = { #[rustfmt::skip] #[cfg(target_arch = "wasm32")] #[unsafe (link_section =
-        "component-type:wit-bindgen:0.54.0:wassette:acp@7.0.0:provider:imports and exports")]
+        "component-type:wit-bindgen:0.54.0:wassette:acp@0.8.0:provider:imports and exports")]
         #[doc(hidden)] #[allow(clippy::octal_escapes)] pub static
         __WIT_BINDGEN_COMPONENT_TYPE : [u8; 9620] = *
         b"\
@@ -25418,7 +25418,7 @@ macro_rules! __export_provider_impl {
 B\x04\x01q\x08\x0bparse-error\0\0\x0finvalid-request\0\0\x10method-not-found\0\0\
 \x0einvalid-params\0\0\x0einternal-error\0\0\x0dauth-required\0\0\x12resource-no\
 t-found\0\0\x05other\x01z\0\x04\0\x0aerror-code\x03\0\0\x01r\x02\x04code\x01\x07\
-messages\x04\0\x05error\x03\0\x02\x03\0\x19wassette:acp/errors@7.0.0\x05\0\x01B\x19\
+messages\x04\0\x05error\x03\0\x02\x03\0\x19wassette:acp/errors@0.8.0\x05\0\x01B\x19\
 \x01ks\x01r\x03\x04names\x05title\0\x07versions\x04\0\x13implementation-info\x03\
 \0\x01\x01r\x02\x0eread-text-file\x7f\x0fwrite-text-file\x7f\x04\0\x0ffs-capabil\
 ities\x03\0\x03\x01r\x02\x02fs\x04\x08terminal\x7f\x04\0\x13client-capabilities\x03\
@@ -25432,7 +25432,7 @@ r\x01\x09method-ids\x04\0\x14authenticate-request\x03\0\x11\x01k\x02\x01r\x03\x1
 protocol-versiony\x13client-capabilities\x06\x0bclient-info\x13\x04\0\x12initial\
 ize-request\x03\0\x14\x01p\x10\x01r\x04\x10protocol-versiony\x12agent-capabiliti\
 es\x0e\x0aagent-info\x13\x0cauth-methods\x16\x04\0\x13initialize-response\x03\0\x17\
-\x03\0\x17wassette:acp/init@7.0.0\x05\x01\x01BS\x01s\x04\0\x0asession-id\x03\0\0\
+\x03\0\x17wassette:acp/init@0.8.0\x05\x01\x01BS\x01s\x04\0\x0asession-id\x03\0\0\
 \x01s\x04\0\x0fsession-mode-id\x03\0\x02\x01s\x04\0\x10session-model-id\x03\0\x04\
 \x01r\x02\x04names\x05values\x04\0\x07env-var\x03\0\x06\x01r\x02\x04names\x05val\
 ues\x04\0\x0bhttp-header\x03\0\x08\x01ps\x01p\x07\x01r\x04\x04names\x07commands\x04\
@@ -25467,7 +25467,7 @@ modes<\x06models=\x0econfig-options?\x04\0\x15load-session-response\x03\0D\x01r\
 onse\x03\0K\x01r\x03\x0asession-id\x01\x03cwds\x0bmcp-servers9\x04\0\x16resume-s\
 ession-request\x03\0M\x01r\x03\x05modes<\x06models=\x0econfig-options?\x04\0\x17\
 resume-session-response\x03\0O\x01r\x02\x05title\x17\x0aupdated-at\x17\x04\0\x13\
-session-info-update\x03\0Q\x03\0\x1bwassette:acp/sessions@7.0.0\x05\x02\x01B\x14\
+session-info-update\x03\0Q\x03\0\x1bwassette:acp/sessions@0.8.0\x05\x02\x01B\x14\
 \x01r\x01\x04texts\x04\0\x0ctext-content\x03\0\0\x01ks\x01r\x03\x04datas\x09mime\
 -types\x03uri\x02\x04\0\x0dimage-content\x03\0\x03\x01r\x02\x04datas\x09mime-typ\
 es\x04\0\x0daudio-content\x03\0\x05\x01kw\x01r\x06\x03uris\x04names\x09mime-type\
@@ -25478,7 +25478,7 @@ es\x04\0\x0daudio-content\x03\0\x05\x01kw\x01r\x06\x03uris\x04names\x09mime-type
 \0\x0e\x01r\x01\x08resource\x0f\x04\0\x11embedded-resource\x03\0\x10\x01q\x05\x04\
 text\x01\x01\0\x05image\x01\x04\0\x05audio\x01\x06\0\x0dresource-link\x01\x09\0\x08\
 resource\x01\x11\0\x04\0\x0dcontent-block\x03\0\x12\x03\0\x1awassette:acp/conten\
-t@7.0.0\x05\x03\x02\x03\0\x02\x0asession-id\x02\x03\0\x02\x07env-var\x01B\x14\x02\
+t@0.8.0\x05\x03\x02\x03\0\x02\x0asession-id\x02\x03\0\x02\x07env-var\x01B\x14\x02\
 \x03\x02\x01\x04\x04\0\x0asession-id\x03\0\0\x02\x03\x02\x01\x05\x04\0\x07env-va\
 r\x03\0\x02\x01s\x04\0\x0bterminal-id\x03\0\x04\x01ps\x01p\x03\x01ks\x01kw\x01r\x06\
 \x0asession-id\x01\x07commands\x04args\x06\x03env\x07\x03cwd\x08\x11output-byte-\
@@ -25486,7 +25486,7 @@ limit\x09\x04\0\x17create-terminal-request\x03\0\x0a\x01r\x01\x0bterminal-id\x05
 \x04\0\x18create-terminal-response\x03\0\x0c\x01kz\x01r\x02\x09exit-code\x0e\x06\
 signal\x08\x04\0\x14terminal-exit-status\x03\0\x0f\x01k\x10\x01r\x03\x06outputs\x09\
 truncated\x7f\x0bexit-status\x11\x04\0\x0fterminal-output\x03\0\x12\x03\0\x1cwas\
-sette:acp/terminals@7.0.0\x05\x06\x02\x03\0\x03\x0dcontent-block\x02\x03\0\x04\x0b\
+sette:acp/terminals@0.8.0\x05\x06\x02\x03\0\x03\x0dcontent-block\x02\x03\0\x04\x0b\
 terminal-id\x01B9\x02\x03\x02\x01\x07\x04\0\x0dcontent-block\x03\0\0\x02\x03\x02\
 \x01\x08\x04\0\x0bterminal-id\x03\0\x02\x01s\x04\0\x0ctool-call-id\x03\0\x04\x04\
 \0\x09tool-call\x03\x01\x01m\x09\x04read\x04edit\x06delete\x04move\x06search\x07\
@@ -25512,7 +25512,7 @@ mission-request\x03\0-\x01q\x02\x08selected\x01s\0\x09cancelled\0\0\x04\0\x12per
 mission-outcome\x03\0/\x01r\x01\x07outcome0\x04\0\x1brequest-permission-response\
 \x03\01\x01i\x06\x01@\x01\x07initial\x16\03\x04\0\x16[constructor]tool-call\x014\
 \x01h\x06\x01C\x02\x04self5\x05patch\x1c\x01\0\x04\0\x18[method]tool-call.update\
-\x016\x03\0\x18wassette:acp/tools@7.0.0\x05\x09\x02\x03\0\x02\x0fsession-mode-id\
+\x016\x03\0\x18wassette:acp/tools@0.8.0\x05\x09\x02\x03\0\x02\x0fsession-mode-id\
 \x02\x03\0\x02\x13session-info-update\x02\x03\0\x05\x12tool-call-snapshot\x02\x03\
 \0\x05\x04plan\x01B\x1b\x02\x03\x02\x01\x0a\x04\0\x0fsession-mode-id\x03\0\0\x02\
 \x03\x02\x01\x0b\x04\0\x13session-info-update\x03\0\x02\x02\x03\x02\x01\x07\x04\0\
@@ -25528,7 +25528,7 @@ encys\x04\0\x0ausage-cost\x03\0\x13\x01k\x14\x01r\x03\x04usedw\x04sizew\x04cost\
 l\x01\x07\0\x10tool-call-update\x01\x07\0\x04plan\x01\x09\0\x13current-mode-upda\
 te\x01\x01\0\x13session-info-update\x01\x03\0\x19available-commands-update\x01\x18\
 \0\x0cusage-update\x01\x17\0\x04\0\x0esession-update\x03\0\x19\x03\0\x1awassette\
-:acp/prompts@7.0.0\x05\x0e\x02\x03\0\0\x05error\x02\x03\0\x01\x12initialize-requ\
+:acp/prompts@0.8.0\x05\x0e\x02\x03\0\0\x05error\x02\x03\0\x01\x12initialize-requ\
 est\x02\x03\0\x01\x13initialize-response\x02\x03\0\x01\x14authenticate-request\x02\
 \x03\0\x02\x10session-model-id\x02\x03\0\x02\x11session-config-id\x02\x03\0\x02\x17\
 session-config-value-id\x02\x03\0\x02\x15session-config-option\x02\x03\0\x02\x13\
@@ -25560,12 +25560,12 @@ req\x07\0+\x04\0\x0cauthenticate\x013\x01i&\x01o\x024\x15\x01j\x015\x01\x01\x01C
 \x01\x03req\x13\06\x04\0\x0bnew-session\x017\x01o\x024\x19\x01j\x018\x01\x01\x01\
 C\x01\x03req\x17\09\x04\0\x0cload-session\x01:\x01j\x01\x1d\x01\x01\x01C\x01\x03\
 req\x1b\0;\x04\0\x0dlist-sessions\x01<\x01o\x024!\x01j\x01=\x01\x01\x01C\x01\x03\
-req\x1f\0>\x04\0\x0eresume-session\x01?\x03\0\x18wassette:acp/agent@7.0.0\x05\x20\
+req\x1f\0>\x04\0\x0eresume-session\x01?\x03\0\x18wassette:acp/agent@0.8.0\x05\x20\
 \x01B\x09\x02\x03\x02\x01\x04\x04\0\x0asession-id\x03\0\0\x01ky\x01r\x04\x0asess\
 ion-id\x01\x04paths\x04line\x02\x05limit\x02\x04\0\x16read-text-file-request\x03\
 \0\x03\x01r\x01\x07contents\x04\0\x17read-text-file-response\x03\0\x05\x01r\x03\x0a\
 session-id\x01\x04paths\x07contents\x04\0\x17write-text-file-request\x03\0\x07\x03\
-\0\x1dwassette:acp/filesystem@7.0.0\x05!\x02\x03\0\x06\x0esession-update\x02\x03\
+\0\x1dwassette:acp/filesystem@0.8.0\x05!\x02\x03\0\x06\x0esession-update\x02\x03\
 \0\x05\x1arequest-permission-request\x02\x03\0\x05\x1brequest-permission-respons\
 e\x02\x03\0\x08\x16read-text-file-request\x02\x03\0\x08\x17read-text-file-respon\
 se\x02\x03\0\x08\x17write-text-file-request\x02\x03\0\x04\x17create-terminal-req\
@@ -25584,7 +25584,7 @@ f\x01}\x01C\x01\x04self\x17\0\x18\x04\0\x17[method]terminal.output\x01\x19\x01j\
 \x01j\x01\x09\x01\x01\x01C\x01\x03req\x07\0\x1d\x04\0\x12request-permission\x01\x1e\
 \x01j\x01\x0d\x01\x01\x01C\x01\x03req\x0b\0\x1f\x04\0\x0eread-text-file\x01\x20\x01\
 j\0\x01\x01\x01C\x01\x03req\x0f\0!\x04\0\x0fwrite-text-file\x01\"\x03\0\x19wasse\
-tte:acp/client@7.0.0\x05*\x01B\x0a\x01q\x03\x08upstream\x01s\0\x02io\x01s\0\x09n\
+tte:acp/client@0.8.0\x05*\x01B\x0a\x01q\x03\x08upstream\x01s\0\x02io\x01s\0\x09n\
 ot-found\0\0\x04\0\x0dsecrets-error\x03\0\0\x01p}\x01q\x02\x06string\x01s\0\x05b\
 ytes\x01\x02\0\x04\0\x0csecret-value\x03\0\x03\x04\0\x06secret\x03\x01\x01i\x05\x01\
 j\x01\x06\x01\x01\x01@\x01\x03keys\0\x07\x04\0\x03get\x01\x08\x03\0#wasmcloud:se\
@@ -25616,7 +25616,7 @@ session.set-config-option\x010\x01j\x01\x05\x01\x01\x01C\x01\x03req\x03\01\x04\0
 o\x024\x19\x01j\x018\x01\x01\x01C\x01\x03req\x17\09\x04\0\x0cload-session\x01:\x01\
 j\x01\x1d\x01\x01\x01C\x01\x03req\x1b\0;\x04\0\x0dlist-sessions\x01<\x01o\x024!\x01\
 j\x01=\x01\x01\x01C\x01\x03req\x1f\0>\x04\0\x0eresume-session\x01?\x04\0\x18wass\
-ette:acp/agent@7.0.0\x05/\x04\0\x1bwassette:acp/provider@7.0.0\x04\0\x0b\x0e\x01\
+ette:acp/agent@0.8.0\x05/\x04\0\x1bwassette:acp/provider@0.8.0\x04\0\x0b\x0e\x01\
 \0\x08provider\x03\0\0\0G\x09producers\x01\x0cprocessed-by\x02\x0dwit-component\x07\
 0.245.1\x10wit-bindgen-rust\x060.54.0";
         };
@@ -25627,7 +25627,7 @@ pub use __export_provider_impl as export;
 #[rustfmt::skip]
 #[cfg(target_arch = "wasm32")]
 #[unsafe(
-    link_section = "component-type:wit-bindgen:0.54.0:wassette:acp@7.0.0:provider-with-all-of-its-exports-removed:encoded world"
+    link_section = "component-type:wit-bindgen:0.54.0:wassette:acp@0.8.0:provider-with-all-of-its-exports-removed:encoded world"
 )]
 #[doc(hidden)]
 #[allow(clippy::octal_escapes)]
@@ -25636,7 +25636,7 @@ pub static __WIT_BINDGEN_COMPONENT_TYPE: [u8; 8629] = *b"\
 B\x04\x01q\x08\x0bparse-error\0\0\x0finvalid-request\0\0\x10method-not-found\0\0\
 \x0einvalid-params\0\0\x0einternal-error\0\0\x0dauth-required\0\0\x12resource-no\
 t-found\0\0\x05other\x01z\0\x04\0\x0aerror-code\x03\0\0\x01r\x02\x04code\x01\x07\
-messages\x04\0\x05error\x03\0\x02\x03\0\x19wassette:acp/errors@7.0.0\x05\0\x01B\x19\
+messages\x04\0\x05error\x03\0\x02\x03\0\x19wassette:acp/errors@0.8.0\x05\0\x01B\x19\
 \x01ks\x01r\x03\x04names\x05title\0\x07versions\x04\0\x13implementation-info\x03\
 \0\x01\x01r\x02\x0eread-text-file\x7f\x0fwrite-text-file\x7f\x04\0\x0ffs-capabil\
 ities\x03\0\x03\x01r\x02\x02fs\x04\x08terminal\x7f\x04\0\x13client-capabilities\x03\
@@ -25650,7 +25650,7 @@ r\x01\x09method-ids\x04\0\x14authenticate-request\x03\0\x11\x01k\x02\x01r\x03\x1
 protocol-versiony\x13client-capabilities\x06\x0bclient-info\x13\x04\0\x12initial\
 ize-request\x03\0\x14\x01p\x10\x01r\x04\x10protocol-versiony\x12agent-capabiliti\
 es\x0e\x0aagent-info\x13\x0cauth-methods\x16\x04\0\x13initialize-response\x03\0\x17\
-\x03\0\x17wassette:acp/init@7.0.0\x05\x01\x01BS\x01s\x04\0\x0asession-id\x03\0\0\
+\x03\0\x17wassette:acp/init@0.8.0\x05\x01\x01BS\x01s\x04\0\x0asession-id\x03\0\0\
 \x01s\x04\0\x0fsession-mode-id\x03\0\x02\x01s\x04\0\x10session-model-id\x03\0\x04\
 \x01r\x02\x04names\x05values\x04\0\x07env-var\x03\0\x06\x01r\x02\x04names\x05val\
 ues\x04\0\x0bhttp-header\x03\0\x08\x01ps\x01p\x07\x01r\x04\x04names\x07commands\x04\
@@ -25685,7 +25685,7 @@ modes<\x06models=\x0econfig-options?\x04\0\x15load-session-response\x03\0D\x01r\
 onse\x03\0K\x01r\x03\x0asession-id\x01\x03cwds\x0bmcp-servers9\x04\0\x16resume-s\
 ession-request\x03\0M\x01r\x03\x05modes<\x06models=\x0econfig-options?\x04\0\x17\
 resume-session-response\x03\0O\x01r\x02\x05title\x17\x0aupdated-at\x17\x04\0\x13\
-session-info-update\x03\0Q\x03\0\x1bwassette:acp/sessions@7.0.0\x05\x02\x01B\x14\
+session-info-update\x03\0Q\x03\0\x1bwassette:acp/sessions@0.8.0\x05\x02\x01B\x14\
 \x01r\x01\x04texts\x04\0\x0ctext-content\x03\0\0\x01ks\x01r\x03\x04datas\x09mime\
 -types\x03uri\x02\x04\0\x0dimage-content\x03\0\x03\x01r\x02\x04datas\x09mime-typ\
 es\x04\0\x0daudio-content\x03\0\x05\x01kw\x01r\x06\x03uris\x04names\x09mime-type\
@@ -25696,7 +25696,7 @@ es\x04\0\x0daudio-content\x03\0\x05\x01kw\x01r\x06\x03uris\x04names\x09mime-type
 \0\x0e\x01r\x01\x08resource\x0f\x04\0\x11embedded-resource\x03\0\x10\x01q\x05\x04\
 text\x01\x01\0\x05image\x01\x04\0\x05audio\x01\x06\0\x0dresource-link\x01\x09\0\x08\
 resource\x01\x11\0\x04\0\x0dcontent-block\x03\0\x12\x03\0\x1awassette:acp/conten\
-t@7.0.0\x05\x03\x02\x03\0\x02\x0asession-id\x02\x03\0\x02\x07env-var\x01B\x14\x02\
+t@0.8.0\x05\x03\x02\x03\0\x02\x0asession-id\x02\x03\0\x02\x07env-var\x01B\x14\x02\
 \x03\x02\x01\x04\x04\0\x0asession-id\x03\0\0\x02\x03\x02\x01\x05\x04\0\x07env-va\
 r\x03\0\x02\x01s\x04\0\x0bterminal-id\x03\0\x04\x01ps\x01p\x03\x01ks\x01kw\x01r\x06\
 \x0asession-id\x01\x07commands\x04args\x06\x03env\x07\x03cwd\x08\x11output-byte-\
@@ -25704,7 +25704,7 @@ limit\x09\x04\0\x17create-terminal-request\x03\0\x0a\x01r\x01\x0bterminal-id\x05
 \x04\0\x18create-terminal-response\x03\0\x0c\x01kz\x01r\x02\x09exit-code\x0e\x06\
 signal\x08\x04\0\x14terminal-exit-status\x03\0\x0f\x01k\x10\x01r\x03\x06outputs\x09\
 truncated\x7f\x0bexit-status\x11\x04\0\x0fterminal-output\x03\0\x12\x03\0\x1cwas\
-sette:acp/terminals@7.0.0\x05\x06\x02\x03\0\x03\x0dcontent-block\x02\x03\0\x04\x0b\
+sette:acp/terminals@0.8.0\x05\x06\x02\x03\0\x03\x0dcontent-block\x02\x03\0\x04\x0b\
 terminal-id\x01B9\x02\x03\x02\x01\x07\x04\0\x0dcontent-block\x03\0\0\x02\x03\x02\
 \x01\x08\x04\0\x0bterminal-id\x03\0\x02\x01s\x04\0\x0ctool-call-id\x03\0\x04\x04\
 \0\x09tool-call\x03\x01\x01m\x09\x04read\x04edit\x06delete\x04move\x06search\x07\
@@ -25730,7 +25730,7 @@ mission-request\x03\0-\x01q\x02\x08selected\x01s\0\x09cancelled\0\0\x04\0\x12per
 mission-outcome\x03\0/\x01r\x01\x07outcome0\x04\0\x1brequest-permission-response\
 \x03\01\x01i\x06\x01@\x01\x07initial\x16\03\x04\0\x16[constructor]tool-call\x014\
 \x01h\x06\x01C\x02\x04self5\x05patch\x1c\x01\0\x04\0\x18[method]tool-call.update\
-\x016\x03\0\x18wassette:acp/tools@7.0.0\x05\x09\x02\x03\0\x02\x0fsession-mode-id\
+\x016\x03\0\x18wassette:acp/tools@0.8.0\x05\x09\x02\x03\0\x02\x0fsession-mode-id\
 \x02\x03\0\x02\x13session-info-update\x02\x03\0\x05\x12tool-call-snapshot\x02\x03\
 \0\x05\x04plan\x01B\x1b\x02\x03\x02\x01\x0a\x04\0\x0fsession-mode-id\x03\0\0\x02\
 \x03\x02\x01\x0b\x04\0\x13session-info-update\x03\0\x02\x02\x03\x02\x01\x07\x04\0\
@@ -25746,7 +25746,7 @@ encys\x04\0\x0ausage-cost\x03\0\x13\x01k\x14\x01r\x03\x04usedw\x04sizew\x04cost\
 l\x01\x07\0\x10tool-call-update\x01\x07\0\x04plan\x01\x09\0\x13current-mode-upda\
 te\x01\x01\0\x13session-info-update\x01\x03\0\x19available-commands-update\x01\x18\
 \0\x0cusage-update\x01\x17\0\x04\0\x0esession-update\x03\0\x19\x03\0\x1awassette\
-:acp/prompts@7.0.0\x05\x0e\x02\x03\0\0\x05error\x02\x03\0\x01\x12initialize-requ\
+:acp/prompts@0.8.0\x05\x0e\x02\x03\0\0\x05error\x02\x03\0\x01\x12initialize-requ\
 est\x02\x03\0\x01\x13initialize-response\x02\x03\0\x01\x14authenticate-request\x02\
 \x03\0\x02\x10session-model-id\x02\x03\0\x02\x11session-config-id\x02\x03\0\x02\x17\
 session-config-value-id\x02\x03\0\x02\x15session-config-option\x02\x03\0\x02\x13\
@@ -25778,12 +25778,12 @@ req\x07\0+\x04\0\x0cauthenticate\x013\x01i&\x01o\x024\x15\x01j\x015\x01\x01\x01C
 \x01\x03req\x13\06\x04\0\x0bnew-session\x017\x01o\x024\x19\x01j\x018\x01\x01\x01\
 C\x01\x03req\x17\09\x04\0\x0cload-session\x01:\x01j\x01\x1d\x01\x01\x01C\x01\x03\
 req\x1b\0;\x04\0\x0dlist-sessions\x01<\x01o\x024!\x01j\x01=\x01\x01\x01C\x01\x03\
-req\x1f\0>\x04\0\x0eresume-session\x01?\x03\0\x18wassette:acp/agent@7.0.0\x05\x20\
+req\x1f\0>\x04\0\x0eresume-session\x01?\x03\0\x18wassette:acp/agent@0.8.0\x05\x20\
 \x01B\x09\x02\x03\x02\x01\x04\x04\0\x0asession-id\x03\0\0\x01ky\x01r\x04\x0asess\
 ion-id\x01\x04paths\x04line\x02\x05limit\x02\x04\0\x16read-text-file-request\x03\
 \0\x03\x01r\x01\x07contents\x04\0\x17read-text-file-response\x03\0\x05\x01r\x03\x0a\
 session-id\x01\x04paths\x07contents\x04\0\x17write-text-file-request\x03\0\x07\x03\
-\0\x1dwassette:acp/filesystem@7.0.0\x05!\x02\x03\0\x06\x0esession-update\x02\x03\
+\0\x1dwassette:acp/filesystem@0.8.0\x05!\x02\x03\0\x06\x0esession-update\x02\x03\
 \0\x05\x1arequest-permission-request\x02\x03\0\x05\x1brequest-permission-respons\
 e\x02\x03\0\x08\x16read-text-file-request\x02\x03\0\x08\x17read-text-file-respon\
 se\x02\x03\0\x08\x17write-text-file-request\x02\x03\0\x04\x17create-terminal-req\
@@ -25802,7 +25802,7 @@ f\x01}\x01C\x01\x04self\x17\0\x18\x04\0\x17[method]terminal.output\x01\x19\x01j\
 \x01j\x01\x09\x01\x01\x01C\x01\x03req\x07\0\x1d\x04\0\x12request-permission\x01\x1e\
 \x01j\x01\x0d\x01\x01\x01C\x01\x03req\x0b\0\x1f\x04\0\x0eread-text-file\x01\x20\x01\
 j\0\x01\x01\x01C\x01\x03req\x0f\0!\x04\0\x0fwrite-text-file\x01\"\x03\0\x19wasse\
-tte:acp/client@7.0.0\x05*\x01B\x0a\x01q\x03\x08upstream\x01s\0\x02io\x01s\0\x09n\
+tte:acp/client@0.8.0\x05*\x01B\x0a\x01q\x03\x08upstream\x01s\0\x02io\x01s\0\x09n\
 ot-found\0\0\x04\0\x0dsecrets-error\x03\0\0\x01p}\x01q\x02\x06string\x01s\0\x05b\
 ytes\x01\x02\0\x04\0\x0csecret-value\x03\0\x03\x04\0\x06secret\x03\x01\x01i\x05\x01\
 j\x01\x06\x01\x01\x01@\x01\x03keys\0\x07\x04\0\x03get\x01\x08\x03\0#wasmcloud:se\
@@ -25810,7 +25810,7 @@ crets/store@0.1.0-draft\x05+\x02\x03\0\x0a\x06secret\x02\x03\0\x0a\x0csecret-val
 ue\x01B\x07\x02\x03\x02\x01,\x04\0\x06secret\x03\0\0\x02\x03\x02\x01-\x04\0\x0cs\
 ecret-value\x03\0\x02\x01h\x01\x01@\x01\x01s\x04\0\x03\x04\0\x06reveal\x01\x05\x03\
 \0$wasmcloud:secrets/reveal@0.1.0-draft\x05.\x04\0;wassette:acp/provider-with-al\
-l-of-its-exports-removed@7.0.0\x04\0\x0b.\x01\0(provider-with-all-of-its-exports\
+l-of-its-exports-removed@0.8.0\x04\0\x0b.\x01\0(provider-with-all-of-its-exports\
 -removed\x03\0\0\0G\x09producers\x01\x0cprocessed-by\x02\x0dwit-component\x070.2\
 45.1\x10wit-bindgen-rust\x060.54.0";
 #[inline(never)]
