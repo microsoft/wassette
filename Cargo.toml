@@ -17,7 +17,8 @@ futures-concurrency = "7.6"
 wassette = { path = "crates/wassette" }
 mcp-sdk = "0.0.3"
 mcp-server = { path = "crates/mcp-server" }
-oci-client = "0.18"
+# oci-wasm 0.6 depends on oci-client 0.17; keep these in step.
+oci-client = "0.17"
 oci-wasm = { version = "0.6", default-features = false, features = ["rustls-tls"] }
 policy = { path = "crates/policy" }
 reqwest = { version = "0.13", features = ["stream"] }
