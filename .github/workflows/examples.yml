@@ -52,6 +52,13 @@ jobs:
     - name: Build
       run: just build-examples
 
+    - name: Generate SBOMs for Rust examples
+      run: |
+        cargo install sbom-attest --version 0.2.0 --locked
+        for name in arxiv-rs brave-search-rs fetch-rs filesystem-rs; do
+          sbom-attest generate --manifest-path "examples/$name/Cargo.toml"             --target wasm32-wasip2 --author Microsoft --cdx "bin/$name.cdx.json"
+        done
+
     - name: Upload wasm
       uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
       with:
@@ -73,6 +80,7 @@ jobs:
         component:
           - name: arxiv-rs
             file: arxiv-rs.wasm
+            sbom: arxiv-rs.cdx.json
           - name: github-js
             file: github-js.wasm
           - name: gomodule-go
@@ -87,10 +95,13 @@ jobs:
             file: memory-js.wasm
           - name: filesystem-rs
             file: filesystem.wasm
+            sbom: filesystem-rs.cdx.json
           - name: fetch-rs
             file: fetch-rs.wasm
+            sbom: fetch-rs.cdx.json
           - name: brave-search-rs
             file: brave-search-rs.wasm
+            sbom: brave-search-rs.cdx.json
           - name: get-open-meteo-weather-js
             file: get-open-meteo-weather-js.wasm
     steps:
@@ -161,6 +172,10 @@ jobs:
       - name: Sign container image ${{ matrix.component.name }}:${{ steps.meta.outputs.tag }}
         run: |
           cosign sign --yes ghcr.io/${{ github.repository_owner }}/${{ matrix.component.name }}@${{ steps.publish_versioned.outputs.digest }}
+      - name: Attest SBOM for ${{ matrix.component.name }}:${{ steps.meta.outputs.tag }}
+        if: matrix.component.sbom
+        run: |
+          cosign attest --yes --type cyclonedx --predicate bin/${{ matrix.component.sbom }} ghcr.io/${{ github.repository_owner }}/${{ matrix.component.name }}@${{ steps.publish_versioned.outputs.digest }}
 
       - name: Publish ${{ matrix.component.name }} with tag ${{ steps.meta.outputs.release_tag || 'latest' }} (if specified)
         id: publish_latest
@@ -186,3 +201,7 @@ jobs:
         if: steps.meta.outputs.latest == 'true'
         run: |
           cosign sign --yes ghcr.io/${{ github.repository_owner }}/${{ matrix.component.name }}@${{ steps.publish_latest.outputs.digest }}
+      - name: Attest SBOM for ${{ matrix.component.name }}:${{ steps.meta.outputs.release_tag || 'latest' }}
+        if: steps.meta.outputs.latest == 'true' && matrix.component.sbom
+        run: |
+          cosign attest --yes --type cyclonedx --predicate bin/${{ matrix.component.sbom }} ghcr.io/${{ github.repository_owner }}/${{ matrix.component.name }}@${{ steps.publish_latest.outputs.digest }}
