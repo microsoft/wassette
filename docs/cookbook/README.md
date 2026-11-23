@@ -53,6 +53,16 @@ Develop Wasm components using Go and TinyGo. Great for developers who prefer Go'
 - Growing WebAssembly support
 - Examples: module information service
 
+### [.NET](./dotnet.md)
+Build NativeAOT-safe WASI components with C# and .NET 10 using
+`componentize-dotnet`.
+
+**Key highlights:**
+- Traditional `.csproj` projects with explicit WIT world selection
+- Generated C# bindings for WIT exports and WASI imports
+- NativeAOT and policy-aware capability access
+- Example: time server
+
 ## Distribution and Deployment
 
 ### [Publishing to OCI Registries](./publishing-to-oci-registries.md)

@@ -53,5 +53,10 @@
         "name": "Go Module Information",
         "description": "A Go module component",
         "uri": "oci://ghcr.io/microsoft/gomodule-go:latest"
+    },
+    {
+        "name": "Time Server (.NET)",
+        "description": "A WASI wall-clock component using .NET 10 NativeAOT",
+        "uri": "oci://ghcr.io/microsoft/time-server-dotnet:latest"
     }
 ]

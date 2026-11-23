@@ -5,7 +5,8 @@
 set -euo pipefail
 
 # Script to validate component URIs in component-registry.json
-# Compares current registry with main branch and validates new/modified URIs
+# Pull requests validate registry structure without dereferencing unpublished OCI
+# artifacts. Successful example publication runs validate every registered URI.
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
@@ -21,6 +22,36 @@ NC='\033[0m' # No Color
 
 echo "=== Component Registry Validation ==="
 echo ""
+
+# Ensure temporary files are removed even when pull-request validation exits
+# before the server cleanup trap is installed.
+trap 'rm -rf "$TMP_DIR"' EXIT INT TERM
+
+# Validate the registry shape before attempting any remote loads.
+if ! jq -e '
+    type == "array" and
+    all(.[]; (
+        ((.name | type) == "string" and (try (.name | length > 0) catch false)) and
+        ((.description | type) == "string" and (try (.description | length > 0) catch false)) and
+        ((.uri | type) == "string" and (try (.uri | startswith("oci://")) catch false))
+    ))
+' "$REGISTRY_FILE" > /dev/null; then
+    echo -e "${RED}Error: component-registry.json must contain non-empty name, description, and oci:// URI strings${NC}"
+    exit 1
+fi
+
+DUPLICATE_URIS=$(jq -r '.[].uri' "$REGISTRY_FILE" | sort | uniq -d)
+if [[ -n "$DUPLICATE_URIS" ]]; then
+    echo -e "${RED}Error: component-registry.json contains duplicate URIs:${NC}"
+    printf '%s\n' "$DUPLICATE_URIS" | sed 's/^/  - /'
+    exit 1
+fi
+
+if [[ "${VALIDATE_REMOTE_COMPONENTS:-false}" != "true" ]]; then
+    echo -e "${GREEN}✓ Registry structure is valid.${NC}"
+    echo "OCI component loading is deferred until the Publish Examples workflow completes on main."
+    exit 0
+fi
 
 # Cleanup function
 cleanup() {
@@ -50,7 +81,7 @@ if [[ ! -f "$WASSETTE_BIN" ]]; then
     exit 1
 fi
 
-# Get the registry from main branch (if in a git repo)
+# Get the registry from main branch for pull-request comparisons.
 MAIN_REGISTRY="$TMP_DIR/registry-main.json"
 if git rev-parse --git-dir > /dev/null 2>&1; then
     if git show origin/main:component-registry.json > "$MAIN_REGISTRY" 2>/dev/null; then
@@ -71,9 +102,14 @@ MAIN_URIS="$TMP_DIR/main-uris.txt"
 jq -r '.[].uri' "$REGISTRY_FILE" | sort > "$CURRENT_URIS"
 jq -r '.[].uri' "$MAIN_REGISTRY" | sort > "$MAIN_URIS"
 
-# Find new or modified URIs (components in current but not in main, or with different URIs)
+# Select URIs to validate: new/modified entries on pull requests, or every
+# entry after the examples have been published on main.
 NEW_OR_MODIFIED="$TMP_DIR/to-validate.txt"
-comm -13 "$MAIN_URIS" "$CURRENT_URIS" > "$NEW_OR_MODIFIED"
+if [[ "${VALIDATE_REMOTE_COMPONENTS:-false}" == "true" ]]; then
+    cp "$CURRENT_URIS" "$NEW_OR_MODIFIED"
+else
+    comm -13 "$MAIN_URIS" "$CURRENT_URIS" > "$NEW_OR_MODIFIED"
+fi
 
 # Count components to validate
 VALIDATE_COUNT=$(wc -l < "$NEW_OR_MODIFIED" | tr -d ' ')

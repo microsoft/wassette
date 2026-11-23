@@ -162,14 +162,35 @@ ensure-wit-docs-inject:
         echo "wit-docs-inject is already installed"
     fi
 
+# Require the .NET 10 SDK used by componentize-dotnet examples.
+ensure-dotnet:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    version="$(dotnet --version)"
+    expected="${DOTNET_VERSION:-10.0.112}"
+    if [[ "$version" != "$expected" ]]; then
+        echo "error: .NET SDK $expected is required (found $version)" >&2
+        exit 1
+    fi
+
 # Inject docs into a wasm component
 inject-docs wasm_path wit_dir:
     @echo "Injecting docs into {{ wasm_path }}"
     wit-docs-inject --component {{ wasm_path }} --wit-dir {{ wit_dir }} --inplace
 
+build-time-server-dotnet: ensure-dotnet ensure-wit-docs-inject
+    mkdir -p bin
+    (cd examples/time-server-dotnet && just build)
+    wasm-tools validate examples/time-server-dotnet/bin/Release/net10.0/wasi-wasm/native/time-server-dotnet.wasm
+    wasm-tools component wit examples/time-server-dotnet/bin/Release/net10.0/wasi-wasm/native/time-server-dotnet.wasm > /dev/null
+    just inject-docs examples/time-server-dotnet/bin/Release/net10.0/wasi-wasm/native/time-server-dotnet.wasm examples/time-server-dotnet/wit
+    wasm-tools validate examples/time-server-dotnet/bin/Release/net10.0/wasi-wasm/native/time-server-dotnet.wasm
+    cp examples/time-server-dotnet/bin/Release/net10.0/wasi-wasm/native/time-server-dotnet.wasm bin/time-server-dotnet.wasm
+
 build-examples mode="debug":
     mkdir -p bin
     just ensure-wit-docs-inject
+    just build-time-server-dotnet
     (cd examples/fetch-rs && just build {{ mode }})
     (cd examples/filesystem-rs && just build {{ mode }})
     (cd examples/get-weather-js && just build)
